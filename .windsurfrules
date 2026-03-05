@@ -1,0 +1,120 @@
+# OpenClaw Trading Control Platform - Windsurf AI Rules
+
+## Project Structure
+- **Source Code**: All production code lives in `src/openclaw/`
+- **Tests**: All test code lives in `tests/` (top-level)
+- **Configuration**: Environment files in root (`.env`, `.env.example`)
+- **Documentation**: `README.md` is the source of truth
+
+## AI Guidelines
+
+### Code Location Rules
+1. **Always look in `src/openclaw/` for production code**
+2. **Never modify files in root directory** - only configuration and docs
+3. **Tests are in `tests/` and mirror the `src/openclaw/` structure**
+4. **Import paths**: Use `from openclaw.module import Class` (not relative imports)
+
+### Development Standards
+1. **Type Hints Required**: All functions must have full type annotations
+2. **PEP 8 Compliance**: Use black (88 char line length) and isort
+3. **Docstrings**: Google-style docstrings for all public functions/classes
+4. **Error Handling**: Use specific exceptions, never generic `Exception`
+5. **Logging**: Use `openclaw.logger.get_logger()`, never `print()`
+6. **Async/Await**: Use proper async/await for coroutines
+
+### Testing Rules
+1. **pytest Only**: Use pytest for all testing
+2. **Test Structure**: Mirror `src/openclaw/` structure in `tests/`
+3. **Fixtures**: Use `conftest.py` for shared test setup
+4. **Mocking**: Mock external dependencies (APIs, databases)
+5. **Coverage**: Aim for 90%+ coverage, use `pytest-cov`
+
+### Architecture Principles
+1. **Clean Architecture**: Separate concerns (agents, tools, memory, orchestrator)
+2. **Dependency Injection**: Use constructor injection, not global state
+3. **Configuration**: Use `openclaw.config.get_settings()` for all config
+4. **No Circular Imports**: Keep import graph acyclic
+
+### File Organization
+```
+src/openclaw/
+├── __init__.py          # Package exports
+├── main.py              # Application entry point
+├── config.py            # Configuration management
+├── orchestrator.py      # Core orchestration logic
+├── tools/               # Tool implementations
+├── agent/               # Agent implementations
+├── memory/              # Memory management
+├── api/                 # API endpoints
+├── gateway/             # External integrations
+├── observability/       # Logging and monitoring
+└── utils/               # Shared utilities
+```
+
+### Code Quality Rules
+1. **Maximum File Size**: 500 lines per file (refactor if larger)
+2. **Maximum Function Size**: 50 lines per function (extract if larger)
+3. **No Magic Numbers**: Use constants from config or enums
+4. **No Hardcoded Paths**: Use pathlib.Path for all file operations
+5. **Database Operations**: Use context managers for connections
+
+### Security Rules
+1. **No Hardcoded Secrets**: Use environment variables only
+2. **Input Validation**: Validate all external inputs
+3. **SQL Injection Prevention**: Use parameterized queries
+4. **Error Messages**: Never expose sensitive information in errors
+
+### Performance Rules
+1. **Async Operations**: Use async for I/O operations
+2. **Connection Pooling**: Reuse connections where possible
+3. **Caching**: Cache expensive operations appropriately
+4. **Resource Cleanup**: Use context managers for cleanup
+
+## Commands Reference
+
+### Development Commands
+```bash
+# Install dependencies
+pip install -e .
+
+# Run tests
+pytest
+
+# Run tests with coverage
+pytest --cov=openclaw --cov-report=html
+
+# Format code
+black src/openclaw tests
+isort src/openclaw tests
+
+# Type checking
+mypy src/openclaw
+
+# Linting
+flake8 src/openclaw tests
+```
+
+### Entry Points
+- **Main Application**: `openclaw.main.TradingControlPlatform`
+- **Configuration**: `openclaw.config.get_settings`
+- **Tools Registry**: `openclaw.tools.get_tool_registry`
+- **Memory Manager**: `openclaw.memory.get_memory_manager`
+- **Task Queue**: `openclaw.tasks.get_task_queue`
+
+## Important Notes
+- **Never modify `.venv/`** - Virtual environment is local
+- **Environment Variables**: All configuration via `.env` file
+- **Database Files**: SQLite files in root (`.db` extension)
+- **Logging**: Logs go to `logs/` directory
+
+## When in Doubt
+1. **Check `README.md`** for project overview
+2. **Look at existing tests** for usage patterns
+3. **Follow existing code style** in the same file
+4. **Ask for clarification** if requirements are ambiguous
+
+## AI Context Management
+- **Focus on `src/openclaw/`** for production code changes
+- **Use `tests/`** for understanding expected behavior
+- **Root directory** only for configuration and project metadata
+- **Keep context clean** by working within defined boundaries

@@ -1,0 +1,32 @@
+# Python Project Standards & Guardrails
+
+## Core Philosophy
+- **No Hallucinations:** Use only verified libraries. If a library version is unknown, ask for clarification.
+- **Deterministic Logic:** Avoid "random" behavior. Use Enums for state and structural pattern matching.
+- **Explicit > Implicit:** Be verbose with types and documentation rather than "clever."
+
+## 1. Project Structure (Mandatory Separation)
+Files must be separated by concern:
+- `models.py`: All `Enum` classes and `Dataclasses/Pydantic` models.
+- `services.py`: Pure logic, calculations, and data processing.
+- `logger.py`: Centralized logging configuration.
+- `main.py`: Entry point and orchestration.
+- `tests/`: Pytest files mirroring the project structure.
+
+## 2. Typing & Data Integrity
+- Every function must have full type hints: `def func(var: str) -> bool:`.
+- Use `from typing import List, Dict, Optional, Union, Final`.
+- Use `Enum` for all constants (e.g., `Status(Enum)`, `ErrorCode(Enum)`).
+- Use `@dataclass(frozen=True)` for data objects to prevent accidental state mutation.
+
+## 3. Logging Standard
+- Use the standard `logging` library.
+- **No print statements.**
+- All logs must use **f-strings** for clarity.
+- Every significant logic branch must log its state: `logger.debug(f"Branch A selected with value: {val}")`.
+
+## 4. Testing & Coverage
+- Use `pytest`.
+- Write a test for every new function before moving to the next feature.
+- Aim for 90%+ coverage. Use `pytest-cov` to verify.
+- Test cases must include: 1. Success, 2. Invalid Input, 3. Edge Cases (None, empty string, etc.).

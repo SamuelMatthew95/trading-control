@@ -1,0 +1,88 @@
+# Windsurf Rules Configuration
+
+# This file configures which rules files to apply based on conditions
+
+# File-based rules mapping
+[files]
+# Apply general Python rules to all Python files
+"*.py" = "general.py"
+
+# Apply API rules to API-related files
+"api/*.py" = "api.md"
+"routes.py" = "api.md"
+"main.py" = "api.md"
+
+# Apply database rules to database-related files
+"models.py" = "database.md"
+"migrations/*.py" = "database.md"
+"*/database.py" = "database.md"
+
+# Apply testing rules to test files
+"tests/*.py" = "testing.md"
+"test_*.py" = "testing.md"
+"*_test.py" = "testing.md"
+
+# Apply configuration rules to config files
+"config.py" = "config.md"
+"*.env" = "config.md"
+"pyproject.toml" = "config.md"
+
+# Directory-based rules mapping
+[directories]
+# Apply API rules to entire API directory
+"api/" = "api.md"
+
+# Apply testing rules to entire test directory
+"tests/" = "testing.md"
+
+# Apply database rules to database directory
+"database/" = "database.md"
+
+# Condition-based rules
+[conditions]
+# Apply strict rules in production environment
+"ENVIRONMENT=production" = ["general.py", "security.md", "performance.md"]
+
+# Apply development rules in development environment
+"ENVIRONMENT=development" = ["general.py", "testing.md", "debugging.md"]
+
+# Apply API rules when working on API files
+"FILE_PATTERN=api/*.py" = ["general.py", "api.md", "testing.md"]
+
+# Apply database rules when working on models
+"FILE_PATTERN=models.py" = ["general.py", "database.md"]
+
+# Priority-based rules (higher number = higher priority)
+[priority]
+"security.md" = 100
+"performance.md" = 90
+"testing.md" = 80
+"api.md" = 70
+"database.md" = 60
+"general.py" = 50
+"config.md" = 40
+"debugging.md" = 30
+
+# Exclude patterns
+[exclude]
+# Don't apply certain rules to generated files
+"*_generated.py" = ["testing.md", "debugging.md"]
+"migrations/*.py" = ["testing.md"]
+
+# Don't apply strict rules to third-party code
+"vendor/" = []
+"external/" = []
+
+# Don't apply testing rules to example files
+"examples/" = ["general.py"]
+
+# Include patterns (always apply these)
+[include]
+# Always apply general rules to all Python files
+"*.py" = ["general.py"]
+
+# Always apply security rules to production
+"ENVIRONMENT=production" = ["security.md"]
+
+# Always apply testing rules to test files
+"tests/*.py" = ["testing.md"]
