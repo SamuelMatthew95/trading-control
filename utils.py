@@ -78,6 +78,55 @@ def validate_price(
         raise ValueError(f"Invalid {field_name} value: {price}") from e
 
 
+def is_valid_symbol(symbol: Optional[str]) -> bool:
+    """Validate stock symbol format"""
+    if not symbol or not isinstance(symbol, str):
+        return False
+    
+    # Check length (1-10 characters)
+    if len(symbol) < 1 or len(symbol) > 10:
+        return False
+    
+    # Check for allowed characters (letters, numbers, dot, hyphen)
+    if not re.match(r'^[A-Za-z0-9.\-]+$', symbol):
+        return False
+    
+    # Check if it starts with a letter
+    if not re.match(r'^[A-Za-z]', symbol):
+        return False
+    
+    return True
+
+
+def is_valid_email(email: Optional[str]) -> bool:
+    """Validate email format"""
+    if not email or not isinstance(email, str):
+        return False
+    
+    # Basic email regex
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+
+def is_valid_url(url: Optional[str]) -> bool:
+    """Validate URL format"""
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Basic URL regex for http/https
+    pattern = r'^https?://[^\s/$.?#].[^\s]*$'
+    return bool(re.match(pattern, url))
+
+
+def is_positive_number(value: Any) -> bool:
+    """Check if value is a positive number"""
+    try:
+        num_value = float(value)
+        return num_value > 0
+    except (ValueError, TypeError):
+        return False
+
+
 def validate_quantity(
     quantity: Union[int, float, str], field_name: str = "quantity"
 ) -> int:
@@ -228,17 +277,42 @@ def get_time_range_days_ago(days: int) -> tuple[datetime, datetime]:
 # ============================================================================
 
 
-def truncate_string(text: str, max_length: int, suffix: str = "...") -> str:
+def truncate_string(text: str, max_length: int, suffix: str = "...", ellipsis: bool = True) -> str:
     """Truncate string to max length"""
     if len(text) <= max_length:
         return text
-    return text[: max_length - len(suffix)] + suffix
+    
+    if ellipsis:
+        return text[: max_length - len(suffix)] + suffix
+    else:
+        return text[:max_length]
 
 
 def sanitize_string(text: str) -> str:
-    """Sanitize string by removing control characters"""
+    """Sanitize string by removing potentially dangerous content"""
+    # Basic XSS protection - remove script tags and dangerous content
+    sanitized = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
     # Remove control characters except common whitespace
-    return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+    sanitized = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", sanitized)
+    return sanitized
+
+
+def format_currency(amount: Union[int, float, Decimal]) -> str:
+    """Format amount as currency"""
+    try:
+        decimal_amount = Decimal(str(amount))
+        return f"${decimal_amount:.2f}"
+    except (InvalidOperation, ValueError):
+        return f"${amount:.2f}"
+
+
+def format_percentage(value: Union[int, float]) -> str:
+    """Format value as percentage"""
+    try:
+        decimal_value = Decimal(str(value))
+        return f"{(decimal_value * 100):.2f}%"
+    except (InvalidOperation, ValueError):
+        return f"{(value * 100):.2f}%"
 
 
 def flatten_dict(
