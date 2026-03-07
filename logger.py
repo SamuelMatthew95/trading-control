@@ -47,7 +47,9 @@ class LogPerformance:
         self.logger.debug(f"Completed {self.operation} in {duration:.3f}s")
 
 
-def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> None:
+def setup_logging(
+    level: str = "INFO", log_file: Optional[str] = None, enable_colors: bool = True
+) -> None:
     """Setup logging configuration"""
     log_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -64,7 +66,10 @@ def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> None:
 
 def configure_specific_loggers() -> None:
     """Configure specific loggers for different components"""
-    pass
+    # Set third-party loggers to WARNING level
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

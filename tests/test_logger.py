@@ -34,7 +34,7 @@ class TestLoggingSetup:
         """Test default logging setup"""
         # Reset logging configuration
         logging.getLogger().handlers.clear()
-        
+
         setup_logging(level="INFO", log_file=None)
 
         root_logger = logging.getLogger()
