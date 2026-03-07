@@ -396,10 +396,11 @@ class TestValidateNumericFields:
 class TestToolIntegration:
     """Test tool integration and registry"""
 
-    def test_initialize_tools(self):
+    @pytest.mark.asyncio
+    async def test_initialize_tools(self):
         """Test tools initialization"""
         # Should not raise any exceptions
-        tools.initialize_tools()
+        await tools.initialize_tools()
 
         # Registry should be populated
         registry = tools.get_tool_registry()
@@ -423,9 +424,10 @@ class TestToolIntegration:
         assert hasattr(registry, "get_tool")
         assert hasattr(registry, "list_tools")
 
-    def test_tool_execution_flow(self):
+    @pytest.mark.asyncio
+    async def test_tool_execution_flow(self):
         """Test complete tool execution flow"""
-        tools.initialize_tools()
+        await tools.initialize_tools()
         registry = tools.get_tool_registry()
 
         # Get stock quote tool

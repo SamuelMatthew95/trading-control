@@ -362,10 +362,11 @@ class TestFallbackStorage:
 class TestMemoryIntegration:
     """Test memory integration and coordination"""
 
-    def test_initialize_memory(self):
+    @pytest.mark.asyncio
+    async def test_initialize_memory(self):
         """Test memory initialization"""
         # Should not raise any exceptions
-        memory.initialize_memory()
+        await memory.initialize_memory()
 
         # Memory manager should be available
         manager = memory.get_memory_manager()
@@ -381,9 +382,10 @@ class TestMemoryIntegration:
 
         assert manager1 is manager2  # Singleton pattern
 
-    def test_memory_coordination(self):
+    @pytest.mark.asyncio
+    async def test_memory_coordination(self):
         """Test coordination between memory tiers"""
-        memory.initialize_memory()
+        await memory.initialize_memory()
         manager = memory.get_memory_manager()
 
         # Store data in short-term memory
