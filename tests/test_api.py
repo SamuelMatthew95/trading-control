@@ -173,7 +173,12 @@ class TestAPIEndpoints:
         """Create test client"""
         from main import TradingControlPlatform, app
 
-        return TestClient(app)
+        # Try different TestClient constructor patterns for CI compatibility
+        try:
+            return TestClient(app)
+        except TypeError:
+            # Fallback for older Starlette versions
+            return TestClient(app=app)
 
     def test_root_endpoint(self, client):
         """Test root endpoint"""
@@ -443,7 +448,12 @@ class TestAPIErrorHandling:
         """Create test client"""
         from main import app
 
-        return TestClient(app)
+        # Try different TestClient constructor patterns for CI compatibility
+        try:
+            return TestClient(app)
+        except TypeError:
+            # Fallback for older Starlette versions
+            return TestClient(app=app)
 
     def test_invalid_json_handling(self, client):
         """Test handling of invalid JSON"""
@@ -543,7 +553,12 @@ class TestAPIIntegration:
         """Create test client"""
         from main import app
 
-        return TestClient(app)
+        # Try different TestClient constructor patterns for CI compatibility
+        try:
+            return TestClient(app)
+        except TypeError:
+            # Fallback for older Starlette versions
+            return TestClient(app=app)
 
     def test_cors_headers(self, client):
         """Test CORS headers are present"""

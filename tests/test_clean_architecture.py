@@ -141,7 +141,12 @@ def test_api_endpoints():
 
     from main import app
 
-    client = TestClient(app)
+    # Try different TestClient constructor patterns for CI compatibility
+    try:
+        client = TestClient(app)
+    except TypeError:
+        # Fallback for older Starlette versions
+        client = TestClient(app=app)
 
     # Test root endpoint
     response = client.get("/")
