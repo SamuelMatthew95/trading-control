@@ -173,12 +173,6 @@ class TestAPIEndpoints:
         """Create test client"""
         from main import TradingControlPlatform, app
 
-        # Initialize platform state for tests
-        platform = TradingControlPlatform()
-
-        # Set platform in app state
-        app.state.platform = platform
-
         return TestClient(app)
 
     def test_root_endpoint(self, client):
@@ -447,13 +441,7 @@ class TestAPIErrorHandling:
     @pytest.fixture
     def client(self):
         """Create test client"""
-        from main import TradingControlPlatform, app
-
-        # Initialize platform state for tests
-        platform = TradingControlPlatform()
-
-        # Set platform in app state
-        app.state.platform = platform
+        from main import app
 
         return TestClient(app)
 
@@ -553,13 +541,7 @@ class TestAPIIntegration:
     @pytest.fixture
     def client(self):
         """Create test client"""
-        from main import TradingControlPlatform, app
-
-        # Initialize platform state for tests
-        platform = TradingControlPlatform()
-
-        # Set platform in app state
-        app.state.platform = platform
+        from main import app
 
         return TestClient(app)
 

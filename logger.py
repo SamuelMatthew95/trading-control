@@ -104,9 +104,3 @@ def monitor_performance(func):
             return func(*args, **kwargs)
 
     return wrapper
-
-
-# Configure root logger
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
