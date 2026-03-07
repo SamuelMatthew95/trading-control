@@ -256,12 +256,9 @@ class TestTaskExecution:
         mock_task.input_data = {}
         mock_task.timeout_seconds = 1
 
-        # Mock tool that takes too long
-        async def slow_tool(*args, **kwargs):
-            await asyncio.sleep(2)  # Longer than timeout
-            return {"result": "success"}
-
-        mock_tool = AsyncMock(side_effect=slow_tool)
+        # Mock tool that raises timeout
+        mock_tool = AsyncMock()
+        mock_tool.execute.side_effect = asyncio.TimeoutError()
         orchestrator_instance.tool_registry.get_tool.return_value = mock_tool
 
         result = await orchestrator_instance.execute_task(mock_task)

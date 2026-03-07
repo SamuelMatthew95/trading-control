@@ -137,8 +137,8 @@ class OpenClawOrchestrator(TradingOrchestrator):
 
             # Execute with timeout
             import asyncio
-
-            result_data = await asyncio.wait_for(tool.execute(), timeout=timeout)
+            
+            result_data = await asyncio.wait_for(tool.execute(task.input_data), timeout=timeout)
 
             return TaskResult(
                 success=True,
@@ -151,7 +151,7 @@ class OpenClawOrchestrator(TradingOrchestrator):
             return TaskResult(
                 success=False,
                 result=None,
-                execution_time=timeout,
+                execution_time=getattr(task, 'timeout_seconds', 60),
                 tokens_used=0,
                 error_message="Task execution timeout",
             )
