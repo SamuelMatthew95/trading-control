@@ -2,9 +2,10 @@
 Basic tests for trading control platform
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add the project root to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -63,7 +64,7 @@ def test_basic_functionality():
 def test_configuration():
     """Test configuration loading"""
     try:
-        from core.config import get_settings, Settings
+        from core.config import Settings, get_settings
 
         settings = get_settings()
         assert isinstance(settings, Settings)

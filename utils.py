@@ -82,19 +82,19 @@ def is_valid_symbol(symbol: Optional[str]) -> bool:
     """Validate stock symbol format"""
     if not symbol or not isinstance(symbol, str):
         return False
-    
+
     # Check length (1-10 characters)
     if len(symbol) < 1 or len(symbol) > 10:
         return False
-    
+
     # Check for allowed characters (letters, numbers, dot, hyphen)
-    if not re.match(r'^[A-Za-z0-9.\-]+$', symbol):
+    if not re.match(r"^[A-Za-z0-9.\-]+$", symbol):
         return False
-    
+
     # Check if it starts with a letter
-    if not re.match(r'^[A-Za-z]', symbol):
+    if not re.match(r"^[A-Za-z]", symbol):
         return False
-    
+
     return True
 
 
@@ -102,24 +102,63 @@ def is_valid_email(email: Optional[str]) -> bool:
     """Validate email format"""
     if not email or not isinstance(email, str):
         return False
-    
-    # Basic email regex
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
+
+    # Basic email regex with stricter validation
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+    # First check regex
+    if not re.match(pattern, email):
+        return False
+
+    # Additional validation checks
+    # No consecutive dots in local part
+    if ".." in email.split("@")[0]:
+        return False
+
+    # No leading or trailing dots in local part
+    local_part = email.split("@")[0]
+    if local_part.startswith(".") or local_part.endswith("."):
+        return False
+
+    # No consecutive dots in domain
+    domain_part = email.split("@")[1]
+    if ".." in domain_part:
+        return False
+
+    return True
 
 
 def is_valid_url(url: Optional[str]) -> bool:
     """Validate URL format"""
     if not url or not isinstance(url, str):
         return False
-    
+
     # Basic URL regex for http/https
-    pattern = r'^https?://[^\s/$.?#].[^\s]*$'
+    pattern = r"^https?://[^\s/$.?#].[^\s]*$"
     return bool(re.match(pattern, url))
 
 
+def is_valid_date_range(start, end) -> bool:
+    """Validate date range - start date must be before or equal to end date"""
+    try:
+        # Handle datetime objects
+        if isinstance(start, datetime):
+            start_dt = start
+        else:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+
+        if isinstance(end, datetime):
+            end_dt = end
+        else:
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+
+        return start_dt <= end_dt
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 def format_timestamp(dt: Optional[datetime]) -> Optional[str]:
-    """Format datetime to ISO string"""
+    """Format datetime to ISO 8601 string"""
     if dt is None:
         return None
     if isinstance(dt, str):
@@ -131,10 +170,10 @@ def get_time_ago(dt: Optional[datetime]) -> str:
     """Get human-readable time difference"""
     if dt is None:
         return "Unknown"
-    
+
     now = datetime.now()
     diff = now - dt
-    
+
     if diff.days > 0:
         return f"{diff.days} day{'s' if diff.days > 1 else ''} ago"
     elif diff.seconds >= 3600:
@@ -149,25 +188,27 @@ def get_time_ago(dt: Optional[datetime]) -> str:
 
 def snake_to_camel(text: str) -> str:
     """Convert snake_case to camelCase"""
-    parts = text.split('_')
-    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
+    parts = text.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
 
 
 def camel_to_snake(text: str) -> str:
     """Convert camelCase to snake_case"""
-    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', text)
-    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", text)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
 
 def ensure_directory_exists(path: str) -> None:
     """Create directory if it doesn't exist"""
     from pathlib import Path
+
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def get_file_size(path: str) -> int:
     """Get file size in bytes"""
     from pathlib import Path
+
     return Path(path).stat().st_size
 
 
@@ -189,7 +230,7 @@ def calculate_standard_deviation(numbers: List[Union[int, float]]) -> float:
         return 0
     avg = calculate_average(numbers)
     variance = sum((x - avg) ** 2 for x in numbers) / len(numbers)
-    return variance ** 0.5
+    return variance**0.5
 
 
 def generate_uuid() -> str:
@@ -200,6 +241,7 @@ def generate_uuid() -> str:
 async def make_http_request(url: str) -> Dict[str, Any]:
     """Make async HTTP request"""
     import aiohttp
+
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             return await response.json()
@@ -215,14 +257,15 @@ def build_url_with_params(base_url: str, params: Dict[str, str]) -> str:
 
 def read_json_file(filepath: str) -> Dict[str, Any]:
     """Read JSON file"""
-    with open(filepath, 'r') as f:
+    with open(filepath, "r") as f:
         return json.load(f)
 
 
 def write_json_file(filepath: str, data: Dict[str, Any]) -> None:
     """Write JSON file"""
-    with open(filepath, 'w') as f:
-        json.dump(data, f, indent=2)
+    json_str = json.dumps(data, indent=2)
+    with open(filepath, "w") as f:
+        f.write(json_str)
 
 
 def is_positive_number(value: Any) -> bool:
@@ -329,11 +372,6 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
 # ============================================================================
 
 
-def format_timestamp(timestamp: datetime) -> str:
-    """Format timestamp for display"""
-    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-
 def parse_timestamp(timestamp_str: str) -> datetime:
     """Parse timestamp string to datetime"""
     formats = [
@@ -384,11 +422,13 @@ def get_time_range_days_ago(days: int) -> tuple[datetime, datetime]:
 # ============================================================================
 
 
-def truncate_string(text: str, max_length: int, suffix: str = "...", ellipsis: bool = True) -> str:
+def truncate_string(
+    text: str, max_length: int, suffix: str = "...", ellipsis: bool = True
+) -> str:
     """Truncate string to max length"""
     if len(text) <= max_length:
         return text
-    
+
     if ellipsis:
         return text[: max_length - len(suffix)] + suffix
     else:
@@ -398,19 +438,23 @@ def truncate_string(text: str, max_length: int, suffix: str = "...", ellipsis: b
 def sanitize_string(text: str) -> str:
     """Sanitize string by removing potentially dangerous content"""
     # Basic XSS protection - remove script tags and dangerous content
-    sanitized = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    sanitized = re.sub(
+        r"<script[^>]*>.*?</script>", "", text, flags=re.IGNORECASE | re.DOTALL
+    )
     # Remove control characters except common whitespace
     sanitized = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", sanitized)
     return sanitized
 
 
 def format_currency(amount: Union[int, float, Decimal]) -> str:
-    """Format amount as currency"""
+    """Format amount as currency with comma separators"""
     try:
         decimal_amount = Decimal(str(amount))
-        return f"${decimal_amount:.2f}"
+        sign = "-" if decimal_amount < 0 else ""
+        return f"{sign}${abs(decimal_amount):,.2f}"
     except (InvalidOperation, ValueError):
-        return f"${amount:.2f}"
+        sign = "-" if amount < 0 else ""
+        return f"{sign}${abs(amount):,.2f}"
 
 
 def format_percentage(value: Union[int, float]) -> str:
@@ -594,6 +638,9 @@ class RateLimiter:
 
 def hash_string(text: str, algorithm: str = "sha256") -> str:
     """Hash string using specified algorithm"""
+    if text is None:
+        raise ValueError("Cannot hash None value")
+
     try:
         hasher = hashlib.new(algorithm)
         hasher.update(text.encode("utf-8"))

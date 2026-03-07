@@ -24,18 +24,18 @@ class TestToolRegistry:
     def test_tool_registry_initialization(self):
         """Test tool registry initializes correctly"""
         registry = tools.ToolRegistry()
-        
+
         assert registry is not None
-        assert hasattr(registry, 'register_tool')
-        assert hasattr(registry, 'get_all_tools')
-        assert hasattr(registry, 'list_tools_by_category')
+        assert hasattr(registry, "register_tool")
+        assert hasattr(registry, "get_all_tools")
+        assert hasattr(registry, "list_tools_by_category")
         # Check that it has the default tools
         all_tools = registry.get_all_tools()
         assert len(all_tools) >= 3  # Should have the default tools
 
     def test_register_tool(self):
         """Test tool registration"""
-        registry = tools.ToolRegistry()
+        registry = tools.ToolRegistry(auto_register=False)
 
         # Create a mock tool
         mock_tool = MagicMock()
@@ -89,7 +89,7 @@ class TestToolRegistry:
 
     def test_list_tools(self):
         """Test listing all tools"""
-        registry = tools.ToolRegistry()
+        registry = tools.ToolRegistry(auto_register=False)
 
         # Register multiple tools
         for i in range(3):
@@ -106,7 +106,7 @@ class TestToolRegistry:
 
     def test_get_tools_by_category(self):
         """Test getting tools by category"""
-        registry = tools.ToolRegistry()
+        registry = tools.ToolRegistry(auto_register=False)
 
         # Register tools with different categories
         market_tool = MagicMock()

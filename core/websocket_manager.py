@@ -2,10 +2,11 @@
 WebSocket Manager - Simple WebSocket connection management
 """
 
-import structlog
 import json
-from typing import Dict, List, Any
 from datetime import datetime
+from typing import Any, Dict, List
+
+import structlog
 
 logger = structlog.get_logger()
 

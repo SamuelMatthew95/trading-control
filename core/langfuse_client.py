@@ -2,7 +2,7 @@
 Langfuse Client - Simple integration for tracing and evaluation
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 try:
     import structlog

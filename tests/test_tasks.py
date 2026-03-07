@@ -271,15 +271,24 @@ class TestTaskQueue:
         """Test adding multiple tasks with priority ordering"""
         task_list = [
             tasks.AgentTask(
-                f"task_{i}", tasks.TaskType.ANALYZE_SYMBOL, {"symbol": f"SYM{i}"}
-            )
-            for i in range(3)
+                "task_0",
+                tasks.TaskType.ANALYZE_SYMBOL,
+                {"symbol": "SYM0"},
+                priority=tasks.TaskPriority.LOW,
+            ),
+            tasks.AgentTask(
+                "task_1",
+                tasks.TaskType.ANALYZE_SYMBOL,
+                {"symbol": "SYM1"},
+                priority=tasks.TaskPriority.HIGH,
+            ),
+            tasks.AgentTask(
+                "task_2",
+                tasks.TaskType.ANALYZE_SYMBOL,
+                {"symbol": "SYM2"},
+                priority=tasks.TaskPriority.MEDIUM,
+            ),
         ]
-
-        # Add tasks with different priorities
-        task_list[0].priority = tasks.TaskPriority.LOW
-        task_list[1].priority = tasks.TaskPriority.HIGH
-        task_list[2].priority = tasks.TaskPriority.MEDIUM
 
         for task in task_list:
             task_queue.add_task(task)
@@ -494,7 +503,7 @@ class TestTaskIntegration:
 
         # Complete task
         result = tasks.AgentResult(
-            task_id=task.task_id,
+            task_id=next_task.task_id,
             agent_id="test_agent",
             success=True,
             output_data={"validated": True},
@@ -508,7 +517,7 @@ class TestTaskIntegration:
             completed_at=datetime.now(),
         )
 
-        queue.complete_task(task.task_id, result)
+        queue.complete_task(next_task.task_id, result)
 
         assert len(queue.processing_tasks) == 0
         assert len(queue.completed_tasks) == 1
@@ -561,14 +570,14 @@ class TestTaskErrorHandling:
         queue = tasks.TaskQueue()
 
         async def add_tasks():
-            tasks = [
+            task_list = [
                 tasks.AgentTask(
                     f"task_{i}", tasks.TaskType.VALIDATE_DATA, {"data": f"data_{i}"}
                 )
                 for i in range(5)
             ]
 
-            for task in tasks:
+            for task in task_list:
                 queue.add_task(task)
 
             return len(queue.queue)

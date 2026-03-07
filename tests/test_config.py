@@ -4,12 +4,14 @@ Comprehensive tests for configuration management and settings
 """
 
 import os
-import pytest
-from unittest.mock import patch, MagicMock
 
 # Add parent directory to Python path for imports
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
@@ -137,12 +139,12 @@ class TestConfigGetSettings:
             "HOST": "localhost",
             "PORT": "8000",
             "DEBUG": "false",
-            "ENVIRONMENT": "development"
+            "ENVIRONMENT": "development",
         }
-        
+
         with patch.dict(os.environ, env_vars, clear=True):
             settings = config.get_settings()
-            
+
             # Should have defaults for missing values
             assert settings.host == "localhost"
             assert settings.port == 8000

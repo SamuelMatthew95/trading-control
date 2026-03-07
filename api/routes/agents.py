@@ -4,11 +4,12 @@ Simple REST API for agent management and communication
 """
 
 try:
+    import time
+    from typing import Any, Dict, List, Optional
+
+    import structlog
     from fastapi import APIRouter, HTTPException
     from pydantic import BaseModel
-    from typing import Dict, Any, Optional, List
-    import structlog
-    import time
 
     logger = structlog.get_logger()
     router = APIRouter()

@@ -1,4 +1,4 @@
-name: PR Review Automation
+ name: PR Review Automation
 
 on:
   pull_request:
@@ -7,6 +7,9 @@ on:
 permissions:
   pull-requests: write
   contents: read
+  issues: write
+  checks: write
+  statuses: write
 
 jobs:
   code-quality:

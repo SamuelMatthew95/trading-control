@@ -220,7 +220,7 @@ class AgentRegistry:
         if agent_type not in self._agents_by_type:
             return []
 
-        return [self._agents[agent_id] for agent_id in self._agents_by_type[agent.type]]
+        return [self._agents[agent_id] for agent_id in self._agents_by_type[agent_type]]
 
     def get_available_agents(self) -> List[BaseAgent]:
         """Get all available agents"""

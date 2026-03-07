@@ -108,13 +108,26 @@ class TestAPIModels:
 
     def test_platform_status_model(self):
         """Test PlatformStatus model creation"""
+        from api.models import OrchestratorStatus
+
         platform_status = PlatformStatus(
             status="running",
             environment="development",
             registered_agents=3,
             active_tasks=5,
             background_tasks=2,
-            orchestrator={"is_running": True, "active_cycles": 1},
+            orchestrator=OrchestratorStatus(
+                is_running=True,
+                current_cycle_id="cycle_001",
+                active_cycles=1,
+                total_cycles=10,
+                successful_cycles=8,
+                failed_cycles=2,
+                success_rate=0.8,
+                last_cycle_time="2024-03-04T15:30:00Z",
+                registered_agents=3,
+                symbols_monitored=["AAPL", "GOOGL", "MSFT"],
+            ),
             observability={"events_processed": 1000},
             memory={"short_term_size": 50, "persistent_size": 1000},
             tools={"available_tools": 5, "executed_today": 25},
@@ -125,8 +138,8 @@ class TestAPIModels:
         assert platform_status.registered_agents == 3
         assert platform_status.active_tasks == 5
         assert platform_status.background_tasks == 2
-        assert platform_status.orchestrator["is_running"] is True
-        assert platform_status.orchestrator["active_cycles"] == 1
+        assert platform_status.orchestrator.is_running is True
+        assert platform_status.orchestrator.active_cycles == 1
         assert platform_status.observability["events_processed"] == 1000
         assert platform_status.memory["short_term_size"] == 50
         assert platform_status.tools["available_tools"] == 5
@@ -158,17 +171,22 @@ class TestAPIEndpoints:
     @pytest.fixture
     def client(self):
         """Create test client"""
-        from main import app
+        from main import TradingControlPlatform, app
+
+        # Initialize platform state for tests
+        platform = TradingControlPlatform()
+
+        # Set platform in app state
+        app.state.platform = platform
 
         return TestClient(app)
 
     def test_root_endpoint(self, client):
         """Test root endpoint"""
-        response = client.get("/")
-
+        response = client.get("/api/v1/")
         assert response.status_code == 200
         data = response.json()
-        assert "message" in data or "status" in data
+        assert "name" in data or "message" in data or "status" in data
 
     def test_health_endpoint(self, client):
         """Test health check endpoint"""
@@ -210,7 +228,7 @@ class TestAPIEndpoints:
             mock_registry_instance.list_tools.return_value = [mock_tool]
             mock_registry.return_value = mock_registry_instance
 
-            response = client.get("/api/v1/api/v1/tools")
+            response = client.get("/api/v1/tools")
 
             assert response.status_code == 200
             data = response.json()
@@ -234,7 +252,7 @@ class TestAPIEndpoints:
             mock_registry_instance.get_tool.return_value = mock_tool
             mock_registry.return_value = mock_registry_instance
 
-            response = client.get("/api/v1/api/v1/tools/get_stock_quote")
+            response = client.get("/api/v1/tools/get_stock_quote")
 
             assert response.status_code == 200
             data = response.json()
@@ -248,7 +266,7 @@ class TestAPIEndpoints:
             mock_registry_instance.get_tool.side_effect = ValueError("Tool not found")
             mock_registry.return_value = mock_registry_instance
 
-            response = client.get("/api/v1/api/v1/tools/non_existent_tool")
+            response = client.get("/api/v1/tools/non_existent_tool")
 
             assert response.status_code == 404
 
@@ -272,7 +290,7 @@ class TestAPIEndpoints:
             }
 
             response = client.post(
-                "/api/v1/api/v1/tools/get_stock_quote/execute", json=request_data
+                "/api/v1/tools/get_stock_quote/execute", json=request_data
             )
 
             assert response.status_code == 200
@@ -288,7 +306,7 @@ class TestAPIEndpoints:
         request_data = {"parameters": {"symbol": "AAPL"}}
 
         response = client.post(
-            "/api/v1/api/v1/tools/get_stock_quote/execute", json=request_data
+            "/api/v1/tools/get_stock_quote/execute", json=request_data
         )
 
         assert response.status_code == 422  # Validation error
@@ -309,7 +327,7 @@ class TestAPIEndpoints:
             }
 
             response = client.post(
-                "/api/v1/api/v1/tools/get_stock_quote/execute", json=request_data
+                "/api/v1/tools/get_stock_quote/execute", json=request_data
             )
 
             assert response.status_code == 400 or response.status_code == 500
@@ -324,7 +342,7 @@ class TestAPIEndpoints:
             request_data = {"tool_id": "non_existent_tool", "parameters": {}}
 
             response = client.post(
-                "/api/v1/api/v1/tools/non_existent_tool/execute", json=request_data
+                "/api/v1/tools/non_existent_tool/execute", json=request_data
             )
 
             assert response.status_code == 404
@@ -345,7 +363,7 @@ class TestAPIEndpoints:
                 }
             ]
 
-            response = client.get("/api/v1/api/v1/agents")
+            response = client.get("/api/v1/agents")
 
             assert response.status_code == 200
             data = response.json()
@@ -369,7 +387,7 @@ class TestAPIEndpoints:
                 }
             ]
 
-            response = client.get("/api/v1/api/v1/agents/technical_analyst_001")
+            response = client.get("/api/v1/agents/technical_analyst_001")
 
             assert response.status_code == 200
             data = response.json()
@@ -380,15 +398,17 @@ class TestAPIEndpoints:
         with patch("orchestrator.OpenClawOrchestrator") as mock_orchestrator:
             mock_orchestrator.return_value.get_registered_agents.return_value = []
 
-            response = client.get("/api/v1/api/v1/agents/non_existent_agent")
+            response = client.get("/api/v1/agents/non_existent_agent")
 
             assert response.status_code == 404
 
     def test_platform_status_endpoint(self, client):
         """Test platform status endpoint"""
-        with patch("orchestrator.OpenClawOrchestrator") as mock_orchestrator, patch(
-            "tools.get_tool_registry"
-        ) as mock_tools, patch("memory.get_memory_manager") as mock_memory:
+        with (
+            patch("orchestrator.OpenClawOrchestrator") as mock_orchestrator,
+            patch("tools.get_tool_registry") as mock_tools,
+            patch("memory.get_memory_manager") as mock_memory,
+        ):
 
             mock_orchestrator.return_value.get_status.return_value = {
                 "is_running": True,
@@ -407,7 +427,7 @@ class TestAPIEndpoints:
                 "persistent_size": 1000,
             }
 
-            response = client.get("/api/v1/api/v1/status")
+            response = client.get("/api/v1/platform/status")
 
             assert response.status_code == 200
             data = response.json()
@@ -427,14 +447,20 @@ class TestAPIErrorHandling:
     @pytest.fixture
     def client(self):
         """Create test client"""
-        from main import app
+        from main import TradingControlPlatform, app
+
+        # Initialize platform state for tests
+        platform = TradingControlPlatform()
+
+        # Set platform in app state
+        app.state.platform = platform
 
         return TestClient(app)
 
     def test_invalid_json_handling(self, client):
         """Test handling of invalid JSON"""
         response = client.post(
-            "/api/v1/api/v1/tools/get_stock_quote/execute",
+            "/api/v1/tools/get_stock_quote/execute",
             data="invalid json",
             headers={"Content-Type": "application/json"},
         )
@@ -444,7 +470,7 @@ class TestAPIErrorHandling:
     def test_missing_content_type(self, client):
         """Test handling of missing content type"""
         response = client.post(
-            "/api/v1/api/v1/tools/get_stock_quote/execute",
+            "/api/v1/tools/get_stock_quote/execute",
             data='{"tool_id": "get_stock_quote", "parameters": {}}',
         )
 
@@ -456,7 +482,7 @@ class TestAPIErrorHandling:
         large_data = {"data": "x" * 1000000}  # 1MB of data
 
         response = client.post(
-            "/api/v1/api/v1/tools/validate_numeric_fields/execute",
+            "/api/v1/tools/validate_numeric_fields/execute",
             json={"tool_id": "validate_numeric_fields", "parameters": large_data},
         )
 
@@ -510,7 +536,7 @@ class TestAPIErrorHandling:
             # Actual timeout behavior depends on FastAPI configuration
             try:
                 response = client.post(
-                    "/api/v1/api/v1/tools/slow_tool/execute",
+                    "/api/v1/tools/slow_tool/execute",
                     json=request_data,
                     timeout=1.0,
                 )
@@ -527,7 +553,13 @@ class TestAPIIntegration:
     @pytest.fixture
     def client(self):
         """Create test client"""
-        from main import app
+        from main import TradingControlPlatform, app
+
+        # Initialize platform state for tests
+        platform = TradingControlPlatform()
+
+        # Set platform in app state
+        app.state.platform = platform
 
         return TestClient(app)
 
@@ -542,10 +574,10 @@ class TestAPIIntegration:
         """Test API versioning consistency"""
         # All endpoints should use consistent versioning
         endpoints = [
-            "/api/v1/api/v1/tools",
-            "/api/v1/api/v1/agents",
-            "/api/v1/api/v1/status",
-            "/api/v1/api/v1/health",
+            "/api/v1/tools",
+            "/api/v1/agents",
+            "/api/v1/platform/status",
+            "/api/v1/health",
         ]
 
         for endpoint in endpoints:
@@ -596,21 +628,21 @@ class TestAPIIntegration:
             mock_registry.return_value = mock_registry_instance
 
             # 1. List tools
-            list_response = client.get("/api/v1/api/v1/tools")
+            list_response = client.get("/api/v1/tools")
             assert list_response.status_code == 200
             tools_list = list_response.json()
             assert len(tools_list) >= 1
 
             # 2. Get specific tool
             tool_id = tools_list[0]["tool_id"]
-            get_response = client.get(f"/api/v1/api/v1/tools/{tool_id}")
+            get_response = client.get(f"/api/v1/tools/{tool_id}")
             assert get_response.status_code == 200
             tool_info = get_response.json()
             assert tool_info["tool_id"] == tool_id
 
             # 3. Execute tool
             execute_response = client.post(
-                f"/api/v1/api/v1/tools/{tool_id}/execute",
+                f"/api/v1/tools/{tool_id}/execute",
                 json={"tool_id": tool_id, "parameters": {"input": "test data"}},
             )
             assert execute_response.status_code == 200

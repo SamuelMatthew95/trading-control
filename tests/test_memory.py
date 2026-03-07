@@ -221,7 +221,8 @@ class TestPerformanceMemory:
     @pytest.fixture
     def performance_memory(self):
         """Create performance memory instance"""
-        return memory.PerformanceMemory()
+        mock_persistent = MagicMock()
+        return memory.PerformanceMemory(mock_persistent)
 
     def test_performance_memory_initialization(self, performance_memory):
         """Test performance memory initializes correctly"""
@@ -446,7 +447,8 @@ class TestMemoryErrorHandling:
         assert len(short_term.data) == 0
 
         # Performance memory cleanup
-        performance = memory.PerformanceMemory()
+        mock_persistent = MagicMock()
+        performance = memory.PerformanceMemory(mock_persistent)
         performance.update_agent_performance("test_agent", {"accuracy": 0.8})
 
         # Cleanup old data (if implemented)

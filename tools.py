@@ -20,6 +20,26 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 # ============================================================================
+# LANGFUSE INTEGRATION (MOCK FOR TESTING)
+# ============================================================================
+
+
+class MockLangfuse:
+    """Mock Langfuse client for testing"""
+
+    def trace_tool_execution(
+        self, tool_id, parameters, result, execution_time_ms, success
+    ):
+        """Mock trace tool execution"""
+        logger.debug(
+            f"Langfuse trace: {tool_id} - Success: {success} - Time: {execution_time_ms}ms"
+        )
+
+
+# Create global langfuse instance
+langfuse = MockLangfuse()
+
+# ============================================================================
 # TOOL REGISTRY ARCHITECTURE
 # ============================================================================
 
@@ -83,6 +103,11 @@ class GetStockQuote(BaseTool):
 
     def __init__(self):
         super().__init__("get_stock_quote")
+        self.name = "Get Stock Quote"
+        self.description = "Retrieve current stock price and basic market data"
+        self.tool_type = ToolCategory.MARKET
+        self.version = "1.0.0"
+        self.parameters = {"symbol": "Stock symbol (e.g., AAPL, GOOGL)"}
         self._session = None
 
     async def _get_session(self):
@@ -93,6 +118,10 @@ class GetStockQuote(BaseTool):
 
     async def execute(self, symbol: str) -> Dict[str, Any]:
         """Get stock quote"""
+        if not symbol or not symbol.strip():
+            return {"error": "Symbol is required"}
+
+        start_time = datetime.now()
         try:
             session = await self._get_session()
 
@@ -118,6 +147,23 @@ class GetStockQuote(BaseTool):
 
             return result
 
+        except asyncio.TimeoutError as e:
+            logger.error(f"Timeout error getting stock quote for {symbol}: {e}")
+
+            # Trace error execution
+            execution_time = (datetime.now() - start_time).total_seconds() * 1000
+            langfuse.trace_tool_execution(
+                tool_id="get_stock_quote",
+                parameters={"symbol": symbol},
+                result={"error": str(e)},
+                execution_time_ms=int(execution_time),
+                success=False,
+            )
+
+            return {
+                "error": f"Request timeout: Failed to fetch stock quote for {symbol}"
+            }
+
         except Exception as e:
             logger.error(f"Error getting stock quote for {symbol}: {e}")
 
@@ -141,7 +187,13 @@ class GetStockQuote(BaseTool):
 
         async with session.get(url) as response:
             if response.status == 200:
-                data = await response.json()
+                try:
+                    data = await response.json()
+                except Exception as e:
+                    return {
+                        "error": "Failed to fetch stock quote: Invalid response format"
+                    }
+
                 quote = data.get("Global Quote", {})
 
                 if not quote:
@@ -149,7 +201,7 @@ class GetStockQuote(BaseTool):
 
                 return {
                     "symbol": quote.get("01. symbol", symbol.upper()),
-                    "price": float(quote.get("05. price", 0)),
+                    "price": quote.get("05. price", "0"),
                     "change": float(quote.get("09. change", 0)),
                     "change_percent": float(quote.get("10. change_percent", 0)),
                     "volume": int(quote.get("06. volume", 0)),
@@ -157,7 +209,16 @@ class GetStockQuote(BaseTool):
                     "source": "alpha_vantage",
                 }
             else:
-                return {"error": f"API request failed: {response.status}"}
+                if response.status == 429:
+                    return {
+                        "error": "Rate limit exceeded: Too many requests to Alpha Vantage"
+                    }
+                elif response.status == 408:
+                    return {
+                        "error": "Request timeout: Alpha Vantage server took too long to respond"
+                    }
+                else:
+                    return {"error": "Failed to fetch stock quote: API error"}
 
     async def _get_yahoo_finance_quote(
         self, session: aiohttp.ClientSession, symbol: str
@@ -214,7 +275,16 @@ class GetStockQuote(BaseTool):
                     "source": "yahoo_finance",
                 }
             else:
-                return {"error": f"API request failed: {response.status}"}
+                if response.status == 429:
+                    return {
+                        "error": "Rate limit exceeded: Too many requests to Yahoo Finance"
+                    }
+                elif response.status == 408:
+                    return {
+                        "error": "Request timeout: Yahoo Finance server took too long to respond"
+                    }
+                else:
+                    return {"error": "Failed to fetch stock quote: API error"}
 
     def get_metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -247,10 +317,22 @@ class GetAgentPerformance(BaseTool):
 
     def __init__(self):
         super().__init__("get_agent_performance")
+        self.name = "Get Agent Performance"
+        self.description = "Retrieve performance metrics for a specific agent"
+        self.tool_type = ToolCategory.PERFORMANCE
+        self.version = "1.0.0"
+        self.parameters = {
+            "agent_name": "Name of the agent",
+            "days": "Number of days to look back (default: 30)",
+        }
 
     async def execute(self, agent_name: str, days: int = 30) -> Dict[str, Any]:
         """Get agent performance metrics"""
         try:
+            # Validate days parameter
+            if days <= 0:
+                return {"error": "Days must be positive"}
+
             from memory import get_memory_manager
 
             memory_manager = get_memory_manager()
@@ -258,21 +340,24 @@ class GetAgentPerformance(BaseTool):
                 agent_name
             )
 
-            return {
-                "agent_name": agent_name,
-                "historical_accuracy": performance.historical_accuracy,
-                "avg_confidence_error": performance.avg_confidence_error,
-                "hallucination_rate": performance.hallucination_rate,
-                "sector_performance": performance.sector_performance,
-                "total_trades": performance.total_trades,
-                "successful_trades": performance.successful_trades,
-                "win_rate": (
+            metrics = {
+                "tasks_completed": performance.total_trades,
+                "success_rate": (
                     performance.successful_trades / performance.total_trades
                     if performance.total_trades > 0
                     else 0
                 ),
-                "last_updated": performance.last_updated.isoformat(),
+                "historical_accuracy": performance.historical_accuracy,
+                "avg_confidence_error": performance.avg_confidence_error,
+                "hallucination_rate": performance.hallucination_rate,
+            }
+
+            return {
+                "agent_name": agent_name,
                 "period_days": days,
+                "metrics": metrics,
+                "sector_performance": performance.sector_performance,
+                "last_updated": performance.last_updated.isoformat(),
             }
         except Exception as e:
             logger.error(f"Error getting agent performance for {agent_name}: {e}")
@@ -315,9 +400,35 @@ class ValidateNumericFields(BaseTool):
 
     def __init__(self):
         super().__init__("validate_numeric_fields")
+        self.name = "Validation Tool - Numeric Fields"
+        self.description = "Validate numeric fields in structured data"
+        self.tool_type = ToolCategory.VALIDATION
+        self.version = "1.0.0"
+        self.parameters = {
+            "data": "Structured data to validate",
+            "source": "Source of the data for context",
+        }
 
-    async def execute(self, data: Dict[str, Any], source: str) -> Dict[str, Any]:
+    async def execute(
+        self, data: Optional[Dict[str, Any]], source: str
+    ) -> Dict[str, Any]:
         """Validate numeric fields in data"""
+        # Handle None data
+        if data is None:
+            return {
+                "source": source,
+                "total_fields": 0,
+                "numeric_fields": 0,
+                "valid_numeric_fields": 0,
+                "invalid_fields": [],
+                "missing_fields": [],
+                "warnings": ["No data provided for validation"],
+                "valid": False,
+                "validated_fields": [],
+                "validation_rate": 0.0,
+                "error": "Data is required for validation",
+            }
+
         validation_results = {
             "source": source,
             "total_fields": len(data),
@@ -326,12 +437,20 @@ class ValidateNumericFields(BaseTool):
             "invalid_fields": [],
             "missing_fields": [],
             "warnings": [],
-            "overall_valid": True,
+            "valid": True,
+            "validated_fields": [],
         }
 
         # Define expected numeric fields by data type
         numeric_field_patterns = {
-            "price": ["price", "entry_price", "target_price", "stop_price", "close"],
+            "price": [
+                "price",
+                "entry_price",
+                "target_price",
+                "stop_price",
+                "close",
+                "change",
+            ],
             "percentage": ["confidence", "change_percent", "return", "win_rate"],
             "volume": ["volume", "trading_volume"],
             "count": ["count", "total", "quantity"],
@@ -362,6 +481,7 @@ class ValidateNumericFields(BaseTool):
 
                     if is_valid:
                         validation_results["valid_numeric_fields"] += 1
+                        validation_results["validated_fields"].append(field_name)
                 except (ValueError, TypeError):
                     is_valid = False
                     validation_results["invalid_fields"].append(
@@ -371,7 +491,7 @@ class ValidateNumericFields(BaseTool):
                             "error": "Invalid numeric value",
                         }
                     )
-                    validation_results["overall_valid"] = False
+                    validation_results["valid"] = False
             else:
                 # Check for missing required fields
                 if field_value is None or field_value == "":
@@ -424,11 +544,44 @@ class ValidateNumericFields(BaseTool):
 class ToolRegistry:
     """Central registry for all OpenClaw tools"""
 
-    def __init__(self):
+    def __init__(self, auto_register: bool = True):
         self._tools: Dict[str, BaseTool] = {}
         self._metadata: Dict[str, ToolMetadata] = {}
         self._rate_limits: Dict[str, Dict[str, Any]] = {}
-        self._register_builtin_tools()
+        if auto_register:
+            self._register_builtin_tools()
+
+    @property
+    def tools(self):
+        """Get tools dictionary for test compatibility"""
+        return self._tools
+
+    @property
+    def tool_metadata(self):
+        """Get tool metadata dictionary for test compatibility"""
+        return self._metadata
+
+    def get_all_tools(self):
+        """Get all tools (legacy method)"""
+        return list(self._tools.values())
+
+    def get_tool(self, tool_id: str):
+        """Get specific tool by ID"""
+        if tool_id not in self._tools:
+            raise ValueError(f"Tool {tool_id} not found")
+        return self._tools[tool_id]
+
+    def list_tools(self):
+        """List all tools"""
+        return list(self._tools.values())
+
+    def list_tools_by_category(self, category: ToolCategory):
+        """List tools by category"""
+        return [tool for tool in self._tools.values() if tool.tool_type == category]
+
+    def get_tools_by_category(self, category: ToolCategory):
+        """Get tools by category (alias for list_tools_by_category)"""
+        return self.list_tools_by_category(category)
 
     def _register_builtin_tools(self) -> None:
         """Register all built-in tools"""
@@ -446,6 +599,9 @@ class ToolRegistry:
 
     def register_tool(self, tool: BaseTool) -> None:
         """Register a tool"""
+        if tool.tool_id in self._tools:
+            raise ValueError(f"Tool {tool.tool_id} already registered")
+
         metadata = tool.get_metadata()
         self._tools[tool.tool_id] = tool
         self._metadata[tool.tool_id] = metadata
@@ -514,8 +670,8 @@ class ToolRegistry:
         """Get tool metadata"""
         return self._metadata.get(tool_id)
 
-    def list_tools_by_category(self, category: ToolCategory) -> List[ToolMetadata]:
-        """Get all tools in a category"""
+    def list_metadata_by_category(self, category: ToolCategory) -> List[ToolMetadata]:
+        """Get all metadata in a category"""
         return [
             metadata
             for metadata in self._metadata.values()
