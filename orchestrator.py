@@ -57,6 +57,7 @@ class OpenClawOrchestrator(TradingOrchestrator):
         self.failed_cycles = 0
         self.last_cycle_time = None
         self.symbols_monitored = []
+        self.current_cycle_id = None
 
     def get_status(self) -> Dict[str, Any]:
         """Get orchestrator status"""
@@ -197,6 +198,14 @@ class OpenClawOrchestrator(TradingOrchestrator):
     def get_monitored_symbols(self) -> List[str]:
         """Get list of monitored symbols"""
         return list(self.symbols_monitored)
+
+    def get_queue_status(self) -> Dict[str, int]:
+        """Get task queue status"""
+        return {
+            "queued_tasks": 0,
+            "processing_tasks": 0,
+            "completed_tasks": 0,
+        }
 
     def register_agent(self, agent_id: str, agent_type: str) -> bool:
         """Register a new agent"""

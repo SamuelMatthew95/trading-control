@@ -222,7 +222,7 @@ class TestPerformanceMemory:
     def performance_memory(self):
         """Create performance memory instance"""
         mock_persistent = MagicMock()
-        return memory.PerformanceMemory(mock_persistent)
+        return memory.PerformanceMemory(persistent_memory=mock_persistent)
 
     def test_performance_memory_initialization(self, performance_memory):
         """Test performance memory initializes correctly"""

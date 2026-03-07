@@ -31,7 +31,7 @@ from api.models import (
 from logger import get_logger
 
 # Import the platform class
-from main import TradingControlPlatform
+from main import TradingControlPlatform, get_platform
 from memory import get_memory_manager
 
 # Import OpenClaw components

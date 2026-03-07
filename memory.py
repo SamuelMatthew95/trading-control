@@ -950,6 +950,11 @@ class PerformanceMemory(BaseMemoryLayer):
 
     def __init__(self, persistent_memory: PersistentTradeMemory):
         self.persistent_memory = persistent_memory
+        
+    def update_agent_performance(self, agent_id: str, performance_metrics: Dict[str, Any]) -> None:
+        """Update agent performance metrics"""
+        # Store performance metrics for learning
+        self.persistent_memory.store_agent_performance(agent_id, performance_metrics)
         self._cache: Dict[str, AgentPerformance] = {}
         self._cache_ttl = 300  # 5 minutes cache
 
