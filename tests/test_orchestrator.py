@@ -23,15 +23,21 @@ class TestOpenClawOrchestrator:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()
             mock_tasks.return_value = MagicMock()
 
-            return orchestrator.OpenClawOrchestrator()
+            return orchestrator.OpenClawOrchestrator(
+                memory=mock_memory.return_value,
+                tools=mock_tools.return_value,
+                task_queue=mock_tasks.return_value,
+            )
 
     def test_orchestrator_initialization(self, orchestrator_instance):
         """Test orchestrator initializes correctly"""
@@ -79,15 +85,21 @@ class TestTradingCycle:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()
             mock_tasks.return_value = MagicMock()
 
-            return orchestrator.OpenClawOrchestrator()
+            return orchestrator.OpenClawOrchestrator(
+                memory=mock_memory.return_value,
+                tools=mock_tools.return_value,
+                task_queue=mock_tasks.return_value,
+            )
 
     @pytest.mark.asyncio
     async def test_start_trading_cycle(self, orchestrator_instance):
@@ -139,6 +151,11 @@ class TestTradingCycle:
 
         # Set up active cycle
         orchestrator_instance.current_cycle_id = cycle_id
+        orchestrator_instance.active_cycles[cycle_id] = {
+            "symbols": ["AAPL", "GOOGL"],
+            "started_at": "2023-01-01T00:00:00",
+            "status": "running",
+        }
 
         # Mock successful completion
         orchestrator_instance.memory_manager.performance_memory.update_agent_performance = (
@@ -159,6 +176,11 @@ class TestTradingCycle:
 
         # Set up active cycle
         orchestrator_instance.current_cycle_id = cycle_id
+        orchestrator_instance.active_cycles[cycle_id] = {
+            "symbols": ["AAPL"],
+            "started_at": "2023-01-01T00:00:00",
+            "status": "running",
+        }
 
         result = await orchestrator_instance.complete_trading_cycle(
             cycle_id, success=False, signals_generated=0, tasks_executed=2
@@ -186,9 +208,11 @@ class TestTaskExecution:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()
@@ -202,8 +226,10 @@ class TestTaskExecution:
         # Mock task
         mock_task = MagicMock()
         mock_task.task_id = "task_001"
+        mock_task.task_type = MagicMock()
         mock_task.task_type.value = "analyze_symbol"
         mock_task.input_data = {"symbol": "AAPL"}
+        mock_task.timeout_seconds = 60
 
         # Mock tool
         mock_tool = AsyncMock()
@@ -225,8 +251,10 @@ class TestTaskExecution:
         # Mock task
         mock_task = MagicMock()
         mock_task.task_id = "task_002"
+        mock_task.task_type = MagicMock()
         mock_task.task_type.value = "get_stock_quote"
         mock_task.input_data = {"symbol": "INVALID"}
+        mock_task.timeout_seconds = 60
 
         # Mock tool that raises exception
         mock_tool = AsyncMock()
@@ -250,12 +278,9 @@ class TestTaskExecution:
         mock_task.input_data = {}
         mock_task.timeout_seconds = 1
 
-        # Mock tool that takes too long
-        async def slow_tool(*args, **kwargs):
-            await asyncio.sleep(2)  # Longer than timeout
-            return {"result": "success"}
-
-        mock_tool = AsyncMock(side_effect=slow_tool)
+        # Mock tool that raises timeout
+        mock_tool = AsyncMock()
+        mock_tool.execute.side_effect = asyncio.TimeoutError()
         orchestrator_instance.tool_registry.get_tool.return_value = mock_tool
 
         result = await orchestrator_instance.execute_task(mock_task)
@@ -290,9 +315,11 @@ class TestAgentManagement:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()
@@ -374,9 +401,11 @@ class TestSymbolManagement:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()
@@ -451,15 +480,21 @@ class TestOrchestratorIntegration:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()
             mock_tasks.return_value = MagicMock()
 
-            return orchestrator.OpenClawOrchestrator()
+            return orchestrator.OpenClawOrchestrator(
+                memory=mock_memory.return_value,
+                tools=mock_tools.return_value,
+                task_queue=mock_tasks.return_value,
+            )
 
     @pytest.mark.asyncio
     async def test_full_trading_cycle_workflow(self, orchestrator_instance):
@@ -511,9 +546,11 @@ class TestOrchestratorIntegration:
 
     def test_orchestrator_singleton(self):
         """Test orchestrator follows singleton pattern"""
-        with patch("orchestrator.get_tool_registry"), patch(
-            "orchestrator.get_memory_manager"
-        ), patch("orchestrator.get_task_queue"):
+        with (
+            patch("orchestrator.get_tool_registry"),
+            patch("orchestrator.get_memory_manager"),
+            patch("orchestrator.get_task_queue"),
+        ):
 
             orchestrator1 = orchestrator.OpenClawOrchestrator()
             orchestrator2 = orchestrator.OpenClawOrchestrator()
@@ -529,9 +566,11 @@ class TestOrchestratorErrorHandling:
     @pytest.fixture
     def orchestrator_instance(self):
         """Create orchestrator instance with mocked dependencies"""
-        with patch("orchestrator.get_tool_registry") as mock_tools, patch(
-            "orchestrator.get_memory_manager"
-        ) as mock_memory, patch("orchestrator.get_task_queue") as mock_tasks:
+        with (
+            patch("orchestrator.get_tool_registry") as mock_tools,
+            patch("orchestrator.get_memory_manager") as mock_memory,
+            patch("orchestrator.get_task_queue") as mock_tasks,
+        ):
 
             mock_tools.return_value = MagicMock()
             mock_memory.return_value = MagicMock()

@@ -2,7 +2,7 @@
 Simple data manager for testing
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 
 class MarketData:

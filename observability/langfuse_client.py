@@ -16,6 +16,7 @@ from langfuse import Langfuse as LangfuseClientBase
 from models import AgentId, TaskId
 
 from agent.interface import AgentResult, AgentTask, AgentTaskStatus
+from tools import TraceId
 
 
 class EventStatus(Enum):

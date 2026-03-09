@@ -1,0 +1,35 @@
+# Branch Protection Configuration
+# Apply these settings in GitHub UI: Settings → Branches → Add branch protection rule
+
+## Main Branch Protection Rules
+
+### Required Status Checks
+- [x] Require status checks to pass before merging
+- [x] Require branches to be up to date before merging
+
+### Required Checks
+- [x] CI/CD Pipeline - Simple (ci-simple.yml)
+- [x] PR Review Automation (pr-review.yml)
+- [x] Code formatting (black, flake8)
+- [x] Security scan (bandit, safety)
+- [x] Test coverage
+
+### Additional Rules
+- [x] Require pull request reviews before merging
+- [x] Require approval from 1 reviewer
+- [x] Dismiss stale PR approvals when new commits are pushed
+- [x] Require review from CODEOWNERS
+- [x] Limit who can dismiss pull request reviews
+- [x] Require conversation resolution before merging
+
+### Admin Restrictions
+- [x] Restrict pushes that create branches
+- [x] Restrict pushes that delete branches
+
+## How to Apply:
+1. Go to repository Settings
+2. Click "Branches" in left sidebar
+3. Click "Add branch protection rule"
+4. Enter "main" as branch name pattern
+5. Configure settings as above
+6. Click "Create"

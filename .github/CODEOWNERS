@@ -1,0 +1,27 @@
+# CODEOWNERS File
+# This file defines individuals or teams that are responsible for code in this repository.
+# Format: PATH EMAIL_OR_TEAM
+
+# Global owners - can review any PR
+* @SamuelMatthew95
+
+# Core components - require specific review
+/api/ @SamuelMatthew95
+/core/ @SamuelMatthew95
+/agent/ @SamuelMatthew95
+/gateway/ @SamuelMatthew95
+
+# Configuration and infrastructure
+/.github/ @SamuelMatthew95
+/requirements.txt @SamuelMatthew95
+/pyproject.toml @SamuelMatthew95
+
+# Documentation
+/README.md @SamuelMatthew95
+/docs/ @SamuelMatthew95
+
+# Tests - any maintainer can review
+/tests/ @SamuelMatthew95
+
+# Emergency changes (can bypass some checks)
+# * @emergency-team  # Uncomment if you have an emergency team

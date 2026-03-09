@@ -6,7 +6,7 @@ Separated from routes for proper architecture organization
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -26,7 +26,7 @@ class AgentInfo(BaseModel):
     tasks_failed: int
     current_load: int
     max_concurrent_tasks: int
-    last_activity: Optional[datetime] = None
+    last_activity: Optional[Union[datetime, str]] = None
 
 
 # ============================================================================

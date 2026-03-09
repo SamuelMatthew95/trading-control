@@ -2,7 +2,7 @@
 Simple agent manager for testing
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class AgentManager:

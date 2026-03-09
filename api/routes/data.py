@@ -4,10 +4,11 @@ Simple REST API for live market data and subscriptions
 """
 
 try:
+    from typing import Any, Dict, List, Optional
+
+    import structlog
     from fastapi import APIRouter, HTTPException
     from pydantic import BaseModel
-    from typing import Dict, Any, List, Optional
-    import structlog
 
     logger = structlog.get_logger()
     router = APIRouter()

@@ -2,8 +2,8 @@
 Simple task queue for testing
 """
 
-from typing import Dict, Any
 from enum import Enum
+from typing import Any, Dict
 
 
 class TaskStatus(Enum):

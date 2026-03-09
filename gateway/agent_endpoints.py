@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field, validator
 
-from agent.interface import AgentTask, AgentTaskStatus, AgentType
+from agent.interface import AgentTask, AgentTaskStatus, AgentType, AgentResult
 from gateway.openclaw_gateway import OpenClawConfig, OpenClawGateway
 from observability.langfuse_client import ObservabilityManager
 

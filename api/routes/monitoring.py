@@ -4,9 +4,10 @@ Simple REST API for system monitoring and health
 """
 
 try:
-    from fastapi import APIRouter, HTTPException
-    from typing import Dict, Any
+    from typing import Any, Dict
+
     import structlog
+    from fastapi import APIRouter, HTTPException
 
     logger = structlog.get_logger()
     router = APIRouter()

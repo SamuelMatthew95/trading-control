@@ -13,12 +13,14 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from models import TaskId
 
-from agent.interface import AgentResult, AgentTask, AgentTaskStatus
+from agent.interface import AgentResult, AgentTask, AgentTaskStatus, AgentId
+from agent import Agent
+from tools import TraceId
 
 
 class EventStatus(Enum):
@@ -70,7 +72,7 @@ class AgentEvent:
 
     @classmethod
     def create_start_event(
-        cls, agent_id: AgentId, task: "agent.interface.AgentTask", trace_id: TraceId
+        cls, agent_id: AgentId, task: AgentTask, trace_id: TraceId
     ) -> "AgentEvent":
         """Create a task start event"""
         return AgentEvent(
@@ -96,8 +98,8 @@ class AgentEvent:
     def create_completion_event(
         cls,
         agent_id: AgentId,
-        task: "agent.interface.AgentTask",
-        result: "agent.interface.AgentResult",
+        task: AgentTask,
+        result: AgentResult,
         trace_id: TraceId,
     ) -> "AgentEvent":
         """Create a task completion event"""
@@ -149,7 +151,7 @@ class AgentEvent:
     def create_error_event(
         cls,
         agent_id: AgentId,
-        task: "agent.interface.AgentTask",
+        task: AgentTask,
         error: Exception,
         trace_id: TraceId,
     ) -> "AgentEvent":

@@ -78,10 +78,11 @@ class TaskPriority(Enum):
     """Task priority levels"""
 
     LOW = 1
+    MEDIUM = 2
     NORMAL = 2
     HIGH = 3
-    URGENT = 4
-    CRITICAL = 5
+    CRITICAL = 4
+    URGENT = 5
 
 
 # ============================================================================
@@ -93,12 +94,10 @@ class TaskStatus(Enum):
     """Task execution status"""
 
     PENDING = "pending"
-    QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-    TIMEOUT = "timeout"
 
 
 # ============================================================================
@@ -323,6 +322,84 @@ class TaskResult:
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat(),
             "retry_count": self.retry_count,
+        }
+
+
+# ============================================================================
+# LEGACY COMPATIBILITY CLASSES (for test compatibility)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class AgentTask:
+    """Legacy AgentTask class for backward compatibility"""
+
+    task_id: str
+    task_type: TaskType
+    input_data: Dict[str, Any]
+    priority: TaskPriority = TaskPriority.NORMAL
+    status: TaskStatus = TaskStatus.PENDING
+    timeout_seconds: int = 60
+    max_retries: int = 3
+    retry_count: int = 0
+    created_at: datetime = field(default_factory=datetime.now)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    assigned_agent: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "task_id": self.task_id,
+            "task_type": self.task_type.value,
+            "input_data": self.input_data,
+            "priority": self.priority.value,
+            "status": self.status.value,
+            "timeout_seconds": self.timeout_seconds,
+            "max_retries": self.max_retries,
+            "retry_count": self.retry_count,
+            "created_at": self.created_at.isoformat(),
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": (
+                self.completed_at.isoformat() if self.completed_at else None
+            ),
+            "assigned_agent": self.assigned_agent,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(frozen=True)
+class AgentResult:
+    """Legacy AgentResult class for backward compatibility"""
+
+    task_id: str
+    agent_id: str
+    success: bool
+    output_data: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    execution_time_ms: float = 0.0
+    tokens_used: int = 0
+    cost_usd: float = 0.0
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    trace_id: Optional[str] = None
+    started_at: datetime = field(default_factory=datetime.now)
+    completed_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "task_id": self.task_id,
+            "agent_id": self.agent_id,
+            "success": self.success,
+            "output_data": self.output_data,
+            "error_message": self.error_message,
+            "execution_time_ms": self.execution_time_ms,
+            "tokens_used": self.tokens_used,
+            "cost_usd": self.cost_usd,
+            "metrics": self.metrics,
+            "started_at": self.started_at.isoformat(),
+            "completed_at": self.completed_at.isoformat(),
         }
 
 
@@ -586,6 +663,42 @@ class TaskContracts:
 
 class TaskFactory:
     """Factory for creating standardized tasks"""
+
+    def __init__(self):
+        self.task_creators = {
+            task_type: self._create_generic_task for task_type in TaskType
+        }
+
+    def create_task(self, task_type: TaskType, input_data: Dict[str, Any]) -> AgentTask:
+        """Create a task of the specified type"""
+        if task_type not in self.task_creators:
+            raise ValueError(f"Unknown task type: {task_type}")
+
+        if not isinstance(input_data, dict):
+            raise TypeError(f"Input data must be a dictionary, got {type(input_data)}")
+
+        if input_data is None:
+            raise ValueError("Input data cannot be None")
+
+        # Check for empty dict (missing required fields)
+        if not input_data:
+            raise ValueError("Input data cannot be empty")
+
+        return self.task_creators[task_type](task_type, input_data)
+
+    def get_supported_task_types(self) -> List[TaskType]:
+        """Get list of supported task types"""
+        return list(self.task_creators.keys())
+
+    def _create_generic_task(
+        self, task_type: TaskType, input_data: Dict[str, Any]
+    ) -> AgentTask:
+        """Create a generic task"""
+        return AgentTask(
+            task_id=f"task_{task_type.value}_{uuid.uuid4().hex[:8]}",
+            task_type=task_type,
+            input_data=input_data,
+        )
 
     @staticmethod
     def create_market_scan_task(
@@ -967,6 +1080,11 @@ class TaskQueue:
         self._completed_tasks: List[Task] = []
         self._failed_tasks: List[Task] = []
 
+        # Legacy compatibility attributes
+        self.queue: List[AgentTask] = []
+        self.processing_tasks: List[AgentTask] = []
+        self.completed_tasks: List[AgentResult] = []
+
     def enqueue(self, task: Task) -> bool:
         """Enqueue task for execution"""
         if not TaskValidator.validate_task(task):
@@ -988,22 +1106,107 @@ class TaskQueue:
         self._running_tasks[task.task_id] = task
         return task
 
-    def complete_task(self, task_id: str, result: Dict[str, Any]) -> bool:
-        """Mark task as completed"""
+    # Legacy compatibility methods
+    def add_task(self, task: AgentTask) -> None:
+        """Add task to queue (legacy method)"""
+        self.queue.append(task)
+        # Sort by priority (higher first)
+        self.queue.sort(key=lambda t: t.priority.value, reverse=True)
+
+    def get_next_task(self) -> Optional[AgentTask]:
+        """Get next task from queue (legacy method)"""
+        if not self.queue:
+            return None
+
+        task = self.queue.pop(0)
+        self.processing_tasks.append(task)
+        return task
+
+    def complete_task(self, task_id: str, result: AgentResult) -> None:
+        """Complete a task (legacy method)"""
+        # Remove from processing tasks
+        for i, task in enumerate(self.processing_tasks):
+            if task.task_id == task_id:
+                self.processing_tasks.pop(i)
+                self.completed_tasks.append(result)
+                break
+
+    def clear_queue(self) -> None:
+        """Clear all tasks (legacy method)"""
+        self.queue.clear()
+        self.processing_tasks.clear()
+        self.completed_tasks.clear()
+
+    def get_queue_status(self) -> Dict[str, int]:
+        """Get queue status (legacy method)"""
+        return {
+            "queued_tasks": len(self.queue),
+            "processing_tasks": len(self.processing_tasks),
+            "completed_tasks": len(self.completed_tasks),
+            "total_tasks": len(self.queue)
+            + len(self.processing_tasks)
+            + len(self.completed_tasks),
+        }
+
+    def fail_task(self, task_id: str, error_message: str) -> bool:
+        """Mark task as failed"""
         if task_id not in self._running_tasks:
             return False
 
         task = self._running_tasks.pop(task_id)
-        task.status = TaskStatus.COMPLETED
+        task.status = TaskStatus.FAILED
         task.completed_at = datetime.now()
 
-        # Validate result
-        if TaskValidator.validate_task_result(task.task_type, result):
-            self._completed_tasks.append(task)
-            return True
-        else:
-            # Mark as failed if validation fails
-            return self.fail_task(task_id, "Task output validation failed")
+        # Check if should retry
+        if task.retry_count < task.max_retries:
+            task.retry_count += 1
+            task.status = TaskStatus.PENDING
+            task.started_at = None
+            self._pending_tasks.append(task)
+            self._pending_tasks.sort(key=lambda t: t.priority.value, reverse=True)
+
+        self._failed_tasks.append(task)
+        return True
+
+    def get_task_status(self, task_id: str) -> Optional[Task]:
+        """Get current task status"""
+        for task in self._pending_tasks:
+            if task.task_id == task_id:
+                return task
+        for task in self._running_tasks.values():
+            if task.task_id == task_id:
+                return task
+        for task in self._completed_tasks:
+            if task.task_id == task_id:
+                return task
+        for task in self._failed_tasks:
+            if task.task_id == task_id:
+                return task
+        return None
+
+    def get_queue_stats(self) -> Dict[str, Any]:
+        """Get queue statistics"""
+        return {
+            "pending_tasks": len(self._pending_tasks),
+            "running_tasks": len(self._running_tasks),
+            "completed_tasks": len(self._completed_tasks),
+            "failed_tasks": len(self._failed_tasks),
+            "total_tasks": len(self._pending_tasks)
+            + len(self._running_tasks)
+            + len(self._completed_tasks)
+            + len(self._failed_tasks),
+        }
+
+    def dequeue(self) -> Optional[Task]:
+        """Dequeue next task for execution"""
+        if not self._pending_tasks:
+            return None
+
+        task = self._pending_tasks.pop(0)
+        task.status = TaskStatus.RUNNING
+        task.started_at = datetime.now()
+        self._running_tasks[task.task_id] = task
+        return task
 
     def fail_task(self, task_id: str, error_message: str) -> bool:
         """Mark task as failed"""

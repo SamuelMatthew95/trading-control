@@ -5,20 +5,14 @@ Clean API structure aligned with OpenClaw orchestration architecture
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
-
-from logger import get_logger
-from memory import get_memory_manager
-
-# Import OpenClaw components
-from orchestrator import OpenClawOrchestrator
-from tools import get_tool_registry
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 # Import API models from proper location
-from .models import (
+from api.models import (
     AgentInfo,
     APIResponse,
     CycleResult,
@@ -34,6 +28,15 @@ from .models import (
     ToolExecutionResponse,
     ToolInfo,
 )
+from logger import get_logger
+
+# Import the platform class
+from main import TradingControlPlatform, get_platform
+from memory import get_memory_manager
+
+# Import OpenClaw components
+from orchestrator import OpenClawOrchestrator
+from tools import get_tool_registry, ToolRegistry
 
 logger = get_logger(__name__)
 
@@ -43,31 +46,30 @@ logger = get_logger(__name__)
 # ============================================================================
 
 
-def get_platform() -> "TradingControlPlatform":
+def get_platform(request: Request):
     """Get platform instance from app state"""
-    from main import app
-
-    if not hasattr(app.state, "platform") or not app.state.platform:
+    if not hasattr(request.app.state, "platform") or not request.app.state.platform:
         logger.error("Platform not initialized")
         raise HTTPException(status_code=503, detail="Platform not initialized")
 
-    return app.state.platform
+    return request.app.state.platform
 
 
-def get_orchestrator(
-    platform: "TradingControlPlatform" = Depends(get_platform),
-) -> OpenClawOrchestrator:
+def get_orchestrator(request: Request):
     """Get orchestrator instance"""
+    platform = get_platform(request)
     return platform.orchestrator
 
 
-def get_memory(platform: "TradingControlPlatform" = Depends(get_platform)):
+def get_memory(request: Request):
     """Get memory instance"""
+    platform = get_platform(request)
     return platform.memory_manager
 
 
-def get_tools(platform: "TradingControlPlatform" = Depends(get_platform)):
+def get_tools(request: Request):
     """Get tool registry instance"""
+    platform = get_platform(request)
     return platform.tool_registry
 
 
@@ -77,19 +79,37 @@ def get_tools(platform: "TradingControlPlatform" = Depends(get_platform)):
 
 api_router = APIRouter(prefix="/api/v1", tags=["OpenClaw API"])
 
+
+# Root endpoint for API discovery
+@api_router.get("/", response_model=Dict[str, Any])
+async def root_endpoint():
+    """Root endpoint with API information"""
+    return {
+        "name": "OpenClaw Trading Control Platform",
+        "version": "1.0.0",
+        "description": "AI-powered trading analysis and control platform",
+        "endpoints": {
+            "health": "/api/v1/health",
+            "platform": "/api/v1/platform/status",
+            "agents": "/api/v1/agents",
+            "tools": "/api/v1/tools",
+            "orchestrator": "/api/v1/orchestrator/status",
+        },
+    }
+
+
 # ============================================================================
 # Platform Management Endpoints
 # ============================================================================
 
 
 @api_router.get("/platform/status", response_model=PlatformStatus)
-async def get_platform_status(
-    platform: "TradingControlPlatform" = Depends(get_platform),
-):
+async def get_platform_status(request: Request):
     """Get complete platform status"""
     logger.debug("Getting platform status")
 
     try:
+        platform = get_platform(request)
         status = platform.get_platform_status()
         return PlatformStatus(**status)
     except Exception as e:
