@@ -11,9 +11,8 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import new system components
+# Import system components
 from ..system.professional_trading_orchestrator import create_professional_orchestrator
-from ..agents.deterministic_trading_system import create_deterministic_trading_system
 from .stateful_logging_system import create_stateful_logging_system
 from .logger import get_logger, setup_logging
 from .config import get_settings
@@ -27,7 +26,6 @@ class TradingControlPlatform:
     def __init__(self):
         self.settings = get_settings()
         self.orchestrator = None
-        self.agent_system = None
         self.db_manager = None
         self.logger = None
         self.is_running = False
@@ -40,10 +38,6 @@ class TradingControlPlatform:
         # Initialize logging system
         self.db_manager, self.logger, test_manager = create_stateful_logging_system()
         logger.info("✅ Logging system initialized")
-
-        # Initialize agent system
-        self.agent_system = create_deterministic_trading_system()
-        logger.info("✅ Agent system initialized")
 
         # Initialize orchestrator
         self.orchestrator = create_professional_orchestrator()
