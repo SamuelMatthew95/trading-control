@@ -3,7 +3,7 @@ import json
 import time
 from datetime import datetime
 from orchestrator import run_pipeline
-from state import load_trades, save_trade, Trade, get_win_rate, get_total_pnl
+from state import load_trades, save_trade, Trade, get_win_rate, get_total_pnl, get_trade_statistics
 
 # Page config
 st.set_page_config(
