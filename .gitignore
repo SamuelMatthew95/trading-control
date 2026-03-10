@@ -195,13 +195,34 @@ strategies/
 api_keys.txt
 secrets.yaml
 credentials.json
-
-# Backup files
-*.bak
-*.backup
-*.old
+.streamlit/secrets.toml
+secrets/
+credentials/
+config/secrets.json
+*.key
+*.pem
+*.p12
 
 # WindSurf specific
 .windsurf/cache/
 .windsurf/logs/
 .windsurf/tmp/
+
+# Random files and folders (keep only what we need)
+windsurf*/
+WindSurf*/
+trading-signal-analyzer/
+trading-claude-integration/
+trading-data-validation/
+trading-market-data/
+trading-professional-orchestrator/
+trading-system-monitoring/
+src/frontend/
+*.tmp
+*.bak
+*.old
+*_backup
+*_copy
+
+# Virtual environments for dashboard
+venv_dashboard/
