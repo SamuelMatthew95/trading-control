@@ -235,3 +235,30 @@ yarn.lock
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Testing and Quality
+test_env/
+venv_test/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Additional temp files
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+
+# IDE specific
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
