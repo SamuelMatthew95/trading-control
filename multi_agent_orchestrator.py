@@ -7,7 +7,7 @@ import json
 import logging
 import anthropic
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 # Configure logging
