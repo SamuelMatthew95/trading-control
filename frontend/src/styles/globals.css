@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.agent-panel {
+  @apply border-2 border-gray-200 rounded-lg p-4 bg-white;
+}
+
+.agent-thinking {
+  @apply border-yellow-400 bg-yellow-50;
+}
+
+.agent-complete {
+  @apply border-green-400 bg-green-50;
+}
+
+.agent-error {
+  @apply border-red-400 bg-red-50;
+}

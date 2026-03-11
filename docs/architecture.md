@@ -1,13 +1,8 @@
-# Scalable Architecture Documentation
+# Scalable# 🏗️ Trading Bot Architecture
 
-## Overview
+## System Overview
 
-The trading system is designed with a scalable, modular architecture that makes it easy to:
-- Test individual components
-- Debug issues quickly
-- Add new features
-- Monitor agent performance
-- Understand what's happening in the system
+The Trading Bot Brain is a sophisticated AI-powered trading system built with a modern, serverless architecture.
 
 ## Architecture Principles
 

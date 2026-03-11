@@ -1,4 +1,5 @@
 # Production dependencies
+streamlit>=1.28.0
 fastapi==0.104.1
 uvicorn==0.24.0
 pydantic==2.5.0
@@ -16,6 +17,13 @@ asyncio-mqtt==0.16.1
 redis==5.0.1
 asyncpg==0.29.0
 schedule==1.2.0
+
+# Database dependencies
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Configuration management
+pydantic-settings>=2.0.0
 
 # Development dependencies
 pytest==7.4.0

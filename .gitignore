@@ -226,3 +226,12 @@ src/frontend/
 
 # Virtual environments for dashboard
 venv_dashboard/
+.next/
+
+# Node.js / Frontend
+node_modules/
+package-lock.json
+yarn.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
