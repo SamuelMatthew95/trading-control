@@ -1,396 +1,137 @@
-# Scalable# 🏗️ Trading Bot Architecture
+# 🏗️ Trading Control Architecture
 
 ## System Overview
 
-The Trading Bot Brain is a sophisticated AI-powered trading system built with a modern, serverless architecture.
+Trading Control is a modular, production-oriented multi-agent trading platform composed of:
 
-## Architecture Principles
+- **FastAPI backend** with clear route/service/model boundaries.
+- **Stock intelligence pipeline** backed by `MultiAgentOrchestrator`.
+- **Options intelligence pipeline** with dedicated multi-agent OODA chain.
+- **Async PostgreSQL persistence** for trades, performance metrics, and run traces.
+- **Next.js frontend** for operator workflows and monitoring.
 
-### 1. Clear Separation of Concerns
+---
 
-```
-src/
-├── core/                    # Fundamental utilities (no business logic)
-│   ├── stateful_logging_system.py  # Database persistence, enums, metrics
-│   ├── config.py                   # Configuration management
-│   ├── logger.py                   # Centralized logging
-│   └── main.py                     # Application entry point
-├── system/                  # Production orchestration
-│   ├── professional_trading_orchestrator.py  # State machine orchestrator
-│   ├── production_trading_system.py          # Production API
-│   └── claude_code_template.py                # Claude integration
-└── trading-*/              # Skills (modular agents)
-    ├── trading-market-data/           # Data collection agents
-    ├── trading-data-validation/       # Data validation agents
-    ├── trading-agent-orchestration/   # Orchestration agents
-    ├── trading-system-monitoring/     # Monitoring agents
-    └── trading-professional-orchestrator/  # Professional orchestrator skill
-```
+## Backend Architecture
 
-### 2. Observable Design
+### Layered structure
 
-Every component is designed to be observable:
-
-#### **Stateful Logging System**
-```python
-# All events are logged with structured data
-await logger.log_agent_execution(
-    agent_id="data_analyst",
-    execution_id="exec_123",
-    action="analyze_market",
-    input_data={"symbol": "AAPL"},
-    output_data={"signal": "buy"},
-    success=True,
-    execution_time_ms=150
-)
-
-# Easy to query what happened
-history = await db.get_agent_history("data_analyst", limit=10)
-metrics = await db.get_performance_metrics("data_analyst", metric_type=PerformanceMetric.SUCCESS_RATE)
+```text
+api/
+├── core/
+│   └── models.py          # Pydantic + SQLAlchemy models
+├── routes/
+│   ├── health.py          # Root/system health
+│   ├── analyze.py         # Stock analysis + shadow mode
+│   ├── trades.py          # Trade history CRUD
+│   ├── performance.py     # Global performance/statistics/runs
+│   └── options.py         # Options flow/screener/plays/perf/stats/runs
+├── services/
+│   ├── trading.py         # Stock orchestration service
+│   ├── learning.py        # Agent performance persistence
+│   ├── memory.py          # Run trace persistence
+│   ├── options.py         # Options orchestration service
+│   └── options_agents.py  # Options specialist agents
+├── main_state.py          # Dependency/service registry
+└── main.py                # App bootstrap + router wiring
 ```
 
-#### **Enum-Based Measurements**
-```python
-class EventType(Enum):
-    AGENT_EXECUTION = "agent_execution"
-    MISTAKE_ANALYSIS = "mistake_analysis"
-    LEARNING_SESSION = "learning_session"
-    TEAM_FORMATION = "team_formation"
+### Startup/service wiring
 
-class AgentStatus(Enum):
-    INITIALIZING = "initializing"
-    ACTIVE = "active"
-    LEARNING = "learning"
-    COLLABORATING = "collaborating"
-    ERROR = "error"
-    RETIRED = "retired"
-```
+- `api/main.py` initializes DB and services.
+- `api/main_state.py` provides dependency accessors (`get_*_service`).
+- Routers consume services via FastAPI `Depends`.
 
-### 3. Modular Agent Design
+---
 
-Each agent is a self-contained skill:
+## Stock Intelligence Flow
 
-```
-trading-market-data/
-├── SKILL.md              # Documentation
-├── scripts/
-│   ├── __init__.py      # Public API
-│   └── market_data.py   # Implementation
-└── references/
-    └── api-guide.md     # Detailed documentation
-```
+Stock analysis uses `MultiAgentOrchestrator` via `TradingService`:
 
-## Testing Strategy
+1. Signal ingestion
+2. Planner decomposition
+3. Consensus/risk/sizing decisions
+4. Structured trade decision output
+5. Optional shadow evaluation and memory persistence
 
-### 1. Unit Tests for Core Components
+Routes:
 
-```python
-class TestStatefulLoggingSystem:
-    """Test core logging functionality"""
-    
-    @pytest_asyncio.fixture
-    async def temp_db(self):
-        """Isolated test database"""
-        db_manager, logger, test_manager = create_stateful_logging_system()
-        yield db_manager, logger, test_manager
-        # Cleanup automatically
-    
-    async def test_agent_execution_logging(self, temp_db):
-        """Test that agent executions are logged correctly"""
-        _, logger, _ = temp_db
-        
-        await logger.log_agent_execution(
-            agent_id="test_agent",
-            execution_id="exec_001", 
-            action="test_action",
-            input_data={"test": "data"},
-            success=True,
-            execution_time_ms=100
-        )
-        
-        # Verify it was logged
-        history = await logger.db.get_execution_history(agent_id="test_agent")
-        assert len(history) >= 1
-        assert history[0]["success"] == True
-```
+- `POST /api/analyze`
+- `POST /api/shadow/analyze`
+- `GET /api/shadow/evaluate/{symbol}`
 
-### 2. Integration Tests for System Components
+---
 
-```python
-class TestIntegration:
-    """Test how components work together"""
-    
-    async def test_core_system_integration(self):
-        """Test logging + orchestrator integration"""
-        db_manager, logger, _ = create_stateful_logging_system()
-        orchestrator = create_professional_orchestrator()
-        
-        # Execute orchestrator cycle
-        state = await orchestrator.run_trading_cycle()
-        
-        # Log the execution
-        await logger.log_agent_execution(
-            "orchestrator", "cycle_001", "run_cycle",
-            {}, {"result": "success"}, True, 200
-        )
-        
-        # Verify both systems worked
-        assert state["current_phase"] == TradingPhase.MONITORING.value
-        history = await logger.db.get_execution_history(agent_id="orchestrator")
-        assert len(history) >= 1
-```
+## Options Intelligence Flow (Uniform Multi-Agent Design)
 
-### 3. Error Scenario Testing
+Options uses a dedicated service (`OptionsService`) and specialist agents (`options_agents.py`):
 
-```python
-async def test_error_handling_and_recovery(self):
-    """Test that errors are handled gracefully"""
-    
-    # Simulate error condition
-    state = await orchestrator._initialize_state()
-    state["error_state"] = "Database connection failed"
-    
-    # Run error handling
-    result = await orchestrator._error_handling_node(state)
-    
-    # Verify error was handled
-    assert result["current_phase"] == TradingPhase.ERROR_HANDLING.value
-    assert result["error_state"] is None  # Should be cleared
-    assert result["last_action"] == "error_recovery_completed"
-```
+1. **OPTIONS_ANALYST** → market/flow orientation.
+2. **OPTIONS_STRATEGIST** → regime-aware candidate planning.
+3. **OPTIONS_EXECUTOR** → executable play templates.
+4. **OPTIONS_GUARDRAIL** → risk constraints + kill-switch.
+5. **OPTIONS_VALIDATOR** → output quality/schema gate.
 
-## Debugging and Monitoring
+Each generation response returns:
 
-### 1. Database Queries for Debugging
+- `items` (validated plays)
+- `agent_trace` (human-readable chain-of-responsibility summaries)
+- `guardrail` (rejections/kill-switch metadata)
+- `task_plan` (decomposed orchestration tasks)
+- `model` (configured LLM model identifier)
 
-```python
-# Find what an agent did recently
-recent_activity = await db.get_agent_history("data_analyst", hours=1)
+### Options route family
 
-# Check agent performance trends
-performance_trend = await db.get_performance_metrics(
-    "data_analyst", 
-    metric_type=PerformanceMetric.SUCCESS_RATE,
-    hours=24
-)
+- `GET /api/options/health`
+- `GET /api/options/flow`
+- `GET /api/options/screener`
+- `GET /api/options/ticker/{symbol}`
+- `POST /api/options/plays/generate`
+- `POST /api/options/plays/close`
+- `POST /api/options/learning/summary`
+- `GET /api/options/performance`
+- `GET /api/options/performance/{agent_name}`
+- `GET /api/options/statistics`
+- `GET /api/options/runs`
 
-# Get system-wide summary
-system_status = await db.get_system_summary()
-```
+---
 
-### 2. Error Analysis
+## Data & Persistence
 
-```python
-# Find recent errors
-error_logs = await db.get_agent_history(
-    agent_id="risk_controller", 
-    hours=24
-)
-error_logs = [log for log in error_logs if log["log_level"] == "error"]
+### Core tables
 
-# Analyze error patterns
-error_patterns = {}
-for log in error_logs:
-    pattern = log["metadata"].get("error_type", "unknown")
-    error_patterns[pattern] = error_patterns.get(pattern, 0) + 1
-```
+- `trades`
+- `agent_performance`
+- `agent_runs`
 
-### 3. Performance Monitoring
+### Run observability
 
-```python
-# Get agent rankings
-top_agents = ranking_system.get_top_agents(5)
+- Global runs available via `GET /api/runs`.
+- Options-specific runs are tagged (`task_id` prefix `options-`) and surfaced via `GET /api/options/runs`.
 
-# Check learning progress
-learning_progress = database.get_agent_learning_progress("data_analyst")
+---
 
-# Monitor team effectiveness
-team_performance = await db.get_team_performance_metrics(team_id="team_001")
-```
+## Configuration
 
-## Scalability Features
+Key runtime variables:
 
-### 1. Horizontal Scalability
+- `DATABASE_URL`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL` (default: `claude-sonnet-4-20250514`)
+- `UW_API_KEY`
+- `UNUSUAL_WHALES_MCP_URL`
+- `FRONTEND_URL`
 
-```python
-# Multiple orchestrator instances can run
-orchestrator1 = create_professional_orchestrator()
-orchestrator2 = create_professional_orchestrator()
+---
 
-# Each with its own state storage
-orchestrator1.state_storage = StateStorage("orchestrator1_state.json")
-orchestrator2.state_storage = StateStorage("orchestrator2_state.json")
-```
+## Frontend Integration
 
-### 2. Database Scalability
+Options UI lives in `frontend/src/pages/options.tsx` and consumes `/api/options/*` proxy routes.
 
-```python
-# SQLite for development, PostgreSQL for production
-if settings.environment == "production":
-    db_manager = PostgreSQLDatabaseManager(settings.database_url)
-else:
-    db_manager = DatabaseManager(":memory:")
+Major UI sections:
 
-# Same interface, different backend
-await db_manager.log_agent_execution(...)
-await db_manager.get_agent_history(...)
-```
-
-### 3. Agent Scalability
-
-```python
-# Agents are stateless workers
-class DataAnalysisAgent:
-    """Stateless agent - can be scaled horizontally"""
-    
-    def __init__(self):
-        self.agent_id = None  # Set per instance
-        # No internal state
-    
-    async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        # Stateless processing
-        return {"result": "processed", "agent_id": self.agent_id}
-
-# Can run multiple instances
-agents = [DataAnalysisAgent() for _ in range(10)]
-for i, agent in enumerate(agents):
-    agent.agent_id = f"data_analyst_{i}"
-```
-
-## Future Extensibility
-
-### 1. Adding New Agents
-
-```python
-# 1. Create new skill folder
-mkdir trading-new-feature/
-
-# 2. Add implementation
-# trading-new-feature/scripts/new_agent.py
-class NewFeatureAgent:
-    async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        # Implementation
-        pass
-
-# 3. Add documentation
-# trading-new-feature/SKILL.md
-# trading-new-feature/references/usage.md
-
-# 4. Import and use
-from trading-new-feature.scripts import NewFeatureAgent
-```
-
-### 2. Adding New Metrics
-
-```python
-# 1. Add to PerformanceMetric enum
-class PerformanceMetric(Enum):
-    SUCCESS_RATE = "success_rate"
-    EXECUTION_TIME = "execution_time"
-    NEW_METRIC = "new_metric"  # Add new metric
-
-# 2. Update logging
-await logger.db.record_performance_metric(
-    agent_id="agent_001",
-    metric_type=PerformanceMetric.NEW_METRIC,
-    metric_value=0.85
-)
-
-# 3. Add to tests
-async def test_new_metric_logging(self):
-    await logger.log_performance_evaluation("agent_001", {
-        "new_metric": 0.85
-    })
-    
-    metrics = await logger.db.get_performance_metrics(
-        "agent_001", PerformanceMetric.NEW_METRIC
-    )
-    assert len(metrics) >= 1
-```
-
-### 3. Adding New Event Types
-
-```python
-# 1. Add to EventType enum
-class EventType(Enum):
-    AGENT_EXECUTION = "agent_execution"
-    NEW_EVENT_TYPE = "new_event_type"  # Add new event
-
-# 2. Update logging
-await logger.db.log_agent_event(
-    agent_id="agent_001",
-    event_type=EventType.NEW_EVENT_TYPE,
-    log_level=LogLevel.INFO,
-    status=AgentStatus.ACTIVE,
-    message="New event occurred"
-)
-```
-
-## Best Practices
-
-### 1. Error Handling
-
-```python
-# ✅ Good: Specific exceptions with context
-try:
-    result = await agent.execute(input_data)
-except DataValidationError as e:
-    logger.error(f"Data validation failed: {e}")
-    await logger.log_mistake_analysis(...)
-except ExecutionError as e:
-    logger.error(f"Execution failed: {e}")
-    await logger.log_mistake_analysis(...)
-
-# ❌ Bad: Generic exception handling
-try:
-    result = await agent.execute(input_data)
-except Exception as e:
-    print(f"Something went wrong: {e}")  # Lost context
-```
-
-### 2. Logging
-
-```python
-# ✅ Good: Structured logging with context
-await logger.log_agent_execution(
-    agent_id="data_analyst",
-    execution_id=f"exec_{uuid.uuid4().hex[:8]}",
-    action="analyze_market",
-    input_data={"symbol": "AAPL", "indicators": ["RSI", "MACD"]},
-    output_data={"signal": "buy", "confidence": 0.85},
-    success=True,
-    execution_time_ms=150
-)
-
-# ❌ Bad: Unstructured logging
-print(f"Agent {agent_id} analyzed {symbol} and got {signal}")
-```
-
-### 3. Testing
-
-```python
-# ✅ Good: Isolated tests with fixtures
-@pytest_asyncio.fixture
-async def test_agent():
-    agent = TestAgent("test_agent_001")
-    yield agent
-    # Cleanup handled automatically
-
-async def test_agent_execution(test_agent):
-    result = await test_agent.execute({"test": "data"})
-    assert result["success"] == True
-
-# ❌ Bad: Tests with side effects
-def test_agent_execution():
-    agent = TestAgent("test_agent_001")
-    result = agent.execute({"test": "data"})
-    assert result["success"] == True
-    # No cleanup, potential side effects
-```
-
-This architecture ensures the system is:
-- **Testable**: Each component can be tested in isolation
-- **Debuggable**: Clear logging and state tracking
-- **Scalable**: Modular design supports horizontal scaling
-- **Maintainable**: Clear separation of concerns
-- **Observable**: All actions are logged and traceable
+- Flow feed (filters, refresh cadence)
+- Screener (sorting/filtering + ticker details)
+- Confirmed plays (generate/accept/monitor/close)
+- Learning summary (history-driven feedback)
+- Agent trace + task plan visibility for operator observability

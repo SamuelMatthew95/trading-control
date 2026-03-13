@@ -14,9 +14,11 @@ from api.routes.analyze import router as analyze_router
 from api.routes.health import router as health_router
 from api.routes.performance import router as performance_router
 from api.routes.trades import router as trades_router
+from api.routes.options import router as options_router
 from api.services.learning import AgentLearningService
 from api.services.trading import TradingService
 from api.services.memory import AgentMemoryService
+from api.services.options import OptionsService
 from api.database import get_settings_info, init_database, test_database_connection
 from multi_agent_orchestrator import MultiAgentOrchestrator
 
@@ -34,6 +36,7 @@ app.include_router(health_router)
 app.include_router(analyze_router)
 app.include_router(trades_router)
 app.include_router(performance_router)
+app.include_router(options_router)
 
 
 @app.exception_handler(Exception)
@@ -51,7 +54,12 @@ async def startup_event():
     await init_database()
     _ = get_settings_info()
     orchestrator = MultiAgentOrchestrator(os.getenv("ANTHROPIC_API_KEY"))
-    set_services(TradingService(orchestrator), AgentLearningService(), AgentMemoryService())
+    set_services(
+        TradingService(orchestrator),
+        AgentLearningService(),
+        AgentMemoryService(),
+        OptionsService(os.getenv("ANTHROPIC_API_KEY")),
+    )
 
 
 handler = app

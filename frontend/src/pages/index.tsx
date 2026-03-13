@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Brain, TrendingUp, AlertTriangle, Activity, BarChart3, Database, Target, Shield, DollarSign } from 'lucide-react';
 import axios from 'axios';
+import TopNav from '@/components/layout/TopNav';
 
 interface AgentStatus {
   name: string;
@@ -468,6 +469,8 @@ export default function TradingDashboard() {
           </h1>
           <p className="text-gray-600 mt-2">AI-powered multi-agent trading system with learning capabilities</p>
         </div>
+
+        <TopNav />
 
         {/* Navigation Tabs */}
         <div className="bg-white rounded-lg shadow-sm mb-6">

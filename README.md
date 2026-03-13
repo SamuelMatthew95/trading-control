@@ -7,7 +7,8 @@ Production-oriented multi-agent trading control system with a modular FastAPI ba
 This repository provides an AI-agent-powered trading control backend with:
 
 - **Modular API architecture** (routers, services, core models, startup wiring).
-- **Planner → Executor → Evaluator** multi-agent orchestration flow.
+- **Planner → Executor → Evaluator** multi-agent orchestration flow for stocks.
+- **Dedicated options intelligence subsystem** with multi-agent OODA pipeline.
 - **Grounding/RAG-lite** using local strategy/reference documents.
 - **Typed + guardrailed tools** with retry and circuit-breaker behavior.
 - **Memory layers** (conversation, task-state, and DB-backed persistent run memory).
@@ -21,13 +22,15 @@ This repository provides an AI-agent-powered trading control backend with:
 ### High-level components
 
 1. **API Layer (`api/routes`)**
-   - Exposes endpoints for health, analysis, shadow mode, trades, and performance.
+   - Exposes endpoints for health, analysis, shadow mode, trades, performance, and options intelligence.
 2. **Service Layer (`api/services`)**
    - `TradingService`: orchestration invocation + shadow-trade evaluation.
    - `AgentLearningService`: per-agent performance tracking and persistence.
+   - `AgentMemoryService`: persistent run storage in DB.
+   - `OptionsService`: options flow/screener intelligence with guardrailed multi-agent generation.
 3. **Core Models (`api/core/models.py`)**
    - Pydantic request/response models.
-   - SQLAlchemy ORM models (`Trade`, `AgentPerformance`).
+   - SQLAlchemy ORM models (`Trade`, `AgentPerformance`, `AgentRun`).
 4. **Agent Runtime (`multi_agent_orchestrator.py`)**
    - Planner, execution engine, reasoning model(s), tool layer, memory, evaluator.
 5. **Infrastructure Runtime (`api/main.py`, `api/database.py`, `api/config.py`)**
@@ -43,18 +46,27 @@ This repository provides an AI-agent-powered trading control backend with:
 │   ├── routes/
 │   │   ├── analyze.py
 │   │   ├── health.py
+│   │   ├── options.py
 │   │   ├── performance.py
 │   │   └── trades.py
 │   ├── services/
 │   │   ├── learning.py
+│   │   ├── memory.py
+│   │   ├── options.py
+│   │   ├── options_agents.py
 │   │   └── trading.py
 │   ├── config.py
 │   ├── database.py
 │   ├── main.py
 │   ├── main_state.py
 │   └── index.py
+├── frontend/
+│   └── src/
+│       ├── components/options/
+│       ├── lib/
+│       └── pages/options.tsx
 ├── multi_agent_orchestrator.py
-├── skills/trade-bot/references/
+├── docs/
 ├── tests/
 └── requirements.txt
 ```
@@ -70,6 +82,7 @@ This repository provides an AI-agent-powered trading control backend with:
 - **SQLAlchemy (async)** for data access
 - **PostgreSQL** (expected via `DATABASE_URL`)
 - **Anthropic (optional)** for live reasoning model calls
+- **Next.js/React** for operator UI
 
 ### Config
 
@@ -79,6 +92,9 @@ Key env vars:
 
 - `DATABASE_URL` (required for DB-backed runtime)
 - `ANTHROPIC_API_KEY` (optional; if absent, deterministic local model is used)
+- `ANTHROPIC_MODEL` (optional; defaults to `claude-sonnet-4-20250514`)
+- `UW_API_KEY` (optional for live Unusual Whales MCP tool calls)
+- `UNUSUAL_WHALES_MCP_URL` (optional; defaults to UW MCP endpoint)
 - `FRONTEND_URL` (CORS origin)
 - `NODE_ENV` (`development` | `staging` | `production`)
 
@@ -86,27 +102,34 @@ Key env vars:
 
 ## Agent System Design
 
-The orchestrator is intentionally separated into layered concerns:
+### Stocks orchestration
 
-- **Reasoning model layer**
-  - `AnthropicReasoningModel` (live API calls + retry)
-  - `DeterministicReasoningModel` (fallback deterministic behavior)
-- **Planner layer**
-  - deterministic step plan (`signal`, `consensus`, `risk`, `sizing`, `decision`)
-- **Execution layer**
-  - step-specific execution and data flow
-- **Tool layer**
-  - `TradeTools` with asset/timeframe guardrails + retry/circuit breaker
-- **Grounding layer**
-  - `DocumentRetriever` reading local markdown references
-- **Memory layer**
-  - conversation memory
-  - task state memory
-  - persistent memory (`agent_runs` database table)
-- **Evaluation layer**
-  - trajectory and output-shape checks
+The stock pipeline is separated into layered concerns:
 
-This keeps planning, execution, and evaluation distinct and testable.
+- Reasoning model layer
+- Planner layer
+- Execution layer
+- Tool layer with guardrails
+- Grounding layer
+- Memory layer
+- Evaluation layer
+
+### Options orchestration (uniform multi-agent design)
+
+The options pipeline is implemented as a dedicated agent chain:
+
+1. `OPTIONS_ANALYST` (observe/orient market + flow context)
+2. `OPTIONS_STRATEGIST` (regime + strategy candidate planning)
+3. `OPTIONS_EXECUTOR` (build executable play templates)
+4. `OPTIONS_GUARDRAIL` (risk thresholds + kill switch)
+5. `OPTIONS_VALIDATOR` (quality/schema gate)
+
+Each generation call returns:
+
+- `items` (validated plays)
+- `agent_trace` (agent-by-agent summaries)
+- `guardrail` (kill-switch/rejection metadata)
+- `task_plan` (decomposed OODA tasks)
 
 ---
 
@@ -116,6 +139,7 @@ This keeps planning, execution, and evaluation distinct and testable.
 
 - `GET /`
 - `GET /api/health`
+- `GET /api/options/health`
 
 ### Analysis
 
@@ -135,6 +159,19 @@ This keeps planning, execution, and evaluation distinct and testable.
 - `GET /api/statistics`
 - `GET /api/runs`
 
+### Options (uniform route family)
+
+- `GET /api/options/flow`
+- `GET /api/options/screener`
+- `GET /api/options/ticker/{symbol}`
+- `POST /api/options/plays/generate`
+- `POST /api/options/plays/close`
+- `POST /api/options/learning/summary`
+- `GET /api/options/performance`
+- `GET /api/options/performance/{agent_name}`
+- `GET /api/options/statistics`
+- `GET /api/options/runs`
+
 ---
 
 ## Local Development
@@ -152,6 +189,9 @@ Example:
 ```bash
 export DATABASE_URL='postgresql://user:pass@localhost:5432/trading_control'
 export ANTHROPIC_API_KEY='your_key_optional'
+export ANTHROPIC_MODEL='claude-sonnet-4-20250514'
+export UW_API_KEY='your_uw_key_optional'
+export UNUSUAL_WHALES_MCP_URL='https://api.unusualwhales.com/api/mcp'
 export FRONTEND_URL='http://localhost:3000'
 export NODE_ENV='development'
 ```
@@ -175,7 +215,7 @@ pytest -q
 ### Recommended deployment flow
 
 1. Provision PostgreSQL.
-2. Set runtime env vars (`DATABASE_URL`, optional `ANTHROPIC_API_KEY`, `FRONTEND_URL`).
+2. Set runtime env vars (`DATABASE_URL`, optional model/API keys, `FRONTEND_URL`).
 3. Deploy API service using ASGI entrypoint:
    - `api.main:app` (or compatibility entrypoint `api.index:app`)
 4. Ensure startup health:
@@ -199,32 +239,10 @@ The repository includes tests for:
 - contradictory data / low-consensus handling
 - shadow-mode evaluation
 - modular API structure checks
+- options multi-agent output structure + telemetry contract checks
 
 Run all tests:
 
 ```bash
 pytest -q
 ```
-
----
-
-## Operational Notes
-
-- Persistent execution memory is stored in PostgreSQL (`agent_runs`) through the API memory service.
-- Local file artifacts may still appear for standalone orchestrator runs, but production API mode persists traces in the database.
-- For better traceability, integrate structured telemetry (e.g., OpenTelemetry/Langfuse) on top of current call traces.
-
----
-
-## Roadmap Suggestions
-
-- Add route-level integration tests with mocked DB sessions.
-- Add richer trajectory replay/regression datasets.
-- Add strict schema validation for agent step outputs before state transitions.
-- Add automated promotion logic for shadow-mode → live based on KPI thresholds.
-
----
-
-## License
-
-Internal project / no explicit OSS license declared.

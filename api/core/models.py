@@ -48,6 +48,22 @@ class AgentPerformanceView(BaseModel):
     improvement_areas: List[str] = Field(default_factory=list)
 
 
+class OptionsGenerateRequest(BaseModel):
+    flow: List[Dict[str, Any]] = Field(default_factory=list)
+    screener: List[Dict[str, Any]] = Field(default_factory=list)
+    learning_context: List[Dict[str, Any]] = Field(default_factory=list, alias="learningContext")
+
+
+class ClosedPlayEvalRequest(BaseModel):
+    play: Dict[str, Any]
+    pnl: float
+    recent_flow: List[Dict[str, Any]] = Field(default_factory=list, alias="recentFlow")
+
+
+class LearningSummaryRequest(BaseModel):
+    history: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str
