@@ -12,13 +12,19 @@ class Settings(BaseSettings):
     DATABASE_URL: Optional[PostgresDsn] = Field(default=None)
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
     ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+
+    API_KEY: Optional[str] = None
+    API_SECRET_KEY: Optional[str] = None
+
     NODE_ENV: Literal["development", "staging", "production"] = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
-    API_TIMEOUT: int = 30000
-    MAX_RETRIES: int = 3
     ALLOWED_ORIGINS: str = "http://localhost:3000"
+    ALLOWED_HOSTS: str = "localhost,127.0.0.1"
+
+    API_TIMEOUT_MS: int = 30000
+    MAX_RETRIES: int = 3
+    RETRY_BACKOFF_MS: int = 250
     LOG_LEVEL: str = "INFO"
-    API_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -57,3 +63,8 @@ def validate_all_settings() -> bool:
 
 def parse_csv_env(raw: str) -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def get_api_timeout_ms() -> int:
+    """Backward-compatible timeout accessor in milliseconds."""
+    return settings.API_TIMEOUT_MS
