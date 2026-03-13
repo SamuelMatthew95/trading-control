@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
 from api.core.models import AgentRun, Trade
-from api.main_state import get_learning_service
 from api.database import get_async_session
+from api.main_state import get_learning_service
 
 router = APIRouter(tags=["performance"])
+_STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 
 @router.get("/api/performance/{agent_name}")
@@ -29,19 +32,27 @@ async def get_all_performance(learning_service=Depends(get_learning_service)):
 
 
 @router.get("/api/statistics")
-async def get_statistics():
+async def get_statistics(force_refresh: bool = False):
+    now = time.time()
+    if not force_refresh and _STATS_CACHE["payload"] and now < float(_STATS_CACHE["expires_at"]):
+        return _STATS_CACHE["payload"]
+
     async with get_async_session() as session:
         total_trades = (await session.execute(select(func.count(Trade.id)))).scalar() or 0
         wins = (await session.execute(select(func.count(Trade.id)).where(Trade.outcome == "WIN"))).scalar() or 0
         losses = (await session.execute(select(func.count(Trade.id)).where(Trade.outcome == "LOSS"))).scalar() or 0
         total_pnl = (await session.execute(select(func.sum(Trade.pnl)).where(Trade.pnl.is_not(None)))).scalar() or 0
-        return {
+        payload = {
             "total_trades": total_trades,
             "wins": wins,
             "losses": losses,
             "win_rate": round((wins / total_trades * 100), 2) if total_trades else 0,
             "total_pnl": round(total_pnl, 2),
+            "cached_until_epoch": int(now + 15),
         }
+        _STATS_CACHE["payload"] = payload
+        _STATS_CACHE["expires_at"] = now + 15
+        return payload
 
 
 @router.get("/api/runs")

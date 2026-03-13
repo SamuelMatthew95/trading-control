@@ -1,20 +1,27 @@
-"""Application settings with validation for API and agent runtime."""
+"""Application settings with strict validation for production runtime."""
 
 from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import Field, PostgresDsn, ValidationError, field_validator
+from pydantic import Field, PostgresDsn, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     DATABASE_URL: Optional[PostgresDsn] = Field(default=None)
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
+    API_SECRET_KEY: Optional[str] = Field(default=None)
+
     NODE_ENV: Literal["development", "staging", "production"] = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
-    API_TIMEOUT: int = 30000
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    ALLOWED_HOSTS: str = "localhost,127.0.0.1"
+
+    API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3
+    RETRY_BACKOFF_MS: int = 250
+    LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -23,12 +30,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("ANTHROPIC_API_KEY")
-    @classmethod
-    def validate_api_key(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and not value.strip():
-            raise ValueError("ANTHROPIC_API_KEY cannot be empty")
-        return value
+    @model_validator(mode="after")
+    def validate_runtime_requirements(self) -> "Settings":
+        if self.NODE_ENV == "production":
+            if not self.DATABASE_URL:
+                raise ValueError("DATABASE_URL is required in production")
+            if not self.API_SECRET_KEY:
+                raise ValueError("API_SECRET_KEY is required in production")
+        return self
 
 
 settings = Settings()
@@ -41,6 +50,10 @@ def get_database_url() -> str:
     if url.startswith("postgres://") or url.startswith("postgresql://"):
         return url.replace("://", "+asyncpg://", 1)
     return url
+
+
+def parse_csv_env(raw: str) -> list[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def validate_all_settings() -> bool:
