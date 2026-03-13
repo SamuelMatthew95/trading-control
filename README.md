@@ -86,6 +86,18 @@ Key env vars:
 
 ## Agent System Design
 
+### Observe → Correct → Reinforce loop
+
+- Coaches stage Film Room annotations via `POST /memory/annotations` into `trace_steps`.
+- `POST /feedback/reinforce` executes a background learning pipeline:
+  1. Reads pending annotations for a run.
+  2. Upserts hallucinations to negative memory and starred trajectories to few-shot memory.
+  3. Activates promoted `strategy_dna` rules and recomputes value delta.
+  4. Rebuilds the active system prompt and writes a versioned prompt cache key.
+- Reinforcement execution is tracked in `feedback_jobs` (pending/running/done/failed) and can be polled by `job_id`.
+- `POST /insights/rebuild` runs a supervisor pass over recent runs and exposes scored insights from `GET /insights`, including a `needs_more_data` flag when confidence is below 0.6.
+
+
 The orchestrator is intentionally separated into layered concerns:
 
 - **Reasoning model layer**
@@ -134,6 +146,13 @@ This keeps planning, execution, and evaluation distinct and testable.
 - `GET /api/performance`
 - `GET /api/statistics`
 - `GET /api/runs`
+- `POST /memory/annotations`
+- `POST /feedback/reinforce`
+- `GET /feedback/reinforce/{job_id}`
+- `POST /memory/negative`
+- `POST /insights/rebuild`
+- `GET /insights`
+- `GET /runs/propose`
 
 ---
 

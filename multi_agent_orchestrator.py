@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -10,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Protocol
+
+from sqlalchemy import create_engine, text
 
 from pydantic import BaseModel, Field
 
@@ -53,6 +56,73 @@ class TradePlan:
 class ToolError(RuntimeError):
     """Tool execution failed validation or guardrails."""
 
+
+
+
+def _to_sync_db_url(raw_url: str) -> str:
+    if raw_url.startswith("sqlite+aiosqlite://"):
+        return raw_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
+    if raw_url.startswith("postgresql+asyncpg://"):
+        return raw_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    return raw_url
+
+
+class MemoryGuard:
+    def __init__(self, threshold: float = 0.82):
+        self.threshold = threshold
+
+    def check(self, tool_name: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        db_url = _to_sync_db_url(os.getenv("DATABASE_URL", "sqlite:///./trading-control.db"))
+        probe = f"{tool_name}:{json.dumps(payload, sort_keys=True)}"
+        probe_embedding = self._embed(probe)
+        try:
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT content, embedding_json, metadata_json
+                        FROM vector_memory_records
+                        WHERE store_type = 'negative-memory'
+                        ORDER BY id DESC
+                        LIMIT 100
+                        """
+                    )
+                ).fetchall()
+        except Exception:
+            return None
+
+        for row in rows:
+            try:
+                candidate = json.loads(row.embedding_json)
+                similarity = self._cosine(probe_embedding, candidate)
+                if similarity > self.threshold:
+                    metadata = json.loads(row.metadata_json) if row.metadata_json else {}
+                    return {
+                        "similarity": round(similarity, 3),
+                        "reason": metadata.get("reason", "blocked by prior negative memory"),
+                        "content": row.content,
+                    }
+            except Exception:
+                continue
+        return None
+
+    def _embed(self, text_input: str) -> List[float]:
+        digest = hashlib.sha256(text_input.encode("utf-8")).digest()
+        return [round(b / 255.0, 6) for b in digest[:16]]
+
+    def _cosine(self, a: List[float], b: List[float]) -> float:
+        n = min(len(a), len(b))
+        if n == 0:
+            return 0.0
+        a = a[:n]
+        b = b[:n]
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(y * y for y in b) ** 0.5
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
 
 class TradeConstraint(BaseModel):
     asset_ticker: str
@@ -166,8 +236,19 @@ class TradeTools:
         self.circuit_breaker_threshold = circuit_breaker_threshold
         self.failure_count = 0
         self.circuit_open = False
+        self.memory_guard = MemoryGuard()
+        self.guard_hits = 0
+
+    def _guard(self, tool_name: str, payload: Dict[str, Any]) -> None:
+        match = self.memory_guard.check(tool_name, payload)
+        if not match:
+            return
+        self.guard_hits += 1
+        reason = match.get("reason", "blocked")
+        raise ToolError(f"skipped_by_memory_guard:{reason}")
 
     def get_current_price(self, asset: str) -> float:
+        self._guard("get_current_price", {"asset": asset})
         if self.circuit_open:
             raise ToolError("Price tool circuit breaker is open")
         if asset not in self.allowed_assets:
@@ -185,6 +266,7 @@ class TradeTools:
         raise ToolError(f"Price lookup failed after retries: {last_error}")
 
     def get_atr(self, asset: str, timeframe: str) -> float:
+        self._guard("get_atr", {"asset": asset, "timeframe": timeframe})
         if timeframe not in {"1H", "4H", "1D", "1W"}:
             raise ToolError(f"Unsupported timeframe '{timeframe}'")
         _ = asset
@@ -306,6 +388,7 @@ class ExecutionEngine:
             "RISK FLAGS": risk.get("flags", []),
             "RATIONALE": "Grounded decision via planner/executor pipeline.",
             "INVALIDATION": f"Below stop {float(sizing.get('stop', 0)):.2f}",
+            "TRACE SUMMARY": {"guard_hits": self.tools.guard_hits},
         }
 
 
@@ -390,10 +473,12 @@ class MultiAgentOrchestrator:
                 elif step.name == "sizing":
                     context["sizing"] = self.executor.run_step(step, context)
             except Exception as exc:  # noqa: BLE001
+                error_text = str(exc)
+                agent_name = "skipped_by_memory_guard" if "skipped_by_memory_guard" in error_text else step.name.upper()
                 self.agent_calls.append(
-                    AgentCall(step.name.upper(), context.copy(), {}, datetime.utcnow(), False, error=str(exc), duration_ms=int((time.time() - step_start) * 1000))
+                    AgentCall(agent_name, context.copy(), {}, datetime.utcnow(), False, error=error_text, duration_ms=int((time.time() - step_start) * 1000))
                 )
-                decision = self._error_decision(asset, str(exc))
+                decision = self._error_decision(asset, error_text)
                 decision["context_dump"] = {"task_state": self.task_memory.get(task_id), "retrieved_context": context.get("signals", [])}
                 self._persist(task_id, decision)
                 return decision
@@ -442,6 +527,7 @@ class MultiAgentOrchestrator:
 
     def _persist(self, task_id: str, decision: Dict[str, Any]) -> None:
         log_entry = {
+            "trace_summary": {"guard_hits": self.executor.tools.guard_hits},
             "task_id": task_id,
             "timestamp": datetime.utcnow().isoformat(),
             "decision": decision,

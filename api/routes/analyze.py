@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.core.models import TradeDecision, TradeRequest
 from api.database import get_async_session
-from api.main_state import get_learning_service, get_memory_service, get_trading_service
+from api.main_state import get_learning_service, get_run_lifecycle_service, get_trading_service
 from api.observability import log_structured, metrics_store
 from api.utils import with_retries
 
@@ -18,7 +18,7 @@ async def analyze_trade(
     request: TradeRequest,
     trading_service=Depends(get_trading_service),
     learning_service=Depends(get_learning_service),
-    memory_service=Depends(get_memory_service),
+    run_lifecycle_service=Depends(get_run_lifecycle_service),
 ):
     start = datetime.utcnow()
 
@@ -46,7 +46,7 @@ async def analyze_trade(
 
         history = trading_service.orchestrator.get_trade_history()
         if history:
-            await memory_service.persist_run(session, history[-1])
+            await run_lifecycle_service.complete_run(history[-1])
 
     estimated_tokens = max(200, len(str(result)) // 2)
     estimated_cost_usd = round(estimated_tokens * 0.000003, 6)

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import AgentPerformance, AgentPerformanceView
+from api.core.models import AgentPerformance, AgentPerformanceView, Run
 
 
 class AgentLearningService:
@@ -65,3 +66,50 @@ class AgentLearningService:
             accuracy_score=row.accuracy_score,
             improvement_areas=json.loads(row.improvement_areas) if row.improvement_areas else [],
         )
+
+    async def post_run_scoring(self, run_id: int, session: AsyncSession) -> float:
+        row = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+        if row is None:
+            return 0.0
+        trace = json.loads(row.trace_json) if row.trace_json else []
+        successful = sum(1 for step in trace if step.get("success", False))
+        total = max(len(trace), 1)
+        logical_consistency = successful / total
+        goal_adherence = 1.0 if row.status == "won" else 0.4
+        no_circular_reasoning = 1.0 if successful >= (total / 2) else 0.5
+        score = round((logical_consistency + goal_adherence + no_circular_reasoning) / 3 * 10, 2)
+        row.reasoning_coherence_score = score
+        row.scoring_status = "scored"
+        return score
+
+    async def score_run_with_retries(self, run_id: int, session: AsyncSession, retries: int = 3) -> None:
+        backoff = [2, 10, 60]
+        row = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+        if row is None:
+            return
+
+        for attempt in range(min(retries, len(backoff))):
+            row.scoring_attempt_count = int(row.scoring_attempt_count or 0) + 1
+            row.last_scoring_attempt_at = datetime.utcnow()
+            try:
+                await self.post_run_scoring(run_id, session)
+                return
+            except Exception:  # noqa: BLE001
+                if attempt < retries - 1:
+                    await asyncio.sleep(backoff[attempt])
+
+        row.scoring_status = "failed"
+
+    async def get_failed_runs_for_rescore(self, session: AsyncSession) -> list[int]:
+        rows = (
+            await session.execute(
+                select(Run.id)
+                .where(
+                    Run.scoring_status == "failed",
+                    Run.created_at >= datetime.utcnow() - timedelta(hours=24),
+                    Run.scoring_attempt_count < 10,
+                )
+                .order_by(Run.created_at.asc())
+            )
+        ).scalars().all()
+        return list(rows)
