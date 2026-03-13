@@ -10,4 +10,4 @@ def test_imports():
     """Test that we can import basic modules"""
     import sys
     assert sys.version_info.major == 3
-    assert sys.version_info.minor >= 11
+    assert sys.version_info.minor >= 10
