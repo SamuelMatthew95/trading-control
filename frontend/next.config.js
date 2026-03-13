@@ -4,7 +4,6 @@ const nextConfig = {
   swcMinify: true,
   compress: true,
   poweredByHeader: false,
-  output: 'standalone',
   images: {
     formats: ['image/webp', 'image/avif'],
   },
