@@ -135,3 +135,14 @@ Major UI sections:
 - Confirmed plays (generate/accept/monitor/close)
 - Learning summary (history-driven feedback)
 - Agent trace + task plan visibility for operator observability
+
+
+---
+
+## Conflict Resolution & Uniformity Notes
+
+The options architecture is intentionally aligned with the core API conventions after merge/rebase integration:
+
+- Route family parity (`health`, `performance`, `statistics`, `runs`)
+- Environment-driven model configuration (`ANTHROPIC_MODEL`)
+- Shared persistence model for run traces (`agent_runs`)

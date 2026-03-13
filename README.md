@@ -12,6 +12,8 @@ This repository provides an AI-agent-powered trading control backend with:
 - **Grounding/RAG-lite** using local strategy/reference documents.
 - **Typed + guardrailed tools** with retry and circuit-breaker behavior.
 - **Memory layers** (conversation, task-state, and DB-backed persistent run memory).
+
+- Persistent execution traces are stored in the `agent_runs` table for replay and auditability.
 - **Shadow mode** for virtual-trade analysis before live promotion.
 - **Async DB integration** via SQLAlchemy async engine/session.
 

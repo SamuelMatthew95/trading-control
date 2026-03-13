@@ -80,3 +80,14 @@ Keep docs current when any of these change:
 - service responsibilities (`api/services/*`)
 - environment variables (model/provider/tool configuration)
 - persistence and observability behavior (`agent_runs`, performance metrics)
+
+
+---
+
+## **🧩 Conflict/Rebase Checklist**
+
+When rebasing or resolving branch conflicts, verify:
+
+- `README.md` endpoint tables are still accurate
+- `docs/architecture.md` reflects current service/route wiring
+- options route parity (`/api/options/health|performance|statistics|runs`) is documented

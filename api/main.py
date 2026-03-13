@@ -58,7 +58,10 @@ async def startup_event():
         TradingService(orchestrator),
         AgentLearningService(),
         AgentMemoryService(),
-        OptionsService(os.getenv("ANTHROPIC_API_KEY")),
+        OptionsService(
+            os.getenv("ANTHROPIC_API_KEY"),
+            anthropic_model=os.getenv("ANTHROPIC_MODEL"),
+        ),
     )
 
 
