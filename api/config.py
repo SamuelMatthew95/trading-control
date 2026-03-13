@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 
 from pydantic import Field, PostgresDsn, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,10 +11,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: Optional[PostgresDsn] = Field(default=None)
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
     NODE_ENV: Literal["development", "staging", "production"] = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
     API_TIMEOUT: int = 30000
     MAX_RETRIES: int = 3
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    LOG_LEVEL: str = "INFO"
+    API_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -49,3 +53,7 @@ def validate_all_settings() -> bool:
         return True
     except ValidationError:
         return False
+
+
+def parse_csv_env(raw: str) -> List[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
