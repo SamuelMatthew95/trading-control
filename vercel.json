@@ -4,13 +4,6 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/.next",
   "installCommand": "cd frontend && npm install",
-  "functions": {
-    "api/index.py": {
-      "maxDuration": 30,
-      "memory": 1024,
-      "regions": ["iad1"]
-    }
-  },
   "rewrites": [
     {
       "source": "/api/:path*",
