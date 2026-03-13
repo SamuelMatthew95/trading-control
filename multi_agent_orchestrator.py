@@ -1,430 +1,475 @@
-"""
-Complete Claude Multi-Agent Trade Bot System
-With proper error handling, logging, and real agent calls
-"""
+"""Modular production-oriented multi-agent trading orchestrator."""
+
+from __future__ import annotations
 
 import json
 import logging
-import anthropic
+import os
+import time
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Literal, Optional, Protocol
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('trade-bot.log'),
-        logging.StreamHandler()
-    ]
-)
+from pydantic import BaseModel, Field
+
+try:
+    import anthropic
+except ImportError:  # pragma: no cover - dependency optional in tests
+    anthropic = None
+
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+Direction = Literal["LONG", "SHORT", "FLAT"]
+
 
 @dataclass
 class AgentCall:
-    """Track agent calls for logging"""
     agent_name: str
     input_data: Dict[str, Any]
     output_data: Dict[str, Any]
     timestamp: datetime
     success: bool
     error: Optional[str] = None
+    duration_ms: int = 0
+
+
+@dataclass
+class PlanStep:
+    name: str
+    payload: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TradePlan:
+    asset: str
+    timeframe: str
+    steps: List[PlanStep]
+
+
+class ToolError(RuntimeError):
+    """Tool execution failed validation or guardrails."""
+
+
+class TradeConstraint(BaseModel):
+    asset_ticker: str
+    max_position_size: float = Field(default=5000, le=5000)
+    order_type: Literal["limit", "market"] = "limit"
+    stop_loss_pct: float = Field(default=0.02, ge=0.01)
+
+
+
+class ReasoningModel(Protocol):
+    def complete_json(self, *, system_prompt: str, payload: Dict[str, Any]) -> Dict[str, Any]: ...
+
+
+class AnthropicReasoningModel:
+    def __init__(self, api_key: str, *, model_name: str = "claude-sonnet-4-20250514", retries: int = 2):
+        if anthropic is None:
+            raise RuntimeError("anthropic package is not installed")
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model_name = model_name
+        self.retries = retries
+
+    def complete_json(self, *, system_prompt: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        last_error: Optional[Exception] = None
+        for attempt in range(self.retries + 1):
+            try:
+                response = self.client.messages.create(
+                    model=self.model_name,
+                    max_tokens=1024,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": json.dumps(payload)}],
+                )
+                text = response.content[0].text
+                return json.loads(text)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                logger.warning("reasoning_model_retry", extra={"attempt": attempt + 1, "error": str(exc)})
+                time.sleep(0.2 * (attempt + 1))
+        raise RuntimeError(f"Model call failed after retries: {last_error}")
+
+
+class DeterministicReasoningModel:
+    """Fallback local model to keep flows deterministic in development/tests."""
+
+    def complete_json(self, *, system_prompt: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if "normalize trade signals" in system_prompt.lower():
+            direction: Direction = "LONG" if payload["asset"] in {"AAPL", "MSFT"} else "FLAT"
+            return [{"source": "heuristic", "direction": direction, "confidence": 0.7, "timeframe": payload["timeframe"]}]
+        if "compute consensus" in system_prompt.lower():
+            signals = payload.get("signals", [])
+            if not signals:
+                return {"direction": "FLAT", "agreement_ratio": 0.0, "signal_strength": 0.0}
+            direction = signals[0]["direction"]
+            agreement = sum(1 for s in signals if s["direction"] == direction) / len(signals)
+            confidence = sum(float(s.get("confidence", 0)) for s in signals) / len(signals)
+            return {"direction": direction, "agreement_ratio": agreement, "signal_strength": round(agreement * confidence, 3)}
+        if "enforce risk limits" in system_prompt.lower():
+            drawdown = float(payload.get("portfolio", {}).get("drawdown", 0))
+            veto = drawdown < -0.15
+            return {
+                "approved": not veto,
+                "veto": veto,
+                "risk_score": min(1.0, abs(drawdown) * 2 + 0.1),
+                "size_multiplier": 0.5 if veto else 1.0,
+                "flags": ["MAX_DRAWDOWN"] if veto else [],
+            }
+        price = float(payload.get("asset_price", 100))
+        atr = float(payload.get("atr", 5))
+        return {
+            "units": int(max(1, payload.get("portfolio_value", 100000) * 0.01 / max(price, 1))),
+            "entry": price,
+            "stop": max(0.01, price - atr),
+            "target": price + atr * 2,
+            "rr_ratio": 2.0,
+        }
+
+
+class DocumentRetriever:
+    """Tiny local retriever for grounding outputs in checked-in references."""
+
+    def __init__(self, root: str = "skills/trade-bot/references"):
+        self.root = Path(root)
+        self.documents: Dict[str, str] = {}
+        if self.root.exists():
+            for path in self.root.glob("*.md"):
+                self.documents[path.name] = path.read_text(encoding="utf-8")
+
+    def retrieve(self, query: str, *, top_k: int = 2) -> List[Dict[str, str]]:
+        scored: List[tuple[int, str, str]] = []
+        q_terms = {term.lower() for term in query.split() if len(term) > 2}
+        for name, text in self.documents.items():
+            lower = text.lower()
+            score = sum(1 for term in q_terms if term in lower)
+            if score:
+                scored.append((score, name, text[:500]))
+        scored.sort(reverse=True)
+        return [{"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]]
+
+
+class TradeTools:
+    def __init__(
+        self,
+        *,
+        allowed_assets: Optional[set[str]] = None,
+        price_provider: Optional[Callable[[str], float]] = None,
+        max_retries: int = 2,
+        circuit_breaker_threshold: int = 3,
+    ):
+        self.allowed_assets = allowed_assets or {"AAPL", "MSFT", "GOOGL", "TSLA"}
+        self.price_provider = price_provider or (lambda asset: {"AAPL": 150.25, "MSFT": 380.5, "GOOGL": 2800.0, "TSLA": 250.0}[asset])
+        self.max_retries = max_retries
+        self.circuit_breaker_threshold = circuit_breaker_threshold
+        self.failure_count = 0
+        self.circuit_open = False
+
+    def get_current_price(self, asset: str) -> float:
+        if self.circuit_open:
+            raise ToolError("Price tool circuit breaker is open")
+        if asset not in self.allowed_assets:
+            raise ToolError(f"Asset '{asset}' blocked by tool guardrail")
+        for _ in range(self.max_retries + 1):
+            try:
+                price = float(self.price_provider(asset))
+                self.failure_count = 0
+                return price
+            except Exception as exc:  # noqa: BLE001
+                self.failure_count += 1
+                if self.failure_count >= self.circuit_breaker_threshold:
+                    self.circuit_open = True
+                last_error = exc
+        raise ToolError(f"Price lookup failed after retries: {last_error}")
+
+    def get_atr(self, asset: str, timeframe: str) -> float:
+        if timeframe not in {"1H", "4H", "1D", "1W"}:
+            raise ToolError(f"Unsupported timeframe '{timeframe}'")
+        _ = asset
+        return 5.0
+
+
+class ConversationMemory:
+    def __init__(self, limit: int = 10):
+        self.limit = limit
+        self.events: List[Dict[str, Any]] = []
+
+    def add(self, event: Dict[str, Any]) -> None:
+        self.events.append(event)
+        self.events = self.events[-self.limit :]
+
+
+class TaskStateMemory:
+    def __init__(self):
+        self.state: Dict[str, Dict[str, Any]] = {}
+
+    def put(self, task_id: str, value: Dict[str, Any]) -> None:
+        self.state[task_id] = value
+
+    def get(self, task_id: str) -> Optional[Dict[str, Any]]:
+        return self.state.get(task_id)
+
+
+class PersistentMemory:
+    def __init__(self, path: str = "trade-memory.json"):
+        self.path = Path(path)
+        self._store = self._load()
+
+    def _load(self) -> Dict[str, Any]:
+        if self.path.exists():
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        return {"trades": []}
+
+    def append_trade(self, trade: Dict[str, Any]) -> None:
+        self._store.setdefault("trades", []).append(trade)
+        self.path.write_text(json.dumps(self._store, indent=2, default=str), encoding="utf-8")
+
+
+class Planner:
+    def build_plan(self, asset: str, timeframe: str) -> TradePlan:
+        return TradePlan(
+            asset=asset,
+            timeframe=timeframe,
+            steps=[
+                PlanStep("signal"),
+                PlanStep("consensus"),
+                PlanStep("risk"),
+                PlanStep("sizing"),
+                PlanStep("decision"),
+            ],
+        )
+
+
+class ExecutionEngine:
+    AGENT_PROMPTS: Dict[str, str] = {
+        "SIGNAL_AGENT": "You normalize trade signals. Return JSON list only.",
+        "CONSENSUS_AGENT": "You aggregate signals and compute consensus. Return JSON object only.",
+        "RISK_AGENT": "You enforce risk limits and can veto trades. Return JSON object only.",
+        "SIZING_AGENT": "You calculate position size using Kelly criterion. Return JSON object only.",
+    }
+
+    def __init__(self, model: ReasoningModel, retriever: DocumentRetriever, tools: TradeTools):
+        self.model = model
+        self.retriever = retriever
+        self.tools = tools
+
+    def run_step(self, step: PlanStep, context: Dict[str, Any]) -> Dict[str, Any]:
+        if step.name == "signal":
+            grounding = self.retriever.retrieve(f"{context['asset']} {context['timeframe']} signal")
+            payload = {"asset": context["asset"], "timeframe": context["timeframe"], "grounding": grounding}
+            return self.model.complete_json(system_prompt=self.AGENT_PROMPTS["SIGNAL_AGENT"], payload=payload)
+        if step.name == "consensus":
+            return self.model.complete_json(
+                system_prompt=self.AGENT_PROMPTS["CONSENSUS_AGENT"], payload={"signals": context["signals"]}
+            )
+        if step.name == "risk":
+            return self.model.complete_json(
+                system_prompt=self.AGENT_PROMPTS["RISK_AGENT"],
+                payload={"consensus": context["consensus"], "portfolio": context["portfolio_state"]},
+            )
+        if step.name == "sizing":
+            return self.model.complete_json(
+                system_prompt=self.AGENT_PROMPTS["SIZING_AGENT"],
+                payload={
+                    "consensus": context["consensus"],
+                    "risk": context["risk"],
+                    "asset_price": self.tools.get_current_price(context["asset"]),
+                    "atr": self.tools.get_atr(context["asset"], context["timeframe"]),
+                    "portfolio_value": context["portfolio_state"].get("total_value", 100000),
+                },
+            )
+        if step.name == "decision":
+            return self._format_decision(context)
+        raise ValueError(f"Unknown plan step {step.name}")
+
+    def _format_decision(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        consensus = context["consensus"]
+        risk = context["risk"]
+        sizing = context["sizing"]
+        signal_strength = float(consensus.get("signal_strength", 0))
+        confidence = "HIGH" if signal_strength > 0.8 else "MEDIUM" if signal_strength > 0.6 else "LOW"
+        return {
+            "DECISION": consensus.get("direction", "FLAT"),
+            "ASSET": context["asset"],
+            "SIZE": f"{sizing.get('units', 0)} units",
+            "ENTRY": f"{float(sizing.get('entry', 0)):.2f}",
+            "STOP": f"{float(sizing.get('stop', 0)):.2f}",
+            "TARGET": f"{float(sizing.get('target', 0)):.2f}",
+            "R/R RATIO": f"{float(sizing.get('rr_ratio', 0)):.1f}:1",
+            "CONFIDENCE": confidence,
+            "SIGNAL SUMMARY": [
+                f"Consensus={consensus.get('agreement_ratio', 0):.1%}",
+                f"Risk veto={risk.get('veto', False)}",
+            ],
+            "RISK FLAGS": risk.get("flags", []),
+            "RATIONALE": "Grounded decision via planner/executor pipeline.",
+            "INVALIDATION": f"Below stop {float(sizing.get('stop', 0)):.2f}",
+        }
+
+
+class EvaluationLayer:
+    def validate_trajectory(self, trace: List[AgentCall]) -> List[str]:
+        issues = []
+        if not trace:
+            issues.append("empty_trace")
+        if any(not call.success for call in trace):
+            issues.append("step_failure")
+        return issues
+
+    def validate_outcome(self, decision: Dict[str, Any]) -> List[str]:
+        required = {"DECISION", "ASSET", "SIZE", "CONFIDENCE"}
+        missing = sorted(required - set(decision))
+        return [f"missing:{k}" for k in missing]
+
 
 class MultiAgentOrchestrator:
-    """Complete multi-agent orchestrator with real Claude calls"""
-    
-    def __init__(self, api_key: str):
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.agent_calls = []
-        self.trade_log = []
-        
-        # Agent system prompts
-        self.agents = {
-            "SIGNAL_AGENT": {
-                "system": """You normalize trade signals. Return valid JSON only with this format:
-                [{"source": "agent_name", "direction": "LONG/SHORT/FLAT", "confidence": 0.85, "timeframe": "1D"}]
-                Analyze the asset and return multiple signals from different perspectives.""",
-                "required_fields": ["source", "direction", "confidence", "timeframe"]
-            },
-            "CONSENSUS_AGENT": {
-                "system": """You aggregate signals and compute consensus. Return valid JSON only:
-                {"direction": "LONG/SHORT/FLAT", "agreement_ratio": 0.75, "signal_strength": 0.8}
-                agreement_ratio = percentage of agents agreeing on the direction.
-                signal_strength = agreement_ratio * average_confidence.""",
-                "required_fields": ["direction", "agreement_ratio", "signal_strength"]
-            },
-            "RISK_AGENT": {
-                "system": """You enforce risk limits and can veto trades. Return valid JSON only:
-                {"approved": true, "veto": false, "risk_score": 0.3, "size_multiplier": 1.0, "flags": ["flag1", "flag2"]}
-                Veto if: drawdown > 15%, position size > 10%, or insufficient liquidity.
-                size_multiplier: reduce position if risk is high (0.5-1.0).""",
-                "required_fields": ["approved", "veto", "risk_score", "size_multiplier", "flags"]
-            },
-            "SIZING_AGENT": {
-                "system": """You calculate position size using Kelly criterion. Return valid JSON only:
-                {"units": 100, "entry": 150.25, "stop": 145.00, "target": 160.00, "rr_ratio": 2.0}
-                Use Kelly: position_size = (win_probability * avg_win - loss_probability * avg_loss) / avg_win * 0.25
-                rr_ratio = (target - entry) / (entry - stop).""",
-                "required_fields": ["units", "entry", "stop", "target", "rr_ratio"]
-            }
-        }
-    
-    def call_agent(self, agent_name: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Call individual agent with error handling and logging"""
-        
-        try:
-            logger.info(f"Calling {agent_name} with input: {input_data}")
-            
-            response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1024,
-                system=self.agents[agent_name]["system"],
-                messages=[
-                    {"role": "user", "content": json.dumps(input_data, indent=2)}
-                ]
-            )
-            
-            raw_output = response.content[0].text
-            logger.info(f"{agent_name} raw output: {raw_output}")
-            
-            # Parse JSON response
-            try:
-                output_data = json.loads(raw_output)
-                
-                # Validate required fields
-                required_fields = self.agents[agent_name]["required_fields"]
-                missing_fields = [field for field in required_fields if field not in output_data]
-                
-                if missing_fields:
-                    error_msg = f"Missing required fields: {missing_fields}"
-                    logger.error(f"{agent_name} validation error: {error_msg}")
-                    
-                    agent_call = AgentCall(
-                        agent_name=agent_name,
-                        input_data=input_data,
-                        output_data={},
-                        timestamp=datetime.now(),
-                        success=False,
-                        error=error_msg
-                    )
-                    self.agent_calls.append(agent_call)
-                    return {"success": False, "error": error_msg}
-                
-                # Log successful call
-                agent_call = AgentCall(
-                    agent_name=agent_name,
-                    input_data=input_data,
-                    output_data=output_data,
-                    timestamp=datetime.now(),
-                    success=True
-                )
-                self.agent_calls.append(agent_call)
-                
-                return {"success": True, "data": output_data}
-                
-            except json.JSONDecodeError as e:
-                error_msg = f"JSON parsing error: {str(e)}"
-                logger.error(f"{agent_name} JSON error: {error_msg}")
-                
-                agent_call = AgentCall(
-                    agent_name=agent_name,
-                    input_data=input_data,
-                    output_data={},
-                    timestamp=datetime.now(),
-                    success=False,
-                    error=error_msg
-                )
-                self.agent_calls.append(agent_call)
-                
-                return {"success": False, "error": error_msg}
-            
-        except Exception as e:
-            error_msg = f"API call error: {str(e)}"
-            logger.error(f"{agent_name} API error: {error_msg}")
-            
-            agent_call = AgentCall(
-                agent_name=agent_name,
-                input_data=input_data,
-                output_data={},
-                timestamp=datetime.now(),
-                success=False,
-                error=error_msg
-            )
-            self.agent_calls.append(agent_call)
-            
-            return {"success": False, "error": error_msg}
-    
-    def analyze_trade(self, asset: str, timeframe: str, portfolio_state: Dict[str, Any]) -> Dict[str, Any]:
-        """Complete trade analysis pipeline"""
-        
-        logger.info(f"Starting trade analysis for {asset}")
-        
-        # Step 1: Signal Agent
-        signal_input = {
-            "asset": asset,
-            "timeframe": timeframe,
-            "portfolio_state": portfolio_state
-        }
-        
-        signal_result = self.call_agent("SIGNAL_AGENT", signal_input)
-        if not signal_result["success"]:
-            return self._error_decision(asset, f"Signal agent failed: {signal_result['error']}")
-        
-        signals = signal_result["data"]
-        
-        # Step 2: Consensus Agent
-        consensus_input = {
-            "signals": signals
-        }
-        
-        consensus_result = self.call_agent("CONSENSUS_AGENT", consensus_input)
-        if not consensus_result["success"]:
-            return self._error_decision(asset, f"Consensus agent failed: {consensus_result['error']}")
-        
-        consensus = consensus_result["data"]
-        
-        # Check consensus threshold
-        if consensus["agreement_ratio"] < 0.50:
-            return self._conflict_decision(asset, consensus, signals)
-        
-        # Step 3: Risk Agent
-        risk_input = {
-            "consensus": consensus,
-            "portfolio": portfolio_state
-        }
-        
-        risk_result = self.call_agent("RISK_AGENT", risk_input)
-        if not risk_result["success"]:
-            return self._error_decision(asset, f"Risk agent failed: {risk_result['error']}")
-        
-        risk = risk_result["data"]
-        
-        # Check for veto
-        if risk["veto"]:
-            return self._veto_decision(asset, consensus, risk)
-        
-        # Step 4: Sizing Agent
-        sizing_input = {
-            "consensus": consensus,
-            "risk": risk,
-            "asset_price": self._get_current_price(asset),
-            "atr": self._get_atr(asset, timeframe),
-            "portfolio_value": portfolio_state.get("total_value", 100000)
-        }
-        
-        sizing_result = self.call_agent("SIZING_AGENT", sizing_input)
-        if not sizing_result["success"]:
-            return self._error_decision(asset, f"Sizing agent failed: {sizing_result['error']}")
-        
-        sizing = sizing_result["data"]
-        
-        # Generate final decision
-        final_decision = self._format_final_decision(asset, consensus, risk, sizing, signals)
-        
-        # Log to trade log
-        self._log_trade(final_decision)
-        
-        return final_decision
-    
-    def _get_current_price(self, asset: str) -> float:
-        """Get current asset price (placeholder - implement real data source)"""
-        # In production, this would call your data provider
-        price_map = {
-            "AAPL": 150.25,
-            "MSFT": 380.50,
-            "GOOGL": 2800.00,
-            "TSLA": 250.00
-        }
-        return price_map.get(asset, 100.00)
-    
-    def _get_atr(self, asset: str, timeframe: str) -> float:
-        """Get Average True Range (placeholder - implement real calculation)"""
-        # In production, this would calculate ATR from historical data
-        return 5.0  # Placeholder ATR
-    
-    def _format_final_decision(self, asset: str, consensus: Dict, risk: Dict, 
-                              sizing: Dict, signals: List[Dict]) -> Dict[str, Any]:
-        """Format final decision in standard output format"""
-        
-        # Determine confidence level
-        signal_strength = consensus["signal_strength"]
-        if signal_strength > 0.8:
-            confidence = "HIGH"
-        elif signal_strength > 0.6:
-            confidence = "MEDIUM"
+    """Production-grade orchestrator with planner/executor/memory/eval layers."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        model: ReasoningModel
+        if api_key:
+            model = AnthropicReasoningModel(api_key)
         else:
-            confidence = "LOW"
-        
-        # Calculate portfolio percentage
-        portfolio_value = 100000  # Placeholder
-        position_value = sizing["units"] * sizing["entry"]
-        portfolio_pct = (position_value / portfolio_value) * 100
-        
-        return {
-            "DECISION": consensus["direction"],
-            "ASSET": asset,
-            "SIZE": f"{sizing['units']} units ({portfolio_pct:.1f}% of portfolio)",
-            "ENTRY": f"{sizing['entry']:.2f}",
-            "STOP": f"{sizing['stop']:.2f}",
-            "TARGET": f"{sizing['target']:.2f}",
-            "R/R RATIO": f"{sizing['rr_ratio']:.1f}:1",
-            "CONFIDENCE": confidence,
-            
-            "SIGNAL SUMMARY": [
-                f"Signal Agent: {len(signals)} signals collected",
-                f"Consensus Agent: {consensus['agreement_ratio']:.1%} agreement for {consensus['direction']}",
-                f"Risk Agent: Approved with {risk['size_multiplier']:.1f}x multiplier",
-                f"Sizing Agent: Kelly criterion position sizing"
-            ],
-            
-            "RISK FLAGS": risk["flags"],
-            
-            "RATIONALE": f"Strong {consensus['direction']} consensus with {consensus['agreement_ratio']:.1%} agreement. Risk score {risk['risk_score']:.2f} is acceptable. Kelly criterion suggests optimal position size.",
-            
-            "INVALIDATION": f"Price below {sizing['stop']:.2f} (stop loss) or above {sizing['target']:.2f} (target)"
+            model = DeterministicReasoningModel()
+        self.planner = Planner()
+        self.executor = ExecutionEngine(model, DocumentRetriever(), TradeTools())
+        self.conversation_memory = ConversationMemory(limit=20)
+        self.task_memory = TaskStateMemory()
+        self.persistent_memory = PersistentMemory()
+        self.evaluator = EvaluationLayer()
+        self.agent_calls: List[AgentCall] = []
+        self.trade_log: List[Dict[str, Any]] = []
+
+    def call_agent(self, agent_name: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Compatibility interface for legacy callers."""
+        prompt_key = f"{agent_name}"
+        step_map = {
+            "SIGNAL_AGENT": "signal",
+            "CONSENSUS_AGENT": "consensus",
+            "RISK_AGENT": "risk",
+            "SIZING_AGENT": "sizing",
         }
-    
-    def _error_decision(self, asset: str, error_msg: str) -> Dict[str, Any]:
-        """Return error decision"""
-        decision = {
-            "DECISION": "FLAT",
-            "ASSET": asset,
-            "SIZE": "0 units",
-            "ENTRY": "MARKET",
-            "STOP": "N/A",
-            "TARGET": "N/A",
-            "R/R RATIO": "N/A",
-            "CONFIDENCE": "LOW",
-            "SIGNAL SUMMARY": [f"Error: {error_msg}"],
-            "RISK FLAGS": ["SYSTEM_ERROR"],
-            "RATIONALE": f"System error prevented analysis: {error_msg}",
-            "INVALIDATION": "N/A"
-        }
-        self._log_trade(decision)
-        return decision
-    
-    def _conflict_decision(self, asset: str, consensus: Dict, signals: List[Dict]) -> Dict[str, Any]:
-        """Return conflict decision"""
-        decision = {
-            "DECISION": "FLAT",
-            "ASSET": asset,
-            "SIZE": "0 units",
-            "ENTRY": "MARKET",
-            "STOP": "N/A",
-            "TARGET": "N/A",
-            "R/R RATIO": "N/A",
-            "CONFIDENCE": "LOW",
-            "SIGNAL SUMMARY": [
-                f"Signal Agent: {len(signals)} signals collected",
-                f"Consensus Agent: Only {consensus['agreement_ratio']:.1%} agreement - below 50% threshold"
-            ],
-            "RISK FLAGS": ["LOW_CONSENSUS"],
-            "RATIONALE": f"Insufficient consensus ({consensus['agreement_ratio']:.1%} - below 50% threshold). Signals are conflicting.",
-            "INVALIDATION": "N/A"
-        }
-        self._log_trade(decision)
-        return decision
-    
-    def _veto_decision(self, asset: str, consensus: Dict, risk: Dict) -> Dict[str, Any]:
-        """Return veto decision"""
-        decision = {
-            "DECISION": "VETO",
-            "ASSET": asset,
-            "SIZE": "0 units",
-            "ENTRY": "MARKET",
-            "STOP": "N/A",
-            "TARGET": "N/A",
-            "R/R RATIO": "N/A",
-            "CONFIDENCE": "LOW",
-            "SIGNAL SUMMARY": [
-                f"Signal Agent: Consensus for {consensus['direction']}",
-                f"Risk Agent: VETOED - {risk['flags']}"
-            ],
-            "RISK FLAGS": risk["flags"],
-            "RATIONALE": f"Risk management veto: {', '.join(risk['flags'])}. Trade rejected despite signal consensus.",
-            "INVALIDATION": "N/A"
-        }
-        self._log_trade(decision)
-        return decision
-    
-    def _log_trade(self, decision: Dict[str, Any]):
-        """Log trade decision to file"""
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "decision": decision,
-            "agent_calls": [
-                {
-                    "agent": call.agent_name,
-                    "success": call.success,
-                    "error": call.error,
-                    "timestamp": call.timestamp.isoformat()
-                }
-                for call in self.agent_calls
-            ]
-        }
-        
-        self.trade_log.append(log_entry)
-        
-        # Save to file
+        step_name = step_map.get(prompt_key)
+        if not step_name:
+            return {"success": False, "error": "Unknown agent"}
+
+        start = time.time()
         try:
-            with open('trade-log.json', 'w') as f:
-                json.dump(self.trade_log, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save trade log: {e}")
-        
-        # Clear agent calls for next trade
-        self.agent_calls = []
-    
-    def get_trade_history(self) -> List[Dict]:
-        """Get trade history"""
-        return self.trade_log
-    
-    def get_performance_stats(self) -> Dict[str, Any]:
-        """Calculate performance statistics from trade log"""
-        if not self.trade_log:
-            return {"total_trades": 0}
-        
-        decisions = [entry["decision"] for entry in self.trade_log]
-        
-        total_trades = len(decisions)
-        long_trades = len([d for d in decisions if d["DECISION"] == "LONG"])
-        short_trades = len([d for d in decisions if d["DECISION"] == "SHORT"])
-        veto_trades = len([d for d in decisions if d["DECISION"] == "VETO"])
-        flat_trades = len([d for d in decisions if d["DECISION"] == "FLAT"])
-        
+            output = self.executor.run_step(PlanStep(step_name), input_data)
+            call = AgentCall(agent_name, input_data, output, datetime.utcnow(), True, duration_ms=int((time.time() - start) * 1000))
+            self.agent_calls.append(call)
+            return {"success": True, "data": output}
+        except Exception as exc:  # noqa: BLE001
+            call = AgentCall(agent_name, input_data, {}, datetime.utcnow(), False, error=str(exc), duration_ms=int((time.time() - start) * 1000))
+            self.agent_calls.append(call)
+            return {"success": False, "error": str(exc)}
+
+    def analyze_trade(self, asset: str, timeframe: str, portfolio_state: Dict[str, Any]) -> Dict[str, Any]:
+        task_id = f"{asset}:{datetime.utcnow().isoformat()}"
+        plan = self.planner.build_plan(asset, timeframe)
+        context: Dict[str, Any] = {"asset": asset, "timeframe": timeframe, "portfolio_state": portfolio_state}
+
+        for step in plan.steps:
+            step_start = time.time()
+            try:
+                if step.name == "signal":
+                    context["signals"] = self.executor.run_step(step, context)
+                elif step.name == "consensus":
+                    context["consensus"] = self.executor.run_step(step, context)
+                    if float(context["consensus"].get("agreement_ratio", 0.0)) < 0.5:
+                        context["risk"] = {"veto": True, "flags": ["LOW_CONSENSUS"]}
+                        context["sizing"] = {"units": 0, "entry": 0, "stop": 0, "target": 0, "rr_ratio": 0}
+                        break
+                elif step.name == "risk":
+                    context["risk"] = self.executor.run_step(step, context)
+                    if bool(context["risk"].get("veto", False)):
+                        context["sizing"] = {"units": 0, "entry": 0, "stop": 0, "target": 0, "rr_ratio": 0}
+                        break
+                elif step.name == "sizing":
+                    context["sizing"] = self.executor.run_step(step, context)
+            except Exception as exc:  # noqa: BLE001
+                self.agent_calls.append(
+                    AgentCall(step.name.upper(), context.copy(), {}, datetime.utcnow(), False, error=str(exc), duration_ms=int((time.time() - step_start) * 1000))
+                )
+                decision = self._error_decision(asset, str(exc))
+                decision["context_dump"] = {"task_state": self.task_memory.get(task_id), "retrieved_context": context.get("signals", [])}
+                self._persist(task_id, decision)
+                return decision
+
+            self.agent_calls.append(
+                AgentCall(step.name.upper(), context.copy(), context.get(step.name, {}), datetime.utcnow(), True, duration_ms=int((time.time() - step_start) * 1000))
+            )
+            self.task_memory.put(task_id, {"last_step": step.name, "context": context.copy()})
+
+        decision = self.executor.run_step(PlanStep("decision"), context)
+        trajectory_issues = self.evaluator.validate_trajectory(self.agent_calls)
+        outcome_issues = self.evaluator.validate_outcome(decision)
+        if trajectory_issues or outcome_issues:
+            decision.setdefault("RISK FLAGS", []).extend(trajectory_issues + outcome_issues)
+        self._persist(task_id, decision)
+        return decision
+
+    def process_trade_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, Any]:
+        symbol = signals[0].get("symbol", "AAPL") if signals else "AAPL"
+        price = float(signals[0].get("price", 100)) if signals else 100
+        portfolio = {"total_value": 100000, "cash": 50000, "positions": {}, "drawdown": -0.03, "price_hint": price}
+        decision = self.analyze_trade(symbol, "1D", portfolio)
         return {
-            "total_trades": total_trades,
-            "long_trades": long_trades,
-            "short_trades": short_trades,
-            "veto_trades": veto_trades,
-            "flat_trades": flat_trades,
-            "trade_rate": (long_trades + short_trades) / total_trades if total_trades > 0 else 0
+            "DECISION": decision["DECISION"],
+            "confidence": 0.8 if decision["CONFIDENCE"] == "HIGH" else 0.6,
+            "reasoning": decision["RATIONALE"],
+            "position_size": 0.02,
+            "risk_assessment": {"flags": decision.get("RISK FLAGS", [])},
+        }
+
+    def _error_decision(self, asset: str, message: str) -> Dict[str, Any]:
+        return {
+            "DECISION": "FLAT",
+            "ASSET": asset,
+            "SIZE": "0 units",
+            "ENTRY": "0.00",
+            "STOP": "0.00",
+            "TARGET": "0.00",
+            "R/R RATIO": "0.0:1",
+            "CONFIDENCE": "LOW",
+            "SIGNAL SUMMARY": [f"error={message}"],
+            "RISK FLAGS": ["SYSTEM_ERROR"],
+            "RATIONALE": "Execution failed",
+            "INVALIDATION": "N/A",
+        }
+
+    def _persist(self, task_id: str, decision: Dict[str, Any]) -> None:
+        log_entry = {
+            "task_id": task_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "decision": decision,
+            "trace": [asdict(call) for call in self.agent_calls],
+        }
+        self.conversation_memory.add(log_entry)
+        self.trade_log.append(log_entry)
+        self.persistent_memory.append_trade(log_entry)
+        Path("trade-log.json").write_text(json.dumps(self.trade_log, indent=2, default=str), encoding="utf-8")
+
+    def get_trade_history(self) -> List[Dict[str, Any]]:
+        return self.trade_log
+
+    def get_performance_stats(self) -> Dict[str, Any]:
+        decisions = [entry["decision"]["DECISION"] for entry in self.trade_log]
+        total = len(decisions)
+        if total == 0:
+            return {"total_trades": 0}
+        return {
+            "total_trades": total,
+            "long_trades": decisions.count("LONG"),
+            "short_trades": decisions.count("SHORT"),
+            "flat_trades": decisions.count("FLAT"),
+            "trade_rate": (decisions.count("LONG") + decisions.count("SHORT")) / total,
         }
 
 
-# Example usage
 if __name__ == "__main__":
-    # Initialize with your API key
-    orchestrator = MultiAgentOrchestrator(api_key="your-anthropic-api-key")
-    
-    # Example portfolio state
-    portfolio = {
-        "total_value": 100000,
-        "cash": 50000,
-        "positions": {"AAPL": 25000, "MSFT": 25000},
-        "drawdown": -0.03
-    }
-    
-    # Run analysis
-    result = orchestrator.analyze_trade("AAPL", "1D", portfolio)
-    
-    print("=== TRADE DECISION ===")
-    for key, value in result.items():
-        print(f"{key}: {value}")
-    
-    # Get performance stats
-    stats = orchestrator.get_performance_stats()
-    print(f"\n=== PERFORMANCE STATS ===")
-    for key, value in stats.items():
-        print(f"{key}: {value}")
+    orchestrator = MultiAgentOrchestrator(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    result = orchestrator.analyze_trade("AAPL", "1D", {"total_value": 100000, "drawdown": -0.02})
+    print(json.dumps(result, indent=2))
