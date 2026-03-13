@@ -5,8 +5,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.core.models import TradeDecision, TradeRequest
-from api.main_state import get_learning_service, get_memory_service, get_trading_service
 from api.database import get_async_session
+from api.main_state import get_learning_service, get_memory_service, get_trading_service
+from api.observability import log_structured, metrics_store
+from api.utils import with_retries
 
 router = APIRouter(tags=["analysis"])
 
@@ -19,16 +21,43 @@ async def analyze_trade(
     memory_service=Depends(get_memory_service),
 ):
     start = datetime.utcnow()
-    result = trading_service.analyze(request.symbol, request.price, request.signals or [])
+
+    async def _run_analysis():
+        return trading_service.analyze(request.symbol, request.price, request.signals or [])
+
+    metrics_store.log_event("task_started", symbol=request.symbol, task="analyze")
+    for agent in ["SIGNAL_AGENT", "CONSENSUS_AGENT", "RISK_AGENT", "SIZING_AGENT"]:
+        metrics_store.update_agent(agent, "running", current_task=f"analyze {request.symbol}")
+
+    try:
+        result = await with_retries(_run_analysis)
+    except Exception as exc:  # noqa: BLE001
+        for agent in ["SIGNAL_AGENT", "CONSENSUS_AGENT", "RISK_AGENT", "SIZING_AGENT"]:
+            metrics_store.update_agent(agent, "failed", error=str(exc), last_task=f"analyze {request.symbol}")
+        metrics_store.log_event("task_failed", symbol=request.symbol, task="analyze", error=str(exc))
+        log_structured("error", "Trade analysis failed", symbol=request.symbol, error=str(exc))
+        raise HTTPException(status_code=500, detail="Trade analysis failed") from exc
 
     async with get_async_session() as session:
         elapsed = (datetime.utcnow() - start).total_seconds()
         for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
             await learning_service.record_agent_call(agent, True, elapsed, session)
+            metrics_store.update_agent(agent, "idle", health="ok", latency_ms=round(elapsed * 1000, 2), last_task=f"analyze {request.symbol}")
 
         history = trading_service.orchestrator.get_trade_history()
         if history:
             await memory_service.persist_run(session, history[-1])
+
+    estimated_tokens = max(200, len(str(result)) // 2)
+    estimated_cost_usd = round(estimated_tokens * 0.000003, 6)
+    metrics_store.log_event(
+        "task_completed",
+        symbol=request.symbol,
+        task="analyze",
+        latency_ms=round((datetime.utcnow() - start).total_seconds() * 1000, 2),
+        token_usage=estimated_tokens,
+        cost_usd=estimated_cost_usd,
+    )
 
     return TradeDecision(
         symbol=request.symbol,
@@ -46,7 +75,10 @@ async def shadow_analyze(
     request: TradeRequest,
     trading_service=Depends(get_trading_service),
 ):
-    return {"mode": "shadow", "result": trading_service.run_shadow(request.symbol, request.price, request.signals or [])}
+    metrics_store.log_event("task_started", symbol=request.symbol, task="shadow_analyze")
+    result = trading_service.run_shadow(request.symbol, request.price, request.signals or [])
+    metrics_store.log_event("task_completed", symbol=request.symbol, task="shadow_analyze")
+    return {"mode": "shadow", "result": result}
 
 
 @router.get("/api/shadow/evaluate/{symbol}")

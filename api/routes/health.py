@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from api.core.models import HealthResponse
 from api.database import test_database_connection
+from api.observability import metrics_store
 
 router = APIRouter(tags=["health"])
 
@@ -22,12 +23,19 @@ async def root() -> HealthResponse:
 
 
 @router.get("/api/health")
-async def health_check() -> HealthResponse:
+async def health_check() -> dict:
     db_healthy = await test_database_connection()
-    return HealthResponse(
+    telemetry = metrics_store.snapshot()
+    payload = HealthResponse(
         status="healthy" if db_healthy else "unhealthy",
         orchestrator=True,
         database="connected" if db_healthy else "disconnected",
         timestamp=datetime.utcnow(),
         config_source="modular_app",
-    )
+    ).model_dump()
+    payload["telemetry"] = {
+        "error_rate": telemetry["error_rate"],
+        "avg_latency_ms": telemetry["avg_latency_ms"],
+        "total_requests": telemetry["total_requests"],
+    }
+    return payload

@@ -16,15 +16,20 @@ except ImportError:  # pragma: no cover
     settings = None
 
     def get_database_url() -> str:
-        db_url = os.getenv("DATABASE_URL")
-        if not db_url:
-            raise ValueError("DATABASE_URL environment variable is required")
+        db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./trading-control.db")
         if db_url.startswith("postgres://") or db_url.startswith("postgresql://"):
             return db_url.replace("://", "+asyncpg://", 1)
         return db_url
 
 
-database_url = get_database_url()
+def _resolve_database_url() -> str:
+    try:
+        return get_database_url()
+    except Exception:
+        return os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./trading-control.db")
+
+
+database_url = _resolve_database_url()
 async_engine = create_async_engine(database_url, echo=False, pool_pre_ping=True)
 AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
