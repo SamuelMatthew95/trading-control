@@ -48,6 +48,7 @@ _score_retry_task = None
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
 
 app = FastAPI(
+    lifespan=lifespan,
     title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc"
 )
 app.add_middleware(
@@ -125,9 +126,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-@app.on_event("startup")
-async def startup_event():
-    # Try database connection but don't fail if not available
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
     try:
         db_ok = await test_database_connection()
         if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
@@ -137,10 +138,6 @@ async def startup_event():
         if settings.NODE_ENV == "production":
             raise RuntimeError(f"Database initialization failed: {e}")
         # In development, continue without database
-        log_structured(
-            "warning", "Database not available - running without database", error=str(e)
-        )
-        pass
 
     _ = get_settings_info()
 

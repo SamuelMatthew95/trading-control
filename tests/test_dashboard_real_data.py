@@ -32,11 +32,9 @@ async def seeded_db():
 
 @pytest_asyncio.fixture
 async def api_client(seeded_db):
-    await app.router.startup()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         yield client
-    await app.router.shutdown()
 
 
 @pytest.mark.asyncio
