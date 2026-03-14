@@ -53,18 +53,23 @@ class handler(BaseHTTPRequestHandler):
         
         # If FastAPI is available, delegate to WSGI app
         if FASTAPI_AVAILABLE and wsgi_app:
+            print(f"DEBUG: Attempting WSGI delegation for {method} {path}")
             try:
                 # Convert BaseHTTPRequestHandler to WSGI environ
                 environ = self._to_environ()
+                print(f"DEBUG: WSGI environ created: {list(environ.keys())}")
                 
                 # Use WSGI handler to process the request
                 stdout = io.BytesIO()
                 handler = SimpleHandler(self.rfile, stdout, sys.stderr, environ)
+                print(f"DEBUG: About to run WSGI handler")
                 handler.run(wsgi_app)
+                print(f"DEBUG: WSGI handler completed")
                 
                 # Extract response from WSGI output
                 stdout.seek(0)
                 response_data = stdout.read()
+                print(f"DEBUG: WSGI response data length: {len(response_data)}")
                 
                 # Parse response headers and body
                 if response_data:
@@ -76,6 +81,8 @@ class handler(BaseHTTPRequestHandler):
                         # Parse headers
                         headers = headers_data.decode('utf-8').split('\r\n')
                         status_line = headers[0] if headers else '200 OK'
+                        
+                        print(f"DEBUG: Parsed status line: {status_line}")
                         
                         # Send response
                         self.send_response(int(status_line.split()[0]), ' '.join(status_line.split()[1:]))
@@ -92,9 +99,11 @@ class handler(BaseHTTPRequestHandler):
                         if body_data:
                             self.wfile.write(body_data)
                         
+                        print(f"DEBUG: Response sent successfully")
                         return
                 
                 # Fallback if parsing failed
+                print(f"DEBUG: Failed to parse WSGI response")
                 self._send_json_response(500, {
                     'success': False,
                     'data': None,
