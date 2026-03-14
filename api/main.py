@@ -126,26 +126,16 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-@app.on_event("startup")
-async def startup_event():
-    db_ok = await init_database()
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
     log_structured(
-        "info",
-        "API startup complete",
-        environment=settings.NODE_ENV,
-        database_connected=db_ok,
+        "error", "Unhandled API exception", path=request.url.path, error=str(exc)
     )
-    await set_services()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    pass
-        if not task.done():
-            task.cancel()
-    
-    # Give tasks time to clean up
-    await asyncio.gather(*pending, return_exceptions=True)
-
-
-# Mangum handler for AWS Lambda (not used by Vercel)
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error="Internal Server Error",
+            detail="Unexpected server error",
+            timestamp=datetime.utcnow(),
+        ).model_dump(),
+    )
