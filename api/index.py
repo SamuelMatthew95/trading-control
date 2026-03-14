@@ -17,52 +17,42 @@ except Exception:
 
 
 class handler(BaseHTTPRequestHandler):
-    
+
     def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-        self.end_headers()
-        
-        response_data = {
-            'success': True,
-            'data': {
-                'status': 'healthy',
-                'message': 'Trading Control API is running',
-                'fastapi_available': FASTAPI_AVAILABLE
-            },
-            'error': None
-        }
-        self.wfile.write(json.dumps(response_data).encode())
-    
+        self._handle_request('GET')
+
     def do_POST(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-        self.end_headers()
-        
-        response_data = {
-            'success': True,
-            'data': {'message': 'POST endpoint working'},
-            'error': None
-        }
-        self.wfile.write(json.dumps(response_data).encode())
-    
+        self._handle_request('POST')
+
+    def do_PUT(self):
+        self._handle_request('PUT')
+
+    def do_DELETE(self):
+        self._handle_request('DELETE')
+
     def do_OPTIONS(self):
-        self.send_response(200)
+        self._handle_request('OPTIONS')
+
+    def _handle_request(self, method):
+        path = self.path.rstrip('/')
+        if path in ('/api/health', '/health'):
+            self._send_json_response(200, {
+                'success': True,
+                'data': {'status': 'healthy', 'fastapi_available': FASTAPI_AVAILABLE},
+                'error': None
+            })
+        else:
+            self._send_json_response(404, {
+                'success': False,
+                'data': None,
+                'error': f'Endpoint not found: {method} {path}'
+            })
+
+    def _send_json_response(self, status_code, data):
+        self.send_response(status_code)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.end_headers()
-        
-        response_data = {
-            'success': True,
-            'data': {'message': 'CORS preflight successful'},
-            'error': None
-        }
-        self.wfile.write(json.dumps(response_data).encode())
+        self.wfile.write(json.dumps(data).encode())
