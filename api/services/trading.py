@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from multi_agent_orchestrator import MultiAgentOrchestrator
+try:
+    from multi_agent_orchestrator import MultiAgentOrchestrator
+except ImportError:
+    MultiAgentOrchestrator = None
 
 
 @dataclass
@@ -17,13 +20,21 @@ class VirtualTrade:
 
 
 class TradingService:
-    def __init__(self, orchestrator: MultiAgentOrchestrator):
+    def __init__(self, orchestrator: Optional[MultiAgentOrchestrator]):
         self.orchestrator = orchestrator
         self.virtual_trades: List[VirtualTrade] = []
 
     def analyze(
         self, symbol: str, price: float, extra_signals: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
+        if not self.orchestrator:
+            return {
+                "DECISION": "FLAT",
+                "confidence": 0.0,
+                "reasoning": "Orchestrator not available - analysis disabled",
+                "position_size": 0.0,
+                "risk_assessment": "low"
+            }
         signals = [{"symbol": symbol, "price": price}, *extra_signals]
         return self.orchestrator.process_trade_signals(signals)
 

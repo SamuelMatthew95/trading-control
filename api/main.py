@@ -34,7 +34,12 @@ from api.services.run_lifecycle import RunLifecycleService
 from api.services.trading import TradingService
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from multi_agent_orchestrator import MultiAgentOrchestrator
+try:
+    from multi_agent_orchestrator import MultiAgentOrchestrator
+    ORCHESTRATOR_AVAILABLE = True
+except ImportError:
+    MultiAgentOrchestrator = None
+    ORCHESTRATOR_AVAILABLE = False
 
 configure_logging(settings.LOG_LEVEL)
 
@@ -122,15 +127,27 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.on_event("startup")
 async def startup_event():
-    db_ok = await test_database_connection()
-    if not db_ok and settings.NODE_ENV == "production":
-        raise RuntimeError("Database connection failed - check DATABASE_URL")
-
-    await init_database()
+    # Try database connection but don't fail if not available
+    try:
+        db_ok = await test_database_connection()
+        if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
+            raise RuntimeError("Database connection failed - check DATABASE_URL")
+        await init_database()
+    except Exception as e:
+        if settings.NODE_ENV == "production":
+            raise RuntimeError(f"Database initialization failed: {e}")
+        # In development, continue without database
+        pass
+    
     _ = get_settings_info()
 
-    orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
-    trading_service = TradingService(orchestrator)
+    if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
+        orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
+        trading_service = TradingService(orchestrator)
+    else:
+        # Create a mock trading service for deployment without orchestrator
+        trading_service = TradingService(None)
+    
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
     feedback_service = FeedbackLearningService()

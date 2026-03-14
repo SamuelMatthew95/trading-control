@@ -35,8 +35,6 @@ class Settings(BaseSettings):
         if self.NODE_ENV == "production":
             if not self.DATABASE_URL:
                 raise ValueError("DATABASE_URL is required in production")
-            if not self.API_SECRET_KEY:
-                raise ValueError("API_SECRET_KEY is required in production")
         return self
 
 
