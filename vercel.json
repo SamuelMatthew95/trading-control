@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "/api/index.py"
+      "destination": "/api/index_minimal.py"
     },
     {
       "source": "/(.*)",
