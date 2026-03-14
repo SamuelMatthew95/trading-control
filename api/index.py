@@ -41,6 +41,49 @@ class handler(BaseHTTPRequestHandler):
                 'data': {'status': 'healthy', 'fastapi_available': FASTAPI_AVAILABLE},
                 'error': None
             })
+        elif path.startswith('/api/dashboard/'):
+            # Mock dashboard responses since FastAPI isn't available
+            if path == '/api/dashboard/pnl':
+                self._send_json_response(200, {
+                    'success': True,
+                    'data': {
+                        'total_pnl': 0.0,
+                        'pnl_today': 0.0,
+                        'pnl_today_pct_change': 0.0,
+                        'avg_slippage_saved': 0.0,
+                        'execution_cost': 0.0,
+                        'net_alpha': 0.0
+                    },
+                    'error': None
+                })
+            elif path == '/api/dashboard/learning-velocity':
+                self._send_json_response(200, {
+                    'success': True,
+                    'data': {
+                        'passk_trend': [],
+                        'passk_series': [],
+                        'coherence_series': []
+                    },
+                    'error': None
+                })
+            elif path == '/api/dashboard/health-signals':
+                self._send_json_response(200, {
+                    'success': True,
+                    'data': {'items': []},
+                    'error': None
+                })
+            elif path == '/api/dashboard/run-summary':
+                self._send_json_response(200, {
+                    'success': True,
+                    'data': {'items': []},
+                    'error': None
+                })
+            else:
+                self._send_json_response(404, {
+                    'success': False,
+                    'data': None,
+                    'error': f'Endpoint not found: {method} {path}'
+                })
         else:
             self._send_json_response(404, {
                 'success': False,
