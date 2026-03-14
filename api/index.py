@@ -117,6 +117,9 @@ class handler(BaseHTTPRequestHandler):
         path_info = parsed_path.path
         query_string = parsed_path.query
         
+        # Get protocol from the request (HTTP/1.1 or HTTP/2)
+        protocol = getattr(self, 'protocol_version', 'HTTP/1.1')
+        
         return {
             'REQUEST_METHOD': self.command,
             'SCRIPT_NAME': '',
@@ -126,6 +129,8 @@ class handler(BaseHTTPRequestHandler):
             'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
             'SERVER_NAME': 'vercel.app',
             'SERVER_PORT': '443',
+            'SERVER_PROTOCOL': protocol,
+            'REMOTE_ADDR': self.client_address[0] if hasattr(self, 'client_address') else '127.0.0.1',
             'HTTP_HOST': self.headers.get('Host', 'vercel.app'),
             'HTTP_COOKIE': self.headers.get('Cookie', ''),
             'HTTP_USER_AGENT': self.headers.get('User-Agent', ''),
