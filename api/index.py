@@ -35,6 +35,51 @@ class handler(BaseHTTPRequestHandler):
 
     def _handle_request(self, method):
         path = self.path.rstrip('/')
+        
+        # If FastAPI is available, delegate to it
+        if FASTAPI_AVAILABLE and app:
+            try:
+                # Create a mock request for FastAPI
+                from io import BytesIO
+                from fastapi.testclient import TestClient
+                
+                client = TestClient(app)
+                
+                # Read request body for POST/PUT
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length) if content_length > 0 else b''
+                
+                # Route to FastAPI
+                if method == 'GET':
+                    response = client.get(path)
+                elif method == 'POST':
+                    response = client.post(path, content=body)
+                elif method == 'PUT':
+                    response = client.put(path, content=body)
+                elif method == 'DELETE':
+                    response = client.delete(path)
+                elif method == 'OPTIONS':
+                    response = client.options(path)
+                else:
+                    response = client.get(path)
+                
+                # Send FastAPI response
+                self.send_response(response.status_code)
+                for key, value in response.headers.items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(response.content)
+                return
+                
+            except Exception as e:
+                # Fallback to basic response if FastAPI fails
+                self._send_json_response(500, {
+                    'success': False,
+                    'data': None,
+                    'error': f'FastAPI error: {str(e)}'
+                })
+        
+        # Fallback responses when FastAPI not available
         if path in ('/api/health', '/health'):
             self._send_json_response(200, {
                 'success': True,
