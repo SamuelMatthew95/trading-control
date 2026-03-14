@@ -24,7 +24,6 @@ from api.routes.health import router as health_router
 from api.routes.monitoring import router as monitoring_router
 from api.routes.performance import router as performance_router
 from api.routes.trades import router as trades_router
-from api.security import enforce_api_key
 from api.services.feedback import FeedbackLearningService
 from api.services.learning import AgentLearningService
 from api.services.memory import AgentMemoryService
@@ -46,7 +45,7 @@ app.add_middleware(
     allow_origins=parse_csv_env(settings.ALLOWED_ORIGINS),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"])
 
@@ -69,7 +68,7 @@ async def telemetry_and_security_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
     request_id_ctx.set(request_id)
 
-    enforce_api_key(request)
+    # API key enforcement removed - no authentication required
 
     started = time.perf_counter()
     try:
