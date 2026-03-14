@@ -42,7 +42,13 @@ class handler(BaseHTTPRequestHandler):
         self._handle_request('OPTIONS')
 
     def _handle_request(self, method):
-        path = self.path.rstrip('/')
+        # Get the full path including leading slash
+        path = self.path
+        
+        # Debug logging
+        print(f"DEBUG: Received request: {method} {path}")
+        print(f"DEBUG: FastAPI available: {FASTAPI_AVAILABLE}")
+        print(f"DEBUG: WSGI app available: {wsgi_app is not None}")
         
         # If FastAPI is available, delegate to WSGI app
         if FASTAPI_AVAILABLE and wsgi_app:
@@ -65,6 +71,7 @@ class handler(BaseHTTPRequestHandler):
                     'data': None,
                     'error': f'WSGI error: {str(e)}'
                 })
+                return
         
         # Health endpoint with error visibility
         if path in ('/api/health', '/health'):
@@ -77,6 +84,7 @@ class handler(BaseHTTPRequestHandler):
                 },
                 'error': None
             })
+            return
         
         # All other endpoints return 404 when FastAPI not available
         self._send_json_response(404, {
