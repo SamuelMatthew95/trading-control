@@ -95,6 +95,7 @@ async def dashboard_pnl(response: Response, reference_dt: Optional[datetime] = N
             pnl_today_pct_change=round(pct, 2),
             avg_slippage_saved=round(float(row.avg_slippage_saved or 0.0), 4),
             execution_cost=round(execution_cost, 2),
+            net_alpha=round(total_pnl - execution_cost, 2),
         )
         
         return StandardResponse(success=True, data=pnl_data.model_dump()).model_dump()

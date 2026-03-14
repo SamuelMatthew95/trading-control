@@ -52,9 +52,9 @@ async def test_pnl_aggregation(api_client):
 
     res = await api_client.get('/dashboard/pnl', params={'reference_dt': now.isoformat()})
     body = res.json()
-    assert body['total_pnl'] == 765.0
-    assert body['execution_cost'] == 14.5
-    assert body['net_alpha'] == 750.5
+    assert body['data']['total_pnl'] == 765.0
+    assert body['data']['execution_cost'] == 14.5
+    assert body['data']['net_alpha'] == 750.5
 
 
 @pytest.mark.asyncio
@@ -196,8 +196,8 @@ async def test_passk_trend_with_insufficient_data(api_client):
         await session.commit()
     res = await api_client.get('/dashboard/learning-velocity', params={'reference_dt': now.isoformat()})
     body = res.json()
-    assert body['passk_trend'] in {'plateauing', 'improving', 'regressing'}
-    assert len([x for x in body['passk_series'] if x is not None]) == 2
+    assert body['data']['passk_trend'] in {'plateauing', 'improving', 'regressing'}
+    assert len([x for x in body['data']['passk_series'] if x is not None]) == 2
 
 
 @pytest.mark.asyncio
@@ -208,7 +208,7 @@ async def test_signal_deduplication(api_client):
         await session.commit()
     await generate_signals(reference_dt=now)
     await generate_signals(reference_dt=now)
-    rows1 = (await api_client.get('/signals')).json()['items']
+    rows1 = (await api_client.get('/signals')).json()['data']['items']
     assert len([x for x in rows1 if 'large loss' in x['message']]) == 1
 
 
@@ -234,7 +234,7 @@ async def test_run_summary_task_type_filter(api_client):
         for i in range(2):
             session.add(Run(task_id=f't{i}', task_type='tech_sentiment', status='won', pnl=1, step_count=1, decision_json='{}', trace_json='[]', created_at=now))
         await session.commit()
-    rows = (await api_client.get('/dashboard/run-summary', params={'reference_dt': now.isoformat()})).json()['items']
+    rows = (await api_client.get('/dashboard/run-summary', params={'reference_dt': now.isoformat()})).json()['data']['items']
     counts = {r['task_slug']: r['runs_7d'] for r in rows}
     assert counts['pharma_earnings'] == 3
     assert counts['tech_sentiment'] == 2
