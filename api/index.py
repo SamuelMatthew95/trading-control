@@ -61,6 +61,45 @@ class handler(BaseHTTPRequestHandler):
                 stdout = io.BytesIO()
                 handler = SimpleHandler(self.rfile, stdout, sys.stderr, environ)
                 handler.run(wsgi_app)
+                
+                # Extract response from WSGI output
+                stdout.seek(0)
+                response_data = stdout.read()
+                
+                # Parse response headers and body
+                if response_data:
+                    header_end = response_data.find(b'\r\n\r\n')
+                    if header_end != -1:
+                        headers_data = response_data[:header_end]
+                        body_data = response_data[header_end + 4:]
+                        
+                        # Parse headers
+                        headers = headers_data.decode('utf-8').split('\r\n')
+                        status_line = headers[0] if headers else '200 OK'
+                        
+                        # Send response
+                        self.send_response(int(status_line.split()[0]), ' '.join(status_line.split()[1:]))
+                        
+                        # Send headers
+                        for header_line in headers[1:]:
+                            if ':' in header_line:
+                                key, value = header_line.split(':', 1)
+                                self.send_header(key.strip(), value.strip())
+                        
+                        self.end_headers()
+                        
+                        # Send body
+                        if body_data:
+                            self.wfile.write(body_data)
+                        
+                        return
+                
+                # Fallback if parsing failed
+                self._send_json_response(500, {
+                    'success': False,
+                    'data': None,
+                    'error': 'Failed to parse WSGI response'
+                })
                 return
                 
             except Exception as e:
