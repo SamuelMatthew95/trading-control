@@ -126,82 +126,21 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup logic
-    try:
-        db_ok = await test_database_connection()
-        if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
-            raise RuntimeError("Database connection failed - check DATABASE_URL")
-        await init_database()
-    except Exception as e:
-        if settings.NODE_ENV == "production":
-            raise RuntimeError(f"Database initialization failed: {e}")
-        # In development, continue without database
-
-    _ = get_settings_info()
-
-    if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
-        orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
-        trading_service = TradingService(orchestrator)
-        log_structured("info", "MultiAgentOrchestrator loaded successfully")
-    else:
-        # Create a mock trading service for deployment without orchestrator
-        trading_service = TradingService(None)
-        log_structured(
-            "warning",
-            "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service",
-        )
-
-    learning_service = AgentLearningService()
-    memory_service = AgentMemoryService()
-    feedback_service = FeedbackLearningService()
-    run_lifecycle_service = RunLifecycleService(
-        learning_service, memory_service, feedback_service
-    )
-    set_services(
-        trading_service,
-        learning_service,
-        memory_service,
-        feedback_service,
-        run_lifecycle_service,
-    )
-
-    for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
-        metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
-
-    global _score_retry_task
-    if ENABLE_SIGNAL_SCHEDULER:
-        # signal_scheduler removed - no longer available
-        pass
-
-    async def _retry_loop() -> None:
-        while True:
-            try:
-                await run_lifecycle_service.requeue_failed_scores_and_corrections()
-            except Exception:
-                pass
-            await asyncio.sleep(3600)
-
-    _score_retry_task = asyncio.create_task(_retry_loop())
-
+@app.on_event("startup")
+async def startup_event():
+    db_ok = await init_database()
     log_structured(
         "info",
         "API startup complete",
         environment=settings.NODE_ENV,
         database_connected=db_ok,
     )
+    await set_services()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    # Cancel all pending tasks from retry loop
-    if _score_retry_task:
-        _score_retry_task.cancel()
-    
-    # Cancel any other pending tasks
-    pending = asyncio.all_tasks()
-    for task in pending:
+    pass
         if not task.done():
             task.cancel()
     
