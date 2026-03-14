@@ -165,9 +165,6 @@ class handler(BaseHTTPRequestHandler):
         path_info = parsed_path.path
         query_string = parsed_path.query
         
-        # Get protocol from the request (HTTP/1.1 or HTTP/2)
-        protocol = getattr(self, 'protocol_version', 'HTTP/1.1')
-        
         return {
             'REQUEST_METHOD': self.command,
             'SCRIPT_NAME': '',
@@ -175,15 +172,15 @@ class handler(BaseHTTPRequestHandler):
             'QUERY_STRING': query_string,
             'CONTENT_TYPE': self.headers.get('Content-Type', ''),
             'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
-            'SERVER_NAME': 'vercel.app',
-            'SERVER_PORT': '443',
-            'SERVER_PROTOCOL': protocol,
+            'SERVER_NAME': self.server.server_name if hasattr(self.server, 'server_name') else 'vercel.app',
+            'SERVER_PORT': str(self.server.server_port) if hasattr(self.server, 'server_port') else '443',
+            'SERVER_PROTOCOL': self.request_version,  # e.g. 'HTTP/1.1'
             'REMOTE_ADDR': self.client_address[0] if hasattr(self, 'client_address') else '127.0.0.1',
             'HTTP_HOST': self.headers.get('Host', 'vercel.app'),
             'HTTP_COOKIE': self.headers.get('Cookie', ''),
             'HTTP_USER_AGENT': self.headers.get('User-Agent', ''),
             'HTTP_ACCEPT': self.headers.get('Accept', ''),
-            'wsgi.input': self._get_body(),
+            'wsgi.input': io.BytesIO(self._get_body()),  # must be a file-like object, not raw bytes
             'wsgi.errors': sys.stderr,
             'wsgi.version': (1, 0),
             'wsgi.multithread': False,
