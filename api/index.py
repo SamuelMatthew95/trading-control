@@ -9,12 +9,11 @@ sys.path.insert(0, '/var/task')
 FASTAPI_AVAILABLE = False
 app = None
 
-# Temporarily disable import to test if it's causing the handler conflict
-# try:
-#     from api.main import app
-#     FASTAPI_AVAILABLE = True
-# except Exception:
-#     pass
+try:
+    from api.main import app
+    FASTAPI_AVAILABLE = True
+except Exception:
+    pass
 
 
 class handler(BaseHTTPRequestHandler):
@@ -32,8 +31,7 @@ class handler(BaseHTTPRequestHandler):
             'data': {
                 'status': 'healthy',
                 'message': 'Trading Control API is running',
-                'fastapi_available': FASTAPI_AVAILABLE,
-                'debug': 'import_disabled'
+                'fastapi_available': FASTAPI_AVAILABLE
             },
             'error': None
         }
