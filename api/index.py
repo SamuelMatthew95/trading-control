@@ -89,6 +89,20 @@ class handler(BaseHTTPRequestHandler):
             })
             return
         
+        # Test endpoint to verify routing
+        if path == '/api/test':
+            print(f"DEBUG: Test endpoint reached, FastAPI available: {FASTAPI_AVAILABLE}")
+            self._send_json_response(200, {
+                'success': True,
+                'data': {
+                    'message': 'Test endpoint working',
+                    'fastapi_available': FASTAPI_AVAILABLE,
+                    'import_error': FASTAPI_IMPORT_ERROR
+                },
+                'error': None
+            })
+            return
+        
         # All other endpoints return 404 when FastAPI not available
         self._send_json_response(404, {
             'success': False,
