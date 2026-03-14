@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
@@ -386,8 +387,8 @@ async def hourly_scoring_retry_scheduler() -> None:
         await asyncio.sleep(3600)
 
 
-def _upsert_signal(session, priority: str, signal_type: str, source_entity_id: str, message: str, action_label: str, action_type: str, run_id: Optional[str] = None) -> None:
-    existing = (session.execute(select(Signal).where(Signal.source_entity_id == source_entity_id, Signal.signal_type == signal_type))).scalar_one_or_none()
+async def _upsert_signal(session, priority: str, signal_type: str, source_entity_id: str, message: str, action_label: str, action_type: str, run_id: Optional[str] = None) -> None:
+    existing = (await session.execute(select(Signal).where(Signal.source_entity_id == source_entity_id, Signal.signal_type == signal_type))).scalar_one_or_none()
     if existing:
         existing.priority = priority
         existing.message = message
@@ -397,6 +398,7 @@ def _upsert_signal(session, priority: str, signal_type: str, source_entity_id: s
         existing.created_at = datetime.utcnow()
     else:
         signal = Signal(
+            id=str(uuid.uuid4()),
             priority=priority,
             signal_type=signal_type,
             source_entity_id=source_entity_id,

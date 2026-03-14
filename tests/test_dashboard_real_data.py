@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from api.core.models import Insight, Run, Signal, TaskTypeBaseline, TraceStep, VectorMemoryRecord
 from api.database import AsyncSessionLocal, init_database
 from api.main import app
+from api.routes.dashboard import generate_signals
 from tests.conftest import TEST_REFERENCE_DT
 
 
@@ -68,7 +69,7 @@ async def test_passk_trend_improving(api_client):
                 session.add(Run(task_id=f"imp-{i}-{j}", task_type="mid-cap tech sentiment", status="won" if j < wins else "failed", pnl=10.0, step_count=4, decision_json="{}", trace_json="[]", created_at=day))
         await session.commit()
     res = await api_client.get('/dashboard/learning-velocity', params={'reference_dt': now.isoformat()})
-    assert res.json()['passk_trend'] == 'improving'
+    assert res.json()['data']['passk_trend'] == 'improving'
 
 
 @pytest.mark.asyncio
@@ -83,7 +84,7 @@ async def test_passk_trend_regressing(api_client):
                 session.add(Run(task_id=f"reg-{i}-{j}", task_type="mid-cap tech sentiment", status="won" if j < wins else "failed", pnl=10.0, step_count=4, decision_json="{}", trace_json="[]", created_at=day))
         await session.commit()
     res = await api_client.get('/dashboard/learning-velocity', params={'reference_dt': now.isoformat()})
-    assert res.json()['passk_trend'] == 'regressing'
+    assert res.json()['data']['passk_trend'] == 'regressing'
 
 
 @pytest.mark.asyncio
@@ -97,7 +98,7 @@ async def test_tool_thrashing_detection(api_client):
             session.add(TraceStep(run_id=run.id, node_name="n", tool_name=tool, step_type="step", created_at=now))
         await session.commit()
     res = await api_client.get('/dashboard/health-signals', params={'reference_dt': now.isoformat()})
-    item = next(x for x in res.json()['items'] if x['key'] == 'tool_thrashing_rate')
+    item = next(x for x in res.json()['data']['items'] if x['key'] == 'tool_thrashing_rate')
     assert float(item['value'].replace('%', '')) > 0
 
 
@@ -113,7 +114,7 @@ async def test_memory_guard_effectiveness(api_client):
             session.add(TraceStep(run_id=run.id, node_name="n", step_type="skipped_by_memory_guard", created_at=now))
         await session.commit()
     res = await api_client.get('/dashboard/learning-velocity', params={'reference_dt': now.isoformat()})
-    assert res.json()['memory_guard_effectiveness_pct'] == 75.0
+    assert res.json()['data']['memory_guard_effectiveness_pct'] == 75.0
 
 
 @pytest.mark.asyncio
@@ -124,7 +125,7 @@ async def test_signal_auto_generation(api_client):
         await session.commit()
     await generate_signals(reference_dt=now)
     res = await api_client.get('/signals')
-    assert any(x['priority'] == 'urgent' and 'loss' in x['message'].lower() for x in res.json()['items'])
+    assert any(x['priority'] == 'urgent' and 'loss' in x['message'].lower() for x in res.json()['data']['items'])
 
 
 @pytest.mark.asyncio
@@ -134,7 +135,7 @@ async def test_signal_dismiss(api_client):
         await session.commit()
     await api_client.post('/signals/sig-x/dismiss')
     res = await api_client.get('/signals')
-    assert all(x['id'] != 'sig-x' for x in res.json()['items'])
+    assert all(x['id'] != 'sig-x' for x in res.json()['data']['items'])
 
 
 @pytest.mark.asyncio
@@ -146,7 +147,7 @@ async def test_run_summary_sparkline_gap_fill(api_client):
             session.add(Run(task_id=f's{i}', task_type='Pharma earnings', status='won', pnl=100, step_count=4, decision_json='{}', trace_json='[]', created_at=now-timedelta(days=6-d)))
         await session.commit()
     res = await api_client.get('/dashboard/run-summary', params={'reference_dt': now.isoformat()})
-    row = res.json()['items'][0]
+    row = res.json()['data']['items'][0]
     assert len(row['sparkline']) == 7
     assert row['sparkline'][1] == 0.0 and row['sparkline'][3] == 0.0 and row['sparkline'][5] == 0.0 and row['sparkline'][6] == 0.0
 
@@ -158,7 +159,7 @@ async def test_insight_confidence_fields(api_client):
         session.add(Insight(run_id=2, tag='Needs Review', confidence=0.4, summary='bad', supporting_run_count=1))
         await session.commit()
     res = await api_client.get('/insights')
-    items = res.json()['items']
+    items = res.json()['data']['items']
     assert all('confidence' in i and 'needs_more_data' in i and 'supporting_run_count' in i for i in items)
     low = [i for i in items if i['confidence'] == 0.4][0]
     assert low['needs_more_data'] is True
@@ -172,8 +173,8 @@ async def test_dashboard_pnl_today_isolation(api_client):
         session.add(Run(task_id='new', task_type='x', status='won', pnl=120, step_count=1, decision_json='{}', trace_json='[]', created_at=now-timedelta(hours=1)))
         await session.commit()
     res = await api_client.get('/dashboard/pnl', params={'reference_dt': now.isoformat()})
-    assert res.json()['pnl_today'] == 120.0
-    assert res.json()['total_pnl'] == 620.0
+    assert res.json()['data']['pnl_today'] == 120.0
+    assert res.json()['data']['total_pnl'] == 620.0
 
 
 @pytest.mark.asyncio
@@ -244,10 +245,10 @@ async def test_system_health_returns_200_on_empty_db(api_client):
     res = await api_client.get("/system/health")
     body = res.json()
     assert res.status_code == 200
-    assert body["feedback_jobs_pending"] == 0
-    assert body["feedback_jobs_failed"] == 0
-    assert body["scoring_pending"] == 0
-    assert body["scoring_failed"] == 0
+    assert body["data"]["feedback_jobs_pending"] == 0
+    assert body["data"]["feedback_jobs_failed"] == 0
+    assert body["data"]["scoring_pending"] == 0
+    assert body["data"]["scoring_failed"] == 0
 
 
 @pytest.mark.asyncio
@@ -258,7 +259,7 @@ async def test_scoring_lag_warning_suppressed_on_small_dataset(api_client):
             session.add(Run(task_id=f"sf{i}", task_type="x", status="won", pnl=1, step_count=1, scoring_status="failed", decision_json="{}", trace_json="[]", created_at=now))
         await session.commit()
     res = await api_client.get('/dashboard/learning-velocity', params={'reference_dt': now.isoformat()})
-    assert res.json()['scoring_lag_warning'] is False
+    assert res.json()['data']['scoring_lag_warning'] is False
 
 
 @pytest.mark.asyncio
@@ -268,8 +269,8 @@ async def test_system_health_oldest_pending_score(api_client):
         session.add(Run(task_id='pending-old', task_type='x', status='won', pnl=1, step_count=1, scoring_status='pending', decision_json='{}', trace_json='[]', created_at=now-timedelta(seconds=400)))
         await session.commit()
     body = (await api_client.get('/system/health')).json()
-    assert body['oldest_pending_score_age_seconds'] is not None
-    assert body['oldest_pending_score_age_seconds'] >= 400
+    assert body['data']['oldest_pending_score_age_seconds'] is not None
+    assert body['data']['oldest_pending_score_age_seconds'] >= 400
 
 
 @pytest.mark.asyncio
