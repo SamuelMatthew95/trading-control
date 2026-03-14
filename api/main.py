@@ -197,5 +197,5 @@ async def startup_event():
     )
 
 
-# Mangum handler for Vercel serverless functions
-handler = Mangum(app, lifespan="off")
+# Mangum handler for AWS Lambda (not used by Vercel)
+mangum_handler = Mangum(app, lifespan="off")
