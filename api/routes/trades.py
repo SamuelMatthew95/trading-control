@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -23,9 +23,11 @@ async def get_trades() -> Dict[str, Any]:
     """Get all trades with standardized response format."""
     try:
         async with get_async_session() as session:
-            result = await session.execute(select(Trade).order_by(Trade.created_at.desc()))
+            result = await session.execute(
+                select(Trade).order_by(Trade.created_at.desc())
+            )
             trades = result.scalars().all()
-            
+
             trades_data = [
                 {
                     "id": t.id,
@@ -43,13 +45,14 @@ async def get_trades() -> Dict[str, Any]:
                 }
                 for t in trades
             ]
-            
+
             return StandardResponse(
-                success=True,
-                data={"trades": trades_data}
+                success=True, data={"trades": trades_data}
             ).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch trades: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch trades: {str(exc)}"
+        )
 
 
 @router.post("/trades")
@@ -58,8 +61,10 @@ async def save_trade(trade: TradeModel) -> Dict[str, Any]:
     try:
         # Validate input data
         if not trade.asset or not trade.direction:
-            raise HTTPException(status_code=400, detail="Asset and direction are required")
-        
+            raise HTTPException(
+                status_code=400, detail="Asset and direction are required"
+            )
+
         async with get_async_session() as session:
             db_trade = Trade(
                 date=trade.date,
@@ -76,10 +81,10 @@ async def save_trade(trade: TradeModel) -> Dict[str, Any]:
             )
             session.add(db_trade)
             await session.flush()
-            
+
             return StandardResponse(
                 success=True,
-                data={"message": "Trade saved successfully", "id": db_trade.id}
+                data={"message": "Trade saved successfully", "id": db_trade.id},
             ).model_dump()
     except HTTPException:
         raise
@@ -92,7 +97,7 @@ async def trades_options() -> Dict[str, Any]:
     """OPTIONS method for trades endpoint."""
     return StandardResponse(
         success=True,
-        data={"message": "Trades endpoint supports GET, POST, and OPTIONS"}
+        data={"message": "Trades endpoint supports GET, POST, and OPTIONS"},
     ).model_dump()
 
 
@@ -102,23 +107,27 @@ async def start_trading_bot() -> Dict[str, Any]:
     """Start the trading bot with standardized response format."""
     try:
         global bot_state
-        bot_state.update({
-            "running": True,
-            "status": "running",
-            "last_action": "start",
-            "last_action_time": "just now"
-        })
-        
+        bot_state.update(
+            {
+                "running": True,
+                "status": "running",
+                "last_action": "start",
+                "last_action_time": "just now",
+            }
+        )
+
         return StandardResponse(
             success=True,
             data={
                 "status": "starting",
                 "message": "Trading bot start initiated",
-                "bot_state": bot_state
-            }
+                "bot_state": bot_state,
+            },
         ).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to start trading bot: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start trading bot: {str(exc)}"
+        )
 
 
 @router.post("/trading/stop")
@@ -126,23 +135,27 @@ async def stop_trading_bot() -> Dict[str, Any]:
     """Stop the trading bot with standardized response format."""
     try:
         global bot_state
-        bot_state.update({
-            "running": False,
-            "status": "stopped", 
-            "last_action": "stop",
-            "last_action_time": "just now"
-        })
-        
+        bot_state.update(
+            {
+                "running": False,
+                "status": "stopped",
+                "last_action": "stop",
+                "last_action_time": "just now",
+            }
+        )
+
         return StandardResponse(
             success=True,
             data={
                 "status": "stopping",
                 "message": "Trading bot stop initiated",
-                "bot_state": bot_state
-            }
+                "bot_state": bot_state,
+            },
         ).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to stop trading bot: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to stop trading bot: {str(exc)}"
+        )
 
 
 @router.get("/trading/status")
@@ -150,7 +163,7 @@ async def get_trading_status() -> Dict[str, Any]:
     """Get current trading bot status with standardized response format."""
     try:
         global bot_state
-        
+
         return StandardResponse(
             success=True,
             data={
@@ -161,11 +174,17 @@ async def get_trading_status() -> Dict[str, Any]:
                 "active_position": bot_state.get("active_position", "None"),
                 "risk_exposure": bot_state["risk_exposure"],
                 "total_trades": bot_state["total_trades"],
-                "performance": bot_state["performance"][-30:] if bot_state["performance"] else [0] * 30
-            }
+                "performance": (
+                    bot_state["performance"][-30:]
+                    if bot_state["performance"]
+                    else [0] * 30
+                ),
+            },
         ).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to get trading status: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get trading status: {str(exc)}"
+        )
 
 
 @router.post("/trading/emergency-stop")
@@ -173,23 +192,27 @@ async def emergency_stop_all() -> Dict[str, Any]:
     """Emergency stop all trading activities with standardized response format."""
     try:
         global bot_state
-        bot_state.update({
-            "running": False,
-            "status": "emergency_stopped",
-            "last_action": "emergency_stop",
-            "last_action_time": "just now"
-        })
-        
+        bot_state.update(
+            {
+                "running": False,
+                "status": "emergency_stopped",
+                "last_action": "emergency_stop",
+                "last_action_time": "just now",
+            }
+        )
+
         return StandardResponse(
             success=True,
             data={
                 "status": "emergency_stopped",
                 "message": "Emergency stop executed - all trading halted",
-                "bot_state": bot_state
-            }
+                "bot_state": bot_state,
+            },
         ).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to execute emergency stop: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to execute emergency stop: {str(exc)}"
+        )
 
 
 @router.get("/bots/status")
@@ -197,7 +220,7 @@ async def get_bots_status() -> Dict[str, Any]:
     """Get status of all bots for dashboard with standardized response format."""
     try:
         global bot_state
-        
+
         # Simulate multiple bots - in production this would query database
         bots = [
             {
@@ -206,24 +229,30 @@ async def get_bots_status() -> Dict[str, Any]:
                 "strategy": "Mean Reversion",
                 "status": "running" if bot_state["running"] else "stopped",
                 "uptime": str(bot_state["uptime_minutes"]),
-                "performance": bot_state["performance"][-30:] if bot_state["performance"] else [0] * 30,
+                "performance": (
+                    bot_state["performance"][-30:]
+                    if bot_state["performance"]
+                    else [0] * 30
+                ),
                 "active_position": bot_state.get("active_position"),
                 "risk_exposure": bot_state["risk_exposure"],
                 "total_trades": bot_state["total_trades"],
-                "last_signal": "BUY BTC/USD" if bot_state["running"] else None
+                "last_signal": "BUY BTC/USD" if bot_state["running"] else None,
             }
         ]
-        
+
         return StandardResponse(
             success=True,
             data={
                 "bots": bots,
                 "total_active": 1 if bot_state["running"] else 0,
-                "total_bots": 1
-            }
+                "total_bots": 1,
+            },
         ).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to get bots status: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get bots status: {str(exc)}"
+        )
 
 
 @router.options("/trading/start")
@@ -235,7 +264,7 @@ async def trading_options() -> Dict[str, Any]:
     """OPTIONS method for trading endpoints."""
     return StandardResponse(
         success=True,
-        data={"message": "Trading endpoints support GET, POST, and OPTIONS"}
+        data={"message": "Trading endpoints support GET, POST, and OPTIONS"},
     ).model_dump()
 
 
@@ -249,5 +278,5 @@ bot_state = {
     "total_trades": 0,
     "performance": [0] * 30,
     "last_action": "none",
-    "last_action_time": None
+    "last_action_time": None,
 }

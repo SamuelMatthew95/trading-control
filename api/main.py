@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 import uuid
 from datetime import datetime
 
-from mangum import Mangum
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from mangum import Mangum
 
 from api.config import parse_csv_env, settings
 from api.core.models import ErrorResponse
-from api.database import get_settings_info, init_database, test_database_connection
+from api.database import (get_settings_info, init_database,
+                          test_database_connection)
 from api.main_state import set_services
-from api.observability import configure_logging, log_structured, metrics_store, request_id_ctx
+from api.observability import (configure_logging, log_structured,
+                               metrics_store, request_id_ctx)
 from api.routes.analyze import router as analyze_router
-from api.routes.dashboard import router as dashboard_router, signal_scheduler
+from api.routes.dashboard import router as dashboard_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.monitoring import router as monitoring_router
@@ -29,7 +32,7 @@ from api.services.learning import AgentLearningService
 from api.services.memory import AgentMemoryService
 from api.services.run_lifecycle import RunLifecycleService
 from api.services.trading import TradingService
-import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from multi_agent_orchestrator import MultiAgentOrchestrator
 
@@ -39,7 +42,9 @@ _signal_task = None
 _score_retry_task = None
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
 
-app = FastAPI(title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc")
+app = FastAPI(
+    title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=parse_csv_env(settings.ALLOWED_ORIGINS),
@@ -47,7 +52,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"])
+app.add_middleware(
+    TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"]
+)
 
 app.include_router(health_router)
 app.include_router(analyze_router)
@@ -76,7 +83,12 @@ async def telemetry_and_security_middleware(request: Request, call_next):
     except Exception:
         elapsed = (time.perf_counter() - started) * 1000
         metrics_store.register_request(elapsed, is_error=True)
-        metrics_store.log_event("request_failed", method=request.method, path=request.url.path, latency_ms=round(elapsed, 2))
+        metrics_store.log_event(
+            "request_failed",
+            method=request.method,
+            path=request.url.path,
+            latency_ms=round(elapsed, 2),
+        )
         raise
 
     elapsed = (time.perf_counter() - started) * 1000
@@ -95,7 +107,9 @@ async def telemetry_and_security_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    log_structured("error", "Unhandled API exception", path=request.url.path, error=str(exc))
+    log_structured(
+        "error", "Unhandled API exception", path=request.url.path, error=str(exc)
+    )
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(
@@ -120,26 +134,41 @@ async def startup_event():
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
     feedback_service = FeedbackLearningService()
-    run_lifecycle_service = RunLifecycleService(learning_service, memory_service, feedback_service)
-    set_services(trading_service, learning_service, memory_service, feedback_service, run_lifecycle_service)
+    run_lifecycle_service = RunLifecycleService(
+        learning_service, memory_service, feedback_service
+    )
+    set_services(
+        trading_service,
+        learning_service,
+        memory_service,
+        feedback_service,
+        run_lifecycle_service,
+    )
 
     for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
     global _signal_task, _score_retry_task
     if ENABLE_SIGNAL_SCHEDULER:
-        _signal_task = asyncio.create_task(signal_scheduler())
-        async def _retry_loop() -> None:
-            while True:
-                try:
-                    await run_lifecycle_service.requeue_failed_scores_and_corrections()
-                except Exception:
-                    pass
-                await asyncio.sleep(3600)
+        # signal_scheduler removed - no longer available
+        pass
 
-        _score_retry_task = asyncio.create_task(_retry_loop())
+    async def _retry_loop() -> None:
+        while True:
+            try:
+                await run_lifecycle_service.requeue_failed_scores_and_corrections()
+            except Exception:
+                pass
+            await asyncio.sleep(3600)
 
-    log_structured("info", "API startup complete", environment=settings.NODE_ENV, database_connected=db_ok)
+    _score_retry_task = asyncio.create_task(_retry_loop())
+
+    log_structured(
+        "info",
+        "API startup complete",
+        environment=settings.NODE_ENV,
+        database_connected=db_ok,
+    )
 
 
 # Mangum handler for Vercel serverless functions

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -20,16 +20,21 @@ async def get_agent_performance(agent_name: str) -> Dict[str, Any]:
     try:
         if not agent_name:
             raise HTTPException(status_code=400, detail="Agent name is required")
-        
+
         # Placeholder for agent performance logic
         return StandardResponse(
             success=True,
-            data={"agent_name": agent_name, "performance": "Performance data - implementation needed"}
+            data={
+                "agent_name": agent_name,
+                "performance": "Performance data - implementation needed",
+            },
         ).model_dump()
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get agent performance: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get agent performance: {str(e)}"
+        )
 
 
 @router.get("/performance")
@@ -39,10 +44,12 @@ async def get_all_performance() -> Dict[str, Any]:
         # Placeholder for all performance logic
         return StandardResponse(
             success=True,
-            data={"message": "All performance endpoint - implementation needed"}
+            data={"message": "All performance endpoint - implementation needed"},
         ).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get performance data: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get performance data: {str(e)}"
+        )
 
 
 @router.options("/performance/{agent_name}")
@@ -50,6 +57,5 @@ async def get_all_performance() -> Dict[str, Any]:
 async def performance_options() -> Dict[str, Any]:
     """OPTIONS method for performance endpoints."""
     return StandardResponse(
-        success=True,
-        data={"message": "Performance endpoints support GET and OPTIONS"}
+        success=True, data={"message": "Performance endpoints support GET and OPTIONS"}
     ).model_dump()

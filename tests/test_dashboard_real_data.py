@@ -9,7 +9,6 @@ from sqlalchemy import delete, select
 
 from api.core.models import Insight, Run, Signal, TaskTypeBaseline, TraceStep, VectorMemoryRecord
 from api.database import AsyncSessionLocal, init_database
-from api.routes.dashboard import generate_signals
 from api.main import app
 from tests.conftest import TEST_REFERENCE_DT
 

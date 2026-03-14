@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Dict
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
@@ -47,8 +47,12 @@ logger = logging.getLogger("trading-control")
 
 @dataclass
 class MetricsStore:
-    recent_events: Deque[Dict[str, Any]] = field(default_factory=lambda: deque(maxlen=300))
-    request_latencies_ms: Deque[float] = field(default_factory=lambda: deque(maxlen=500))
+    recent_events: Deque[Dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=300)
+    )
+    request_latencies_ms: Deque[float] = field(
+        default_factory=lambda: deque(maxlen=500)
+    )
     total_requests: int = 0
     total_errors: int = 0
     agent_status: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -85,12 +89,20 @@ class MetricsStore:
         with self._lock:
             latency = list(self.request_latencies_ms)
             avg_latency = round(sum(latency) / len(latency), 2) if latency else 0.0
-            p95 = round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2) if latency else 0.0
+            p95 = (
+                round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2)
+                if latency
+                else 0.0
+            )
             return {
                 "uptime_seconds": int(time.time() - START_TIME),
                 "total_requests": self.total_requests,
                 "total_errors": self.total_errors,
-                "error_rate": round((self.total_errors / self.total_requests) * 100, 2) if self.total_requests else 0,
+                "error_rate": (
+                    round((self.total_errors / self.total_requests) * 100, 2)
+                    if self.total_requests
+                    else 0
+                ),
                 "avg_latency_ms": avg_latency,
                 "p95_latency_ms": p95,
                 "agent_status": list(self.agent_status.values()),
@@ -104,4 +116,6 @@ metrics_store = MetricsStore()
 
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
     log_method = getattr(logger, level.lower(), logger.info)
-    log_method(message, extra={"extra_data": extra_data, "request_id": request_id_ctx.get()})
+    log_method(
+        message, extra={"extra_data": extra_data, "request_id": request_id_ctx.get()}
+    )

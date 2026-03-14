@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -31,7 +31,7 @@ async def root() -> Dict[str, Any]:
                 database="unknown",
                 timestamp=datetime.utcnow(),
                 config_source="modular_app",
-            ).model_dump()
+            ).model_dump(),
         ).model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -55,11 +55,8 @@ async def health_check() -> Dict[str, Any]:
             "avg_latency_ms": telemetry["avg_latency_ms"],
             "total_requests": telemetry["total_requests"],
         }
-        
-        return StandardResponse(
-            success=True,
-            data=payload
-        ).model_dump()
+
+        return StandardResponse(success=True, data=payload).model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
@@ -68,6 +65,5 @@ async def health_check() -> Dict[str, Any]:
 async def health_options() -> Dict[str, Any]:
     """OPTIONS method for health endpoint."""
     return StandardResponse(
-        success=True,
-        data={"message": "Health endpoint supports GET and OPTIONS"}
+        success=True, data={"message": "Health endpoint supports GET and OPTIONS"}
     ).model_dump()

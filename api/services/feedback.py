@@ -10,20 +10,10 @@ from typing import Any, Dict, Iterable, List
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import (
-    AgentRun,
-    FeedbackJob,
-    FeedbackJobStatusView,
-    Insight,
-    InsightView,
-    ProposedRun,
-    ReinforceRequest,
-    ReinforceResponse,
-    Run,
-    StrategyDNA,
-    TraceStep,
-    VectorMemoryRecord,
-)
+from api.core.models import (AgentRun, FeedbackJob, FeedbackJobStatusView,
+                             Insight, InsightView, ProposedRun,
+                             ReinforceRequest, ReinforceResponse, Run,
+                             StrategyDNA, TraceStep, VectorMemoryRecord)
 
 
 class FeedbackLearningService:
@@ -32,7 +22,9 @@ class FeedbackLearningService:
     def __init__(self):
         self._lock = asyncio.Lock()
 
-    async def stage_annotation(self, session: AsyncSession, annotation: Dict[str, Any]) -> TraceStep:
+    async def stage_annotation(
+        self, session: AsyncSession, annotation: Dict[str, Any]
+    ) -> TraceStep:
         step = TraceStep(
             run_id=annotation["run_id"],
             node_name=annotation.get("node_name", "unknown"),
@@ -41,7 +33,11 @@ class FeedbackLearningService:
             is_hallucination=bool(annotation.get("is_hallucination", False)),
             coach_reason=annotation.get("coach_reason"),
             is_starred=bool(annotation.get("is_starred", False)),
-            override_payload=json.dumps(annotation.get("override_payload")) if annotation.get("override_payload") else None,
+            override_payload=(
+                json.dumps(annotation.get("override_payload"))
+                if annotation.get("override_payload")
+                else None
+            ),
             promoted_rule_key=annotation.get("promoted_rule_key"),
             feedback_status="pending",
         )
@@ -49,9 +45,15 @@ class FeedbackLearningService:
         await session.flush()
         return step
 
-    async def create_negative_memory(self, session: AsyncSession, payload: Dict[str, Any]) -> VectorMemoryRecord:
-        content = payload.get("content") or f"tool_call={payload.get('tool_call', 'n/a')}"
-        reason = payload.get("reason") or payload.get("coach_reason") or "negative memory"
+    async def create_negative_memory(
+        self, session: AsyncSession, payload: Dict[str, Any]
+    ) -> VectorMemoryRecord:
+        content = (
+            payload.get("content") or f"tool_call={payload.get('tool_call', 'n/a')}"
+        )
+        reason = (
+            payload.get("reason") or payload.get("coach_reason") or "negative memory"
+        )
         tool_name = payload.get("tool_name")
         rec = VectorMemoryRecord(
             store_type="negative-memory",
@@ -65,11 +67,15 @@ class FeedbackLearningService:
         await session.flush()
         return rec
 
-
-    async def enqueue_reinforce_job(self, session: AsyncSession, task_type: str) -> FeedbackJob | None:
+    async def enqueue_reinforce_job(
+        self, session: AsyncSession, task_type: str
+    ) -> FeedbackJob | None:
         run = (
             await session.execute(
-                select(Run).where(Run.task_type == task_type).order_by(Run.created_at.desc()).limit(1)
+                select(Run)
+                .where(Run.task_type == task_type)
+                .order_by(Run.created_at.desc())
+                .limit(1)
             )
         ).scalar_one_or_none()
         if run is None:
@@ -77,14 +83,20 @@ class FeedbackLearningService:
         job = await self.create_feedback_job(session, run.id)
         return job
 
-    async def create_feedback_job(self, session: AsyncSession, run_id: int) -> FeedbackJob:
+    async def create_feedback_job(
+        self, session: AsyncSession, run_id: int
+    ) -> FeedbackJob:
         job = FeedbackJob(id=str(uuid.uuid4()), run_id=run_id, status="pending")
         session.add(job)
         await session.flush()
         return job
 
-    async def get_feedback_job(self, session: AsyncSession, job_id: str) -> FeedbackJobStatusView | None:
-        row = (await session.execute(select(FeedbackJob).where(FeedbackJob.id == job_id))).scalar_one_or_none()
+    async def get_feedback_job(
+        self, session: AsyncSession, job_id: str
+    ) -> FeedbackJobStatusView | None:
+        row = (
+            await session.execute(select(FeedbackJob).where(FeedbackJob.id == job_id))
+        ).scalar_one_or_none()
         if row is None:
             return None
         return FeedbackJobStatusView(
@@ -95,8 +107,12 @@ class FeedbackLearningService:
             completed_at=row.completed_at,
         )
 
-    async def run_feedback_job(self, session: AsyncSession, job_id: str, request: ReinforceRequest) -> ReinforceResponse:
-        job = (await session.execute(select(FeedbackJob).where(FeedbackJob.id == job_id))).scalar_one_or_none()
+    async def run_feedback_job(
+        self, session: AsyncSession, job_id: str, request: ReinforceRequest
+    ) -> ReinforceResponse:
+        job = (
+            await session.execute(select(FeedbackJob).where(FeedbackJob.id == job_id))
+        ).scalar_one_or_none()
         if job is None:
             raise ValueError(f"Unknown feedback job {job_id}")
 
@@ -117,13 +133,22 @@ class FeedbackLearningService:
             await session.flush()
             raise
 
-    async def reinforce(self, session: AsyncSession, request: ReinforceRequest) -> ReinforceResponse:
+    async def reinforce(
+        self, session: AsyncSession, request: ReinforceRequest
+    ) -> ReinforceResponse:
         async with self._lock:
             pending_steps = (
-                await session.execute(
-                    select(TraceStep).where(TraceStep.run_id == request.run_id, TraceStep.feedback_status == "pending")
+                (
+                    await session.execute(
+                        select(TraceStep).where(
+                            TraceStep.run_id == request.run_id,
+                            TraceStep.feedback_status == "pending",
+                        )
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
             if not pending_steps:
                 return ReinforceResponse(
@@ -136,9 +161,15 @@ class FeedbackLearningService:
                     prompt_cache_key="",
                 )
 
-            negative_count = await self._upsert_negative_memory(session, request.run_id, pending_steps)
-            few_shot_count = await self._upsert_few_shot_memory(session, request.run_id, pending_steps)
-            promoted_rules, delta_usd = await self._mutate_strategy_dna(session, pending_steps)
+            negative_count = await self._upsert_negative_memory(
+                session, request.run_id, pending_steps
+            )
+            few_shot_count = await self._upsert_few_shot_memory(
+                session, request.run_id, pending_steps
+            )
+            promoted_rules, delta_usd = await self._mutate_strategy_dna(
+                session, pending_steps
+            )
             prompt_cache_key = await self._rebuild_prompt_cache(session)
 
             for step in pending_steps:
@@ -154,8 +185,18 @@ class FeedbackLearningService:
                 prompt_cache_key=prompt_cache_key,
             )
 
-    async def list_insights(self, session: AsyncSession, limit: int = 50) -> List[InsightView]:
-        rows = (await session.execute(select(Insight).order_by(Insight.created_at.desc()).limit(limit))).scalars().all()
+    async def list_insights(
+        self, session: AsyncSession, limit: int = 50
+    ) -> List[InsightView]:
+        rows = (
+            (
+                await session.execute(
+                    select(Insight).order_by(Insight.created_at.desc()).limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
         return [
             InsightView(
                 id=row.id,
@@ -170,8 +211,20 @@ class FeedbackLearningService:
             for row in rows
         ]
 
-    async def run_supervisor_pass(self, session: AsyncSession, lookback_runs: int = 50) -> int:
-        runs = (await session.execute(select(AgentRun).order_by(AgentRun.created_at.desc()).limit(lookback_runs))).scalars().all()
+    async def run_supervisor_pass(
+        self, session: AsyncSession, lookback_runs: int = 50
+    ) -> int:
+        runs = (
+            (
+                await session.execute(
+                    select(AgentRun)
+                    .order_by(AgentRun.created_at.desc())
+                    .limit(lookback_runs)
+                )
+            )
+            .scalars()
+            .all()
+        )
         if not runs:
             return 0
 
@@ -197,12 +250,33 @@ class FeedbackLearningService:
         return inserted
 
     async def propose_runs(self, session: AsyncSession) -> List[ProposedRun]:
-        task_rows = (await session.execute(select(AgentRun.task_id, AgentRun.trace_json).order_by(AgentRun.created_at.desc()).limit(200))).all()
+        task_rows = (
+            await session.execute(
+                select(AgentRun.task_id, AgentRun.trace_json)
+                .order_by(AgentRun.created_at.desc())
+                .limit(200)
+            )
+        ).all()
         if not task_rows:
             return [
-                ProposedRun(task_type="signal", reason="Low Pass^k (0%) — needs more coverage", priority=1, suggested_params={"timeframe": "1D"}),
-                ProposedRun(task_type="risk", reason="Recent hallucinations detected in negative memory", priority=2, suggested_params={"stress_test": True}),
-                ProposedRun(task_type="sizing", reason="Ghost Path delta negative versus v1.2", priority=3, suggested_params={"version_compare": "v1.2"}),
+                ProposedRun(
+                    task_type="signal",
+                    reason="Low Pass^k (0%) — needs more coverage",
+                    priority=1,
+                    suggested_params={"timeframe": "1D"},
+                ),
+                ProposedRun(
+                    task_type="risk",
+                    reason="Recent hallucinations detected in negative memory",
+                    priority=2,
+                    suggested_params={"stress_test": True},
+                ),
+                ProposedRun(
+                    task_type="sizing",
+                    reason="Ghost Path delta negative versus v1.2",
+                    priority=3,
+                    suggested_params={"version_compare": "v1.2"},
+                ),
             ]
 
         by_task: dict[str, dict[str, float]] = {}
@@ -214,7 +288,10 @@ class FeedbackLearningService:
             if all(step.get("success", True) for step in trace):
                 stats["pass"] += 1
 
-        pass_candidate = min(by_task.items(), key=lambda item: (item[1]["pass"] / max(item[1]["total"], 1)))
+        pass_candidate = min(
+            by_task.items(),
+            key=lambda item: (item[1]["pass"] / max(item[1]["total"], 1)),
+        )
         pass_rate = pass_candidate[1]["pass"] / max(pass_candidate[1]["total"], 1)
 
         neg = (
@@ -257,7 +334,9 @@ class FeedbackLearningService:
             ),
         ]
 
-    async def _upsert_negative_memory(self, session: AsyncSession, run_id: int, steps: Iterable[TraceStep]) -> int:
+    async def _upsert_negative_memory(
+        self, session: AsyncSession, run_id: int, steps: Iterable[TraceStep]
+    ) -> int:
         count = 0
         for step in steps:
             if not step.is_hallucination:
@@ -271,19 +350,27 @@ class FeedbackLearningService:
                     node_name=step.node_name,
                     content=content,
                     embedding_json=json.dumps(self._embed(content)),
-                    metadata_json=json.dumps({"reason": step.coach_reason, "tool_name": tool_name}),
+                    metadata_json=json.dumps(
+                        {"reason": step.coach_reason, "tool_name": tool_name}
+                    ),
                 )
             )
             count += 1
         await session.flush()
         return count
 
-    async def _upsert_few_shot_memory(self, session: AsyncSession, run_id: int, steps: Iterable[TraceStep]) -> int:
+    async def _upsert_few_shot_memory(
+        self, session: AsyncSession, run_id: int, steps: Iterable[TraceStep]
+    ) -> int:
         starred = [step for step in steps if step.is_starred]
         if not starred:
             return 0
-        run = (await session.execute(select(AgentRun).where(AgentRun.id == run_id))).scalar_one_or_none()
-        transcript = run.trace_json if run else json.dumps([s.transcript for s in starred])
+        run = (
+            await session.execute(select(AgentRun).where(AgentRun.id == run_id))
+        ).scalar_one_or_none()
+        transcript = (
+            run.trace_json if run else json.dumps([s.transcript for s in starred])
+        )
         session.add(
             VectorMemoryRecord(
                 store_type="few-shot",
@@ -291,19 +378,29 @@ class FeedbackLearningService:
                 node_name="full_trajectory",
                 content=transcript,
                 embedding_json=json.dumps(self._embed(transcript)),
-                metadata_json=json.dumps({"starred_nodes": [s.node_name for s in starred]}),
+                metadata_json=json.dumps(
+                    {"starred_nodes": [s.node_name for s in starred]}
+                ),
             )
         )
         await session.flush()
         return 1
 
-    async def _mutate_strategy_dna(self, session: AsyncSession, steps: Iterable[TraceStep]) -> tuple[list[str], float]:
+    async def _mutate_strategy_dna(
+        self, session: AsyncSession, steps: Iterable[TraceStep]
+    ) -> tuple[list[str], float]:
         promoted: list[str] = []
         delta = 0.0
         for step in steps:
             if not step.promoted_rule_key:
                 continue
-            row = (await session.execute(select(StrategyDNA).where(StrategyDNA.rule_key == step.promoted_rule_key))).scalar_one_or_none()
+            row = (
+                await session.execute(
+                    select(StrategyDNA).where(
+                        StrategyDNA.rule_key == step.promoted_rule_key
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 row = StrategyDNA(
                     rule_key=step.promoted_rule_key,
@@ -323,8 +420,19 @@ class FeedbackLearningService:
         return promoted, delta
 
     async def _rebuild_prompt_cache(self, session: AsyncSession) -> str:
-        active_rows = (await session.execute(select(StrategyDNA).where(StrategyDNA.is_active.is_(True)))).scalars().all()
-        prompt_body = "\n".join(row.segment_text for row in active_rows) or "Base trading system prompt."
+        active_rows = (
+            (
+                await session.execute(
+                    select(StrategyDNA).where(StrategyDNA.is_active.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        prompt_body = (
+            "\n".join(row.segment_text for row in active_rows)
+            or "Base trading system prompt."
+        )
         digest = hashlib.sha1(prompt_body.encode("utf-8")).hexdigest()[:12]
         key = f"prompt:dna:v{digest}"
         session.add(
