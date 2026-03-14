@@ -8,7 +8,6 @@ sys.path.insert(0, '/var/task')
 
 FASTAPI_AVAILABLE = False
 FASTAPI_IMPORT_ERROR = None
-app = None
 mangum_handler = None
 
 try:
@@ -18,6 +17,8 @@ try:
     FASTAPI_AVAILABLE = True
 except Exception as e:
     FASTAPI_IMPORT_ERROR = str(e)
+    import traceback
+    traceback.print_exc()
 
 
 class handler(BaseHTTPRequestHandler):
@@ -43,57 +44,31 @@ class handler(BaseHTTPRequestHandler):
         # If FastAPI is available, delegate to Mangum handler
         if FASTAPI_AVAILABLE and mangum_handler:
             try:
-                # Use Mangum to handle ASGI app
-                from mangum.handler import MangumHandler
+                # Convert BaseHTTPRequestHandler to WSGI environ for Mangum
+                environ = self._to_environ()
                 
-                # Create ASGI scope from BaseHTTPRequestHandler
-                scope = {
-                    'type': 'http',
-                    'method': method,
-                    'path': path,
-                    'query_string': '',
-                    'headers': dict(self.headers.items()),
-                    'server': ('vercel', '1.0'),
-                }
+                # Use Mangum to handle the request
+                response = mangum_handler(environ)
                 
-                # Create receive callable
-                def receive():
-                    # Read request body
-                    content_length = int(self.headers.get('Content-Length', 0))
-                    if content_length > 0:
-                        body = self.rfile.read(content_length)
-                        return {'type': 'http.request', 'body': body, 'more_body': False}
-                    return {'type': 'http.request', 'body': b'', 'more_body': False}
-                
-                # Create send callable
-                async def send(message):
-                    if message['type'] == 'http.response.start':
-                        self.send_response(message['status'])
-                        for name, value in message.get('headers', []):
-                            self.send_header(name, value)
-                        self.end_headers()
-                    elif message['type'] == 'http.response.body':
-                        self.wfile.write(message.get('body', b''))
-                
-                # Use MangumHandler to process ASGI app
-                handler = MangumHandler(mangum_handler)
-                
-                # Run the ASGI app
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(handler(scope, receive, send))
+                # Send response back to client
+                self.send_response(response.status_code)
+                for key, value in response.headers.items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(response.data)
                 return
                 
             except Exception as e:
-                # Fallback to basic response if ASGI handling fails
+                # Log error and send error response
+                import traceback
+                traceback.print_exc()
                 self._send_json_response(500, {
                     'success': False,
                     'data': None,
-                    'error': f'ASGI error: {str(e)}'
+                    'error': f'Mangum error: {str(e)}'
                 })
         
-        # Fallback responses when FastAPI not available
+        # Health endpoint with error visibility
         if path in ('/api/health', '/health'):
             self._send_json_response(200, {
                 'success': True,
@@ -104,55 +79,47 @@ class handler(BaseHTTPRequestHandler):
                 },
                 'error': None
             })
-        elif path.startswith('/api/dashboard/'):
-            # Mock dashboard responses since FastAPI isn't available
-            if path == '/api/dashboard/pnl':
-                self._send_json_response(200, {
-                    'success': True,
-                    'data': {
-                        'total_pnl': 0.0,
-                        'pnl_today': 0.0,
-                        'pnl_today_pct_change': 0.0,
-                        'avg_slippage_saved': 0.0,
-                        'execution_cost': 0.0,
-                        'net_alpha': 0.0
-                    },
-                    'error': None
-                })
-            elif path == '/api/dashboard/learning-velocity':
-                self._send_json_response(200, {
-                    'success': True,
-                    'data': {
-                        'passk_trend': [],
-                        'passk_series': [],
-                        'coherence_series': []
-                    },
-                    'error': None
-                })
-            elif path == '/api/dashboard/health-signals':
-                self._send_json_response(200, {
-                    'success': True,
-                    'data': {'items': []},
-                    'error': None
-                })
-            elif path == '/api/dashboard/run-summary':
-                self._send_json_response(200, {
-                    'success': True,
-                    'data': {'items': []},
-                    'error': None
-                })
-            else:
-                self._send_json_response(404, {
-                    'success': False,
-                    'data': None,
-                    'error': f'Endpoint not found: {method} {path}'
-                })
-        else:
-            self._send_json_response(404, {
-                'success': False,
-                'data': None,
-                'error': f'Endpoint not found: {method} {path}'
-            })
+        
+        # All other endpoints return 404 when FastAPI not available
+        self._send_json_response(404, {
+            'success': False,
+            'data': None,
+            'error': f'Endpoint not found: {method} {path}'
+        })
+
+    def _to_environ(self):
+        """Convert BaseHTTPRequestHandler to WSGI environ dict for Mangum."""
+        return {
+            'REQUEST_METHOD': self.command,
+            'SCRIPT_NAME': '',
+            'PATH_INFO': self.path,
+            'QUERY_STRING': '',
+            'CONTENT_TYPE': self.headers.get('Content-Type', ''),
+            'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
+            'SERVER_NAME': 'vercel.app',
+            'SERVER_PORT': '443',
+            'HTTP_HOST': self.headers.get('Host', 'vercel.app'),
+            'HTTP_COOKIE': self.headers.get('Cookie', ''),
+            'HTTP_USER_AGENT': self.headers.get('User-Agent', ''),
+            'HTTP_ACCEPT': self.headers.get('Accept', ''),
+            'wsgi.input': self._get_body(),
+            'wsgi.errors': sys.stderr,
+            'wsgi.version': (1, 0),
+            'wsgi.multithread': False,
+            'wsgi.multiprocess': False,
+            'wsgi.run_once': True,
+            'wsgi.url_scheme': 'https',
+        }
+
+    def _get_body(self):
+        """Get request body for WSGI environ."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                return self.rfile.read(content_length)
+            return b''
+        except (ValueError, AttributeError):
+            return b''
 
     def _send_json_response(self, status_code, data):
         self.send_response(status_code)

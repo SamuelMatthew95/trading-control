@@ -67,7 +67,7 @@ app.include_router(trades_router)
 app.include_router(performance_router)
 app.include_router(monitoring_router)
 app.include_router(feedback_router)
-app.include_router(dashboard_router)
+app.include_router(dashboard_router, prefix="/api")
 
 
 @app.get("/")
