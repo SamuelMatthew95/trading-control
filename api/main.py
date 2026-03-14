@@ -29,6 +29,8 @@ from api.services.learning import AgentLearningService
 from api.services.memory import AgentMemoryService
 from api.services.run_lifecycle import RunLifecycleService
 from api.services.trading import TradingService
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from multi_agent_orchestrator import MultiAgentOrchestrator
 
 configure_logging(settings.LOG_LEVEL)
