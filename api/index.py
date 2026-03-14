@@ -3,17 +3,20 @@
 import json
 import sys
 from http.server import BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+from wsgiref.handlers import SimpleHandler
+import io
 
 sys.path.insert(0, '/var/task')
 
 FASTAPI_AVAILABLE = False
 FASTAPI_IMPORT_ERROR = None
-mangum_handler = None
+wsgi_app = None
 
 try:
     from api.main import app
-    from mangum import Mangum
-    mangum_handler = Mangum(app, lifespan="off")
+    from a2wsgi import ASGIMiddleware
+    wsgi_app = ASGIMiddleware(app)
     FASTAPI_AVAILABLE = True
 except Exception as e:
     FASTAPI_IMPORT_ERROR = str(e)
@@ -41,21 +44,16 @@ class handler(BaseHTTPRequestHandler):
     def _handle_request(self, method):
         path = self.path.rstrip('/')
         
-        # If FastAPI is available, delegate to Mangum handler
-        if FASTAPI_AVAILABLE and mangum_handler:
+        # If FastAPI is available, delegate to WSGI app
+        if FASTAPI_AVAILABLE and wsgi_app:
             try:
-                # Convert BaseHTTPRequestHandler to WSGI environ for Mangum
+                # Convert BaseHTTPRequestHandler to WSGI environ
                 environ = self._to_environ()
                 
-                # Use Mangum to handle the request
-                response = mangum_handler(environ)
-                
-                # Send response back to client
-                self.send_response(response.status_code)
-                for key, value in response.headers.items():
-                    self.send_header(key, value)
-                self.end_headers()
-                self.wfile.write(response.data)
+                # Use WSGI handler to process the request
+                stdout = io.BytesIO()
+                handler = SimpleHandler(self.rfile, stdout, sys.stderr, environ)
+                handler.run(wsgi_app)
                 return
                 
             except Exception as e:
@@ -65,7 +63,7 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json_response(500, {
                     'success': False,
                     'data': None,
-                    'error': f'Mangum error: {str(e)}'
+                    'error': f'WSGI error: {str(e)}'
                 })
         
         # Health endpoint with error visibility
@@ -88,12 +86,17 @@ class handler(BaseHTTPRequestHandler):
         })
 
     def _to_environ(self):
-        """Convert BaseHTTPRequestHandler to WSGI environ dict for Mangum."""
+        """Convert BaseHTTPRequestHandler to WSGI environ dict."""
+        # Parse path to separate path and query string
+        parsed_path = urlparse(self.path)
+        path_info = parsed_path.path
+        query_string = parsed_path.query
+        
         return {
             'REQUEST_METHOD': self.command,
             'SCRIPT_NAME': '',
-            'PATH_INFO': self.path,
-            'QUERY_STRING': '',
+            'PATH_INFO': path_info,
+            'QUERY_STRING': query_string,
             'CONTENT_TYPE': self.headers.get('Content-Type', ''),
             'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
             'SERVER_NAME': 'vercel.app',
