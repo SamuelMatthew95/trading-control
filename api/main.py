@@ -6,6 +6,7 @@ import time
 import uuid
 from datetime import datetime
 
+from mangum import Mangum
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -140,4 +141,5 @@ async def startup_event():
     log_structured("info", "API startup complete", environment=settings.NODE_ENV, database_connected=db_ok)
 
 
-handler = app
+# Mangum handler for Vercel serverless functions
+handler = Mangum(app, lifespan="off")
