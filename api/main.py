@@ -11,7 +11,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
-from mangum import Mangum
 
 from api.config import parse_csv_env, settings
 from api.core.models import ErrorResponse
@@ -198,4 +197,3 @@ async def startup_event():
 
 
 # Mangum handler for AWS Lambda (not used by Vercel)
-mangum_handler = Mangum(app, lifespan="off")
