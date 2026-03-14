@@ -123,13 +123,13 @@ class FeedbackLearningService:
         try:
             result = await self.reinforce(session, request)
             job.status = "done"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.utcnow().isoformat()
             await session.flush()
             return result
         except Exception as exc:  # noqa: BLE001
             job.status = "failed"
             job.error = str(exc)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.utcnow().isoformat()
             await session.flush()
             raise
 
@@ -407,12 +407,12 @@ class FeedbackLearningService:
                     segment_text=f"Prioritize rule {step.promoted_rule_key}",
                     is_active=True,
                     value_delta_usd=100.0,
-                    last_promoted_at=datetime.utcnow(),
+                    last_promoted_at=datetime.utcnow().isoformat(),
                 )
                 session.add(row)
             else:
                 row.is_active = True
-                row.last_promoted_at = datetime.utcnow()
+                row.last_promoted_at = datetime.utcnow().isoformat()
                 row.value_delta_usd = float(row.value_delta_usd or 0.0) + 100.0
             promoted.append(step.promoted_rule_key)
             delta += 100.0
