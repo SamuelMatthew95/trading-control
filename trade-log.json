@@ -1,0 +1,63 @@
+[
+  {
+    "trace_summary": {
+      "guard_hits": 0
+    },
+    "task_id": "AAPL:2026-03-14T16:56:31.919283",
+    "timestamp": "2026-03-14T16:56:31.919337",
+    "decision": {
+      "DECISION": "LONG",
+      "ASSET": "AAPL",
+      "SIZE": "0 units",
+      "ENTRY": "0.00",
+      "STOP": "0.00",
+      "TARGET": "0.00",
+      "R/R RATIO": "0.0:1",
+      "CONFIDENCE": "LOW",
+      "SIGNAL SUMMARY": [
+        "Consensus=49.0%",
+        "Risk veto=True"
+      ],
+      "RISK FLAGS": [
+        "LOW_CONSENSUS"
+      ],
+      "RATIONALE": "Grounded decision via planner/executor pipeline.",
+      "INVALIDATION": "Below stop 0.00",
+      "TRACE SUMMARY": {
+        "guard_hits": 0
+      }
+    },
+    "trace": [
+      {
+        "agent_name": "SIGNAL",
+        "input_data": {
+          "asset": "AAPL",
+          "timeframe": "1D",
+          "portfolio_state": {
+            "total_value": 100000,
+            "drawdown": -0.01
+          },
+          "signals": [
+            {
+              "source": "a",
+              "direction": "LONG",
+              "confidence": 0.9,
+              "timeframe": "1D"
+            },
+            {
+              "source": "b",
+              "direction": "SHORT",
+              "confidence": 0.9,
+              "timeframe": "1D"
+            }
+          ]
+        },
+        "output_data": {},
+        "timestamp": "2026-03-14 16:56:31.919321",
+        "success": true,
+        "error": null,
+        "duration_ms": 0
+      }
+    ]
+  }
+]

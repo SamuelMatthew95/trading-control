@@ -36,6 +36,7 @@ from api.services.trading import TradingService
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from multi_agent_orchestrator import MultiAgentOrchestrator
+
     ORCHESTRATOR_AVAILABLE = True
 except ImportError:
     MultiAgentOrchestrator = None
@@ -137,9 +138,11 @@ async def startup_event():
         if settings.NODE_ENV == "production":
             raise RuntimeError(f"Database initialization failed: {e}")
         # In development, continue without database
-        log_structured("warning", "Database not available - running without database", error=str(e))
+        log_structured(
+            "warning", "Database not available - running without database", error=str(e)
+        )
         pass
-    
+
     _ = get_settings_info()
 
     if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
@@ -149,8 +152,11 @@ async def startup_event():
     else:
         # Create a mock trading service for deployment without orchestrator
         trading_service = TradingService(None)
-        log_structured("warning", "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service")
-    
+        log_structured(
+            "warning",
+            "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service",
+        )
+
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
     feedback_service = FeedbackLearningService()
@@ -168,7 +174,7 @@ async def startup_event():
     for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
-    global _signal_task, _score_retry_task
+    global _score_retry_task
     if ENABLE_SIGNAL_SCHEDULER:
         # signal_scheduler removed - no longer available
         pass

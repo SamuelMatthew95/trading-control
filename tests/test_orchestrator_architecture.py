@@ -1,17 +1,18 @@
-from multi_agent_orchestrator import (
-    DeterministicReasoningModel,
-    DocumentRetriever,
-    MultiAgentOrchestrator,
-    Planner,
-    TaskStateMemory,
-    TradeTools,
-    ToolError,
-)
+from multi_agent_orchestrator import (DeterministicReasoningModel,
+                                      DocumentRetriever,
+                                      MultiAgentOrchestrator, Planner,
+                                      TaskStateMemory, ToolError, TradeTools)
 
 
 def test_planner_is_deterministic():
     plan = Planner().build_plan("AAPL", "1D")
-    assert [step.name for step in plan.steps] == ["signal", "consensus", "risk", "sizing", "decision"]
+    assert [step.name for step in plan.steps] == [
+        "signal",
+        "consensus",
+        "risk",
+        "sizing",
+        "decision",
+    ]
 
 
 def test_tool_guardrails_reject_unknown_assets():
@@ -31,7 +32,9 @@ def test_task_state_memory_round_trip():
 
 def test_orchestrator_returns_trade_decision():
     orchestrator = MultiAgentOrchestrator(api_key=None)
-    result = orchestrator.analyze_trade("AAPL", "1D", {"total_value": 100000, "drawdown": -0.02})
+    result = orchestrator.analyze_trade(
+        "AAPL", "1D", {"total_value": 100000, "drawdown": -0.02}
+    )
     assert result["DECISION"] in {"LONG", "SHORT", "FLAT"}
     assert "RISK FLAGS" in result
 

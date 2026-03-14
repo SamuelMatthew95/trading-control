@@ -12,7 +12,9 @@ from api.security import enforce_api_key
 from api.utils import with_retries
 
 
-def _build_request(path: str, method: str = "GET", api_key: str | None = None) -> Request:
+def _build_request(
+    path: str, method: str = "GET", api_key: str | None = None
+) -> Request:
     headers = []
     if api_key is not None:
         headers.append((b"x-api-key", api_key.encode("utf-8")))

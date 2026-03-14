@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from collections import deque
+from typing import Deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

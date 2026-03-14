@@ -12,9 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Protocol
 
-from sqlalchemy import create_engine, text
-
 from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, text
 
 try:
     import anthropic
@@ -23,7 +22,9 @@ except ImportError:  # pragma: no cover - dependency optional in tests
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
 
 
 Direction = Literal["LONG", "SHORT", "FLAT"]
@@ -57,8 +58,6 @@ class ToolError(RuntimeError):
     """Tool execution failed validation or guardrails."""
 
 
-
-
 def _to_sync_db_url(raw_url: str) -> str:
     if raw_url.startswith("sqlite+aiosqlite://"):
         return raw_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
@@ -71,24 +70,24 @@ class MemoryGuard:
     def __init__(self, threshold: float = 0.82):
         self.threshold = threshold
 
-    def check(self, tool_name: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        db_url = _to_sync_db_url(os.getenv("DATABASE_URL", "sqlite:///./trading-control.db"))
+    def check(
+        self, tool_name: str, payload: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        db_url = _to_sync_db_url(
+            os.getenv("DATABASE_URL", "sqlite:///./trading-control.db")
+        )
         probe = f"{tool_name}:{json.dumps(payload, sort_keys=True)}"
         probe_embedding = self._embed(probe)
         try:
             engine = create_engine(db_url)
             with engine.connect() as conn:
-                rows = conn.execute(
-                    text(
-                        """
+                rows = conn.execute(text("""
                         SELECT content, embedding_json, metadata_json
                         FROM vector_memory_records
                         WHERE store_type = 'negative-memory'
                         ORDER BY id DESC
                         LIMIT 100
-                        """
-                    )
-                ).fetchall()
+                        """)).fetchall()
         except Exception:
             return None
 
@@ -97,10 +96,14 @@ class MemoryGuard:
                 candidate = json.loads(row.embedding_json)
                 similarity = self._cosine(probe_embedding, candidate)
                 if similarity > self.threshold:
-                    metadata = json.loads(row.metadata_json) if row.metadata_json else {}
+                    metadata = (
+                        json.loads(row.metadata_json) if row.metadata_json else {}
+                    )
                     return {
                         "similarity": round(similarity, 3),
-                        "reason": metadata.get("reason", "blocked by prior negative memory"),
+                        "reason": metadata.get(
+                            "reason", "blocked by prior negative memory"
+                        ),
                         "content": row.content,
                     }
             except Exception:
@@ -124,6 +127,7 @@ class MemoryGuard:
             return 0.0
         return dot / (norm_a * norm_b)
 
+
 class TradeConstraint(BaseModel):
     asset_ticker: str
     max_position_size: float = Field(default=5000, le=5000)
@@ -131,20 +135,29 @@ class TradeConstraint(BaseModel):
     stop_loss_pct: float = Field(default=0.02, ge=0.01)
 
 
-
 class ReasoningModel(Protocol):
-    def complete_json(self, *, system_prompt: str, payload: Dict[str, Any]) -> Dict[str, Any]: ...
+    def complete_json(
+        self, *, system_prompt: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]: ...
 
 
 class AnthropicReasoningModel:
-    def __init__(self, api_key: str, *, model_name: str = "claude-sonnet-4-20250514", retries: int = 2):
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model_name: str = "claude-sonnet-4-20250514",
+        retries: int = 2,
+    ):
         if anthropic is None:
             raise RuntimeError("anthropic package is not installed")
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model_name = model_name
         self.retries = retries
 
-    def complete_json(self, *, system_prompt: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def complete_json(
+        self, *, system_prompt: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         last_error: Optional[Exception] = None
         for attempt in range(self.retries + 1):
             try:
@@ -158,7 +171,10 @@ class AnthropicReasoningModel:
                 return json.loads(text)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                logger.warning("reasoning_model_retry", extra={"attempt": attempt + 1, "error": str(exc)})
+                logger.warning(
+                    "reasoning_model_retry",
+                    extra={"attempt": attempt + 1, "error": str(exc)},
+                )
                 time.sleep(0.2 * (attempt + 1))
         raise RuntimeError(f"Model call failed after retries: {last_error}")
 
@@ -166,18 +182,41 @@ class AnthropicReasoningModel:
 class DeterministicReasoningModel:
     """Fallback local model to keep flows deterministic in development/tests."""
 
-    def complete_json(self, *, system_prompt: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def complete_json(
+        self, *, system_prompt: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         if "normalize trade signals" in system_prompt.lower():
-            direction: Direction = "LONG" if payload["asset"] in {"AAPL", "MSFT"} else "FLAT"
-            return [{"source": "heuristic", "direction": direction, "confidence": 0.7, "timeframe": payload["timeframe"]}]
+            direction: Direction = (
+                "LONG" if payload["asset"] in {"AAPL", "MSFT"} else "FLAT"
+            )
+            return [
+                {
+                    "source": "heuristic",
+                    "direction": direction,
+                    "confidence": 0.7,
+                    "timeframe": payload["timeframe"],
+                }
+            ]
         if "compute consensus" in system_prompt.lower():
             signals = payload.get("signals", [])
             if not signals:
-                return {"direction": "FLAT", "agreement_ratio": 0.0, "signal_strength": 0.0}
+                return {
+                    "direction": "FLAT",
+                    "agreement_ratio": 0.0,
+                    "signal_strength": 0.0,
+                }
             direction = signals[0]["direction"]
-            agreement = sum(1 for s in signals if s["direction"] == direction) / len(signals)
-            confidence = sum(float(s.get("confidence", 0)) for s in signals) / len(signals)
-            return {"direction": direction, "agreement_ratio": agreement, "signal_strength": round(agreement * confidence, 3)}
+            agreement = sum(1 for s in signals if s["direction"] == direction) / len(
+                signals
+            )
+            confidence = sum(float(s.get("confidence", 0)) for s in signals) / len(
+                signals
+            )
+            return {
+                "direction": direction,
+                "agreement_ratio": agreement,
+                "signal_strength": round(agreement * confidence, 3),
+            }
         if "enforce risk limits" in system_prompt.lower():
             drawdown = float(payload.get("portfolio", {}).get("drawdown", 0))
             veto = drawdown < -0.15
@@ -191,7 +230,9 @@ class DeterministicReasoningModel:
         price = float(payload.get("asset_price", 100))
         atr = float(payload.get("atr", 5))
         return {
-            "units": int(max(1, payload.get("portfolio_value", 100000) * 0.01 / max(price, 1))),
+            "units": int(
+                max(1, payload.get("portfolio_value", 100000) * 0.01 / max(price, 1))
+            ),
             "entry": price,
             "stop": max(0.01, price - atr),
             "target": price + atr * 2,
@@ -218,7 +259,9 @@ class DocumentRetriever:
             if score:
                 scored.append((score, name, text[:500]))
         scored.sort(reverse=True)
-        return [{"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]]
+        return [
+            {"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]
+        ]
 
 
 class TradeTools:
@@ -231,7 +274,14 @@ class TradeTools:
         circuit_breaker_threshold: int = 3,
     ):
         self.allowed_assets = allowed_assets or {"AAPL", "MSFT", "GOOGL", "TSLA"}
-        self.price_provider = price_provider or (lambda asset: {"AAPL": 150.25, "MSFT": 380.5, "GOOGL": 2800.0, "TSLA": 250.0}[asset])
+        self.price_provider = price_provider or (
+            lambda asset: {
+                "AAPL": 150.25,
+                "MSFT": 380.5,
+                "GOOGL": 2800.0,
+                "TSLA": 250.0,
+            }[asset]
+        )
         self.max_retries = max_retries
         self.circuit_breaker_threshold = circuit_breaker_threshold
         self.failure_count = 0
@@ -306,7 +356,9 @@ class PersistentMemory:
 
     def append_trade(self, trade: Dict[str, Any]) -> None:
         self._store.setdefault("trades", []).append(trade)
-        self.path.write_text(json.dumps(self._store, indent=2, default=str), encoding="utf-8")
+        self.path.write_text(
+            json.dumps(self._store, indent=2, default=str), encoding="utf-8"
+        )
 
 
 class Planner:
@@ -332,24 +384,38 @@ class ExecutionEngine:
         "SIZING_AGENT": "You calculate position size using Kelly criterion. Return JSON object only.",
     }
 
-    def __init__(self, model: ReasoningModel, retriever: DocumentRetriever, tools: TradeTools):
+    def __init__(
+        self, model: ReasoningModel, retriever: DocumentRetriever, tools: TradeTools
+    ):
         self.model = model
         self.retriever = retriever
         self.tools = tools
 
     def run_step(self, step: PlanStep, context: Dict[str, Any]) -> Dict[str, Any]:
         if step.name == "signal":
-            grounding = self.retriever.retrieve(f"{context['asset']} {context['timeframe']} signal")
-            payload = {"asset": context["asset"], "timeframe": context["timeframe"], "grounding": grounding}
-            return self.model.complete_json(system_prompt=self.AGENT_PROMPTS["SIGNAL_AGENT"], payload=payload)
+            grounding = self.retriever.retrieve(
+                f"{context['asset']} {context['timeframe']} signal"
+            )
+            payload = {
+                "asset": context["asset"],
+                "timeframe": context["timeframe"],
+                "grounding": grounding,
+            }
+            return self.model.complete_json(
+                system_prompt=self.AGENT_PROMPTS["SIGNAL_AGENT"], payload=payload
+            )
         if step.name == "consensus":
             return self.model.complete_json(
-                system_prompt=self.AGENT_PROMPTS["CONSENSUS_AGENT"], payload={"signals": context["signals"]}
+                system_prompt=self.AGENT_PROMPTS["CONSENSUS_AGENT"],
+                payload={"signals": context["signals"]},
             )
         if step.name == "risk":
             return self.model.complete_json(
                 system_prompt=self.AGENT_PROMPTS["RISK_AGENT"],
-                payload={"consensus": context["consensus"], "portfolio": context["portfolio_state"]},
+                payload={
+                    "consensus": context["consensus"],
+                    "portfolio": context["portfolio_state"],
+                },
             )
         if step.name == "sizing":
             return self.model.complete_json(
@@ -359,7 +425,9 @@ class ExecutionEngine:
                     "risk": context["risk"],
                     "asset_price": self.tools.get_current_price(context["asset"]),
                     "atr": self.tools.get_atr(context["asset"], context["timeframe"]),
-                    "portfolio_value": context["portfolio_state"].get("total_value", 100000),
+                    "portfolio_value": context["portfolio_state"].get(
+                        "total_value", 100000
+                    ),
                 },
             )
         if step.name == "decision":
@@ -371,7 +439,11 @@ class ExecutionEngine:
         risk = context["risk"]
         sizing = context["sizing"]
         signal_strength = float(consensus.get("signal_strength", 0))
-        confidence = "HIGH" if signal_strength > 0.8 else "MEDIUM" if signal_strength > 0.6 else "LOW"
+        confidence = (
+            "HIGH"
+            if signal_strength > 0.8
+            else "MEDIUM" if signal_strength > 0.6 else "LOW"
+        )
         return {
             "DECISION": consensus.get("direction", "FLAT"),
             "ASSET": context["asset"],
@@ -441,18 +513,39 @@ class MultiAgentOrchestrator:
         start = time.time()
         try:
             output = self.executor.run_step(PlanStep(step_name), input_data)
-            call = AgentCall(agent_name, input_data, output, datetime.utcnow(), True, duration_ms=int((time.time() - start) * 1000))
+            call = AgentCall(
+                agent_name,
+                input_data,
+                output,
+                datetime.utcnow(),
+                True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
             self.agent_calls.append(call)
             return {"success": True, "data": output}
         except Exception as exc:  # noqa: BLE001
-            call = AgentCall(agent_name, input_data, {}, datetime.utcnow(), False, error=str(exc), duration_ms=int((time.time() - start) * 1000))
+            call = AgentCall(
+                agent_name,
+                input_data,
+                {},
+                datetime.utcnow(),
+                False,
+                error=str(exc),
+                duration_ms=int((time.time() - start) * 1000),
+            )
             self.agent_calls.append(call)
             return {"success": False, "error": str(exc)}
 
-    def analyze_trade(self, asset: str, timeframe: str, portfolio_state: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze_trade(
+        self, asset: str, timeframe: str, portfolio_state: Dict[str, Any]
+    ) -> Dict[str, Any]:
         task_id = f"{asset}:{datetime.utcnow().isoformat()}"
         plan = self.planner.build_plan(asset, timeframe)
-        context: Dict[str, Any] = {"asset": asset, "timeframe": timeframe, "portfolio_state": portfolio_state}
+        context: Dict[str, Any] = {
+            "asset": asset,
+            "timeframe": timeframe,
+            "portfolio_state": portfolio_state,
+        }
 
         for step in plan.steps:
             step_start = time.time()
@@ -463,43 +556,87 @@ class MultiAgentOrchestrator:
                     context["consensus"] = self.executor.run_step(step, context)
                     if float(context["consensus"].get("agreement_ratio", 0.0)) < 0.5:
                         context["risk"] = {"veto": True, "flags": ["LOW_CONSENSUS"]}
-                        context["sizing"] = {"units": 0, "entry": 0, "stop": 0, "target": 0, "rr_ratio": 0}
+                        context["sizing"] = {
+                            "units": 0,
+                            "entry": 0,
+                            "stop": 0,
+                            "target": 0,
+                            "rr_ratio": 0,
+                        }
                         break
                 elif step.name == "risk":
                     context["risk"] = self.executor.run_step(step, context)
                     if bool(context["risk"].get("veto", False)):
-                        context["sizing"] = {"units": 0, "entry": 0, "stop": 0, "target": 0, "rr_ratio": 0}
+                        context["sizing"] = {
+                            "units": 0,
+                            "entry": 0,
+                            "stop": 0,
+                            "target": 0,
+                            "rr_ratio": 0,
+                        }
                         break
                 elif step.name == "sizing":
                     context["sizing"] = self.executor.run_step(step, context)
             except Exception as exc:  # noqa: BLE001
                 error_text = str(exc)
-                agent_name = "skipped_by_memory_guard" if "skipped_by_memory_guard" in error_text else step.name.upper()
+                agent_name = (
+                    "skipped_by_memory_guard"
+                    if "skipped_by_memory_guard" in error_text
+                    else step.name.upper()
+                )
                 self.agent_calls.append(
-                    AgentCall(agent_name, context.copy(), {}, datetime.utcnow(), False, error=error_text, duration_ms=int((time.time() - step_start) * 1000))
+                    AgentCall(
+                        agent_name,
+                        context.copy(),
+                        {},
+                        datetime.utcnow(),
+                        False,
+                        error=error_text,
+                        duration_ms=int((time.time() - step_start) * 1000),
+                    )
                 )
                 decision = self._error_decision(asset, error_text)
-                decision["context_dump"] = {"task_state": self.task_memory.get(task_id), "retrieved_context": context.get("signals", [])}
+                decision["context_dump"] = {
+                    "task_state": self.task_memory.get(task_id),
+                    "retrieved_context": context.get("signals", []),
+                }
                 self._persist(task_id, decision)
                 return decision
 
             self.agent_calls.append(
-                AgentCall(step.name.upper(), context.copy(), context.get(step.name, {}), datetime.utcnow(), True, duration_ms=int((time.time() - step_start) * 1000))
+                AgentCall(
+                    step.name.upper(),
+                    context.copy(),
+                    context.get(step.name, {}),
+                    datetime.utcnow(),
+                    True,
+                    duration_ms=int((time.time() - step_start) * 1000),
+                )
             )
-            self.task_memory.put(task_id, {"last_step": step.name, "context": context.copy()})
+            self.task_memory.put(
+                task_id, {"last_step": step.name, "context": context.copy()}
+            )
 
         decision = self.executor.run_step(PlanStep("decision"), context)
         trajectory_issues = self.evaluator.validate_trajectory(self.agent_calls)
         outcome_issues = self.evaluator.validate_outcome(decision)
         if trajectory_issues or outcome_issues:
-            decision.setdefault("RISK FLAGS", []).extend(trajectory_issues + outcome_issues)
+            decision.setdefault("RISK FLAGS", []).extend(
+                trajectory_issues + outcome_issues
+            )
         self._persist(task_id, decision)
         return decision
 
     def process_trade_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         symbol = signals[0].get("symbol", "AAPL") if signals else "AAPL"
         price = float(signals[0].get("price", 100)) if signals else 100
-        portfolio = {"total_value": 100000, "cash": 50000, "positions": {}, "drawdown": -0.03, "price_hint": price}
+        portfolio = {
+            "total_value": 100000,
+            "cash": 50000,
+            "positions": {},
+            "drawdown": -0.03,
+            "price_hint": price,
+        }
         decision = self.analyze_trade(symbol, "1D", portfolio)
         return {
             "DECISION": decision["DECISION"],
@@ -536,7 +673,9 @@ class MultiAgentOrchestrator:
         self.conversation_memory.add(log_entry)
         self.trade_log.append(log_entry)
         self.persistent_memory.append_trade(log_entry)
-        Path("trade-log.json").write_text(json.dumps(self.trade_log, indent=2, default=str), encoding="utf-8")
+        Path("trade-log.json").write_text(
+            json.dumps(self.trade_log, indent=2, default=str), encoding="utf-8"
+        )
 
     def get_trade_history(self) -> List[Dict[str, Any]]:
         return self.trade_log
@@ -557,5 +696,7 @@ class MultiAgentOrchestrator:
 
 if __name__ == "__main__":
     orchestrator = MultiAgentOrchestrator(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    result = orchestrator.analyze_trade("AAPL", "1D", {"total_value": 100000, "drawdown": -0.02})
+    result = orchestrator.analyze_trade(
+        "AAPL", "1D", {"total_value": 100000, "drawdown": -0.02}
+    )
     print(json.dumps(result, indent=2))
