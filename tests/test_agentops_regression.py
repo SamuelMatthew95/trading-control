@@ -42,15 +42,6 @@ def test_contradictory_signals_are_flagged_low_consensus():
 
 @pytest.mark.asyncio
 async def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
-    from api.database import AsyncSessionLocal
-    from api.core.models import VectorMemoryRecord
-    from sqlalchemy import delete
-    
-    # Clean up negative memories to ensure test isolation
-    async with AsyncSessionLocal() as session:
-        await session.execute(delete(VectorMemoryRecord).where(VectorMemoryRecord.store_type == "negative-memory"))
-        await session.commit()
-    
     calls = {"n": 0}
 
     def flaky_provider(_asset: str) -> float:
@@ -62,13 +53,13 @@ async def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
     )
 
     try:
-        await tools.get_current_price("AAPL")
+        await tools.get_current_price("TSLA")  # Use different asset to avoid memory guard
         assert False, "Expected ToolError"
     except ToolError:
         assert calls["n"] == 2
 
     try:
-        await tools.get_current_price("AAPL")
+        await tools.get_current_price("TSLA")  # Use different asset to avoid memory guard
         assert False, "Expected open circuit ToolError"
     except ToolError as exc:
         assert "circuit" in str(exc).lower()
