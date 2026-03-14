@@ -36,10 +36,10 @@ def configure_logging(level: str = "INFO") -> None:
     if any(isinstance(h.formatter, JsonFormatter) for h in root.handlers):
         return
 
-    handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
+    log_handler = logging.StreamHandler()
+    log_handler.setFormatter(JsonFormatter())
     root.handlers.clear()
-    root.addHandler(handler)
+    root.addHandler(log_handler)
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
 
