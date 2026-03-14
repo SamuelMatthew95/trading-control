@@ -11,7 +11,7 @@ from api.core.models import (Insight, Run, Signal, TaskTypeBaseline, TraceStep,
                              VectorMemoryRecord)
 from api.database import AsyncSessionLocal, init_database
 from api.main import app
-from api.routes import dashboard, signals, system
+from api.routes import dashboard, system
 from api.services.signals import generate_signals
 from tests.conftest import TEST_REFERENCE_DT
 
