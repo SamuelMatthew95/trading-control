@@ -62,150 +62,174 @@ def _trend(series: List[float | None]) -> str:
     return "plateauing"
 
 
-@router.get("/dashboard/pnl", response_model=PnlResponse)
+@router.get("/dashboard/pnl")
 async def dashboard_pnl(response: Response, reference_dt: Optional[datetime] = None):
-    now = reference_dt or datetime.utcnow()
-    today = _utc_midnight(now, 0)
-    yesterday = _utc_midnight(now, -1)
-    thirty_days = now - timedelta(days=30)
+    try:
+        now = reference_dt or datetime.utcnow()
+        today = _utc_midnight(now, 0)
+        yesterday = _utc_midnight(now, -1)
+        thirty_days = now - timedelta(days=30)
 
-    async with get_async_session() as session:
-        row = (
-            await session.execute(
-                select(
-                    func.coalesce(func.sum(Run.pnl), 0.0).label("total_pnl"),
-                    func.coalesce(func.sum(case((Run.created_at >= today, Run.pnl), else_=0.0)), 0.0).label("pnl_today"),
-                    func.coalesce(func.sum(case((and_(Run.created_at >= yesterday, Run.created_at < today), Run.pnl), else_=0.0)), 0.0).label("pnl_yesterday"),
-                    func.coalesce(func.avg(case((and_(Run.created_at >= thirty_days, TaskTypeBaseline.baseline_slippage.is_not(None), Run.actual_slippage.is_not(None)), TaskTypeBaseline.baseline_slippage - Run.actual_slippage), else_=None)), 0.0).label("avg_slippage_saved"),
-                ).select_from(Run).join(TaskTypeBaseline, TaskTypeBaseline.task_type == Run.task_type, isouter=True)
-            )
-        ).one()
-        execution_cost = float((await session.execute(select(func.coalesce(func.sum(TraceStep.token_cost_usd), 0.0)))).scalar() or 0.0)
+        async with get_async_session() as session:
+            row = (
+                await session.execute(
+                    select(
+                        func.coalesce(func.sum(Run.pnl), 0.0).label("total_pnl"),
+                        func.coalesce(func.sum(case((Run.created_at >= today, Run.pnl), else_=0.0)), 0.0).label("pnl_today"),
+                        func.coalesce(func.sum(case((and_(Run.created_at >= yesterday, Run.created_at < today), Run.pnl), else_=0.0)), 0.0).label("pnl_yesterday"),
+                        func.coalesce(func.avg(case((and_(Run.created_at >= thirty_days, TaskTypeBaseline.baseline_slippage.is_not(None), Run.actual_slippage.is_not(None)), TaskTypeBaseline.baseline_slippage - Run.actual_slippage), else_=None)), 0.0).label("avg_slippage_saved"),
+                    ).select_from(Run).join(TaskTypeBaseline, TaskTypeBaseline.task_type == Run.task_type, isouter=True)
+                )
+            ).one()
+            execution_cost = float((await session.execute(select(func.coalesce(func.sum(TraceStep.token_cost_usd), 0.0)))).scalar() or 0.0)
 
-    pnl_today = float(row.pnl_today or 0.0)
-    pnl_yesterday = float(row.pnl_yesterday or 0.0)
-    pct = 0.0 if pnl_yesterday == 0 else ((pnl_today - pnl_yesterday) / abs(pnl_yesterday)) * 100
-    total_pnl = float(row.total_pnl or 0.0)
-    response.headers["Cache-Control"] = "no-store"
-    return PnlResponse(
-        total_pnl=round(total_pnl, 2),
-        pnl_today=round(pnl_today, 2),
-        pnl_today_pct_change=round(pct, 2),
-        avg_slippage_saved=round(float(row.avg_slippage_saved or 0.0), 4),
-        execution_cost=round(execution_cost, 2),
-        net_alpha=round(total_pnl - execution_cost, 2),
-    )
+        pnl_today = float(row.pnl_today or 0.0)
+        pnl_yesterday = float(row.pnl_yesterday or 0.0)
+        pct = 0.0 if pnl_yesterday == 0 else ((pnl_today - pnl_yesterday) / abs(pnl_yesterday)) * 100
+        total_pnl = float(row.total_pnl or 0.0)
+        response.headers["Cache-Control"] = "no-store"
+        
+        pnl_data = PnlResponse(
+            total_pnl=round(total_pnl, 2),
+            pnl_today=round(pnl_today, 2),
+            pnl_today_pct_change=round(pct, 2),
+            avg_slippage_saved=round(float(row.avg_slippage_saved or 0.0), 4),
+            execution_cost=round(execution_cost, 2),
+        )
+        
+        return StandardResponse(success=True, data=pnl_data.model_dump()).model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get PNL data: {str(e)}")
 
 
-@router.get("/dashboard/learning-velocity", response_model=LearningVelocityResponse)
+@router.get("/dashboard/learning-velocity")
 async def dashboard_learning_velocity(response: Response, reference_dt: Optional[datetime] = None):
-    now = reference_dt or datetime.utcnow()
-    since = _utc_midnight(now, -29)
-    async with get_async_session() as session:
-        pass_rows = (await session.execute(select(func.date(Run.created_at), func.count(Run.id), func.sum(case((Run.status == "won", 1), else_=0))).where(Run.created_at >= since).group_by(func.date(Run.created_at)))).all()
-        coh_rows = (await session.execute(select(func.date(Run.created_at), func.avg(Run.reasoning_coherence_score)).where(Run.created_at >= since).group_by(func.date(Run.created_at)))).all()
-        pass_map = {str(d): (w / t * 100 if t else None) for d, t, w in pass_rows}
-        coh_map = {str(d): (float(c) * 10 if c is not None else None) for d, c in coh_rows}
+    try:
+        now = reference_dt or datetime.utcnow()
+        since = _utc_midnight(now, -29)
+        async with get_async_session() as session:
+            pass_rows = (await session.execute(select(func.date(Run.created_at), func.count(Run.id), func.sum(case((Run.status == "won", 1), else_=0))).where(Run.created_at >= since).group_by(func.date(Run.created_at)))).all()
+            coh_rows = (await session.execute(select(func.date(Run.created_at), func.avg(Run.reasoning_coherence_score)).where(Run.created_at >= since).group_by(func.date(Run.created_at)))).all()
+            pass_map = {str(d): (w / t * 100 if t else None) for d, t, w in pass_rows}
+            coh_map = {str(d): (float(c) * 10 if c is not None else None) for d, c in coh_rows}
 
-        passk_series: list[float | None] = []
-        coherence_series: list[float | None] = []
-        for i in range(30):
-            day = (_utc_midnight(now, -29 + i)).date().isoformat()
-            passk_series.append(pass_map.get(day))
-            coherence_series.append(coh_map.get(day))
+            passk_series: list[float | None] = []
+            coherence_series: list[float | None] = []
+            for i in range(30):
+                day = (_utc_midnight(now, -29 + i)).date().isoformat()
+                passk_series.append(pass_map.get(day))
+                coherence_series.append(coh_map.get(day))
 
-        annotations_this_week = int((await session.execute(select(func.count(VectorMemoryRecord.id)).where(VectorMemoryRecord.created_at >= now - timedelta(days=7)))).scalar() or 0)
-        good, total = (
-            await session.execute(
-                select(func.sum(case((Run.pnl > 0, 1), else_=0)), func.count(TraceStep.id))
-                .join(Run, Run.id == TraceStep.run_id)
-                .where(TraceStep.step_type == "skipped_by_memory_guard", TraceStep.created_at >= now - timedelta(days=7))
-            )
-        ).one()
-        verified = (await session.execute(select(func.avg(func.julianday(VectorMemoryRecord.correction_verified_at) - func.julianday(VectorMemoryRecord.created_at))).where(VectorMemoryRecord.correction_verified_at.is_not(None)))).scalar()
-        pending_or_failed = int((await session.execute(select(func.count(Run.id)).where(Run.created_at >= since, Run.scoring_status.in_(["pending", "failed"])))).scalar() or 0)
-        total_recent = int((await session.execute(select(func.count(Run.id)).where(Run.created_at >= since))).scalar() or 0)
+            annotations_this_week = int((await session.execute(select(func.count(VectorMemoryRecord.id)).where(VectorMemoryRecord.created_at >= now - timedelta(days=7)))).scalar() or 0)
+            good, total = (
+                await session.execute(
+                    select(func.sum(case((Run.pnl > 0, 1), else_=0)), func.count(TraceStep.id))
+                    .join(Run, Run.id == TraceStep.run_id)
+                    .where(TraceStep.step_type == "skipped_by_memory_guard", TraceStep.created_at >= now - timedelta(days=7))
+                )
+            ).one()
+            verified = (await session.execute(select(func.avg(func.julianday(VectorMemoryRecord.correction_verified_at) - func.julianday(VectorMemoryRecord.created_at))).where(VectorMemoryRecord.correction_verified_at.is_not(None)))).scalar()
+            pending_or_failed = int((await session.execute(select(func.count(Run.id)).where(Run.created_at >= since, Run.scoring_status.in_(["pending", "failed"])))).scalar() or 0)
+            total_recent = int((await session.execute(select(func.count(Run.id)).where(Run.created_at >= since))).scalar() or 0)
 
-    guard_pct = 0.0 if not total else float(good or 0) / float(total) * 100
-    response.headers["Cache-Control"] = "max-age=120"
-    return LearningVelocityResponse(
-        passk_series=passk_series,
-        coherence_series=coherence_series,
-        passk_trend=_trend(passk_series),
-        annotations_this_week=annotations_this_week,
-        avg_sessions_to_correction=None if verified is None else round(float(verified), 2),
-        memory_guard_effectiveness_pct=round(guard_pct, 2),
-        scoring_lag_warning=(total_recent >= 10 and pending_or_failed > 5 and pending_or_failed / total_recent > 0.2),
-    )
+        guard_pct = 0.0 if not total else float(good or 0) / float(total) * 100
+        response.headers["Cache-Control"] = "max-age=120"
+        
+        learning_data = LearningVelocityResponse(
+            passk_series=passk_series,
+            coherence_series=coherence_series,
+            passk_trend=_trend(passk_series),
+            annotations_this_week=annotations_this_week,
+            avg_sessions_to_correction=None if verified is None else round(float(verified), 2),
+            memory_guard_effectiveness_pct=round(guard_pct, 2),
+            scoring_lag_warning=(total_recent >= 10 and pending_or_failed > 5 and pending_or_failed / total_recent > 0.2),
+        )
+        
+        return StandardResponse(success=True, data=learning_data.model_dump()).model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get learning velocity data: {str(e)}")
 
 
 @router.get("/dashboard/health-signals")
 async def dashboard_health_signals(response: Response, reference_dt: Optional[datetime] = None):
-    now = reference_dt or datetime.utcnow()
-    async with get_async_session() as session:
-        context_ratio = float((await session.execute(select(func.coalesce(func.avg((TraceStep.tokens_used * 1.0) / func.nullif(TraceStep.context_limit, 0)), 0.0)).where(TraceStep.context_limit.is_not(None), TraceStep.tokens_used.is_not(None)))).scalar() or 0.0)
-        recent_runs = (await session.execute(select(Run.id).where(Run.created_at >= now - timedelta(days=7)))).scalars().all()
-        thrash_runs = 0
-        for rid in recent_runs:
-            tools = (await session.execute(select(TraceStep.tool_name).where(TraceStep.run_id == rid).order_by(TraceStep.id.asc()))).scalars().all()
-            streak = 1
-            for i in range(1, len(tools)):
-                if tools[i] and tools[i] == tools[i - 1]:
-                    streak += 1
-                    if streak >= 3:
-                        thrash_runs += 1
-                        break
-                else:
-                    streak = 1
-        thrash_rate = 0.0 if not recent_runs else thrash_runs / len(recent_runs) * 100
-        errors = int((await session.execute(select(func.count(func.distinct(TraceStep.run_id))).where(TraceStep.step_type == "error"))).scalar() or 0)
-        recovered = int((await session.execute(select(func.count(func.distinct(TraceStep.run_id))).where(TraceStep.step_type == "recovery"))).scalar() or 0)
-        recovery_rate = 0.0 if errors == 0 else recovered / errors * 100
-        constraint = int((await session.execute(select(func.count(TraceStep.id)).where(TraceStep.step_type == "constraint_violation", TraceStep.created_at >= now - timedelta(days=7)))).scalar() or 0)
-        ghost_delta = float((await session.execute(select(func.coalesce(func.avg(Run.actual_slippage - Run.ghost_slippage), 0.0)).where(Run.ghost_run_id.is_not(None)))).scalar() or 0.0)
-        guard_hits = int((await session.execute(select(func.count(TraceStep.id)).where(TraceStep.step_type == "skipped_by_memory_guard", TraceStep.created_at >= now - timedelta(days=7)))).scalar() or 0)
-    response.headers["Cache-Control"] = "max-age=60"
-    return {"items": [
-        HealthSignalView(key="context_saturation", label="Context saturation", value=f"{context_ratio*100:.1f}%", status="red" if context_ratio > 0.75 else "green", interpretation="High means prompts are near token ceiling.").model_dump(),
-        HealthSignalView(key="tool_thrashing_rate", label="Tool thrashing rate", value=f"{thrash_rate:.1f}%", status="red" if thrash_rate > 20 else "amber", interpretation="Repeated tool loops indicate unstable planning.").model_dump(),
-        HealthSignalView(key="recovery_rate", label="Recovery rate", value=f"{recovery_rate:.1f}%", status="green" if recovery_rate > 65 else "amber", interpretation="How often failures self-correct before final decision.").model_dump(),
-        HealthSignalView(key="constraint_violations", label="Constraint violations", value=str(constraint), status="red" if constraint > 0 else "green", interpretation="Any violation should be reviewed immediately.").model_dump(),
-        HealthSignalView(key="ghost_path_delta", label="Ghost path delta", value=f"{ghost_delta:.3f}", status="green" if ghost_delta > 0 else "amber", interpretation="Positive means current path beats ghost baseline.").model_dump(),
-        HealthSignalView(key="memory_guard_hits", label="Memory guard hits", value=str(guard_hits), status="blue", interpretation="Informational count of blocked risky tool calls.").model_dump(),
-    ]}
+    try:
+        now = reference_dt or datetime.utcnow()
+        async with get_async_session() as session:
+            context_ratio = float((await session.execute(select(func.coalesce(func.avg((TraceStep.tokens_used * 1.0) / func.nullif(TraceStep.context_limit, 0)), 0.0)).where(TraceStep.context_limit.is_not(None), TraceStep.tokens_used.is_not(None)))).scalar() or 0.0)
+            recent_runs = (await session.execute(select(Run.id).where(Run.created_at >= now - timedelta(days=7)))).scalars().all()
+            thrash_runs = 0
+            for rid in recent_runs:
+                tools = (await session.execute(select(TraceStep.tool_name).where(TraceStep.run_id == rid).order_by(TraceStep.id.asc()))).scalars().all()
+                streak = 1
+                for i in range(1, len(tools)):
+                    if tools[i] and tools[i] == tools[i - 1]:
+                        streak += 1
+                        if streak >= 3:
+                            thrash_runs += 1
+                            break
+                    else:
+                        streak = 1
+            thrash_rate = 0.0 if not recent_runs else thrash_runs / len(recent_runs) * 100
+            errors = int((await session.execute(select(func.count(func.distinct(TraceStep.run_id))).where(TraceStep.step_type == "error"))).scalar() or 0)
+            recovered = int((await session.execute(select(func.count(func.distinct(TraceStep.run_id))).where(TraceStep.step_type == "recovery"))).scalar() or 0)
+            recovery_rate = 0.0 if errors == 0 else recovered / errors * 100
+            constraint = int((await session.execute(select(func.count(TraceStep.id)).where(TraceStep.step_type == "constraint_violation", TraceStep.created_at >= now - timedelta(days=7)))).scalar() or 0)
+            ghost_delta = float((await session.execute(select(func.coalesce(func.avg(Run.actual_slippage - Run.ghost_slippage), 0.0)).where(Run.ghost_run_id.is_not(None)))).scalar() or 0.0)
+            guard_hits = int((await session.execute(select(func.count(TraceStep.id)).where(TraceStep.step_type == "skipped_by_memory_guard", TraceStep.created_at >= now - timedelta(days=7)))).scalar() or 0)
+        response.headers["Cache-Control"] = "max-age=60"
+        
+        health_signals = {
+            "items": [
+                HealthSignalView(key="context_saturation", label="Context saturation", value=f"{context_ratio*100:.1f}%", status="red" if context_ratio > 0.75 else "green", interpretation="High means prompts are near token ceiling.").model_dump(),
+                HealthSignalView(key="tool_thrashing_rate", label="Tool thrashing rate", value=f"{thrash_rate:.1f}%", status="red" if thrash_rate > 20 else "amber", interpretation="Repeated tool loops indicate unstable planning.").model_dump(),
+                HealthSignalView(key="recovery_rate", label="Recovery rate", value=f"{recovery_rate:.1f}%", status="green" if recovery_rate > 65 else "amber", interpretation="How often failures self-correct before final decision.").model_dump(),
+                HealthSignalView(key="constraint_violations", label="Constraint violations", value=str(constraint), status="red" if constraint > 0 else "green", interpretation="Any violation should be reviewed immediately.").model_dump(),
+                HealthSignalView(key="ghost_path_delta", label="Ghost path delta", value=f"{ghost_delta:.3f}", status="green" if ghost_delta > 0 else "amber", interpretation="Positive means current path beats ghost baseline.").model_dump(),
+                HealthSignalView(key="memory_guard_hits", label="Memory guard hits", value=str(guard_hits), status="blue", interpretation="Informational count of blocked risky tool calls.").model_dump(),
+            ]
+        }
+        
+        return StandardResponse(success=True, data=health_signals).model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get health signals: {str(e)}")
 
 
 @router.get("/dashboard/run-summary")
 async def dashboard_run_summary(response: Response, reference_dt: Optional[datetime] = None):
-    now = reference_dt or datetime.utcnow()
-    since = now - timedelta(days=7)
-    async with get_async_session() as session:
-        groups = (
-            await session.execute(
-                select(
-                    Run.task_type,
-                    func.count(Run.id),
-                    (func.sum(case((Run.status == "won", 1), else_=0)) * 100.0 / func.nullif(func.sum(case((Run.status.in_(["won", "failed"]), 1), else_=0)), 0)),
-                    func.avg(Run.step_count),
-                    func.avg(Run.pnl),
+    try:
+        now = reference_dt or datetime.utcnow()
+        since = now - timedelta(days=7)
+        async with get_async_session() as session:
+            groups = (
+                await session.execute(
+                    select(
+                        Run.task_type,
+                        func.count(Run.id),
+                        (func.sum(case((Run.status == "won", 1), else_=0)) * 100.0 / func.nullif(func.sum(case((Run.status.in_(["won", "failed"]), 1), else_=0)), 0)),
+                        func.avg(Run.step_count),
+                        func.avg(Run.pnl),
+                    )
+                    .where(Run.created_at >= since)
+                    .group_by(Run.task_type)
+                    .order_by(func.count(Run.id).desc())
+                    .limit(20)
                 )
-                .where(Run.created_at >= since)
-                .group_by(Run.task_type)
-                .order_by(func.count(Run.id).desc())
-                .limit(20)
-            )
-        ).all()
+            ).all()
 
-        items: list[RunSummaryRowView] = []
-        for task_type, runs_7d, win_rate, avg_steps, avg_pnl in groups:
-            baseline = float((await session.execute(select(func.coalesce(func.avg(Run.step_count), 0.0)).where(Run.task_type == task_type, Run.created_at < now - timedelta(days=30)))).scalar() or 0.0)
-            daily = (await session.execute(select(func.date(Run.created_at), func.coalesce(func.avg(Run.pnl), 0.0)).where(Run.task_type == task_type, Run.created_at >= since).group_by(func.date(Run.created_at)))).all()
-            dmap = {str(d): float(v) for d, v in daily}
-            sparkline = [round(dmap.get((now - timedelta(days=6 - i)).date().isoformat(), 0.0), 2) for i in range(7)]
-            items.append(RunSummaryRowView(task_type=task_type, task_slug=task_type.lower().replace(" ", "_"), runs_7d=int(runs_7d), win_rate_pct=round(float(win_rate or 0.0), 2), avg_steps=round(float(avg_steps or 0.0), 2), baseline_avg_steps=round(baseline, 2), avg_pnl=round(float(avg_pnl or 0.0), 2), sparkline=sparkline))
+            items: list[RunSummaryRowView] = []
+            for task_type, runs_7d, win_rate, avg_steps, avg_pnl in groups:
+                baseline = float((await session.execute(select(func.coalesce(func.avg(Run.step_count), 0.0)).where(Run.task_type == task_type, Run.created_at < now - timedelta(days=30)))).scalar() or 0.0)
+                daily = (await session.execute(select(func.date(Run.created_at), func.coalesce(func.avg(Run.pnl), 0.0)).where(Run.task_type == task_type, Run.created_at >= since).group_by(func.date(Run.created_at)))).all()
+                dmap = {str(d): float(v) for d, v in daily}
+                sparkline = [round(dmap.get((now - timedelta(days=6 - i)).date().isoformat(), 0.0), 2) for i in range(7)]
+                items.append(RunSummaryRowView(task_type=task_type, task_slug=task_type.lower().replace(" ", "_"), runs_7d=int(runs_7d), win_rate_pct=round(float(win_rate or 0.0), 2), avg_steps=round(float(avg_steps or 0.0), 2), baseline_avg_steps=round(baseline, 2), avg_pnl=round(float(avg_pnl or 0.0), 2), sparkline=sparkline))
 
-    response.headers["Cache-Control"] = "max-age=300"
-    return {"items": [x.model_dump() for x in items]}
+        response.headers["Cache-Control"] = "max-age=300"
+        
+        run_summary = {"items": [x.model_dump() for x in items]}
+        return StandardResponse(success=True, data=run_summary).model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get run summary: {str(e)}")
 
 
 async def _upsert_signal(session, *, priority: str, signal_type: str, source_entity_id: str, message: str, action_label: str, action_type: str, run_id: str | None = None):

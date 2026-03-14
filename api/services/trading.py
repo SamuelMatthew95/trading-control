@@ -28,10 +28,12 @@ class TradingService:
         self, symbol: str, price: float, extra_signals: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         if not self.orchestrator:
+            from api.observability import log_structured
+            log_structured("warning", "MOCK MODE: Trading analysis using mock response", symbol=symbol, price=price)
             return {
                 "DECISION": "FLAT",
                 "confidence": 0.0,
-                "reasoning": "Orchestrator not available - analysis disabled",
+                "reasoning": "MOCK MODE: Orchestrator not available - analysis disabled",
                 "position_size": 0.0,
                 "risk_assessment": "low"
             }

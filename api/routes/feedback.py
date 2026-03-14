@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+from typing import Any, Dict
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 
 from api.core.models import AnnotationCreate, ReinforceRequest
 from api.database import get_async_session
 from api.main_state import get_feedback_service
 
 router = APIRouter(tags=["feedback"])
+
+
+class StandardResponse(BaseModel):
+    success: bool
+    data: Any = None
+    error: str = None
 
 
 @router.post("/memory/annotations")
@@ -62,9 +71,13 @@ async def rebuild_insights(background_tasks: BackgroundTasks, feedback_service=D
 
 @router.get("/insights")
 async def get_insights(limit: int = 50, feedback_service=Depends(get_feedback_service)):
-    async with get_async_session() as session:
-        insights = await feedback_service.list_insights(session, limit=limit)
-        return {"items": [entry.model_dump() for entry in insights]}
+    try:
+        async with get_async_session() as session:
+            insights = await feedback_service.list_insights(session, limit=limit)
+            insights_data = {"items": [entry.model_dump() for entry in insights]}
+            return StandardResponse(success=True, data=insights_data).model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get insights: {str(e)}")
 
 
 @router.get("/runs/propose")

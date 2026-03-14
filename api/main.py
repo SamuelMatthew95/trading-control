@@ -137,6 +137,7 @@ async def startup_event():
         if settings.NODE_ENV == "production":
             raise RuntimeError(f"Database initialization failed: {e}")
         # In development, continue without database
+        log_structured("warning", "Database not available - running without database", error=str(e))
         pass
     
     _ = get_settings_info()
@@ -144,9 +145,11 @@ async def startup_event():
     if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
         orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
         trading_service = TradingService(orchestrator)
+        log_structured("info", "MultiAgentOrchestrator loaded successfully")
     else:
         # Create a mock trading service for deployment without orchestrator
         trading_service = TradingService(None)
+        log_structured("warning", "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service")
     
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
