@@ -61,12 +61,12 @@ app.add_middleware(
     TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"]
 )
 
-app.include_router(health_router)
-app.include_router(analyze_router)
-app.include_router(trades_router)
-app.include_router(performance_router)
-app.include_router(monitoring_router)
-app.include_router(feedback_router)
+app.include_router(health_router, prefix="/api")
+app.include_router(analyze_router, prefix="/api")
+app.include_router(trades_router, prefix="/api")
+app.include_router(performance_router, prefix="/api")
+app.include_router(monitoring_router, prefix="/api")
+app.include_router(feedback_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 
 
@@ -194,6 +194,22 @@ async def startup_event():
         environment=settings.NODE_ENV,
         database_connected=db_ok,
     )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Cancel all pending tasks from retry loop
+    if _score_retry_task:
+        _score_retry_task.cancel()
+    
+    # Cancel any other pending tasks
+    pending = asyncio.all_tasks()
+    for task in pending:
+        if not task.done():
+            task.cancel()
+    
+    # Give tasks time to clean up
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 # Mangum handler for AWS Lambda (not used by Vercel)
