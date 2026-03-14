@@ -4,15 +4,16 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler
 
-# Add the project root to Python path for imports
 sys.path.insert(0, '/var/task')
+
+FASTAPI_AVAILABLE = False
+app = None
 
 try:
     from api.main import app
     FASTAPI_AVAILABLE = True
-except ImportError:
-    FASTAPI_AVAILABLE = False
-    app = None
+except Exception:
+    pass
 
 
 class handler(BaseHTTPRequestHandler):
@@ -24,14 +25,7 @@ class handler(BaseHTTPRequestHandler):
             'data': {
                 'status': 'healthy',
                 'message': 'Trading Control API is running',
-                'fastapi_available': FASTAPI_AVAILABLE,
-                'endpoints': [
-                    '/api/health',
-                    '/api/trades', 
-                    '/api/signals',
-                    '/api/dashboard/pnl',
-                    '/api/dashboard/learning-velocity'
-                ]
+                'fastapi_available': FASTAPI_AVAILABLE
             },
             'error': None
         })
