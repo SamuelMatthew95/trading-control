@@ -7,13 +7,17 @@ from http.server import BaseHTTPRequestHandler
 sys.path.insert(0, '/var/task')
 
 FASTAPI_AVAILABLE = False
+FASTAPI_IMPORT_ERROR = None
 app = None
+mangum_handler = None
 
 try:
     from api.main import app
+    from mangum import Mangum
+    mangum_handler = Mangum(app, lifespan="off")
     FASTAPI_AVAILABLE = True
-except Exception:
-    pass
+except Exception as e:
+    FASTAPI_IMPORT_ERROR = str(e)
 
 
 class handler(BaseHTTPRequestHandler):
@@ -36,54 +40,68 @@ class handler(BaseHTTPRequestHandler):
     def _handle_request(self, method):
         path = self.path.rstrip('/')
         
-        # If FastAPI is available, delegate to it
-        if FASTAPI_AVAILABLE and app:
+        # If FastAPI is available, delegate to Mangum handler
+        if FASTAPI_AVAILABLE and mangum_handler:
             try:
-                # Create a mock request for FastAPI
-                from io import BytesIO
-                from fastapi.testclient import TestClient
+                # Use Mangum to handle ASGI app
+                from mangum.handler import MangumHandler
                 
-                client = TestClient(app)
+                # Create ASGI scope from BaseHTTPRequestHandler
+                scope = {
+                    'type': 'http',
+                    'method': method,
+                    'path': path,
+                    'query_string': '',
+                    'headers': dict(self.headers.items()),
+                    'server': ('vercel', '1.0'),
+                }
                 
-                # Read request body for POST/PUT
-                content_length = int(self.headers.get('Content-Length', 0))
-                body = self.rfile.read(content_length) if content_length > 0 else b''
+                # Create receive callable
+                def receive():
+                    # Read request body
+                    content_length = int(self.headers.get('Content-Length', 0))
+                    if content_length > 0:
+                        body = self.rfile.read(content_length)
+                        return {'type': 'http.request', 'body': body, 'more_body': False}
+                    return {'type': 'http.request', 'body': b'', 'more_body': False}
                 
-                # Route to FastAPI
-                if method == 'GET':
-                    response = client.get(path)
-                elif method == 'POST':
-                    response = client.post(path, content=body)
-                elif method == 'PUT':
-                    response = client.put(path, content=body)
-                elif method == 'DELETE':
-                    response = client.delete(path)
-                elif method == 'OPTIONS':
-                    response = client.options(path)
-                else:
-                    response = client.get(path)
+                # Create send callable
+                async def send(message):
+                    if message['type'] == 'http.response.start':
+                        self.send_response(message['status'])
+                        for name, value in message.get('headers', []):
+                            self.send_header(name, value)
+                        self.end_headers()
+                    elif message['type'] == 'http.response.body':
+                        self.wfile.write(message.get('body', b''))
                 
-                # Send FastAPI response
-                self.send_response(response.status_code)
-                for key, value in response.headers.items():
-                    self.send_header(key, value)
-                self.end_headers()
-                self.wfile.write(response.content)
+                # Use MangumHandler to process ASGI app
+                handler = MangumHandler(mangum_handler)
+                
+                # Run the ASGI app
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(handler(scope, receive, send))
                 return
                 
             except Exception as e:
-                # Fallback to basic response if FastAPI fails
+                # Fallback to basic response if ASGI handling fails
                 self._send_json_response(500, {
                     'success': False,
                     'data': None,
-                    'error': f'FastAPI error: {str(e)}'
+                    'error': f'ASGI error: {str(e)}'
                 })
         
         # Fallback responses when FastAPI not available
         if path in ('/api/health', '/health'):
             self._send_json_response(200, {
                 'success': True,
-                'data': {'status': 'healthy', 'fastapi_available': FASTAPI_AVAILABLE},
+                'data': {
+                    'status': 'healthy', 
+                    'fastapi_available': FASTAPI_AVAILABLE,
+                    'import_error': FASTAPI_IMPORT_ERROR
+                },
                 'error': None
             })
         elif path.startswith('/api/dashboard/'):
