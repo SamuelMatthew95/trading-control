@@ -19,6 +19,7 @@ try:
     wsgi_app = ASGIMiddleware(app)
     FASTAPI_AVAILABLE = True
 except Exception as e:
+    FASTAPI_AVAILABLE = False
     FASTAPI_IMPORT_ERROR = str(e)
     import traceback
     traceback.print_exc()
@@ -66,6 +67,7 @@ class handler(BaseHTTPRequestHandler):
                 # Log error and send error response
                 import traceback
                 traceback.print_exc()
+                print(f"DEBUG: WSGI handler error: {str(e)}")
                 self._send_json_response(500, {
                     'success': False,
                     'data': None,
@@ -75,6 +77,7 @@ class handler(BaseHTTPRequestHandler):
         
         # Health endpoint with error visibility
         if path in ('/api/health', '/health'):
+            print(f"DEBUG: Serving health endpoint, FastAPI available: {FASTAPI_AVAILABLE}")
             self._send_json_response(200, {
                 'success': True,
                 'data': {
