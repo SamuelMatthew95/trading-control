@@ -1,23 +1,41 @@
 from api.services.trading import TradingService
-from multi_agent_orchestrator import DeterministicReasoningModel, MultiAgentOrchestrator, TradeTools, ToolError
+from multi_agent_orchestrator import (DeterministicReasoningModel,
+                                      MultiAgentOrchestrator, ToolError,
+                                      TradeTools)
 
 
 class ContradictoryModel(DeterministicReasoningModel):
     def complete_json(self, *, system_prompt, payload):
         if "normalize trade signals" in system_prompt.lower():
             return [
-                {"source": "a", "direction": "LONG", "confidence": 0.9, "timeframe": "1D"},
-                {"source": "b", "direction": "SHORT", "confidence": 0.9, "timeframe": "1D"},
+                {
+                    "source": "a",
+                    "direction": "LONG",
+                    "confidence": 0.9,
+                    "timeframe": "1D",
+                },
+                {
+                    "source": "b",
+                    "direction": "SHORT",
+                    "confidence": 0.9,
+                    "timeframe": "1D",
+                },
             ]
         if "compute consensus" in system_prompt.lower():
-            return {"direction": "LONG", "agreement_ratio": 0.49, "signal_strength": 0.4}
+            return {
+                "direction": "LONG",
+                "agreement_ratio": 0.49,
+                "signal_strength": 0.4,
+            }
         return super().complete_json(system_prompt=system_prompt, payload=payload)
 
 
 def test_contradictory_signals_are_flagged_low_consensus():
     orchestrator = MultiAgentOrchestrator(api_key=None)
     orchestrator.executor.model = ContradictoryModel()
-    result = orchestrator.analyze_trade("AAPL", "1D", {"total_value": 100000, "drawdown": -0.01})
+    result = orchestrator.analyze_trade(
+        "AAPL", "1D", {"total_value": 100000, "drawdown": -0.01}
+    )
     assert "LOW_CONSENSUS" in result["RISK FLAGS"]
 
 
@@ -28,7 +46,9 @@ def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
         calls["n"] += 1
         raise RuntimeError("500 from exchange")
 
-    tools = TradeTools(price_provider=flaky_provider, max_retries=1, circuit_breaker_threshold=2)
+    tools = TradeTools(
+        price_provider=flaky_provider, max_retries=1, circuit_breaker_threshold=2
+    )
 
     try:
         tools.get_current_price("AAPL")

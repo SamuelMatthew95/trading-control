@@ -112,6 +112,7 @@ class Connection:
     def __await__(self):
         async def _wrap():
             return self
+
         return _wrap().__await__()
 
 

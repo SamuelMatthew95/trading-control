@@ -2,13 +2,16 @@
 Database initialization script for PostgreSQL
 Run this once to set up the database schema
 """
-import os
+
 import asyncio
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, DateTime, Text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+import os
 from datetime import datetime
+
+from sqlalchemy import (Column, DateTime, Float, Integer, MetaData, String,
+                        Table, Text, create_engine)
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 # Get database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -17,14 +20,17 @@ if not DATABASE_URL:
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL)
-async_engine = create_async_engine(DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"))
+async_engine = create_async_engine(
+    DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+)
 
 # Create declarative base
 Base = declarative_base()
 
+
 class Trade(Base):
     __tablename__ = "trades"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     date = Column(String, nullable=False)
     asset = Column(String, nullable=False)
@@ -40,9 +46,10 @@ class Trade(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
 class AgentPerformance(Base):
     __tablename__ = "agent_performance"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     agent_name = Column(String, nullable=False, unique=True)
     total_calls = Column(Integer, default=0)
@@ -53,14 +60,16 @@ class AgentPerformance(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
 async def init_database():
     """Initialize database tables"""
     print(f"Connecting to database: {DATABASE_URL}")
-    
+
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     print("Database tables created successfully!")
+
 
 async def test_connection():
     """Test database connection"""
@@ -72,6 +81,7 @@ async def test_connection():
     except Exception as e:
         print(f"Database connection failed: {e}")
         return False
+
 
 if __name__ == "__main__":
     # Test connection first

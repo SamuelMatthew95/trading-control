@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from api.core.models import AgentRun, ReinforceRequest, StrategyDNA, TraceStep, VectorMemoryRecord
+from api.core.models import (AgentRun, ReinforceRequest, StrategyDNA,
+                             TraceStep, VectorMemoryRecord)
 from api.database import AsyncSessionLocal, init_database
 from api.services.feedback import FeedbackLearningService
 from multi_agent_orchestrator import ToolError, TradeTools
@@ -14,7 +15,11 @@ async def test_feedback_reinforce_promotes_dna_and_memories():
     service = FeedbackLearningService()
 
     async with AsyncSessionLocal() as session:
-        run = AgentRun(task_id="risk:run-1", decision_json=json.dumps({"decision": "LONG"}), trace_json=json.dumps([{"type": "think"}, {"type": "do", "success": True}]))
+        run = AgentRun(
+            task_id="risk:run-1",
+            decision_json=json.dumps({"decision": "LONG"}),
+            trace_json=json.dumps([{"type": "think"}, {"type": "do", "success": True}]),
+        )
         session.add(run)
         await session.flush()
 
@@ -39,7 +44,13 @@ async def test_feedback_reinforce_promotes_dna_and_memories():
         assert result.few_shot_memories == 1
         assert "risk_rule_1" in result.promoted_rules
 
-        dna = (await session.execute(StrategyDNA.__table__.select().where(StrategyDNA.rule_key == "risk_rule_1"))).first()
+        dna = (
+            await session.execute(
+                StrategyDNA.__table__.select().where(
+                    StrategyDNA.rule_key == "risk_rule_1"
+                )
+            )
+        ).first()
         assert dna is not None
 
 
@@ -95,7 +106,11 @@ async def test_insight_confidence_in_response():
     service = FeedbackLearningService()
 
     async with AsyncSessionLocal() as session:
-        run = AgentRun(task_id="signal:run-3", decision_json="{}", trace_json=json.dumps([{"type": "think"}, {"type": "do"}]))
+        run = AgentRun(
+            task_id="signal:run-3",
+            decision_json="{}",
+            trace_json=json.dumps([{"type": "think"}, {"type": "do"}]),
+        )
         session.add(run)
         await session.flush()
         await service.run_supervisor_pass(session)

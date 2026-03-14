@@ -14,7 +14,9 @@ _STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 
 @router.get("/api/performance/{agent_name}")
-async def get_agent_performance(agent_name: str, learning_service=Depends(get_learning_service)):
+async def get_agent_performance(
+    agent_name: str, learning_service=Depends(get_learning_service)
+):
     async with get_async_session() as session:
         return await learning_service.get_agent_performance(agent_name, session)
 
@@ -25,7 +27,9 @@ async def get_all_performance(learning_service=Depends(get_learning_service)):
         output = {}
         for agent_name in learning_service.agent_performance.keys():
             try:
-                output[agent_name] = await learning_service.get_agent_performance(agent_name, session)
+                output[agent_name] = await learning_service.get_agent_performance(
+                    agent_name, session
+                )
             except HTTPException:
                 continue
         return output
@@ -34,14 +38,32 @@ async def get_all_performance(learning_service=Depends(get_learning_service)):
 @router.get("/api/statistics")
 async def get_statistics(force_refresh: bool = False):
     now = time.time()
-    if not force_refresh and _STATS_CACHE["payload"] and now < float(_STATS_CACHE["expires_at"]):
+    if (
+        not force_refresh
+        and _STATS_CACHE["payload"]
+        and now < float(_STATS_CACHE["expires_at"])
+    ):
         return _STATS_CACHE["payload"]
 
     async with get_async_session() as session:
-        total_trades = (await session.execute(select(func.count(Trade.id)))).scalar() or 0
-        wins = (await session.execute(select(func.count(Trade.id)).where(Trade.outcome == "WIN"))).scalar() or 0
-        losses = (await session.execute(select(func.count(Trade.id)).where(Trade.outcome == "LOSS"))).scalar() or 0
-        total_pnl = (await session.execute(select(func.sum(Trade.pnl)).where(Trade.pnl.is_not(None)))).scalar() or 0
+        total_trades = (
+            await session.execute(select(func.count(Trade.id)))
+        ).scalar() or 0
+        wins = (
+            await session.execute(
+                select(func.count(Trade.id)).where(Trade.outcome == "WIN")
+            )
+        ).scalar() or 0
+        losses = (
+            await session.execute(
+                select(func.count(Trade.id)).where(Trade.outcome == "LOSS")
+            )
+        ).scalar() or 0
+        total_pnl = (
+            await session.execute(
+                select(func.sum(Trade.pnl)).where(Trade.pnl.is_not(None))
+            )
+        ).scalar() or 0
         payload = {
             "total_trades": total_trades,
             "wins": wins,
@@ -58,5 +80,22 @@ async def get_statistics(force_refresh: bool = False):
 @router.get("/api/runs")
 async def get_recent_runs(limit: int = 20):
     async with get_async_session() as session:
-        rows = (await session.execute(select(AgentRun).order_by(AgentRun.created_at.desc()).limit(limit))).scalars().all()
-        return {"runs": [{"id": r.id, "task_id": r.task_id, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]}
+        rows = (
+            (
+                await session.execute(
+                    select(AgentRun).order_by(AgentRun.created_at.desc()).limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            "runs": [
+                {
+                    "id": r.id,
+                    "task_id": r.task_id,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+        }

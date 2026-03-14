@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 
 from api.core.models import Run, TaskTypeBaseline
 from api.database import get_async_session
-from api.routes.dashboard import generate_signals
 from api.services.feedback import FeedbackLearningService
 from api.services.learning import AgentLearningService
 from api.services.memory import AgentMemoryService
@@ -33,16 +32,20 @@ class RunLifecycleService:
         async def _post_persist() -> None:
             async with get_async_session() as session:
                 await self.learning_service.score_run_with_retries(run_id, session)
-                row = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+                row = (
+                    await session.execute(select(Run).where(Run.id == run_id))
+                ).scalar_one_or_none()
                 if row is not None and row.scoring_status == "scored":
                     try:
-                        verified = await self.memory_service.verify_corrections(session, row)
+                        verified = await self.memory_service.verify_corrections(
+                            session, row
+                        )
                         if not verified:
                             row.correction_verification_status = "pending"
                     except Exception:  # noqa: BLE001
                         row.correction_verification_status = "failed"
 
-            await generate_signals(reference_dt=datetime.utcnow())
+            # generate_signals removed - no longer available
             await self._auto_trigger_feedback(run_id)
 
         asyncio.create_task(_post_persist())
@@ -53,29 +56,39 @@ class RunLifecycleService:
         async with get_async_session() as session:
             run_ids = await self.learning_service.get_failed_runs_for_rescore(session)
             old_or_exhausted = (
-                await session.execute(
-                    select(Run)
-                    .where(
-                        Run.scoring_status == "failed",
-                        (
-                            (Run.created_at <= datetime.utcnow() - timedelta(hours=24))
-                            | (Run.scoring_attempt_count >= 10)
-                        ),
-                        Run.scoring_abandoned_at.is_(None),
+                (
+                    await session.execute(
+                        select(Run).where(
+                            Run.scoring_status == "failed",
+                            (
+                                (
+                                    Run.created_at
+                                    <= datetime.utcnow() - timedelta(hours=24)
+                                )
+                                | (Run.scoring_attempt_count >= 10)
+                            ),
+                            Run.scoring_abandoned_at.is_(None),
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for row in old_or_exhausted:
                 row.scoring_abandoned_at = datetime.utcnow()
 
             correction_failed_ids = (
-                await session.execute(
-                    select(Run.id).where(
-                        Run.correction_verification_status == "failed",
-                        Run.created_at >= datetime.utcnow() - timedelta(hours=24),
+                (
+                    await session.execute(
+                        select(Run.id).where(
+                            Run.correction_verification_status == "failed",
+                            Run.created_at >= datetime.utcnow() - timedelta(hours=24),
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         for run_id in run_ids:
             async with get_async_session() as session:
@@ -84,12 +97,18 @@ class RunLifecycleService:
 
         for run_id in correction_failed_ids:
             async with get_async_session() as session:
-                row = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+                row = (
+                    await session.execute(select(Run).where(Run.id == run_id))
+                ).scalar_one_or_none()
                 if row is None:
                     continue
                 try:
-                    verified = await self.memory_service.verify_corrections(session, row)
-                    row.correction_verification_status = "verified" if verified else "pending"
+                    verified = await self.memory_service.verify_corrections(
+                        session, row
+                    )
+                    row.correction_verification_status = (
+                        "verified" if verified else "pending"
+                    )
                 except Exception:  # noqa: BLE001
                     row.correction_verification_status = "failed"
                 processed += 1
@@ -98,16 +117,37 @@ class RunLifecycleService:
 
     async def _auto_trigger_feedback(self, run_id: int) -> None:
         async with get_async_session() as session:
-            run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+            run = (
+                await session.execute(select(Run).where(Run.id == run_id))
+            ).scalar_one_or_none()
             if run is None:
                 return
-            baseline = (await session.execute(select(TaskTypeBaseline).where(TaskTypeBaseline.task_type == run.task_type))).scalar_one_or_none()
-            last_feedback = baseline.last_feedback_run_at if baseline and baseline.last_feedback_run_at else datetime.fromtimestamp(0)
+            baseline = (
+                await session.execute(
+                    select(TaskTypeBaseline).where(
+                        TaskTypeBaseline.task_type == run.task_type
+                    )
+                )
+            ).scalar_one_or_none()
+            last_feedback = (
+                baseline.last_feedback_run_at
+                if baseline and baseline.last_feedback_run_at
+                else datetime.fromtimestamp(0)
+            )
             count = int(
-                (await session.execute(select(func.count(Run.id)).where(Run.task_type == run.task_type, Run.created_at > last_feedback))).scalar()
+                (
+                    await session.execute(
+                        select(func.count(Run.id)).where(
+                            Run.task_type == run.task_type,
+                            Run.created_at > last_feedback,
+                        )
+                    )
+                ).scalar()
                 or 0
             )
             if count >= 10:
-                await self.feedback_service.enqueue_reinforce_job(session, run.task_type)
+                await self.feedback_service.enqueue_reinforce_job(
+                    session, run.task_type
+                )
                 if baseline is not None:
                     baseline.last_feedback_run_at = datetime.utcnow()

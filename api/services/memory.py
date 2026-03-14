@@ -8,15 +8,19 @@ from typing import Any, Dict
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import AgentRun, Run, TaskTypeBaseline, TraceStep, VectorMemoryRecord
+from api.core.models import AgentRun, Insight, Run, Signal, TraceStep, VectorMemoryRecord
 
-LEGACY_AGENT_RUNS_WRITE = os.getenv("LEGACY_AGENT_RUNS_WRITE", "false").lower() == "true"
+LEGACY_AGENT_RUNS_WRITE = (
+    os.getenv("LEGACY_AGENT_RUNS_WRITE", "false").lower() == "true"
+)
 
 
 class AgentMemoryService:
     """Persist orchestrator execution traces in the database."""
 
-    async def persist_run(self, session: AsyncSession, run_entry: Dict[str, Any]) -> Run:
+    async def persist_run(
+        self, session: AsyncSession, run_entry: Dict[str, Any]
+    ) -> Run:
         decision = run_entry.get("decision", {})
         trace = run_entry.get("trace", [])
         task_id = run_entry.get("task_id", "unknown")
@@ -24,23 +28,36 @@ class AgentMemoryService:
 
         if LEGACY_AGENT_RUNS_WRITE:
             # DEPRECATED: remove once confirmed no queries read from agent_runs.
-            legacy = AgentRun(task_id=task_id, decision_json=json.dumps(decision, default=str), trace_json=json.dumps(trace, default=str))
+            legacy = AgentRun(
+                task_id=task_id,
+                decision_json=json.dumps(decision, default=str),
+                trace_json=json.dumps(trace, default=str),
+            )
             session.add(legacy)
             await session.flush()
 
-        step_token_cost = sum(float(step.get("token_cost_usd", 0.0) or 0.0) for step in trace)
-        run_token_cost = float(run_entry.get("token_cost_usd", 0.0) or 0.0) + step_token_cost
-        actual_slippage = float(run_entry.get("actual_slippage", decision.get("actual_slippage", 0.0)) or 0.0)
+        step_token_cost = sum(
+            float(step.get("token_cost_usd", 0.0) or 0.0) for step in trace
+        )
+        run_token_cost = (
+            float(run_entry.get("token_cost_usd", 0.0) or 0.0) + step_token_cost
+        )
+        actual_slippage = float(
+            run_entry.get("actual_slippage", decision.get("actual_slippage", 0.0))
+            or 0.0
+        )
 
         await session.execute(
-            text(
-                """
+            text("""
                 INSERT INTO task_type_baselines (task_type, baseline_slippage, established_at)
                 VALUES (:task_type, :baseline_slippage, :established_at)
                 ON CONFLICT(task_type) DO NOTHING
-                """
-            ),
-            {"task_type": task_type, "baseline_slippage": actual_slippage, "established_at": datetime.utcnow()},
+                """),
+            {
+                "task_type": task_type,
+                "baseline_slippage": actual_slippage,
+                "established_at": datetime.utcnow(),
+            },
         )
 
         run = Run(
@@ -84,19 +101,28 @@ class AgentMemoryService:
         guard_tools = set(
             (
                 await session.execute(
-                    select(TraceStep.tool_name).where(TraceStep.run_id == run.id, TraceStep.step_type == "skipped_by_memory_guard")
-                )
-            ).scalars().all()
-        )
-        negatives = (
-            await session.execute(
-                select(VectorMemoryRecord).where(
-                    VectorMemoryRecord.store_type == "negative-memory",
-                    VectorMemoryRecord.correction_verified_at.is_(None),
-                    VectorMemoryRecord.node_name == run.task_type,
+                    select(TraceStep.tool_name).where(
+                        TraceStep.run_id == run.id,
+                        TraceStep.step_type == "skipped_by_memory_guard",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        negatives = (
+            (
+                await session.execute(
+                    select(VectorMemoryRecord).where(
+                        VectorMemoryRecord.store_type == "negative-memory",
+                        VectorMemoryRecord.correction_verified_at.is_(None),
+                        VectorMemoryRecord.node_name == run.task_type,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         updated = False
         for rec in negatives:

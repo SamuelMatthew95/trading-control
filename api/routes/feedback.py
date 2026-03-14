@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any, Dict
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 
 from api.core.models import AnnotationCreate, ReinforceRequest
 from api.database import get_async_session
@@ -9,15 +12,25 @@ from api.main_state import get_feedback_service
 router = APIRouter(tags=["feedback"])
 
 
+class StandardResponse(BaseModel):
+    success: bool
+    data: Any = None
+    error: str = None
+
+
 @router.post("/memory/annotations")
-async def create_annotation(payload: AnnotationCreate, feedback_service=Depends(get_feedback_service)):
+async def create_annotation(
+    payload: AnnotationCreate, feedback_service=Depends(get_feedback_service)
+):
     async with get_async_session() as session:
         row = await feedback_service.stage_annotation(session, payload.model_dump())
         return {"id": row.id, "status": row.feedback_status}
 
 
 @router.post("/memory/negative")
-async def create_negative_memory(payload: dict, feedback_service=Depends(get_feedback_service)):
+async def create_negative_memory(
+    payload: dict, feedback_service=Depends(get_feedback_service)
+):
     async with get_async_session() as session:
         row = await feedback_service.create_negative_memory(session, payload)
         return {"id": row.id, "status": "stored"}
@@ -42,7 +55,9 @@ async def reinforce_feedback(
 
 
 @router.get("/feedback/reinforce/{job_id}")
-async def get_reinforce_job(job_id: str, feedback_service=Depends(get_feedback_service)):
+async def get_reinforce_job(
+    job_id: str, feedback_service=Depends(get_feedback_service)
+):
     async with get_async_session() as session:
         row = await feedback_service.get_feedback_job(session, job_id)
         if row is None:
@@ -51,7 +66,9 @@ async def get_reinforce_job(job_id: str, feedback_service=Depends(get_feedback_s
 
 
 @router.post("/insights/rebuild")
-async def rebuild_insights(background_tasks: BackgroundTasks, feedback_service=Depends(get_feedback_service)):
+async def rebuild_insights(
+    background_tasks: BackgroundTasks, feedback_service=Depends(get_feedback_service)
+):
     async def _run() -> None:
         async with get_async_session() as session:
             await feedback_service.run_supervisor_pass(session, lookback_runs=50)
@@ -62,9 +79,13 @@ async def rebuild_insights(background_tasks: BackgroundTasks, feedback_service=D
 
 @router.get("/insights")
 async def get_insights(limit: int = 50, feedback_service=Depends(get_feedback_service)):
-    async with get_async_session() as session:
-        insights = await feedback_service.list_insights(session, limit=limit)
-        return {"items": [entry.model_dump() for entry in insights]}
+    try:
+        async with get_async_session() as session:
+            insights = await feedback_service.list_insights(session, limit=limit)
+            insights_data = {"items": [entry.model_dump() for entry in insights]}
+            return StandardResponse(success=True, data=insights_data).model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get insights: {str(e)}")
 
 
 @router.get("/runs/propose")
@@ -75,7 +96,9 @@ async def propose_runs(feedback_service=Depends(get_feedback_service)):
 
 
 @router.post("/memory/positive")
-async def create_positive_memory(payload: dict, feedback_service=Depends(get_feedback_service)):
+async def create_positive_memory(
+    payload: dict, feedback_service=Depends(get_feedback_service)
+):
     async with get_async_session() as session:
         payload = {**payload, "store_type": "few-shot"}
         row = await feedback_service.create_negative_memory(session, payload)

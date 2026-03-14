@@ -124,35 +124,72 @@ This keeps planning, execution, and evaluation distinct and testable.
 
 ## API Endpoints
 
+**No authentication required** - All endpoints are open and can be called directly without API keys or special headers.
+
+### Standard Response Format
+
+All endpoints return a standardized JSON response:
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "error": null
+}
+```
+
+On errors:
+```json
+{
+  "success": false,
+  "data": null,
+  "error": "Error message"
+}
+```
+
 ### Health
 
-- `GET /`
-- `GET /api/health`
+- `GET /` - Root endpoint
+- `GET /health` - Health check with database status
 
 ### Analysis
 
-- `POST /api/analyze`
-- `POST /api/shadow/analyze`
-- `GET /api/shadow/evaluate/{symbol}?observed_price=...`
+- `POST /analyze` - Trade analysis
+- `POST /shadow/analyze` - Shadow mode analysis
+- `GET /shadow/evaluate/{symbol}` - Evaluate shadow trades
 
 ### Trades
 
-- `GET /api/trades`
-- `POST /api/trades`
+- `GET /trades` - Get all trades
+- `POST /trades` - Save a new trade
+
+### Bot Control
+
+- `POST /trading/start` - Start trading bot
+- `POST /trading/stop` - Stop trading bot
+- `GET /trading/status` - Get bot status
+- `POST /trading/emergency-stop` - Emergency stop all trading
+- `GET /bots/status` - Get all bots status
 
 ### Performance
 
-- `GET /api/performance/{agent_name}`
-- `GET /api/performance`
-- `GET /api/statistics`
-- `GET /api/runs`
-- `POST /memory/annotations`
-- `POST /feedback/reinforce`
-- `GET /feedback/reinforce/{job_id}`
-- `POST /memory/negative`
-- `POST /insights/rebuild`
-- `GET /insights`
-- `GET /runs/propose`
+- `GET /performance/{agent_name}` - Get agent performance
+- `GET /performance` - Get all performance data
+
+### Monitoring
+
+- `GET /monitoring/overview` - System monitoring overview
+- `GET /monitoring/logs` - Get system logs
+
+### Feedback
+
+- `POST /memory/annotations` - Create annotation
+- `POST /memory/negative` - Create negative memory
+- `POST /feedback/reinforce` - Reinforce feedback
+
+### Dashboard
+
+- `GET /dashboard` - Get dashboard data
 
 ---
 

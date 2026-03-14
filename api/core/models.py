@@ -230,7 +230,9 @@ class Run(Base):
     last_scoring_attempt_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     scoring_abandoned_at = Column(DateTime, nullable=True)
-    correction_verification_status = Column(String, nullable=False, default="pending", index=True)
+    correction_verification_status = Column(
+        String, nullable=False, default="pending", index=True
+    )
     decision_json = Column(Text, nullable=False)
     trace_json = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
