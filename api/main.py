@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Request
@@ -46,6 +47,85 @@ configure_logging(settings.LOG_LEVEL)
 _signal_task = None
 _score_retry_task = None
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown events."""
+    # Startup logic
+    try:
+        db_ok = await test_database_connection()
+        if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
+            raise RuntimeError("Database connection failed - check DATABASE_URL")
+        await init_database()
+    except Exception as e:
+        if settings.NODE_ENV == "production":
+            raise RuntimeError(f"Database initialization failed: {e}")
+        # In development, continue without database
+
+    _ = get_settings_info()
+
+    if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
+        orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
+        trading_service = TradingService(orchestrator)
+        log_structured("info", "MultiAgentOrchestrator loaded successfully")
+    else:
+        trading_service = TradingService(None)
+        log_structured(
+            "warning",
+            "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service",
+        )
+
+    learning_service = AgentLearningService()
+    memory_service = AgentMemoryService()
+    feedback_service = FeedbackLearningService()
+    run_lifecycle_service = RunLifecycleService(
+        learning_service, memory_service, feedback_service
+    )
+    set_services(
+        trading_service,
+        learning_service,
+        memory_service,
+        feedback_service,
+        run_lifecycle_service,
+    )
+
+    for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
+        metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
+
+    global _score_retry_task
+    if ENABLE_SIGNAL_SCHEDULER:
+        pass
+
+    async def _retry_loop() -> None:
+        while True:
+            try:
+                await run_lifecycle_service.requeue_failed_scores_and_corrections()
+            except Exception:
+                pass
+            await asyncio.sleep(3600)
+
+    _score_retry_task = asyncio.create_task(_retry_loop())
+
+    log_structured(
+        "info",
+        "API startup complete",
+        environment=settings.NODE_ENV,
+        database_connected=db_ok,
+    )
+    
+    yield
+    
+    # Shutdown logic
+    if _score_retry_task:
+        _score_retry_task.cancel()
+    
+    pending = asyncio.all_tasks()
+    for task in pending:
+        if not task.done():
+            task.cancel()
+    
+    await asyncio.gather(*pending, return_exceptions=True)
 
 app = FastAPI(
     lifespan=lifespan,
