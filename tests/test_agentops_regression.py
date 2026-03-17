@@ -1,3 +1,4 @@
+import pytest
 from api.services.trading import TradingService
 from multi_agent_orchestrator import (DeterministicReasoningModel,
                                       MultiAgentOrchestrator, ToolError,
@@ -39,7 +40,8 @@ def test_contradictory_signals_are_flagged_low_consensus():
     assert "LOW_CONSENSUS" in result["RISK FLAGS"]
 
 
-def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
+@pytest.mark.asyncio
+async def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
     calls = {"n": 0}
 
     def flaky_provider(_asset: str) -> float:
@@ -51,13 +53,13 @@ def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
     )
 
     try:
-        tools.get_current_price("AAPL")
+        await tools.get_current_price("TSLA")  # Use different asset to avoid memory guard
         assert False, "Expected ToolError"
     except ToolError:
         assert calls["n"] == 2
 
     try:
-        tools.get_current_price("AAPL")
+        await tools.get_current_price("TSLA")  # Use different asset to avoid memory guard
         assert False, "Expected open circuit ToolError"
     except ToolError as exc:
         assert "circuit" in str(exc).lower()
