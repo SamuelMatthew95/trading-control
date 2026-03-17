@@ -8,7 +8,13 @@ from typing import Any, Dict
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import AgentRun, Insight, Run, Signal, TraceStep, VectorMemoryRecord
+from api.core.models import (
+    AgentRun,
+    Run,
+    TaskTypeBaseline,
+    TraceStep,
+    VectorMemoryRecord,
+)
 
 LEGACY_AGENT_RUNS_WRITE = (
     os.getenv("LEGACY_AGENT_RUNS_WRITE", "false").lower() == "true"
