@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -15,17 +14,23 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from api.config import parse_csv_env, settings
 from api.core.models import ErrorResponse
-from api.database import (get_settings_info, init_database,
-                          test_database_connection)
+from api.database import (
+    get_settings_info,
+    init_database,
+    test_database_connection,
+)
 from api.main_state import set_services
-from api.observability import (configure_logging, log_structured,
-                               metrics_store, request_id_ctx)
+from api.observability import (
+    configure_logging,
+    log_structured,
+    metrics_store,
+    request_id_ctx,
+)
 from api.routes.analyze import router as analyze_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.monitoring import router as monitoring_router
-from api.routes.performance import router as performance_router
 from api.routes.trades import router as trades_router
 from api.services.feedback import FeedbackLearningService
 from api.services.learning import AgentLearningService
@@ -48,6 +53,7 @@ except ImportError:
     MultiAgentOrchestrator = None
     ORCHESTRATOR_AVAILABLE = False
 
+
 # Define lifespan function before app creation
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,14 +67,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         if settings.NODE_ENV == "production":
             raise RuntimeError(f"Database initialization failed: {e}")
-    
+
     yield
-    
+
     # Shutdown
     # Cleanup can be added here if needed
 
 app = FastAPI(
-    title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc",
+    title="Trading Bot API",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -190,11 +199,11 @@ else:
 
     _score_retry_task = asyncio.create_task(_retry_loop())
 
+    # Log startup completion
     log_structured(
         "info",
         "API startup complete",
         environment=settings.NODE_ENV,
-        database_connected=db_ok,
     )
 
 if __name__ == "__main__":
