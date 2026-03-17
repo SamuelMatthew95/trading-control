@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Request
@@ -32,23 +33,43 @@ from api.services.memory import AgentMemoryService
 from api.services.run_lifecycle import RunLifecycleService
 from api.services.trading import TradingService
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    from multi_agent_orchestrator import MultiAgentOrchestrator
-
-    ORCHESTRATOR_AVAILABLE = True
-except ImportError:
-    MultiAgentOrchestrator = None
-    ORCHESTRATOR_AVAILABLE = False
-
 configure_logging(settings.LOG_LEVEL)
 
 _signal_task = None
 _score_retry_task = None
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
 
+# Try to import MultiAgentOrchestrator
+try:
+    from multi_agent_orchestrator import MultiAgentOrchestrator
+    MultiAgentOrchestrator = MultiAgentOrchestrator
+    ORCHESTRATOR_AVAILABLE = True
+except ImportError:
+    MultiAgentOrchestrator = None
+    ORCHESTRATOR_AVAILABLE = False
+
+# Define lifespan function before app creation
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan events."""
+    # Startup
+    try:
+        db_ok = await test_database_connection()
+        if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
+            raise RuntimeError("Database connection failed - check DATABASE_URL")
+        await init_database()
+    except Exception as e:
+        if settings.NODE_ENV == "production":
+            raise RuntimeError(f"Database initialization failed: {e}")
+    
+    yield
+    
+    # Shutdown
+    # Cleanup can be added here if needed
+
 app = FastAPI(
-    title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc"
+    title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc",
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -61,13 +82,12 @@ app.add_middleware(
     TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"]
 )
 
-app.include_router(health_router)
-app.include_router(analyze_router)
-app.include_router(trades_router)
-app.include_router(performance_router)
-app.include_router(monitoring_router)
-app.include_router(feedback_router)
-app.include_router(dashboard_router)
+app.include_router(health_router, prefix="/api")
+app.include_router(analyze_router, prefix="/api")
+app.include_router(trades_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
+app.include_router(feedback_router, prefix="/api")
+app.include_router(monitoring_router, prefix="/api")
 
 
 @app.get("/")
@@ -125,9 +145,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-@app.on_event("startup")
-async def startup_event():
-    # Try database connection but don't fail if not available
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Manage application lifespan events."""
+    # Startup
     try:
         db_ok = await test_database_connection()
         if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
@@ -195,5 +216,9 @@ async def startup_event():
         database_connected=db_ok,
     )
 
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 # Mangum handler for AWS Lambda (not used by Vercel)

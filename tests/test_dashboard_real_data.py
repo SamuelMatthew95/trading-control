@@ -11,6 +11,7 @@ from api.core.models import (Insight, Run, Signal, TaskTypeBaseline, TraceStep,
                              VectorMemoryRecord)
 from api.database import AsyncSessionLocal, init_database
 from api.main import app
+from api.routes import dashboard
 from api.routes.dashboard import generate_signals
 from tests.conftest import TEST_REFERENCE_DT
 
@@ -31,11 +32,33 @@ async def seeded_db():
 
 @pytest_asyncio.fixture
 async def api_client(seeded_db):
-    await app.router.startup()
+    # Initialize services manually for tests
+    from api.services.feedback import FeedbackLearningService
+    from api.services.learning import AgentLearningService
+    from api.services.memory import AgentMemoryService
+    from api.services.run_lifecycle import RunLifecycleService
+    from api.services.trading import TradingService
+    from api.main_state import set_services
+    
+    feedback_service = FeedbackLearningService()
+    learning_service = AgentLearningService()
+    memory_service = AgentMemoryService()
+    run_lifecycle_service = RunLifecycleService(
+        learning_service, memory_service, feedback_service
+    )
+    trading_service = TradingService(None)
+    
+    set_services(
+        trading_service,
+        learning_service,
+        memory_service,
+        feedback_service,
+        run_lifecycle_service,
+    )
+    
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         yield client
-    await app.router.shutdown()
 
 
 @pytest.mark.asyncio
@@ -76,7 +99,7 @@ async def test_pnl_aggregation(api_client):
         await session.commit()
 
     res = await api_client.get(
-        "/dashboard/pnl", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/pnl", params={"reference_dt": now.isoformat()}
     )
     body = res.json()
     assert body["data"]["total_pnl"] == 765.0
@@ -107,7 +130,7 @@ async def test_passk_trend_improving(api_client):
                 )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
     )
     assert res.json()["data"]["passk_trend"] == "improving"
 
@@ -135,7 +158,7 @@ async def test_passk_trend_regressing(api_client):
                 )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
     )
     assert res.json()["data"]["passk_trend"] == "regressing"
 
@@ -168,7 +191,7 @@ async def test_tool_thrashing_detection(api_client):
             )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/health-signals", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/health-signals", params={"reference_dt": now.isoformat()}
     )
     item = next(
         x for x in res.json()["data"]["items"] if x["key"] == "tool_thrashing_rate"
@@ -204,7 +227,7 @@ async def test_memory_guard_effectiveness(api_client):
             )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
     )
     assert res.json()["data"]["memory_guard_effectiveness_pct"] == 75.0
 
@@ -227,7 +250,7 @@ async def test_signal_auto_generation(api_client):
         )
         await session.commit()
     await generate_signals(reference_dt=now)
-    res = await api_client.get("/signals")
+    res = await api_client.get("/api/signals")
     assert any(
         x["priority"] == "urgent" and "loss" in x["message"].lower()
         for x in res.json()["data"]["items"]
@@ -249,8 +272,8 @@ async def test_signal_dismiss(api_client):
             )
         )
         await session.commit()
-    await api_client.post("/signals/sig-x/dismiss")
-    res = await api_client.get("/signals")
+    await api_client.post("/api/signals/sig-x/dismiss")
+    res = await api_client.get("/api/signals")
     assert all(x["id"] != "sig-x" for x in res.json()["data"]["items"])
 
 
@@ -274,7 +297,7 @@ async def test_run_summary_sparkline_gap_fill(api_client):
             )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/run-summary", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/run-summary", params={"reference_dt": now.isoformat()}
     )
     row = res.json()["data"]["items"][0]
     assert len(row["sparkline"]) == 7
@@ -308,7 +331,7 @@ async def test_insight_confidence_fields(api_client):
             )
         )
         await session.commit()
-    res = await api_client.get("/insights")
+    res = await api_client.get("/api/insights")
     items = res.json()["data"]["items"]
     assert all(
         "confidence" in i and "needs_more_data" in i and "supporting_run_count" in i
@@ -348,7 +371,7 @@ async def test_dashboard_pnl_today_isolation(api_client):
         )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/pnl", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/pnl", params={"reference_dt": now.isoformat()}
     )
     assert res.json()["data"]["pnl_today"] == 120.0
     assert res.json()["data"]["total_pnl"] == 620.0
@@ -358,24 +381,24 @@ async def test_dashboard_pnl_today_isolation(api_client):
 async def test_empty_database_returns_zeros(api_client):
     now = TEST_REFERENCE_DT
     assert (
-        await api_client.get("/dashboard/pnl", params={"reference_dt": now.isoformat()})
+        await api_client.get("/api/dashboard/pnl", params={"reference_dt": now.isoformat()})
     ).status_code == 200
     assert (
         await api_client.get(
-            "/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
+            "/api/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
         )
     ).status_code == 200
     assert (
         await api_client.get(
-            "/dashboard/health-signals", params={"reference_dt": now.isoformat()}
+            "/api/dashboard/health-signals", params={"reference_dt": now.isoformat()}
         )
     ).status_code == 200
     assert (
         await api_client.get(
-            "/dashboard/run-summary", params={"reference_dt": now.isoformat()}
+            "/api/dashboard/run-summary", params={"reference_dt": now.isoformat()}
         )
     ).status_code == 200
-    assert (await api_client.get("/signals")).status_code == 200
+    assert (await api_client.get("/api/signals")).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -397,7 +420,7 @@ async def test_passk_trend_with_insufficient_data(api_client):
             )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
     )
     body = res.json()
     assert body["data"]["passk_trend"] in {"plateauing", "improving", "regressing"}
@@ -423,7 +446,7 @@ async def test_signal_deduplication(api_client):
         await session.commit()
     await generate_signals(reference_dt=now)
     await generate_signals(reference_dt=now)
-    rows1 = (await api_client.get("/signals")).json()["data"]["items"]
+    rows1 = (await api_client.get("/api/signals")).json()["data"]["items"]
     assert len([x for x in rows1 if "large loss" in x["message"]]) == 1
 
 
@@ -505,7 +528,7 @@ async def test_run_summary_task_type_filter(api_client):
         await session.commit()
     rows = (
         await api_client.get(
-            "/dashboard/run-summary", params={"reference_dt": now.isoformat()}
+            "/api/dashboard/run-summary", params={"reference_dt": now.isoformat()}
         )
     ).json()["data"]["items"]
     counts = {r["task_slug"]: r["runs_7d"] for r in rows}
@@ -515,7 +538,7 @@ async def test_run_summary_task_type_filter(api_client):
 
 @pytest.mark.asyncio
 async def test_system_health_returns_200_on_empty_db(api_client):
-    res = await api_client.get("/system/health")
+    res = await api_client.get("/api/system/health")
     body = res.json()
     assert res.status_code == 200
     assert body["data"]["feedback_jobs_pending"] == 0
@@ -544,7 +567,7 @@ async def test_scoring_lag_warning_suppressed_on_small_dataset(api_client):
             )
         await session.commit()
     res = await api_client.get(
-        "/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
+        "/api/dashboard/learning-velocity", params={"reference_dt": now.isoformat()}
     )
     assert res.json()["data"]["scoring_lag_warning"] is False
 
@@ -567,7 +590,7 @@ async def test_system_health_oldest_pending_score(api_client):
             )
         )
         await session.commit()
-    body = (await api_client.get("/system/health")).json()
+    body = (await api_client.get("/api/system/health")).json()
     assert body["data"]["oldest_pending_score_age_seconds"] is not None
     assert body["data"]["oldest_pending_score_age_seconds"] >= 400
 
