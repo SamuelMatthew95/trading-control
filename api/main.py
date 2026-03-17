@@ -144,38 +144,20 @@ async def global_exception_handler(request: Request, exc: Exception):
         ).model_dump(),
     )
 
+# Initialize services
+settings_info = get_settings_info()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage application lifespan events."""
-    # Startup
-    try:
-        db_ok = await test_database_connection()
-        if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
-            raise RuntimeError("Database connection failed - check DATABASE_URL")
-        await init_database()
-    except Exception as e:
-        if settings.NODE_ENV == "production":
-            raise RuntimeError(f"Database initialization failed: {e}")
-        # In development, continue without database
-        log_structured(
-            "warning", "Database not available - running without database", error=str(e)
-        )
-        pass
-
-    _ = get_settings_info()
-
-    if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
-        orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
-        trading_service = TradingService(orchestrator)
-        log_structured("info", "MultiAgentOrchestrator loaded successfully")
-    else:
-        # Create a mock trading service for deployment without orchestrator
-        trading_service = TradingService(None)
-        log_structured(
-            "warning",
-            "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service",
-        )
+if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
+    orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
+    trading_service = TradingService(orchestrator)
+    log_structured("info", "MultiAgentOrchestrator loaded successfully")
+else:
+    # Create a mock trading service for deployment without orchestrator
+    trading_service = TradingService(None)
+    log_structured(
+        "warning",
+        "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service",
+    )
 
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
@@ -194,7 +176,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
-    global _score_retry_task
     if ENABLE_SIGNAL_SCHEDULER:
         # signal_scheduler removed - no longer available
         pass
