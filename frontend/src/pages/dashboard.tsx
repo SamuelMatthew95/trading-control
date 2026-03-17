@@ -12,10 +12,10 @@ export default function ExecutiveDashboard() {
 
   const load = async () => {
     const [a, b, c, d] = await Promise.all([
-      axios.get('/dashboard/pnl'),
-      axios.get('/dashboard/learning-velocity'),
-      axios.get('/dashboard/health-signals'),
-      axios.get('/dashboard/run-summary'),
+      axios.get('/api/dashboard/pnl'),
+      axios.get('/api/dashboard/learning-velocity'),
+      axios.get('/api/dashboard/health-signals'),
+      axios.get('/api/dashboard/run-summary'),
     ]);
     setPnl(a.data);
     setLearning(b.data);
