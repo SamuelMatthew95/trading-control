@@ -10,11 +10,21 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import and_, case, func, select
 
-from api.core.models import (FeedbackJob, HealthSignalView, Insight,
-                             LearningVelocityResponse, PnlResponse, Run,
-                             RunSummaryRowView, Signal, StrategyDNA,
-                             SystemHealth, TaskTypeBaseline, TraceStep,
-                             VectorMemoryRecord)
+from api.core.models import (
+    FeedbackJob,
+    HealthSignalView,
+    Insight,
+    LearningVelocityResponse,
+    PnlResponse,
+    Run,
+    RunSummaryRowView,
+    Signal,
+    StrategyDNA,
+    SystemHealth,
+    TaskTypeBaseline,
+    TraceStep,
+    VectorMemoryRecord,
+)
 from api.database import get_async_session
 from api.services.learning import AgentLearningService
 

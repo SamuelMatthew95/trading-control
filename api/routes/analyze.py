@@ -8,8 +8,11 @@ from pydantic import BaseModel
 
 from api.core.models import TradeDecision, TradeRequest
 from api.database import get_async_session
-from api.main_state import (get_learning_service, get_run_lifecycle_service,
-                            get_trading_service)
+from api.main_state import (
+    get_learning_service,
+    get_run_lifecycle_service,
+    get_trading_service,
+)
 from api.observability import log_structured, metrics_store
 from api.utils import with_retries
 

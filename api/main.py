@@ -47,6 +47,7 @@ ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() =
 # Try to import MultiAgentOrchestrator
 try:
     from multi_agent_orchestrator import MultiAgentOrchestrator
+
     MultiAgentOrchestrator = MultiAgentOrchestrator
     ORCHESTRATOR_AVAILABLE = True
 except ImportError:
@@ -73,6 +74,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     # Cleanup can be added here if needed
 
+
 app = FastAPI(
     title="Trading Bot API",
     version="2.0.0",
@@ -80,13 +82,18 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+# CORS MUST BE FIRST
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=parse_csv_env(settings.ALLOWED_ORIGINS),
+    allow_origins=parse_csv_env(settings.ALLOWED_ORIGINS),  # This handles localhost
+    allow_origin_regex=r"https://trading-control-.*\.vercel\.app",  # This handles ALL Vercel previews
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+
+# TrustedHost comes AFTER CORS
 app.add_middleware(
     TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"]
 )
@@ -153,6 +160,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         ).model_dump(),
     )
 
+
 # Initialize services
 settings_info = get_settings_info()
 
@@ -208,6 +216,7 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
 

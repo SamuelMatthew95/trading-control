@@ -75,23 +75,24 @@ async def system_health() -> Dict[str, Any]:
     try:
         db_healthy = await test_database_connection()
         telemetry = metrics_store.snapshot()
-        
+
         # Calculate oldest pending score age
         from api.database import get_async_session
         from api.core.models import Run
         from datetime import datetime
         from sqlalchemy import select, func
-        
+
         oldest_pending_age_seconds = None
         async with get_async_session() as session:
             oldest_pending = await session.execute(
-                select(func.min(Run.created_at))
-                .where(Run.scoring_status == "pending")
+                select(func.min(Run.created_at)).where(Run.scoring_status == "pending")
             )
             oldest_created_at = oldest_pending.scalar()
             if oldest_created_at:
-                oldest_pending_age_seconds = (datetime.utcnow() - oldest_created_at).total_seconds()
-        
+                oldest_pending_age_seconds = (
+                    datetime.utcnow() - oldest_created_at
+                ).total_seconds()
+
         return StandardResponse(
             success=True,
             data={
@@ -108,7 +109,9 @@ async def system_health() -> Dict[str, Any]:
                     "total_requests": telemetry["total_requests"],
                 },
                 "timestamp": datetime.utcnow().isoformat(),
-            }
+            },
         ).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"System health check failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"System health check failed: {str(e)}"
+        )
