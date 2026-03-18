@@ -10,10 +10,20 @@ from typing import Any, Dict, Iterable, List
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import (AgentRun, FeedbackJob, FeedbackJobStatusView,
-                             Insight, InsightView, ProposedRun,
-                             ReinforceRequest, ReinforceResponse, Run,
-                             StrategyDNA, TraceStep, VectorMemoryRecord)
+from api.core.models import (
+    AgentRun,
+    FeedbackJob,
+    FeedbackJobStatusView,
+    Insight,
+    InsightView,
+    ProposedRun,
+    ReinforceRequest,
+    ReinforceResponse,
+    Run,
+    StrategyDNA,
+    TraceStep,
+    VectorMemoryRecord,
+)
 
 
 class FeedbackLearningService:

@@ -7,8 +7,14 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
-from api.core.models import (Insight, Run, Signal, TaskTypeBaseline, TraceStep,
-                             VectorMemoryRecord)
+from api.core.models import (
+    Insight,
+    Run,
+    Signal,
+    TaskTypeBaseline,
+    TraceStep,
+    VectorMemoryRecord,
+)
 from api.database import AsyncSessionLocal, init_database
 from api.main import app
 from api.routes import dashboard
@@ -39,7 +45,7 @@ async def api_client(seeded_db):
     from api.services.run_lifecycle import RunLifecycleService
     from api.services.trading import TradingService
     from api.main_state import set_services
-    
+
     feedback_service = FeedbackLearningService()
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
@@ -47,7 +53,7 @@ async def api_client(seeded_db):
         learning_service, memory_service, feedback_service
     )
     trading_service = TradingService(None)
-    
+
     set_services(
         trading_service,
         learning_service,
@@ -55,7 +61,7 @@ async def api_client(seeded_db):
         feedback_service,
         run_lifecycle_service,
     )
-    
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         yield client
@@ -381,7 +387,9 @@ async def test_dashboard_pnl_today_isolation(api_client):
 async def test_empty_database_returns_zeros(api_client):
     now = TEST_REFERENCE_DT
     assert (
-        await api_client.get("/api/dashboard/pnl", params={"reference_dt": now.isoformat()})
+        await api_client.get(
+            "/api/dashboard/pnl", params={"reference_dt": now.isoformat()}
+        )
     ).status_code == 200
     assert (
         await api_client.get(

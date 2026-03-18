@@ -1,8 +1,11 @@
 import pytest
 from api.services.trading import TradingService
-from multi_agent_orchestrator import (DeterministicReasoningModel,
-                                      MultiAgentOrchestrator, ToolError,
-                                      TradeTools)
+from multi_agent_orchestrator import (
+    DeterministicReasoningModel,
+    MultiAgentOrchestrator,
+    ToolError,
+    TradeTools,
+)
 
 
 class ContradictoryModel(DeterministicReasoningModel):
@@ -53,13 +56,17 @@ async def test_tool_retry_and_circuit_breaker_on_repeated_provider_failures():
     )
 
     try:
-        await tools.get_current_price("TSLA")  # Use different asset to avoid memory guard
+        await tools.get_current_price(
+            "TSLA"
+        )  # Use different asset to avoid memory guard
         assert False, "Expected ToolError"
     except ToolError:
         assert calls["n"] == 2
 
     try:
-        await tools.get_current_price("TSLA")  # Use different asset to avoid memory guard
+        await tools.get_current_price(
+            "TSLA"
+        )  # Use different asset to avoid memory guard
         assert False, "Expected open circuit ToolError"
     except ToolError as exc:
         assert "circuit" in str(exc).lower()

@@ -1,4 +1,5 @@
 """Monitoring system endpoints for production dashboard."""
+
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any
@@ -7,11 +8,19 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import Insight, Run, Signal, TaskTypeBaseline, TraceStep, VectorMemoryRecord
+from api.core.models import (
+    Insight,
+    Run,
+    Signal,
+    TaskTypeBaseline,
+    TraceStep,
+    VectorMemoryRecord,
+)
 from api.database import AsyncSessionLocal, init_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
+
 
 @router.get("/alerts")
 async def get_alerts() -> Dict[str, Any]:
@@ -24,6 +33,7 @@ async def get_alerts() -> Dict[str, Any]:
         logger.error(f"Error getting alerts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/system-metrics")
 async def get_system_metrics() -> Dict[str, Any]:
     """Get detailed system metrics"""
@@ -34,6 +44,7 @@ async def get_system_metrics() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting system metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/performance-metrics")
 async def get_performance_metrics() -> Dict[str, Any]:
@@ -46,6 +57,7 @@ async def get_performance_metrics() -> Dict[str, Any]:
         logger.error(f"Error getting performance metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/agent-metrics")
 async def get_agent_metrics() -> Dict[str, Any]:
     """Get agent-related metrics"""
@@ -56,6 +68,7 @@ async def get_agent_metrics() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting agent metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/data-metrics")
 async def get_data_metrics() -> Dict[str, Any]:
@@ -68,6 +81,7 @@ async def get_data_metrics() -> Dict[str, Any]:
         logger.error(f"Error getting data metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/task-metrics")
 async def get_task_metrics() -> Dict[str, Any]:
     """Get task-related metrics"""
@@ -78,6 +92,7 @@ async def get_task_metrics() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting task metrics: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/summary")
 async def get_monitoring_summary() -> Dict[str, Any]:
@@ -91,17 +106,20 @@ async def get_monitoring_summary() -> Dict[str, Any]:
             "overall_status": health_score.get("status", "unknown"),
             "health_score": health_score.get("score", 0),
             "active_alerts": len(alerts),
-            "critical_alerts": len([a for a in alerts if a.get("severity") == "critical"]),
+            "critical_alerts": len(
+                [a for a in alerts if a.get("severity") == "critical"]
+            ),
             "system_load": metrics.get("performance", {}).get("system_load", 0),
             "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
             "agents_active": metrics.get("agents", {}).get("agents_active", 0),
             "data_freshness_ms": metrics.get("data", {}).get("data_freshness_ms", 0),
-            "last_update": datetime.utcnow().isoformat()
+            "last_update": datetime.utcnow().isoformat(),
         }
         return {"success": True, "summary": summary}
     except Exception as e:
         logger.error(f"Error getting monitoring summary: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/health")
 async def monitoring_health_check() -> Dict[str, Any]:
@@ -110,7 +128,7 @@ async def monitoring_health_check() -> Dict[str, Any]:
         return {
             "status": "healthy",
             "monitoring_active": True,
-            "last_update": datetime.utcnow().isoformat()
+            "last_update": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Error in monitoring health check: {str(e)}")
