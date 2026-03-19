@@ -1,286 +1,292 @@
 # Trading Control
 
-Production-oriented multi-agent trading control system with a modular FastAPI backend, planner/executor agent orchestration, guardrailed tools, and evaluation-focused workflows.
+A production-grade platform for orchestrating autonomous AI agents in real-time trading systems.
+
+---
+
+## Badges
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![Framework](https://img.shields.io/badge/FastAPI-Async-green)
+![Database](https://img.shields.io/badge/PostgreSQL-Async-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Multi--Agent-black)
+![Status](https://img.shields.io/badge/Status-Active-success)
+
+---
 
 ## Overview
 
-This repository provides an AI-agent-powered trading control backend with:
+Trading Control is a modular system for managing multi-agent AI workflows applied to financial trading.
 
-- **Modular API architecture** (routers, services, core models, startup wiring).
-- **Planner → Executor → Evaluator** multi-agent orchestration flow.
-- **Grounding/RAG-lite** using local strategy/reference documents.
-- **Typed + guardrailed tools** with retry and circuit-breaker behavior.
-- **Memory layers** (conversation, task-state, and DB-backed persistent run memory).
-- **Shadow mode** for virtual-trade analysis before live promotion.
-- **Async DB integration** via SQLAlchemy async engine/session.
+It provides:
+
+- Deterministic agent orchestration
+- Safety-guarded execution
+- Persistent memory and learning loops
+- Real-time monitoring and performance tracking
 
 ---
 
-## Current Architecture
+## Documentation
 
-### High-level components
+| Resource        | Link |
+|----------------|------|
+| Documentation  | https://matthew.docs.buildwithfern.com/ |
+| API Reference  | https://matthew.docs.buildwithfern.com/api-reference |
+| Architecture   | https://matthew.docs.buildwithfern.com/architecture |
 
-1. **API Layer (`api/routes`)**
-   - Exposes endpoints for health, analysis, shadow mode, trades, and performance.
-2. **Service Layer (`api/services`)**
-   - `TradingService`: orchestration invocation + shadow-trade evaluation.
-   - `AgentLearningService`: per-agent performance tracking and persistence.
-3. **Core Models (`api/core/models.py`)**
-   - Pydantic request/response models.
-   - SQLAlchemy ORM models (`Trade`, `AgentPerformance`).
-4. **Agent Runtime (`multi_agent_orchestrator.py`)**
-   - Planner, execution engine, reasoning model(s), tool layer, memory, evaluator.
-5. **Infrastructure Runtime (`api/main.py`, `api/database.py`, `api/config.py`)**
-   - App startup, DB connectivity checks, service registry wiring.
+---
 
-### Repository structure
+## Core Features
+
+### Multi-Agent Orchestration
+Planner → Executor → Evaluator pipeline with structured tool usage and validation.
+
+### Shadow Mode
+Run strategies in a simulated environment before enabling live execution.
+
+### Persistent Memory
+- Task-level memory
+- Agent-level performance tracking
+- Long-term learning signals
+
+### Safety Guardrails
+- Typed tool interfaces
+- Retry + fallback logic
+- Circuit breaker protection
+
+### Observability
+- Agent-level metrics
+- Execution tracing
+- System-wide monitoring endpoints
+
+---
+
+## Architecture
+
+### System Overview
 
 ```text
-.
-├── api/
-│   ├── core/
-│   │   └── models.py
-│   ├── routes/
-│   │   ├── analyze.py
-│   │   ├── health.py
-│   │   ├── performance.py
-│   │   └── trades.py
-│   ├── services/
-│   │   ├── learning.py
-│   │   └── trading.py
-│   ├── config.py
-│   ├── database.py
-│   ├── main.py
-│   ├── main_state.py
-│   └── index.py
-├── multi_agent_orchestrator.py
-├── skills/trade-bot/references/
-├── tests/
-└── requirements.txt
+                ┌──────────────────────┐
+                │        Client        │
+                └─────────┬────────────┘
+                          │
+                ┌─────────▼────────────┐
+                │      API Layer       │  (FastAPI)
+                └─────────┬────────────┘
+                          │
+        ┌─────────────────▼─────────────────┐
+        │        Agent Orchestrator         │
+        │                                  │
+        │  Planner → Executor → Evaluator  │
+        └─────────┬────────────┬───────────┘
+                  │            │
+        ┌─────────▼───┐  ┌─────▼─────────┐
+        │ Tool Layer  │  │ Memory Layer  │
+        │ (Guarded)   │  │ (State + RL)  │
+        └─────────────┘  └─────┬─────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │     Data Layer      │
+                    │   PostgreSQL Async  │
+                    └─────────────────────┘
 ```
 
----
+### Detailed Architecture
 
-## Infrastructure & Runtime
-
-### Application stack
-
-- **Python** 3.10+
-- **FastAPI** for HTTP API
-- **SQLAlchemy (async)** for data access
-- **PostgreSQL** (expected via `DATABASE_URL`)
-- **Anthropic (optional)** for live reasoning model calls
-
-### Config
-
-Primary runtime config is in `api/config.py` via `pydantic-settings`.
-
-Key env vars:
-
-- `DATABASE_URL` (required for DB-backed runtime)
-- `ANTHROPIC_API_KEY` (optional; if absent, deterministic local model is used)
-- `FRONTEND_URL` (CORS origin)
-- `NODE_ENV` (`development` | `staging` | `production`)
-
----
-
-## Agent System Design
-
-### Observe → Correct → Reinforce loop
-
-- Coaches stage Film Room annotations via `POST /memory/annotations` into `trace_steps`.
-- `POST /feedback/reinforce` executes a background learning pipeline:
-  1. Reads pending annotations for a run.
-  2. Upserts hallucinations to negative memory and starred trajectories to few-shot memory.
-  3. Activates promoted `strategy_dna` rules and recomputes value delta.
-  4. Rebuilds the active system prompt and writes a versioned prompt cache key.
-- Reinforcement execution is tracked in `feedback_jobs` (pending/running/done/failed) and can be polled by `job_id`.
-- `POST /insights/rebuild` runs a supervisor pass over recent runs and exposes scored insights from `GET /insights`, including a `needs_more_data` flag when confidence is below 0.6.
-
-
-The orchestrator is intentionally separated into layered concerns:
-
-- **Reasoning model layer**
-  - `AnthropicReasoningModel` (live API calls + retry)
-  - `DeterministicReasoningModel` (fallback deterministic behavior)
-- **Planner layer**
-  - deterministic step plan (`signal`, `consensus`, `risk`, `sizing`, `decision`)
-- **Execution layer**
-  - step-specific execution and data flow
-- **Tool layer**
-  - `TradeTools` with asset/timeframe guardrails + retry/circuit breaker
-- **Grounding layer**
-  - `DocumentRetriever` reading local markdown references
-- **Memory layer**
-  - conversation memory
-  - task state memory
-  - persistent memory (`agent_runs` database table)
-- **Evaluation layer**
-  - trajectory and output-shape checks
-
-This keeps planning, execution, and evaluation distinct and testable.
-
----
-
-## API Endpoints
-
-**No authentication required** - All endpoints are open and can be called directly without API keys or special headers.
-
-### Standard Response Format
-
-All endpoints return a standardized JSON response:
-
-```json
-{
-  "success": true,
-  "data": { ... },
-  "error": null
-}
+```
+DATA SOURCES                    INGESTORS                     EVENT BUS
+┌─────────┬─────────┬─────────┐  ┌─────────┬─────────┐  ┌─────────────────────────┐
+│ Alpaca  │ Polygon │ Binance │  │ Market  │  News   │  │   Redis Streams          │
+│equity   │news +   │crypto   │  │Ingestor │Ingestor │  │   Event Bus             │
+│ticks    │options  │ticks    │  │stream   │FinBERT  │  │   market_ticks · signals │
+└─────────┴─────────┴─────────┘  └─────────┴─────────┘  │   orders · executions   │
+                                                    │   risk_alerts · learning │
+                                                    └─────────────────────────┘
+                                                                │
+                    ALPHA ENGINE                                │
+┌─────────┬─────────┬─────────┬─────────┬─────────┐              │
+│Micro-   │Sentiment│Momentum │Regime   │Macro    │              │
+│structure│ Factors │ Factors │ Router  │ Agent   │              │
+│OFI · VWAP│news ·   │cross-   │RISK_ON/ │FOMC ·   │              │
+│spread   │options  │sect     │OFF      │CPI      │              │
+└─────────┴─────────┴─────────┴─────────┴─────────┘              │
+           │                    │                              │
+           └─────────┬──────────┘                              │
+                     │                                       │
+        ┌─────────────▼─────────────┐                         │
+        │   IC-Weighted Combiner    │                         │
+        │   Reasoning Agent         │                         │
+        │   LLM + vector memory     │                         │
+        └─────────────┬─────────────┘                         │
+                      │                                       │
+                      ▼                                       ▼
+        RISK & SIZING           EXECUTION                LEARNING & FEEDBACK
+┌─────────┬─────────┬─────────┐  ┌─────────┬─────────┐  ┌─────────┬─────────┐
+│ Risk    │Drawdown │Correla- │  │Execu-   │Paper    │  │Trade    │Vector   │
+│ Engine  │ Manager │tion     │  │tion     │Broker   │  │Evaluator│Memory   │
+│kill     │Kelly    │Manager  │  │Engine   │simulated│  │PnL ·    │pgvector │
+│switch   │tier     │covariance│  │VWAP     │fills    │  │factor   │1536-dim │
+└─────────┴─────────┴─────────┘  └─────────┴─────────┘  └─────────┴─────────┘
+                      │                                       │
+                      ▼                                       ▼
+                DASHBOARD
+┌─────────────────────────────────┐
+│ Next.js Dashboard                │
+│ WebSocket + REST                 │
+│ Overview · Trading · Agents     │
+│ Learning · Alpha Research       │
+└─────────────────────────────────┘
 ```
 
-On errors:
-```json
-{
-  "success": false,
-  "data": null,
-  "error": "Error message"
-}
+### System Layers
+
+- **Data Sources** - Market data providers (Alpaca, Polygon, Binance, FRED, CryptoQuant)
+- **Ingestors** - Data normalization and processing (Market, News, Options, On-chain)
+- **Event Bus** - Redis Streams for decoupled messaging
+- **Alpha Engine** - Signal generation and reasoning (Factors, Combiner, LLM Agent)
+- **Risk & Sizing** - Safety guardrails and position management
+- **Execution** - Order execution with paper and live brokers
+- **Learning** - Performance tracking and memory systems
+- **Dashboard** - Unified control plane
+
+### Execution Flow
+
+```text
+Planner
+  ↓
+Executor
+  ↓
+Evaluator
+  ↓
+Memory
+  ↓
+Learning Loop
 ```
 
-### Health
-
-- `GET /` - Root endpoint
-- `GET /health` - Health check with database status
-
-### Analysis
-
-- `POST /analyze` - Trade analysis
-- `POST /shadow/analyze` - Shadow mode analysis
-- `GET /shadow/evaluate/{symbol}` - Evaluate shadow trades
-
-### Trades
-
-- `GET /trades` - Get all trades
-- `POST /trades` - Save a new trade
-
-### Bot Control
-
-- `POST /trading/start` - Start trading bot
-- `POST /trading/stop` - Stop trading bot
-- `GET /trading/status` - Get bot status
-- `POST /trading/emergency-stop` - Emergency stop all trading
-- `GET /bots/status` - Get all bots status
-
-### Performance
-
-- `GET /performance/{agent_name}` - Get agent performance
-- `GET /performance` - Get all performance data
-
-### Monitoring
-
-- `GET /monitoring/overview` - System monitoring overview
-- `GET /monitoring/logs` - Get system logs
-
-### Feedback
-
-- `POST /memory/annotations` - Create annotation
-- `POST /memory/negative` - Create negative memory
-- `POST /feedback/reinforce` - Reinforce feedback
-
-### Dashboard
-
-- `GET /dashboard` - Get dashboard data
+Each stage is isolated, observable, and testable.
 
 ---
 
-## Local Development
+## Quick Start
 
-### 1) Install dependencies
+### Requirements
+
+- Python 3.10+
+- PostgreSQL
+
+### Installation
 
 ```bash
+git clone https://github.com/SamuelMatthew95/trading-control
+cd trading-control
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-### 2) Set environment variables
-
-Example:
+### Run
 
 ```bash
-export DATABASE_URL='postgresql://user:pass@localhost:5432/trading_control'
-export ANTHROPIC_API_KEY='your_key_optional'
-export FRONTEND_URL='http://localhost:3000'
-export NODE_ENV='development'
+uvicorn api.main:app --reload
 ```
 
-### 3) Run API
-
-```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 4) Run tests
+### Test
 
 ```bash
 pytest -q
 ```
+
+---
+
+## Configuration
+
+```bash
+DATABASE_URL=postgresql://user:pass@localhost:5432/trading_control
+ANTHROPIC_API_KEY=
+FRONTEND_URL=http://localhost:3000
+NODE_ENV=development
+```
+
+---
+
+## API Surface
+
+### Core
+
+- `GET /health` 
+- `POST /analyze` 
+- `POST /shadow/analyze` 
+- `GET /trades` 
+- `POST /trading/start` 
+
+### Monitoring
+
+- `GET /performance/{agent}` 
+- `GET /monitoring/overview` 
+- `GET /dashboard` 
+
+### Learning
+
+- `POST /feedback/reinforce` 
+- `POST /memory/annotations` 
+- `GET /insights` 
+
+Full docs: [https://matthew.docs.buildwithfern.com/api-reference](https://matthew.docs.buildwithfern.com/api-reference)
 
 ---
 
 ## Deployment
 
-### Recommended deployment flow
-
-1. Provision PostgreSQL.
-2. Set runtime env vars (`DATABASE_URL`, optional `ANTHROPIC_API_KEY`, `FRONTEND_URL`).
-3. Deploy API service using ASGI entrypoint:
-   - `api.main:app` (or compatibility entrypoint `api.index:app`)
-4. Ensure startup health:
-   - DB connectivity passes (`/api/health`)
-5. Run smoke tests after deployment.
-
-### Serverless compatibility
-
-- `api/index.py` remains as a thin compatibility entrypoint.
-- Main application wiring is centralized in `api/main.py`.
-
----
-
-## Testing Strategy (Current)
-
-The repository includes tests for:
-
-- basic runtime sanity checks
-- planner determinism and orchestrator behavior
-- tool guardrail failures + circuit breaker
-- contradictory data / low-consensus handling
-- shadow-mode evaluation
-- modular API structure checks
-
-Run all tests:
-
 ```bash
-pytest -q
+export DATABASE_URL=
+export ANTHROPIC_API_KEY=
+export FRONTEND_URL=
+export NODE_ENV=production
+
+uvicorn api.main:app
 ```
 
 ---
 
-## Operational Notes
+## Safety Model
 
-- Persistent execution memory is stored in PostgreSQL (`agent_runs`) through the API memory service.
-- Local file artifacts may still appear for standalone orchestrator runs, but production API mode persists traces in the database.
-- For better traceability, integrate structured telemetry (e.g., OpenTelemetry/Langfuse) on top of current call traces.
+- Guarded execution layer
+- Trade risk constraints
+- Circuit breaker system
+- Shadow-mode validation before live promotion
+- Full audit logging
 
 ---
 
-## Roadmap Suggestions
+## Observability
 
-- Add route-level integration tests with mocked DB sessions.
-- Add richer trajectory replay/regression datasets.
-- Add strict schema validation for agent step outputs before state transitions.
-- Add automated promotion logic for shadow-mode → live based on KPI thresholds.
+- Structured logs
+- Per-agent performance tracking
+- Execution tracing via run_id
+- Learning feedback metrics
+
+---
+
+## Project Structure
+
+```text
+api/
+agents/
+tools/
+memory/
+models/
+services/
+tests/
+```
+
+---
+
+## Philosophy
+
+This system is designed to behave less like a script and more like an operating system for trading intelligence.
 
 ---
 
 ## License
 
-Internal project / no explicit OSS license declared.
+Internal use only.
