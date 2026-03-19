@@ -64,107 +64,35 @@ Run strategies in a simulated environment before enabling live execution.
 
 ## Architecture
 
-### System Overview
+![Architecture](./docs/architecture.png)
 
-```text
-                ┌──────────────────────┐
-                │        Client        │
-                └─────────┬────────────┘
-                          │
-                ┌─────────▼────────────┐
-                │      API Layer       │  (FastAPI)
-                └─────────┬────────────┘
-                          │
-        ┌─────────────────▼─────────────────┐
-        │        Agent Orchestrator         │
-        │                                  │
-        │  Planner → Executor → Evaluator  │
-        └─────────┬────────────┬───────────┘
-                  │            │
-        ┌─────────▼───┐  ┌─────▼─────────┐
-        │ Tool Layer  │  │ Memory Layer  │
-        │ (Guarded)   │  │ (State + RL)  │
-        └─────────────┘  └─────┬─────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │     Data Layer      │
-                    │   PostgreSQL Async  │
-                    └─────────────────────┘
-```
+This system is a multi-agent, event-driven trading platform that integrates real-time market data, sentiment analysis, and machine learning for alpha generation and automated execution.
 
-### Detailed Architecture
+### System Components
 
-```
-DATA SOURCES                    INGESTORS                     EVENT BUS
-┌─────────┬─────────┬─────────┐  ┌─────────┬─────────┐  ┌─────────────────────────┐
-│ Alpaca  │ Polygon │ Binance │  │ Market  │  News   │  │   Redis Streams          │
-│equity   │news +   │crypto   │  │Ingestor │Ingestor │  │   Event Bus             │
-│ticks    │options  │ticks    │  │stream   │FinBERT  │  │   market_ticks · signals │
-└─────────┴─────────┴─────────┘  └─────────┴─────────┘  │   orders · executions   │
-                                                    │   risk_alerts · learning │
-                                                    └─────────────────────────┘
-                                                                │
-                    ALPHA ENGINE                                │
-┌─────────┬─────────┬─────────┬─────────┬─────────┐              │
-│Micro-   │Sentiment│Momentum │Regime   │Macro    │              │
-│structure│ Factors │ Factors │ Router  │ Agent   │              │
-│OFI · VWAP│news ·   │cross-   │RISK_ON/ │FOMC ·   │              │
-│spread   │options  │sect     │OFF      │CPI      │              │
-└─────────┴─────────┴─────────┴─────────┴─────────┘              │
-           │                    │                              │
-           └─────────┬──────────┘                              │
-                     │                                       │
-        ┌─────────────▼─────────────┐                         │
-        │   IC-Weighted Combiner    │                         │
-        │   Reasoning Agent         │                         │
-        │   LLM + vector memory     │                         │
-        └─────────────┬─────────────┘                         │
-                      │                                       │
-                      ▼                                       ▼
-        RISK & SIZING           EXECUTION                LEARNING & FEEDBACK
-┌─────────┬─────────┬─────────┐  ┌─────────┬─────────┐  ┌─────────┬─────────┐
-│ Risk    │Drawdown │Correla- │  │Execu-   │Paper    │  │Trade    │Vector   │
-│ Engine  │ Manager │tion     │  │tion     │Broker   │  │Evaluator│Memory   │
-│kill     │Kelly    │Manager  │  │Engine   │simulated│  │PnL ·    │pgvector │
-│switch   │tier     │covariance│  │VWAP     │fills    │  │factor   │1536-dim │
-└─────────┴─────────┴─────────┘  └─────────┴─────────┘  └─────────┴─────────┘
-                      │                                       │
-                      ▼                                       ▼
-                DASHBOARD
-┌─────────────────────────────────┐
-│ Next.js Dashboard                │
-│ WebSocket + REST                 │
-│ Overview · Trading · Agents     │
-│ Learning · Alpha Research       │
-└─────────────────────────────────┘
-```
+| Layer | Components | Key Functions |
+| :--- | :--- | :--- |
+| **Data Sources** | Alpaca, Polygon, Binance | Ingests equity ticks, crypto, and news/options data. |
+| **Ingestors** | Market & News (FinBERT) | Normalizes streams and performs NLP sentiment extraction. |
+| **Event Bus** | Redis Streams | Handles market ticks, signals, orders, and risk alerts. |
+| **Alpha Engine** | Microstructure, Sentiment, Macro | Multi-factor models (OFI, VWAP, FOMC, CPI) for signal generation. |
+| **Reasoning** | IC-Weighted Combiner | LLM-powered agent with vector memory for signal synthesis. |
+| **Risk & Execution** | Kelly Criterion, VWAP Engine | Manages drawdown, correlation, and smart order routing. |
+| **Learning** | Vector Memory (pgvector) | Trade evaluation and PnL factor analysis for system feedback. |
 
-### System Layers
+### Key Features
 
-- **Data Sources** - Market data providers (Alpaca, Polygon, Binance, FRED, CryptoQuant)
-- **Ingestors** - Data normalization and processing (Market, News, Options, On-chain)
-- **Event Bus** - Redis Streams for decoupled messaging
-- **Alpha Engine** - Signal generation and reasoning (Factors, Combiner, LLM Agent)
-- **Risk & Sizing** - Safety guardrails and position management
-- **Execution** - Order execution with paper and live brokers
-- **Learning** - Performance tracking and memory systems
-- **Dashboard** - Unified control plane
+- **Intelligence:** Uses **FinBERT** for financial sentiment and an **LLM-based Reasoning Agent** to weigh alpha factors
+- **Performance:** Built on an **Asynchronous PostgreSQL** data layer and **Redis Streams** for sub-millisecond event handling
+- **Risk Management:** Integrated **Kill Switch**, Drawdown Manager, and Kelly Criterion sizing
+- **Observability:** Real-time **Next.js Dashboard** using WebSockets for live monitoring
 
-### Execution Flow
+### Tech Stack
 
-```text
-Planner
-  ↓
-Executor
-  ↓
-Evaluator
-  ↓
-Memory
-  ↓
-Learning Loop
-```
-
-Each stage is isolated, observable, and testable.
+- **Language:** Python (Async), TypeScript (Frontend)
+- **Database:** PostgreSQL + `pgvector` (1536-dim embeddings)
+- **Messaging:** Redis Streams
+- **Frontend:** Next.js, Tailwind CSS, Shadcn/UI
 
 ---
 
