@@ -2487,6 +2487,970 @@
           "duration_ms": 0
         }
       ]
+    },
+    {
+      "trace_summary": {
+        "guard_hits": 0
+      },
+      "task_id": "AAPL:2026-03-19T18:14:04.264731",
+      "timestamp": "2026-03-19T18:14:04.264795",
+      "decision": {
+        "DECISION": "LONG",
+        "ASSET": "AAPL",
+        "SIZE": "0 units",
+        "ENTRY": "0.00",
+        "STOP": "0.00",
+        "TARGET": "0.00",
+        "R/R RATIO": "0.0:1",
+        "CONFIDENCE": "LOW",
+        "SIGNAL SUMMARY": [
+          "Consensus=49.0%",
+          "Risk veto=True"
+        ],
+        "RISK FLAGS": [
+          "LOW_CONSENSUS"
+        ],
+        "RATIONALE": "Grounded decision via planner/executor pipeline.",
+        "INVALIDATION": "Below stop 0.00",
+        "TRACE SUMMARY": {
+          "guard_hits": 0
+        }
+      },
+      "trace": [
+        {
+          "agent_name": "SIGNAL",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.01
+            },
+            "signals": [
+              {
+                "source": "a",
+                "direction": "LONG",
+                "confidence": 0.9,
+                "timeframe": "1D"
+              },
+              {
+                "source": "b",
+                "direction": "SHORT",
+                "confidence": 0.9,
+                "timeframe": "1D"
+              }
+            ]
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:04.264772",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ]
+    },
+    {
+      "trace_summary": {
+        "guard_hits": 1
+      },
+      "task_id": "AAPL:2026-03-19T18:14:04.272390",
+      "timestamp": "2026-03-19T18:14:04.273001",
+      "decision": {
+        "DECISION": "FLAT",
+        "ASSET": "AAPL",
+        "SIZE": "0 units",
+        "ENTRY": "0.00",
+        "STOP": "0.00",
+        "TARGET": "0.00",
+        "R/R RATIO": "0.0:1",
+        "CONFIDENCE": "LOW",
+        "SIGNAL SUMMARY": [
+          "error=skipped_by_memory_guard:Known stale price feed"
+        ],
+        "RISK FLAGS": [
+          "SYSTEM_ERROR"
+        ],
+        "RATIONALE": "Execution failed",
+        "INVALIDATION": "N/A",
+        "context_dump": {
+          "task_state": {
+            "last_step": "risk",
+            "context": {
+              "asset": "AAPL",
+              "timeframe": "1D",
+              "portfolio_state": {
+                "total_value": 100000,
+                "cash": 50000,
+                "positions": {},
+                "drawdown": -0.03,
+                "price_hint": 100.0
+              },
+              "signals": [
+                {
+                  "source": "heuristic",
+                  "direction": "LONG",
+                  "confidence": 0.7,
+                  "timeframe": "1D"
+                }
+              ],
+              "consensus": {
+                "direction": "LONG",
+                "agreement_ratio": 1.0,
+                "signal_strength": 0.7
+              },
+              "risk": {
+                "approved": true,
+                "veto": false,
+                "risk_score": 0.16,
+                "size_multiplier": 1.0,
+                "flags": []
+              }
+            }
+          },
+          "retrieved_context": [
+            {
+              "source": "heuristic",
+              "direction": "LONG",
+              "confidence": 0.7,
+              "timeframe": "1D"
+            }
+          ]
+        }
+      },
+      "trace": [
+        {
+          "agent_name": "SIGNAL",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ]
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:04.272429",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "CONSENSUS",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            }
+          },
+          "output_data": {
+            "direction": "LONG",
+            "agreement_ratio": 1.0,
+            "signal_strength": 0.7
+          },
+          "timestamp": "2026-03-19 18:14:04.272441",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "RISK",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.16,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {
+            "approved": true,
+            "veto": false,
+            "risk_score": 0.16,
+            "size_multiplier": 1.0,
+            "flags": []
+          },
+          "timestamp": "2026-03-19 18:14:04.272447",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "skipped_by_memory_guard",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.16,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:04.272994",
+          "success": false,
+          "error": "skipped_by_memory_guard:Known stale price feed",
+          "duration_ms": 0
+        }
+      ]
+    },
+    {
+      "trace_summary": {
+        "guard_hits": 1
+      },
+      "task_id": "AAPL:2026-03-19T18:14:04.816482",
+      "timestamp": "2026-03-19T18:14:04.817030",
+      "decision": {
+        "DECISION": "FLAT",
+        "ASSET": "AAPL",
+        "SIZE": "0 units",
+        "ENTRY": "0.00",
+        "STOP": "0.00",
+        "TARGET": "0.00",
+        "R/R RATIO": "0.0:1",
+        "CONFIDENCE": "LOW",
+        "SIGNAL SUMMARY": [
+          "error=skipped_by_memory_guard:Known stale price feed"
+        ],
+        "RISK FLAGS": [
+          "SYSTEM_ERROR"
+        ],
+        "RATIONALE": "Execution failed",
+        "INVALIDATION": "N/A",
+        "context_dump": {
+          "task_state": {
+            "last_step": "risk",
+            "context": {
+              "asset": "AAPL",
+              "timeframe": "1D",
+              "portfolio_state": {
+                "total_value": 100000,
+                "drawdown": -0.02
+              },
+              "signals": [
+                {
+                  "source": "heuristic",
+                  "direction": "LONG",
+                  "confidence": 0.7,
+                  "timeframe": "1D"
+                }
+              ],
+              "consensus": {
+                "direction": "LONG",
+                "agreement_ratio": 1.0,
+                "signal_strength": 0.7
+              },
+              "risk": {
+                "approved": true,
+                "veto": false,
+                "risk_score": 0.14,
+                "size_multiplier": 1.0,
+                "flags": []
+              }
+            }
+          },
+          "retrieved_context": [
+            {
+              "source": "heuristic",
+              "direction": "LONG",
+              "confidence": 0.7,
+              "timeframe": "1D"
+            }
+          ]
+        }
+      },
+      "trace": [
+        {
+          "agent_name": "SIGNAL",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ]
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:04.816519",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "CONSENSUS",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            }
+          },
+          "output_data": {
+            "direction": "LONG",
+            "agreement_ratio": 1.0,
+            "signal_strength": 0.7
+          },
+          "timestamp": "2026-03-19 18:14:04.816530",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "RISK",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.14,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {
+            "approved": true,
+            "veto": false,
+            "risk_score": 0.14,
+            "size_multiplier": 1.0,
+            "flags": []
+          },
+          "timestamp": "2026-03-19 18:14:04.816537",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "skipped_by_memory_guard",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.14,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:04.817024",
+          "success": false,
+          "error": "skipped_by_memory_guard:Known stale price feed",
+          "duration_ms": 0
+        }
+      ]
+    },
+    {
+      "trace_summary": {
+        "guard_hits": 0
+      },
+      "task_id": "AAPL:2026-03-19T18:14:09.324494",
+      "timestamp": "2026-03-19T18:14:09.324561",
+      "decision": {
+        "DECISION": "LONG",
+        "ASSET": "AAPL",
+        "SIZE": "0 units",
+        "ENTRY": "0.00",
+        "STOP": "0.00",
+        "TARGET": "0.00",
+        "R/R RATIO": "0.0:1",
+        "CONFIDENCE": "LOW",
+        "SIGNAL SUMMARY": [
+          "Consensus=49.0%",
+          "Risk veto=True"
+        ],
+        "RISK FLAGS": [
+          "LOW_CONSENSUS"
+        ],
+        "RATIONALE": "Grounded decision via planner/executor pipeline.",
+        "INVALIDATION": "Below stop 0.00",
+        "TRACE SUMMARY": {
+          "guard_hits": 0
+        }
+      },
+      "trace": [
+        {
+          "agent_name": "SIGNAL",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.01
+            },
+            "signals": [
+              {
+                "source": "a",
+                "direction": "LONG",
+                "confidence": 0.9,
+                "timeframe": "1D"
+              },
+              {
+                "source": "b",
+                "direction": "SHORT",
+                "confidence": 0.9,
+                "timeframe": "1D"
+              }
+            ]
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:09.324539",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ]
+    },
+    {
+      "trace_summary": {
+        "guard_hits": 1
+      },
+      "task_id": "AAPL:2026-03-19T18:14:09.328763",
+      "timestamp": "2026-03-19T18:14:09.329286",
+      "decision": {
+        "DECISION": "FLAT",
+        "ASSET": "AAPL",
+        "SIZE": "0 units",
+        "ENTRY": "0.00",
+        "STOP": "0.00",
+        "TARGET": "0.00",
+        "R/R RATIO": "0.0:1",
+        "CONFIDENCE": "LOW",
+        "SIGNAL SUMMARY": [
+          "error=skipped_by_memory_guard:Known stale price feed"
+        ],
+        "RISK FLAGS": [
+          "SYSTEM_ERROR"
+        ],
+        "RATIONALE": "Execution failed",
+        "INVALIDATION": "N/A",
+        "context_dump": {
+          "task_state": {
+            "last_step": "risk",
+            "context": {
+              "asset": "AAPL",
+              "timeframe": "1D",
+              "portfolio_state": {
+                "total_value": 100000,
+                "cash": 50000,
+                "positions": {},
+                "drawdown": -0.03,
+                "price_hint": 100.0
+              },
+              "signals": [
+                {
+                  "source": "heuristic",
+                  "direction": "LONG",
+                  "confidence": 0.7,
+                  "timeframe": "1D"
+                }
+              ],
+              "consensus": {
+                "direction": "LONG",
+                "agreement_ratio": 1.0,
+                "signal_strength": 0.7
+              },
+              "risk": {
+                "approved": true,
+                "veto": false,
+                "risk_score": 0.16,
+                "size_multiplier": 1.0,
+                "flags": []
+              }
+            }
+          },
+          "retrieved_context": [
+            {
+              "source": "heuristic",
+              "direction": "LONG",
+              "confidence": 0.7,
+              "timeframe": "1D"
+            }
+          ]
+        }
+      },
+      "trace": [
+        {
+          "agent_name": "SIGNAL",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ]
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:09.328799",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "CONSENSUS",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            }
+          },
+          "output_data": {
+            "direction": "LONG",
+            "agreement_ratio": 1.0,
+            "signal_strength": 0.7
+          },
+          "timestamp": "2026-03-19 18:14:09.328810",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "RISK",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.16,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {
+            "approved": true,
+            "veto": false,
+            "risk_score": 0.16,
+            "size_multiplier": 1.0,
+            "flags": []
+          },
+          "timestamp": "2026-03-19 18:14:09.328818",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "skipped_by_memory_guard",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "cash": 50000,
+              "positions": {},
+              "drawdown": -0.03,
+              "price_hint": 100.0
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.16,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:09.329279",
+          "success": false,
+          "error": "skipped_by_memory_guard:Known stale price feed",
+          "duration_ms": 0
+        }
+      ]
+    },
+    {
+      "trace_summary": {
+        "guard_hits": 1
+      },
+      "task_id": "AAPL:2026-03-19T18:14:09.815549",
+      "timestamp": "2026-03-19T18:14:09.816061",
+      "decision": {
+        "DECISION": "FLAT",
+        "ASSET": "AAPL",
+        "SIZE": "0 units",
+        "ENTRY": "0.00",
+        "STOP": "0.00",
+        "TARGET": "0.00",
+        "R/R RATIO": "0.0:1",
+        "CONFIDENCE": "LOW",
+        "SIGNAL SUMMARY": [
+          "error=skipped_by_memory_guard:Known stale price feed"
+        ],
+        "RISK FLAGS": [
+          "SYSTEM_ERROR"
+        ],
+        "RATIONALE": "Execution failed",
+        "INVALIDATION": "N/A",
+        "context_dump": {
+          "task_state": {
+            "last_step": "risk",
+            "context": {
+              "asset": "AAPL",
+              "timeframe": "1D",
+              "portfolio_state": {
+                "total_value": 100000,
+                "drawdown": -0.02
+              },
+              "signals": [
+                {
+                  "source": "heuristic",
+                  "direction": "LONG",
+                  "confidence": 0.7,
+                  "timeframe": "1D"
+                }
+              ],
+              "consensus": {
+                "direction": "LONG",
+                "agreement_ratio": 1.0,
+                "signal_strength": 0.7
+              },
+              "risk": {
+                "approved": true,
+                "veto": false,
+                "risk_score": 0.14,
+                "size_multiplier": 1.0,
+                "flags": []
+              }
+            }
+          },
+          "retrieved_context": [
+            {
+              "source": "heuristic",
+              "direction": "LONG",
+              "confidence": 0.7,
+              "timeframe": "1D"
+            }
+          ]
+        }
+      },
+      "trace": [
+        {
+          "agent_name": "SIGNAL",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ]
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:09.815582",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "CONSENSUS",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            }
+          },
+          "output_data": {
+            "direction": "LONG",
+            "agreement_ratio": 1.0,
+            "signal_strength": 0.7
+          },
+          "timestamp": "2026-03-19 18:14:09.815593",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "RISK",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.14,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {
+            "approved": true,
+            "veto": false,
+            "risk_score": 0.14,
+            "size_multiplier": 1.0,
+            "flags": []
+          },
+          "timestamp": "2026-03-19 18:14:09.815600",
+          "success": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "agent_name": "skipped_by_memory_guard",
+          "input_data": {
+            "asset": "AAPL",
+            "timeframe": "1D",
+            "portfolio_state": {
+              "total_value": 100000,
+              "drawdown": -0.02
+            },
+            "signals": [
+              {
+                "source": "heuristic",
+                "direction": "LONG",
+                "confidence": 0.7,
+                "timeframe": "1D"
+              }
+            ],
+            "consensus": {
+              "direction": "LONG",
+              "agreement_ratio": 1.0,
+              "signal_strength": 0.7
+            },
+            "risk": {
+              "approved": true,
+              "veto": false,
+              "risk_score": 0.14,
+              "size_multiplier": 1.0,
+              "flags": []
+            }
+          },
+          "output_data": {},
+          "timestamp": "2026-03-19 18:14:09.816056",
+          "success": false,
+          "error": "skipped_by_memory_guard:Known stale price feed",
+          "duration_ms": 0
+        }
+      ]
     }
   ]
 }
