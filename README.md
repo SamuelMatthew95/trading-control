@@ -47,8 +47,9 @@ Run strategies in a simulated environment before enabling live execution.
 
 ### Persistent Memory
 - Task-level memory
-- Agent-level performance tracking
+- Agent-level performance tracking via `agent_runs` table
 - Long-term learning signals
+- Database-backed persistent storage
 
 ### Safety Guardrails
 - Typed tool interfaces
