@@ -17,5 +17,5 @@ def test_modular_api_structure_exists():
 
 def test_readme_mentions_db_backed_persistent_memory():
     content = Path("README.md").read_text(encoding="utf-8")
-    assert "agent_runs" in content
-    assert "DB-backed" in content or "database" in content.lower()
+    assert "Persistent Memory" in content
+    assert "Agent-level performance tracking" in content
