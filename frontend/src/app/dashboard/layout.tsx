@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { useTheme } from 'next-themes'
 import { useCodexStore } from '@/stores/useCodexStore'
 import {
   LayoutDashboard,
@@ -10,18 +9,10 @@ import {
   Bot,
   TrendingUp,
   Settings2,
-  Sun,
-  Moon,
   Wifi,
   WifiOff,
   AlertTriangle,
   CheckCircle2,
-  X,
-  BarChart3,
-  Layers,
-  Zap,
-  BookOpen,
-  Settings,
   Power
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -37,6 +28,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { ThemeToggle } from '@/components/ThemeToggle'
+import { cn } from '@/lib/utils'
+import { useWebSocket } from '@/hooks/useWebSocket'
 
 const navigation = [
   { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
@@ -52,189 +46,154 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const { theme, setTheme } = useTheme()
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [killSwitchDialogOpen, setKillSwitchDialogOpen] = useState(false)
   
   const {
     wsConnected,
     killSwitchActive,
     prices,
-    positions,
+    orders,
     riskAlerts,
+    regime,
     setKillSwitch
   } = useCodexStore()
 
-  // Calculate daily P&L (simplified)
-  const dailyPnL = Object.values(positions).reduce((sum, pos) => {
-    const currentPrice = prices[pos.symbol]?.price || pos.entry_price
-    const pnl = (currentPrice - pos.entry_price) * pos.qty
-    return sum + pnl
-  }, 0)
+  const dailyPnl = orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0)
 
-  // Determine regime status
-  const getRegimeStatus = () => {
-    if (riskAlerts.some(alert => alert.severity === 'high')) return 'RISK OFF'
-    if (riskAlerts.some(alert => alert.severity === 'medium')) return 'NEUTRAL'
-    return 'RISK ON'
+  const toggleKillSwitch = () => {
+    setKillSwitch(!killSwitchActive)
+    setKillSwitchDialogOpen(false)
   }
 
-  const getRegimeColor = () => {
-    const regime = getRegimeStatus()
-    switch (regime) {
-      case 'RISK ON': return 'bg-green-500/15 text-green-400 border-green-500/20'
-      case 'RISK OFF': return 'bg-red-500/15 text-red-400 border-red-500/20'
-      default: return 'bg-amber-500/15 text-amber-400 border-amber-500/20'
-    }
-  }
+  // Initialize WebSocket
+  useWebSocket()
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      {/* Header */}
-      <header className="h-14 sticky top-0 z-50 border-b border-slate-200 dark:border-slate-700 backdrop-blur-sm bg-white/80 dark:bg-slate-900/80">
-        <div className="flex items-center justify-between h-full px-4">
-          {/* Left: Logo */}
+    <div className="flex h-screen overflow-hidden bg-background">
+
+      {/* SIDEBAR — fixed left, full height */}
+      <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r bg-surface">
+
+        {/* Logo */}
+        <div className="flex h-14 items-center gap-2 border-b px-4">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground text-xs font-bold">TB</div>
+          <span className="font-semibold text-sm">Trading Bot</span>
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {navigation.map((item) => {
+            const isActive = pathname === item.href
+            return (
+              <a
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  isActive
+                    ? "bg-accent/10 text-accent font-medium"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <item.icon className="h-4 w-4 flex-shrink-0" />
+                {item.name}
+              </a>
+            )
+          })}
+        </nav>
+
+        {/* Footer */}
+        <div className="border-t p-3">
+          <div className="text-xs text-muted-foreground">Phase 2 · Paper Mode</div>
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+
+        {/* HEADER — fixed top, full width of main area */}
+        <header className="flex h-14 flex-shrink-0 items-center justify-between border-b bg-surface px-4 md:px-6">
+
+          {/* Regime badge */}
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-500 rounded-sm flex items-center justify-center">
-              <div className="w-3 h-0.5 bg-white"></div>
-            </div>
-            <span className="font-semibold text-slate-900 dark:text-slate-100">Trading Bot</span>
+            <span className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+              regime === 'RISK ON'  && "bg-green-500/10 text-green-500 ring-1 ring-green-500/20",
+              regime === 'RISK OFF' && "bg-red-500/10 text-red-500 ring-1 ring-red-500/20",
+              "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20"  // default neutral
+            )}>
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              {regime || 'NEUTRAL'}
+            </span>
           </div>
 
-          {/* Center: Regime Badge */}
-          <div className="flex items-center">
-            <Badge variant="outline" className={`${getRegimeColor()} border-current px-3 py-1 text-xs font-medium`}>
-              <div className={`w-1.5 h-1.5 rounded-full mr-2 ${
-                getRegimeStatus() === 'RISK ON' ? 'bg-green-400' :
-                getRegimeStatus() === 'RISK OFF' ? 'bg-red-400' : 'bg-amber-400'
-              }`} />
-              {getRegimeStatus()}
-            </Badge>
-          </div>
-
-          {/* Right: Status indicators */}
+          {/* Right controls */}
           <div className="flex items-center gap-3">
-            {/* WS Status */}
-            <div className="flex items-center gap-1">
-              {wsConnected ? (
-                <Wifi className="w-4 h-4 text-green-500" />
-              ) : (
-                <WifiOff className="w-4 h-4 text-slate-400" />
-              )}
-              <span className="text-xs text-slate-600 dark:text-slate-400">
+
+            {/* WS status */}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                wsConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
+              )} />
+              <span className="text-muted-foreground hidden sm:inline">
                 {wsConnected ? 'Live' : 'Offline'}
               </span>
             </div>
 
             {/* Daily P&L */}
-            <div className={`text-sm font-mono ${
-              dailyPnL >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-            }`}>
-              ${dailyPnL.toFixed(2)}
+            <div className={cn(
+              "text-sm font-mono font-medium tabular-nums",
+              dailyPnl >= 0 ? "text-green-500" : "text-red-500"
+            )}>
+              {dailyPnl >= 0 ? '+' : ''}{dailyPnl.toFixed(2)}
             </div>
 
-            {/* Theme Toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="w-8 h-8 p-0"
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </Button>
+            {/* Theme toggle */}
+            <ThemeToggle />
 
-            {/* Kill Switch */}
-            <AlertDialog>
+            {/* Kill switch */}
+            <AlertDialog open={killSwitchDialogOpen} onOpenChange={setKillSwitchDialogOpen}>
               <AlertDialogTrigger asChild>
-                <Button
-                  variant={killSwitchActive ? "destructive" : "outline"}
-                  size="sm"
-                  className={`${killSwitchActive ? 'animate-pulse' : ''} ${
-                    !killSwitchActive ? 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white' : ''
-                  }`}
+                <button
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-xs font-semibold transition-all",
+                    killSwitchActive
+                      ? "bg-red-600 text-white shadow-lg shadow-red-500/20 animate-pulse"
+                      : "border border-red-500/50 text-red-500 hover:bg-red-500/10"
+                  )}
                 >
-                  {killSwitchActive ? 'ACTIVE' : 'INACTIVE'}
-                </Button>
+                  {killSwitchActive ? '⬛ ACTIVE' : 'Kill Switch'}
+                </button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    {killSwitchActive ? 'Deactivate Kill Switch?' : 'Activate Kill Switch?'}
-                  </AlertDialogTitle>
+                  <AlertDialogTitle>Confirm Kill Switch</AlertDialogTitle>
                   <AlertDialogDescription>
                     {killSwitchActive 
-                      ? 'This will resume all trading operations. Make sure systems are stable.'
-                      : 'This will immediately stop all trading operations and prevent new orders.'
+                      ? "Resume signal processing and order placement?"
+                      : "This will immediately halt all signal processing and order placement."
                     }
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={() => setKillSwitch(!killSwitchActive)}
-                    className={killSwitchActive ? 'bg-green-600 hover:bg-green-700' : ''}
+                    onClick={toggleKillSwitch}
+                    className={killSwitchActive ? "bg-blue-600 hover:bg-blue-700" : "bg-red-600 hover:bg-red-700"}
                   >
-                    {killSwitchActive ? 'Deactivate' : 'Activate'}
+                    {killSwitchActive ? 'Resume' : 'Activate'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="hidden md:block w-56 fixed left-0 top-14 h-full border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-          <div className="p-4">
-            <nav className="space-y-1">
-              {navigation.map((item) => {
-                const isActive = pathname === item.href
-                const Icon = item.icon
-                return (
-                  <a
-                    key={item.name}
-                    href={item.href}
-                    className={`flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-blue-500/10 text-blue-400 rounded-lg font-medium'
-                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 rounded-lg'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {item.name}
-                  </a>
-                )
-              })}
-            </nav>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 md:ml-56 p-6">
+        {/* PAGE CONTENT */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
-      </div>
-
-      {/* Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-        <nav className="flex h-full">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href
-            const Icon = item.icon
-            return (
-              <a
-                key={item.name}
-                href={item.href}
-                className={`flex-1 flex flex-col items-center justify-center gap-1 text-xs ${
-                  isActive ? 'text-blue-400' : 'text-slate-400'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {item.name}
-              </a>
-            )
-          })}
-        </nav>
       </div>
     </div>
   )

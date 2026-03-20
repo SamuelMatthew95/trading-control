@@ -8,9 +8,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        border: "rgb(var(--border))",
-        background: "rgb(var(--background))",
-        foreground: "rgb(var(--foreground))",
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        surface: 'hsl(var(--surface))',
+        border: 'hsl(var(--border))',
+        muted: 'hsl(var(--muted))',
+        'muted-foreground': 'hsl(var(--muted-foreground))',
+        accent: 'hsl(var(--accent))',
+        'accent-foreground': 'hsl(var(--accent-foreground))',
         card: "rgb(var(--card))",
         "card-foreground": "rgb(var(--card-foreground))",
         popover: "rgb(var(--popover))",
@@ -19,10 +24,6 @@ module.exports = {
         "primary-foreground": "rgb(var(--primary-foreground))",
         secondary: "rgb(var(--secondary))",
         "secondary-foreground": "rgb(var(--secondary-foreground))",
-        muted: "rgb(var(--muted))",
-        "muted-foreground": "rgb(var(--muted-foreground))",
-        accent: "rgb(var(--accent))",
-        "accent-foreground": "rgb(var(--accent-foreground))",
         destructive: "rgb(var(--destructive))",
         "destructive-foreground": "rgb(var(--destructive-foreground))",
         ring: "rgb(var(--ring))",
