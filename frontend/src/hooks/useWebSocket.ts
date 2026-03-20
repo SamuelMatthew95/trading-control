@@ -11,6 +11,9 @@ export function useWebSocket() {
   const { addAgentLog, addLearningEvent, addOrder, addRiskAlert, addSignal, addSystemMetric, setKillSwitch, setRegime, setWsConnected, updateOrder, updatePrice } = useCodexStore()
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+
     let socket: WebSocket | null = null
     let retry = 0
     let closed = false
@@ -36,7 +39,7 @@ export function useWebSocket() {
         if (closed) return
         const timeout = Math.min(1000 * (2 ** retry), 30000)
         retry += 1
-        window.setTimeout(connect, timeout)
+        setTimeout(connect, timeout)
       }
     }
     connect()

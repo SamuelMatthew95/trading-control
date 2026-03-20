@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { useCodexStore } from '@/stores/useCodexStore'
 import {
@@ -15,7 +16,13 @@ import {
   WifiOff,
   AlertTriangle,
   CheckCircle2,
-  X
+  X,
+  BarChart3,
+  Layers,
+  Zap,
+  BookOpen,
+  Settings,
+  Power
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -44,6 +51,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
+  const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   
@@ -180,7 +188,7 @@ export default function DashboardLayout({
           <div className="p-4">
             <nav className="space-y-1">
               {navigation.map((item) => {
-                const isActive = window.location.pathname === item.href
+                const isActive = pathname === item.href
                 const Icon = item.icon
                 return (
                   <a
@@ -211,7 +219,7 @@ export default function DashboardLayout({
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
         <nav className="flex h-full">
           {navigation.map((item) => {
-            const isActive = window.location.pathname === item.href
+            const isActive = pathname === item.href
             const Icon = item.icon
             return (
               <a
