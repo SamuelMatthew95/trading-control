@@ -257,6 +257,75 @@ async def test_reasoning_agent_fallback_publishes_logs_and_orders(monkeypatch):
     assert "orders" in streams
 
 
+@pytest.mark.asyncio
+async def test_execution_engine_updates_existing_short_position_with_signed_math(
+    monkeypatch,
+):
+    import api.services.execution.execution_engine as execution_module
+
+    class CaptureSession(FakeSession):
+        pass
+
+    updates = []
+
+    def handler(sql, params):
+        if "SELECT id, side, qty FROM positions" in sql:
+            return FakeResult(
+                mapping_rows=[{"id": "pos-1", "side": "short", "qty": 5.0}]
+            )
+        if sql.startswith("UPDATE positions SET side"):
+            updates.append(params)
+            return FakeResult()
+        return FakeResult()
+
+    session = CaptureSession(handler)
+    redis = FakeRedis()
+    bus = RecordingBus(redis)
+    dlq = DLQManager(redis, bus)
+    engine = ExecutionEngine(bus, dlq, redis, FakeBroker())
+
+    await engine._upsert_position(session, "strategy-1", "BTC/USD", "buy", 2.0, 101.0)
+
+    assert updates[0]["side"] == "short"
+    assert updates[0]["qty"] == 3.0
+
+
+def test_trade_evaluator_skips_realized_pnl_for_same_direction_fills():
+    from api.services.learning.evaluator import TradeEvaluator
+
+    evaluator = TradeEvaluator(bus=None, dlq=None, redis_client=None)
+    prior_long = {
+        "side": "buy",
+        "qty": 1.0,
+        "price": 100.0,
+        "filled_at": datetime.now(timezone.utc).isoformat(),
+    }
+    prior_short = {
+        "side": "sell",
+        "qty": 1.0,
+        "price": 100.0,
+        "filled_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    same_long = evaluator._compute_trade_metrics(
+        prior_trade=prior_long,
+        side="buy",
+        qty=1.0,
+        fill_price=105.0,
+        filled_at=datetime.now(timezone.utc),
+    )
+    same_short = evaluator._compute_trade_metrics(
+        prior_trade=prior_short,
+        side="sell",
+        qty=1.0,
+        fill_price=95.0,
+        filled_at=datetime.now(timezone.utc),
+    )
+
+    assert same_long[:2] == (0.0, 0)
+    assert same_short[:2] == (0.0, 0)
+
+
 def test_market_ingestor_validates_ticks():
     bus = RecordingBus(FakeRedis())
     ingestor = MarketIngestor(bus)

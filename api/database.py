@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
+try:
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+except ImportError:  # pragma: no cover
+    command = None
+    AlembicConfig = None
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
@@ -22,11 +30,37 @@ except ImportError:  # pragma: no cover
         return db_url
 
 
+SQLITE_FALLBACK_URL = "sqlite+aiosqlite:///./trading-control.db"
+
+
 def _resolve_database_url() -> str:
     try:
         return get_database_url()
     except Exception:
-        return os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./trading-control.db")
+        db_url = os.getenv("DATABASE_URL")
+        if os.getenv("NODE_ENV", "development") == "production" and not db_url:
+            raise RuntimeError("DATABASE_URL is required in production")
+        return db_url or SQLITE_FALLBACK_URL
+
+
+def _uses_postgres(url: str) -> bool:
+    return url.startswith("postgresql") or url.startswith("postgres")
+
+
+def _build_alembic_config(url: str) -> AlembicConfig:
+    if AlembicConfig is None:
+        raise RuntimeError("Alembic is required for PostgreSQL schema bootstrap")
+    api_dir = Path(__file__).resolve().parent
+    config = AlembicConfig(str(api_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(api_dir / "alembic"))
+    config.set_main_option("sqlalchemy.url", url)
+    return config
+
+
+def _run_alembic_upgrade(url: str) -> None:
+    if command is None:
+        raise RuntimeError("Alembic is required for PostgreSQL schema bootstrap")
+    command.upgrade(_build_alembic_config(url), "head")
 
 
 database_url = _resolve_database_url()
@@ -49,6 +83,10 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_database() -> None:
+    if _uses_postgres(database_url):
+        await asyncio.to_thread(_run_alembic_upgrade, database_url)
+        return
+
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

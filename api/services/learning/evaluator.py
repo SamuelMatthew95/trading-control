@@ -194,8 +194,7 @@ class TradeEvaluator(BaseStreamConsumer):
         elif side in {"buy", "long"} and prior_side in {"sell", "short"}:
             pnl = (entry_price - fill_price) * trade_qty
         else:
-            direction = 1 if side in {"sell", "short"} else -1
-            pnl = (fill_price - entry_price) * trade_qty * direction
+            return 0.0, 0, entry_price
 
         prior_time = self._parse_timestamp(
             prior_trade.get("filled_at") or prior_trade.get("created_at")

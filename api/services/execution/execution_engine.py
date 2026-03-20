@@ -188,7 +188,7 @@ class ExecutionEngine(BaseStreamConsumer):
     ) -> None:
         existing = await session.execute(
             text(
-                "SELECT id, qty FROM positions WHERE strategy_id = :strategy_id AND symbol = :symbol"
+                "SELECT id, side, qty FROM positions WHERE strategy_id = :strategy_id AND symbol = :symbol"
             ),
             {"strategy_id": strategy_id, "symbol": symbol},
         )
@@ -212,15 +212,22 @@ class ExecutionEngine(BaseStreamConsumer):
             )
             return
 
+        existing_side = str(row["side"]).lower()
         existing_qty = float(row["qty"])
-        new_qty = existing_qty + signed_qty
+        existing_signed_qty = (
+            existing_qty if existing_side in {"long", "buy"} else (-1 * existing_qty)
+        )
+        new_qty = existing_signed_qty + signed_qty
+        next_side = (
+            "flat" if abs(new_qty) < 1e-9 else ("long" if new_qty > 0 else "short")
+        )
         await session.execute(
             text(
                 "UPDATE positions SET side = :side, qty = :qty, current_price = :current_price "
                 "WHERE id = :position_id"
             ),
             {
-                "side": "long" if new_qty >= 0 else "short",
+                "side": next_side,
                 "qty": abs(new_qty),
                 "current_price": fill_price,
                 "position_id": row["id"],
