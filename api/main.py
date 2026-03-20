@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
 from api.core.models import ErrorResponse
-from api.database import get_settings_info, init_database, test_database_connection
+from api.database import Base, get_settings_info, init_database, test_database_connection
 from api.db import AsyncSessionFactory, engine
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -266,6 +266,10 @@ async def lifespan(app: FastAPI):
 
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        log_structured("info", "Database tables verified/created")
 
         try:
             redis_client = await get_redis()
