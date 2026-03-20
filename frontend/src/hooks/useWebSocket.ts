@@ -22,7 +22,7 @@ export function useWebSocket() {
         switch (payload.type) {
           case 'market_tick': updatePrice(payload.symbol, Number(payload.price || 0), Number(payload.change || 0)); break
           case 'signal': addSignal(payload); break
-          case 'order_update': addOrder(payload); updateOrder(payload); break
+          case 'order_update': updateOrder(payload); break
           case 'agent_log': addAgentLog(payload); break
           case 'risk_alert': addRiskAlert(payload); break
           case 'regime_change': setRegime(payload.regime || 'neutral'); break

@@ -104,15 +104,18 @@ def initialize_services() -> None:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
 
-async def _retry_loop() -> None:
+async def _retry_loop(stop_event: asyncio.Event) -> None:
     from api.main_state import get_run_lifecycle_service
 
-    while True:
+    while not stop_event.is_set():
         try:
             await get_run_lifecycle_service().requeue_failed_scores_and_corrections()
         except Exception as exc:  # noqa: BLE001
             log_structured("warning", "Score retry loop failed", error=str(exc))
-        await asyncio.sleep(3600)
+        try:
+            await asyncio.wait_for(asyncio.sleep(3600), stop_event.wait())
+        except asyncio.CancelledError:
+            break
 
 
 async def _record_system_metric(
@@ -177,13 +180,16 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
             )
 
 
-async def monitor_consumer_lag(bus: EventBus) -> None:
-    while True:
+async def monitor_consumer_lag(bus: EventBus, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
         try:
             await collect_consumer_lag_metrics(bus)
         except Exception as exc:  # noqa: BLE001
             log_structured("warning", "Consumer lag monitor failed", error=str(exc))
-        await asyncio.sleep(30)
+        try:
+            await asyncio.wait_for(asyncio.sleep(30), stop_event.wait())
+        except asyncio.CancelledError:
+            break
 
 
 async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
@@ -202,13 +208,16 @@ async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
         )
 
 
-async def monitor_llm_cost(bus: EventBus, redis_client) -> None:
-    while True:
+async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
         try:
             await collect_llm_cost_metric(bus, redis_client)
         except Exception as exc:  # noqa: BLE001
             log_structured("warning", "LLM cost monitor failed", error=str(exc))
-        await asyncio.sleep(60)
+        try:
+            await asyncio.wait_for(asyncio.sleep(60), stop_event.wait())
+        except asyncio.CancelledError:
+            break
 
 
 @asynccontextmanager
@@ -235,11 +244,13 @@ async def lifespan(app: FastAPI):
     app.state.ic_updater = None
     app.state.db_engine = engine
 
+    # Create stop event for graceful shutdown
+    stop_event = asyncio.Event()
+
     try:
         db_ok = await test_database_connection()
         if not db_ok and settings.NODE_ENV == "production" and settings.DATABASE_URL:
             raise RuntimeError("Database connection failed - check DATABASE_URL")
-        await init_database()
 
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
@@ -282,12 +293,12 @@ async def lifespan(app: FastAPI):
 
             consumer_lag_monitor = BackgroundServiceTask(
                 asyncio.create_task(
-                    monitor_consumer_lag(event_bus), name="consumer-lag-monitor"
+                    monitor_consumer_lag(event_bus, stop_event), name="consumer-lag-monitor"
                 )
             )
             llm_cost_monitor_service = BackgroundServiceTask(
                 asyncio.create_task(
-                    monitor_llm_cost(event_bus, redis_client),
+                    monitor_llm_cost(event_bus, redis_client, stop_event),
                     name="llm-cost-monitor",
                 )
             )
@@ -305,7 +316,7 @@ async def lifespan(app: FastAPI):
 
         initialize_services()
         if ENABLE_SIGNAL_SCHEDULER:
-            retry_task = asyncio.create_task(_retry_loop())
+            retry_task = asyncio.create_task(_retry_loop(stop_event))
 
         log_structured(
             "info",
@@ -315,6 +326,9 @@ async def lifespan(app: FastAPI):
         )
         yield
     finally:
+        # Signal all background tasks to stop
+        stop_event.set()
+        
         if llm_cost_monitor_service is not None:
             await llm_cost_monitor_service.stop()
         if consumer_lag_monitor is not None:

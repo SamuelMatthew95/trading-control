@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
@@ -36,7 +37,7 @@ class ExecutionEngine(BaseStreamConsumer):
         qty = float(data["qty"])
         price = float(data["price"])
         order_timestamp = self._parse_timestamp(data.get("timestamp"))
-        idempotency_key = self._build_idempotency_key(strategy_id, symbol, side, order_timestamp)
+        idempotency_key = self._build_idempotency_key(strategy_id, symbol, side, order_timestamp, data)
         lock_key = f"order_lock:{symbol}"
         lock_value = str(uuid.uuid4())
 
@@ -82,9 +83,19 @@ class ExecutionEngine(BaseStreamConsumer):
 
         await self.bus.publish("executions", {"type": "order_filled", "order_id": order_id, "strategy_id": strategy_id, "symbol": symbol, "side": side, "qty": qty, "price": price, "fill_price": float(broker_result["fill_price"]), "filled_at": filled_at.isoformat(), "idempotency_key": idempotency_key, "trace_id": data.get("trace_id"), "vwap_plan": vwap_plan})
 
-    def _build_idempotency_key(self, strategy_id: str, symbol: str, side: str, timestamp: datetime) -> str:
+    def _build_idempotency_key(self, strategy_id: str, symbol: str, side: str, timestamp: datetime, signal_data: dict[str, Any] | None = None) -> str:
         ts_minute = timestamp.astimezone(timezone.utc).strftime("%Y%m%d%H%M")
-        return f"{strategy_id}_{symbol}_{side}_{ts_minute}"
+        # Include signal hash for better granularity
+        signal_hash = ""
+        if signal_data:
+            signal_content = json.dumps({
+                "composite_score": signal_data.get("composite_score"),
+                "signal_type": signal_data.get("signal_type"),
+                "price": signal_data.get("price"),
+                "qty": signal_data.get("qty")
+            }, sort_keys=True, default=str)
+            signal_hash = hashlib.md5(signal_content.encode()).hexdigest()[:8]
+        return f"{strategy_id}_{symbol}_{side}_{ts_minute}_{signal_hash}"
 
     def _build_vwap_plan(self, qty: float) -> list[float] | None:
         if qty <= LARGE_ORDER_THRESHOLD:

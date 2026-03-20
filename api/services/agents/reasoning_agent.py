@@ -120,7 +120,10 @@ class ReasoningAgent(BaseStreamConsumer):
             action = "reject"
         elif settings.LLM_FALLBACK_MODE == "use_last_reflection":
             reflection = await self._get_last_reflection()
-            action = base_action if base_action not in {"none", ""} else "hold"
+            # Extract proper action from reflection, not sizing_recommendation
+            action = reflection.get("action", base_action) if reflection else base_action
+            if action not in {"buy", "sell", "hold", "reject"}:
+                action = base_action if base_action not in {"none", ""} else "hold"
         else:
             action = base_action if base_action not in {"none", ""} else "hold"
         return {"action": action, "confidence": round(max(composite_score, 0.1), 4), "primary_edge": f"fallback:{settings.LLM_FALLBACK_MODE}", "risk_factors": [reason], "size_pct": round(max(float(data.get("size_pct", 0.01) or 0.01), 0.01), 4), "stop_atr_x": float(data.get("stop_atr_x", 1.5) or 1.5), "rr_ratio": float(data.get("rr_ratio", 2.0) or 2.0), "latency_ms": 0, "cost_usd": 0.0, "trace_id": trace_id, "fallback": True}
