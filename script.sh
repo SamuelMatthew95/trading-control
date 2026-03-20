@@ -817,7 +817,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 await session.flush()
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
-                filled_at = datetime.now(timezone.utc)
+                filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
                 await session.execute(
                     text("UPDATE orders SET status = :status, broker_order_id = :broker_order_id, price = :fill_price, filled_at = :filled_at WHERE id = :order_id"),
@@ -924,7 +924,7 @@ class OrderReconciler:
         self._task = None
 
     async def run_once(self) -> None:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2)
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 text("SELECT id, broker_order_id, status FROM orders WHERE status IN ('pending', 'partial') AND created_at < :cutoff"),
@@ -1273,7 +1273,7 @@ class ICUpdater:
         self._task = None
 
     async def run_once(self, reference_dt: datetime | None = None) -> dict[str, float]:
-        now = reference_dt or datetime.now(timezone.utc)
+        now = (reference_dt or datetime.now(timezone.utc)).replace(tzinfo=None)
         since = now - timedelta(days=30)
         async with AsyncSessionFactory() as session:
             result = await session.execute(text("SELECT factor_attribution, pnl FROM trade_performance WHERE created_at >= :since ORDER BY created_at ASC"), {"since": since})
