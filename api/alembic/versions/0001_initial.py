@@ -7,7 +7,6 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.types import UserDefinedType
 
-# revision identifiers, used by Alembic.
 revision = "0001_initial"
 down_revision = None
 branch_labels = None
@@ -55,35 +54,21 @@ def upgrade() -> None:
         _uuid_column(),
         sa.Column("name", sa.String(length=255), nullable=False, unique=True),
         sa.Column("rules", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column(
-            "risk_limits", postgresql.JSONB(astext_type=sa.Text()), nullable=False
-        ),
-        sa.Column(
-            "is_active",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("true"),
-        ),
+        sa.Column("risk_limits", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         _timestamp_column(),
     )
 
     op.create_table(
         "orders",
         _uuid_column(),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="RESTRICT"),
-            nullable=False,
-        ),
+        sa.Column("strategy_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("strategies.id", ondelete="RESTRICT"), nullable=False),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("side", sa.String(length=16), nullable=False),
         sa.Column("qty", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column(
-            "idempotency_key", sa.String(length=255), nullable=False, unique=True
-        ),
+        sa.Column("idempotency_key", sa.String(length=255), nullable=False, unique=True),
         sa.Column("broker_order_id", sa.String(length=255), nullable=True),
         _timestamp_column(),
         sa.Column("filled_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
@@ -98,51 +83,27 @@ def upgrade() -> None:
         sa.Column("entry_price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("current_price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("unrealised_pnl", sa.Numeric(precision=18, scale=8), nullable=False),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="RESTRICT"),
-            nullable=False,
-        ),
-        sa.Column(
-            "opened_at",
-            postgresql.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=UTC_NOW,
-        ),
+        sa.Column("strategy_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("strategies.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column("opened_at", postgresql.TIMESTAMP(timezone=True), nullable=False, server_default=UTC_NOW),
     )
 
     op.create_table(
         "agent_runs",
         _uuid_column(),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="RESTRICT"),
-            nullable=False,
-        ),
+        sa.Column("strategy_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("strategies.id", ondelete="RESTRICT"), nullable=False),
         sa.Column("symbol", sa.String(length=64), nullable=False),
-        sa.Column(
-            "signal_data", postgresql.JSONB(astext_type=sa.Text()), nullable=False
-        ),
+        sa.Column("signal_data", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("action", sa.String(length=32), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=False),
         sa.Column("primary_edge", sa.String(length=255), nullable=False),
-        sa.Column(
-            "risk_factors", postgresql.JSONB(astext_type=sa.Text()), nullable=False
-        ),
+        sa.Column("risk_factors", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("size_pct", sa.Float(), nullable=False),
         sa.Column("stop_atr_x", sa.Float(), nullable=False),
         sa.Column("rr_ratio", sa.Float(), nullable=False),
         sa.Column("latency_ms", sa.Integer(), nullable=False),
         sa.Column("cost_usd", sa.Float(), nullable=False),
         sa.Column("trace_id", sa.String(length=255), nullable=False),
-        sa.Column(
-            "fallback",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("false"),
-        ),
+        sa.Column("fallback", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         _timestamp_column(),
     )
 
@@ -172,48 +133,26 @@ def upgrade() -> None:
     op.create_table(
         "trade_performance",
         _uuid_column(),
-        sa.Column(
-            "order_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        sa.Column("order_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("orders.id", ondelete="CASCADE"), nullable=False),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("pnl", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("holding_secs", sa.Integer(), nullable=False),
         sa.Column("entry_price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("exit_price", sa.Numeric(precision=18, scale=8), nullable=False),
-        sa.Column(
-            "market_context", postgresql.JSONB(astext_type=sa.Text()), nullable=False
-        ),
-        sa.Column(
-            "factor_attribution",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-        ),
+        sa.Column("market_context", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("factor_attribution", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         _timestamp_column(),
     )
 
     op.create_table(
         "strategy_metrics",
         _uuid_column(),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="CASCADE"),
-            nullable=False,
-            unique=True,
-        ),
+        sa.Column("strategy_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("strategies.id", ondelete="CASCADE"), nullable=False, unique=True),
         sa.Column("win_rate", sa.Float(), nullable=False),
         sa.Column("avg_pnl", sa.Float(), nullable=False),
         sa.Column("sharpe", sa.Float(), nullable=False),
         sa.Column("max_drawdown", sa.Float(), nullable=False),
-        sa.Column(
-            "updated_at",
-            postgresql.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=UTC_NOW,
-        ),
+        sa.Column("updated_at", postgresql.TIMESTAMP(timezone=True), nullable=False, server_default=UTC_NOW),
     )
 
     op.create_table(
@@ -221,12 +160,7 @@ def upgrade() -> None:
         _uuid_column(),
         sa.Column("factor_name", sa.String(length=128), nullable=False),
         sa.Column("ic_score", sa.Float(), nullable=False),
-        sa.Column(
-            "computed_at",
-            postgresql.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=UTC_NOW,
-        ),
+        sa.Column("computed_at", postgresql.TIMESTAMP(timezone=True), nullable=False, server_default=UTC_NOW),
     )
 
     op.create_table(
@@ -235,12 +169,7 @@ def upgrade() -> None:
         sa.Column("metric_name", sa.String(length=255), nullable=False),
         sa.Column("value", sa.Float(), nullable=False),
         sa.Column("labels", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column(
-            "timestamp",
-            postgresql.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=UTC_NOW,
-        ),
+        sa.Column("timestamp", postgresql.TIMESTAMP(timezone=True), nullable=False, server_default=UTC_NOW),
     )
 
     op.create_table(
@@ -254,21 +183,9 @@ def upgrade() -> None:
     op.create_table(
         "order_reconciliation",
         _uuid_column(),
-        sa.Column(
-            "order_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "discrepancy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
-        ),
-        sa.Column(
-            "resolved",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("false"),
-        ),
+        sa.Column("order_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("orders.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("discrepancy", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         _timestamp_column(),
     )
 
@@ -281,13 +198,8 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.execute(
-        "CREATE INDEX audit_log_created_at_desc_idx ON audit_log (created_at DESC)"
-    )
-    op.execute(
-        "CREATE INDEX system_metrics_metric_name_timestamp_desc_idx "
-        "ON system_metrics (metric_name, timestamp DESC)"
-    )
+    op.execute("CREATE INDEX audit_log_created_at_desc_idx ON audit_log (created_at DESC)")
+    op.execute("CREATE INDEX system_metrics_metric_name_timestamp_desc_idx ON system_metrics (metric_name, timestamp DESC)")
 
     strategies_table = sa.table(
         "strategies",
@@ -297,72 +209,26 @@ def upgrade() -> None:
         sa.column("is_active", sa.Boolean),
     )
 
-    op.bulk_insert(
-        strategies_table,
-        [
-            {
-                "name": "BTC_MOMENTUM_V3",
-                "rules": {
-                    "universe": ["BTC/USD"],
-                    "entry": {
-                        "trend_window": "4h",
-                        "trigger": "breakout_with_volume_confirmation",
-                        "minimum_composite_score": 0.72,
-                    },
-                    "exit": {
-                        "stop_loss": "2.2_atr",
-                        "take_profit": "trailing_3.5_atr",
-                        "time_stop_hours": 18,
-                    },
-                    "filters": {
-                        "avoid_high_impact_news_minutes": 30,
-                        "require_positive_funding_regime": False,
-                    },
-                },
-                "risk_limits": {
-                    "max_position_pct": 0.08,
-                    "max_daily_loss_pct": 0.025,
-                    "max_open_positions": 1,
-                    "slippage_bps_cap": 18,
-                },
-                "is_active": True,
-            },
-            {
-                "name": "ETH_REVERSAL_V2",
-                "rules": {
-                    "universe": ["ETH/USD"],
-                    "entry": {
-                        "signal_family": "mean_reversion",
-                        "oversold_rsi_threshold": 28,
-                        "require_orderflow_divergence": True,
-                    },
-                    "exit": {
-                        "stop_loss": "1.6_atr",
-                        "first_target": "session_vwap",
-                        "final_target": "2.8_atr",
-                    },
-                    "filters": {
-                        "min_liquidity_usd": 5000000,
-                        "disable_during_fomc_window": True,
-                    },
-                },
-                "risk_limits": {
-                    "max_position_pct": 0.06,
-                    "max_daily_loss_pct": 0.02,
-                    "max_open_positions": 1,
-                    "slippage_bps_cap": 15,
-                },
-                "is_active": True,
-            },
-        ],
-    )
+    op.bulk_insert(strategies_table, [
+        {
+            "name": "BTC_MOMENTUM_V3",
+            "rules": {"universe": ["BTC/USD"], "entry": {"trend_window": "4h", "trigger": "breakout_with_volume_confirmation", "minimum_composite_score": 0.72}, "exit": {"stop_loss": "2.2_atr", "take_profit": "trailing_3.5_atr", "time_stop_hours": 18}, "filters": {"avoid_high_impact_news_minutes": 30, "require_positive_funding_regime": False}},
+            "risk_limits": {"max_position_pct": 0.08, "max_daily_loss_pct": 0.025, "max_open_positions": 1, "slippage_bps_cap": 18},
+            "is_active": True,
+        },
+        {
+            "name": "ETH_REVERSAL_V2",
+            "rules": {"universe": ["ETH/USD"], "entry": {"signal_family": "mean_reversion", "oversold_rsi_threshold": 28, "require_orderflow_divergence": True}, "exit": {"stop_loss": "1.6_atr", "first_target": "session_vwap", "final_target": "2.8_atr"}, "filters": {"min_liquidity_usd": 5000000, "disable_during_fomc_window": True}},
+            "risk_limits": {"max_position_pct": 0.06, "max_daily_loss_pct": 0.02, "max_open_positions": 1, "slippage_bps_cap": 15},
+            "is_active": True,
+        },
+    ])
 
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS system_metrics_metric_name_timestamp_desc_idx")
     op.execute("DROP INDEX IF EXISTS audit_log_created_at_desc_idx")
     op.execute("DROP INDEX IF EXISTS vector_memory_embedding_idx")
-
     op.drop_table("llm_cost_tracking")
     op.drop_table("order_reconciliation")
     op.drop_table("audit_log")

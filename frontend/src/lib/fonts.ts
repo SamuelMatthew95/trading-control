@@ -1,3 +1,1 @@
-export const inter = {
-  variable: '--font-inter',
-}
+export const inter = { variable: '--font-inter' }

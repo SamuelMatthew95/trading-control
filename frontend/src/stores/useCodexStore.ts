@@ -1,5 +1,4 @@
 'use client'
-
 import { create } from 'zustand'
 
 type PriceRecord = Record<string, { price: number; change: number }>
@@ -30,27 +29,13 @@ type CodexState = {
 }
 
 export const useCodexStore = create<CodexState>((set) => ({
-  prices: {},
-  orders: [],
-  positions: [],
-  signals: [],
-  agentLogs: [],
-  riskAlerts: [],
-  learningEvents: [],
-  systemMetrics: [],
-  regime: 'neutral',
-  killSwitchActive: false,
-  wsConnected: false,
-  updatePrice: (symbol, price, change) =>
-    set((state) => ({ prices: { ...state.prices, [symbol]: { price, change } } })),
+  prices: {}, orders: [], positions: [], signals: [],
+  agentLogs: [], riskAlerts: [], learningEvents: [], systemMetrics: [],
+  regime: 'neutral', killSwitchActive: false, wsConnected: false,
+  updatePrice: (symbol, price, change) => set((state) => ({ prices: { ...state.prices, [symbol]: { price, change } } })),
   addSignal: (signal) => set((state) => ({ signals: [signal, ...state.signals].slice(0, 50) })),
   addOrder: (order) => set((state) => ({ orders: [order, ...state.orders].slice(0, 100) })),
-  updateOrder: (order) =>
-    set((state) => ({
-      orders: state.orders.some((existing) => existing.order_id === order.order_id)
-        ? state.orders.map((existing) => existing.order_id === order.order_id ? { ...existing, ...order } : existing)
-        : [order, ...state.orders].slice(0, 100),
-    })),
+  updateOrder: (order) => set((state) => ({ orders: state.orders.some((e) => e.order_id === order.order_id) ? state.orders.map((e) => e.order_id === order.order_id ? { ...e, ...order } : e) : [order, ...state.orders].slice(0, 100) })),
   addAgentLog: (log) => set((state) => ({ agentLogs: [log, ...state.agentLogs].slice(0, 100) })),
   addRiskAlert: (alert) => set((state) => ({ riskAlerts: [alert, ...state.riskAlerts].slice(0, 50) })),
   addLearningEvent: (event) => set((state) => ({ learningEvents: [event, ...state.learningEvents].slice(0, 50) })),
