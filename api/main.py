@@ -113,7 +113,11 @@ async def _retry_loop(stop_event: asyncio.Event) -> None:
         except Exception as exc:  # noqa: BLE001
             log_structured("warning", "Score retry loop failed", error=str(exc))
         try:
-            await asyncio.wait_for(asyncio.sleep(3600), stop_event.wait())
+            await asyncio.wait(
+                [asyncio.create_task(asyncio.sleep(3600)),
+                 asyncio.create_task(stop_event.wait())],
+                return_when=asyncio.FIRST_COMPLETED
+            )
         except asyncio.CancelledError:
             break
 
@@ -187,7 +191,11 @@ async def monitor_consumer_lag(bus: EventBus, stop_event: asyncio.Event) -> None
         except Exception as exc:  # noqa: BLE001
             log_structured("warning", "Consumer lag monitor failed", error=str(exc))
         try:
-            await asyncio.wait_for(asyncio.sleep(30), stop_event.wait())
+            await asyncio.wait(
+                [asyncio.create_task(asyncio.sleep(30)),
+                 asyncio.create_task(stop_event.wait())],
+                return_when=asyncio.FIRST_COMPLETED
+            )
         except asyncio.CancelledError:
             break
 
@@ -215,7 +223,11 @@ async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Even
         except Exception as exc:  # noqa: BLE001
             log_structured("warning", "LLM cost monitor failed", error=str(exc))
         try:
-            await asyncio.wait_for(asyncio.sleep(60), stop_event.wait())
+            await asyncio.wait(
+                [asyncio.create_task(asyncio.sleep(60)),
+                 asyncio.create_task(stop_event.wait())],
+                return_when=asyncio.FIRST_COMPLETED
+            )
         except asyncio.CancelledError:
             break
 

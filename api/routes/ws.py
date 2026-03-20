@@ -41,7 +41,10 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                         payload_raw = payload_raw.decode("utf-8")
                     payload: dict[str, Any] = json.loads(payload_raw)
                     payload.setdefault("type", STREAM_TYPE_MAP.get(stream_key, stream_key))
-                    await websocket.send_json(payload)
+                    try:
+                        await websocket.send_json(payload)
+                    except Exception:
+                        break
                     last_ids[stream_key] = entry_id.decode("utf-8") if isinstance(entry_id, bytes) else entry_id
             await asyncio.sleep(0.05)
     except WebSocketDisconnect:
