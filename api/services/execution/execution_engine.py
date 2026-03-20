@@ -66,7 +66,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 await session.flush()
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
-                filled_at = datetime.now(timezone.utc)
+                filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
                 await session.execute(
                     text("UPDATE orders SET status = :status, broker_order_id = :broker_order_id, price = :fill_price, filled_at = :filled_at WHERE id = :order_id"),

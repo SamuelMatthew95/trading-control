@@ -38,7 +38,7 @@ class ICUpdater:
         self._task = None
 
     async def run_once(self, reference_dt: datetime | None = None) -> dict[str, float]:
-        now = reference_dt or datetime.now(timezone.utc)
+        now = (reference_dt or datetime.now(timezone.utc)).replace(tzinfo=None)
         since = now - timedelta(days=30)
         async with AsyncSessionFactory() as session:
             result = await session.execute(text("SELECT factor_attribution, pnl FROM trade_performance WHERE created_at >= :since ORDER BY created_at ASC"), {"since": since})
