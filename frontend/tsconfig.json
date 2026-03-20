@@ -26,8 +26,12 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "zustand": [
+        "./src/shims/zustand"
       ]
-    }
+    },
+    "strictNullChecks": true
   },
   "include": [
     "next-env.d.ts",
@@ -39,6 +43,7 @@
     "node_modules",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "src/legacy-pages/**/*"
   ]
 }

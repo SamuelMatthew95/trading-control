@@ -2,48 +2,47 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections import deque
-from typing import Deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Dict
+from typing import Any, Deque, Dict
+
+import structlog
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
 
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-            "request_id": getattr(record, "request_id", request_id_ctx.get()),
-        }
-        extra = getattr(record, "extra_data", None)
-        if isinstance(extra, dict):
-            payload.update(extra)
-        return json.dumps(payload, default=str)
-
-
 def configure_logging(level: str = "INFO") -> None:
-    root = logging.getLogger()
-    if any(isinstance(h.formatter, JsonFormatter) for h in root.handlers):
+    if structlog.is_configured():
         return
 
-    log_handler = logging.StreamHandler()
-    log_handler.setFormatter(JsonFormatter())
-    root.handlers.clear()
-    root.addHandler(log_handler)
-    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+    timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
+    pre_chain = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        timestamper,
+    ]
+
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO), format="%(message)s"
+    )
+    structlog.configure(
+        processors=[
+            *pre_chain,
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
 
 
-logger = logging.getLogger("trading-control")
+logger = structlog.get_logger("trading-control")
 
 
 @dataclass
@@ -116,7 +115,6 @@ metrics_store = MetricsStore()
 
 
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
+    structlog.contextvars.bind_contextvars(request_id=request_id_ctx.get())
     log_method = getattr(logger, level.lower(), logger.info)
-    log_method(
-        message, extra={"extra_data": extra_data, "request_id": request_id_ctx.get()}
-    )
+    log_method(message, **extra_data)

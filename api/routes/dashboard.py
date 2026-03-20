@@ -6,9 +6,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, select, text
 
 from api.core.models import (
     FeedbackJob,
@@ -1041,3 +1041,46 @@ async def _upsert_signal(
             created_at=datetime.utcnow(),
         )
         session.add(signal)
+
+
+class KillSwitchPayload(BaseModel):
+    active: bool
+
+
+@router.post("/v1/dashboard/kill_switch")
+async def set_kill_switch(payload: KillSwitchPayload, request: Request):
+    redis_client = getattr(request.app.state, "redis_client", None)
+    if redis_client is None:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    value = "1" if payload.active else "0"
+    await redis_client.set("kill_switch:active", value)
+    async with get_async_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO audit_log (event_type, payload) VALUES ('kill_switch_toggled', CAST(:payload AS JSONB))"
+            ),
+            {"payload": json.dumps({"active": payload.active}, default=str)},
+        )
+
+    return {"success": True, "active": payload.active}
+
+
+@router.get("/v1/events/dlq")
+async def list_dlq_entries(request: Request):
+    dlq_manager = getattr(request.app.state, "dlq_manager", None)
+    if dlq_manager is None:
+        raise HTTPException(status_code=503, detail="DLQ unavailable")
+    items = await dlq_manager.get_all()
+    return {"success": True, "items": items}
+
+
+@router.post("/v1/events/dlq/{event_id}/replay")
+async def replay_dlq_event(event_id: str, request: Request):
+    dlq_manager = getattr(request.app.state, "dlq_manager", None)
+    if dlq_manager is None:
+        raise HTTPException(status_code=503, detail="DLQ unavailable")
+    replayed = await dlq_manager.replay(event_id)
+    if not replayed:
+        raise HTTPException(status_code=404, detail="DLQ event not found")
+    return {"success": True, "event_id": event_id, "replayed": True}
