@@ -56,7 +56,7 @@ export default function DashboardLayout({
 
   const regimeColor =
     regime === 'RISK ON'
-      ? 'bg-green-500/10 text-green-600 dark:text-green-400 ring-green-500/30'
+      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30'
       : regime === 'RISK OFF'
       ? 'bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/30'
       : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/30'
@@ -85,7 +85,7 @@ export default function DashboardLayout({
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground text-xs font-bold select-none">
             TB
           </div>
-          <span className="font-semibold text-sm tracking-tight">
+          <span className="text-sm font-semibold tracking-tight">
             Trading Bot
           </span>
         </div>
@@ -101,10 +101,10 @@ export default function DashboardLayout({
               <Link key={href} href={href}>
                 <div
                   className={cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors cursor-pointer',
+                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer',
                     active
-                      ? 'bg-accent/10 text-accent font-medium'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      ? 'bg-accent/10 text-accent rounded-md'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-md transition-colors'
                   )}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
@@ -117,7 +117,7 @@ export default function DashboardLayout({
 
         {/* Sidebar footer */}
         <div className="border-t border-border p-3">
-          <p className="text-xs text-muted-foreground">Phase 2 · Paper Mode</p>
+          <p className="text-[11px] text-muted-foreground">Phase 2 · Paper Mode</p>
         </div>
       </aside>
 
@@ -130,7 +130,7 @@ export default function DashboardLayout({
           {/* Regime badge */}
           <span
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1',
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1',
               regimeColor
             )}
           >
@@ -145,9 +145,9 @@ export default function DashboardLayout({
             <div className="flex items-center gap-1.5">
               <span
                 className={cn(
-                  'h-2 w-2 rounded-full',
+                  'h-1.5 w-1.5 rounded-full flex-shrink-0',
                   wsConnected
-                    ? 'bg-green-500 animate-pulse'
+                    ? 'bg-emerald-500 animate-pulse'
                     : 'bg-red-500'
                 )}
               />
@@ -160,7 +160,7 @@ export default function DashboardLayout({
             <span
               className={cn(
                 'text-sm font-mono font-semibold tabular-nums hidden sm:inline',
-                dailyPnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                dailyPnl >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'
               )}
             >
               {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
@@ -174,10 +174,8 @@ export default function DashboardLayout({
               <AlertDialogTrigger asChild>
                 <button
                   className={cn(
-                    'rounded-md px-3 py-1.5 text-xs font-semibold transition-all border',
-                    killSwitchActive
-                      ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-500/20 animate-pulse'
-                      : 'border-red-500/50 text-red-500 hover:bg-red-500/10'
+                    'text-[11px] font-semibold border border-red-500/40 text-red-400 rounded-md px-3 py-1.5 hover:bg-red-500/10 transition-colors',
+                    killSwitchActive && 'bg-red-600 text-white animate-pulse border-red-600'
                   )}
                 >
                   {killSwitchActive ? '⬛ ACTIVE' : 'Kill Switch'}

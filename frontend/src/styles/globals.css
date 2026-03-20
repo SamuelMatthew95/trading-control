@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html { font-family: 'Inter', system-ui, sans-serif; }
+  h1, h2, h3, h4, h5, h6 { font-weight: 600; letter-spacing: -0.02em; }
+}
+
 :root {
   --background: 210 20% 98%;
   --foreground: 222 47% 11%;

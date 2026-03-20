@@ -110,7 +110,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // OVERVIEW PAGE
   if (section === 'overview') {
     const statCards = [
-      { label: 'Total P&L', Icon: TrendingUp, value: `${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`, color: dailyPnl >= 0 ? 'text-green-500' : 'text-red-500' },
+      { label: 'Total P&L', Icon: TrendingUp, value: `${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`, color: dailyPnl >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400' },
       { label: 'Win Rate', Icon: BarChart3, value: '0.0%', color: 'text-foreground' },
       { label: 'Open Positions', Icon: Layers, value: orders.length.toString(), color: 'text-foreground' },
       { label: 'LLM Cost Today', Icon: Zap, value: `$${costToday.toFixed(2)}`, color: 'text-foreground' },
@@ -121,14 +121,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         {/* Stat cards row */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {statCards.map((card, i) => (
-            <div key={i} className="rounded-xl border bg-surface p-5">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <div key={i} className="rounded-xl border border-border bg-surface p-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   {card.label}
                 </p>
-                <card.Icon className="h-4 w-4 text-muted-foreground" />
+                <card.Icon className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-              <p className={cn("mt-3 text-2xl font-semibold tabular-nums font-mono", card.color)}>
+              <p className={cn("text-2xl font-semibold font-mono tabular-nums text-foreground", card.color)}>
                 {card.value}
               </p>
             </div>
@@ -137,26 +137,26 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
         {/* Price grid */}
         <div>
-          <h2 className="text-sm font-medium text-muted-foreground mb-3">Live Prices</h2>
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Live Prices</h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {Object.entries(prices).length === 0 ? (
-              <div className="col-span-full rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                Waiting for market data...
+              <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-10">
+                <p className="text-sm text-muted-foreground">
+                  Waiting for market data...
+                </p>
               </div>
             ) : (
               Object.entries(prices).map(([symbol, record]) => (
-                <div key={symbol} className="rounded-xl border bg-surface p-4 transition-colors">
-                  <p className="text-xs font-medium text-muted-foreground">{symbol}</p>
-                  <p className="mt-1.5 text-lg font-semibold font-mono tabular-nums">
+                <div key={symbol} className="rounded-lg border border-border bg-muted/30 p-3 hover:bg-muted/50 transition-colors">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{symbol}</p>
+                  <p className="mt-1.5 text-base font-semibold font-mono tabular-nums">
                     ${record.price.toFixed(2)}
                   </p>
                   <span className={cn(
-                    "mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium",
-                    record.change >= 0
-                      ? "bg-green-500/10 text-green-600 dark:text-green-400"
-                      : "bg-red-500/10 text-red-600 dark:text-red-400"
+                    "mt-1 inline-flex items-center text-[11px] font-medium",
+                    record.change >= 0 ? "text-emerald-500" : "text-red-500"
                   )}>
-                    {record.change >= 0 ? '▲' : '▼'} {Math.abs(record.change).toFixed(2)}%
+                    {record.change >= 0 ? "▲" : "▼"} {Math.abs(record.change).toFixed(2)}%
                   </span>
                 </div>
               ))
@@ -165,14 +165,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         </div>
 
         {/* Two-col row: Risk Alerts + Agent Status */}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {/* Risk Alerts */}
-          <div className="rounded-xl border bg-surface p-5">
-            <h2 className="text-sm font-semibold mb-4">Risk Alerts</h2>
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Risk Alerts</h2>
             {riskAlerts.length === 0 ? (
-              <div className="flex items-center gap-2 text-sm text-green-500">
-                <CheckCircle2 className="h-4 w-4" />
-                No active alerts
+              <div className="flex items-center gap-2 py-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">No active alerts</span>
               </div>
             ) : (
               riskAlerts.slice(0, 5).map((alert, i) => (
@@ -188,23 +188,25 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           </div>
 
           {/* Agent Status */}
-          <div className="rounded-xl border bg-surface p-5">
-            <h2 className="text-sm font-semibold mb-4">Agent Status</h2>
-            <div className="space-y-3">
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Agent Status</h2>
+            <div className="space-y-px">
               {[
                 { name: 'Reasoning Agent', status: 'Running' },
                 { name: 'Execution Engine', status: 'Running' },
                 { name: 'Learning Service', status: 'Idle' },
                 { name: 'IC Updater', status: 'Idle' },
               ].map((agent, i) => (
-                <div key={i} className="flex items-center justify-between py-1.5 border-b last:border-0">
+                <div key={i} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
                   <span className="text-sm text-foreground">{agent.name}</span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <span className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      agent.status === 'Running' ? "bg-green-500 animate-pulse" : "bg-muted-foreground"
+                      "h-1.5 w-1.5 rounded-full flex-shrink-0",
+                      agent.status === 'Running' ? "bg-emerald-500" : "bg-muted-foreground"
                     )} />
-                    <span className="text-xs text-muted-foreground">{agent.status}</span>
+                    <span className="text-xs text-muted-foreground w-14 text-right">
+                      {agent.status}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -213,39 +215,39 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         </div>
 
         {/* Stream Health table */}
-        <div className="rounded-xl border bg-surface">
-          <div className="border-b px-5 py-3">
-            <h2 className="text-sm font-semibold">Stream Health</h2>
+        <div className="rounded-xl border border-border bg-surface overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Stream Health</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-muted/30">
-                  <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Stream</th>
-                  <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Lag</th>
-                  <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Messages</th>
+                <tr className="bg-muted/40">
+                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Stream</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Lag</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Messages</th>
                 </tr>
               </thead>
               <tbody>
                 {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Waiting for stream data...
                     </td>
                   </tr>
                 ) : (
                   systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
                     const lag = Number(m.value || 0)
-                    const lagColor = lag < 100 ? 'text-green-500' : lag < 1000 ? 'text-amber-500' : 'text-red-500'
+                    const lagColor = lag < 100 ? 'text-emerald-500 dark:text-emerald-400' : lag < 1000 ? 'text-amber-500 dark:text-amber-400' : 'text-red-500 dark:text-red-400'
                     return (
-                      <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
-                        <td className="px-5 py-3 font-mono text-xs">{m.metric_name?.replace('stream_lag:', '')}</td>
-                        <td className={cn("px-5 py-3 font-mono text-xs tabular-nums", lagColor)}>{lag}ms</td>
-                        <td className="px-5 py-3">
+                      <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
+                        <td className="px-4 py-3 font-mono text-xs">{m.metric_name?.replace('stream_lag:', '')}</td>
+                        <td className={cn("px-4 py-3 font-mono text-xs tabular-nums", lagColor)}>{lag}ms</td>
+                        <td className="px-4 py-3">
                           <span className={cn("h-1.5 w-1.5 rounded-full inline-block", lagColor.replace('text-', 'bg-'))} />
                         </td>
-                        <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{m.labels?.length || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{m.labels?.length || '—'}</td>
                       </tr>
                     )
                   })
@@ -257,8 +259,8 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
         {/* Last reasoning summary */}
         {agentLogs[0] && (
-          <div className="rounded-xl border bg-surface p-5">
-            <h2 className="text-sm font-semibold mb-3">Last Reasoning Summary</h2>
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Last Reasoning Summary</h2>
             <div className="flex items-start gap-3">
               <span className={cn(
                 "rounded-md px-2 py-1 text-xs font-semibold uppercase flex-shrink-0",
@@ -298,9 +300,9 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // TRADING PAGE
   if (section === 'trading') {
     return (
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Left: Chart + Positions */}
-        <div className="space-y-4">
+        <div className="space-y-6">
           {/* Symbol + Timeframe */}
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
@@ -336,7 +338,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           </div>
 
           {/* Chart placeholder */}
-          <div className="rounded-xl border bg-surface flex items-center justify-center min-h-64">
+          <div className="rounded-xl border border-border bg-surface flex items-center justify-center min-h-64">
             <div className="text-center">
               <CandlestickChart className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">Chart — lightweight-charts integration</p>
@@ -345,29 +347,29 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           </div>
 
           {/* Positions table */}
-          <div className="rounded-xl border bg-surface">
-            <div className="border-b px-5 py-3">
-              <h2 className="text-sm font-semibold">Open Positions</h2>
+          <div className="rounded-xl border border-border bg-surface overflow-hidden">
+            <div className="px-4 py-3 border-b border-border">
+              <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Open Positions</h2>
             </div>
             {orders.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                 No open positions
               </div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Symbol</th>
-                    <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Side</th>
-                    <th className="px-5 py-2.5 text-right text-xs font-medium text-muted-foreground">Qty</th>
-                    <th className="px-5 py-2.5 text-right text-xs font-medium text-muted-foreground">P&L</th>
+                  <tr className="bg-muted/40">
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Symbol</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Side</th>
+                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Qty</th>
+                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">P&L</th>
                   </tr>
                 </thead>
                 <tbody>
                   {orders.slice(0,10).map((o,i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="px-5 py-3 font-medium">{o.symbol}</td>
-                      <td className="px-5 py-3">
+                    <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
+                      <td className="px-4 py-3 font-medium">{o.symbol}</td>
+                      <td className="px-4 py-3">
                         <span className={cn(
                           "rounded-full px-2 py-0.5 text-xs font-medium",
                           o.side === 'long' || o.side === 'buy'
@@ -377,10 +379,10 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                           {(o.side || 'n/a').toUpperCase()}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-right font-mono text-xs">{o.qty || 0}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{o.qty || 0}</td>
                       <td className={cn(
-                        "px-5 py-3 text-right font-mono text-xs tabular-nums",
-                        Number(o.pnl) >= 0 ? "text-green-500" : "text-red-500"
+                        "px-4 py-3 text-right font-mono text-xs tabular-nums",
+                        Number(o.pnl) >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
                       )}>
                         {Number(o.pnl) >= 0 ? '+' : ''}{Number(o.pnl || 0).toFixed(2)}
                       </td>
@@ -393,10 +395,10 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         </div>
 
         {/* Right: Order Book + Entry Form */}
-        <div className="space-y-4">
+        <div className="space-y-6">
           {/* Order Book */}
-          <div className="rounded-xl border bg-surface p-4">
-            <h3 className="text-sm font-semibold mb-3">Order Book</h3>
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <h3 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Order Book</h3>
             <div className="space-y-1">
               {[67510, 67505, 67500].map(p => (
                 <div key={p} className="flex justify-between text-xs">
@@ -409,7 +411,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               </div>
               {[67495, 67490, 67485].map(p => (
                 <div key={p} className="flex justify-between text-xs">
-                  <span className="text-green-500 font-mono tabular-nums">{p.toLocaleString()}</span>
+                  <span className="text-emerald-500 font-mono tabular-nums">{p.toLocaleString()}</span>
                   <span className="text-muted-foreground">1.05</span>
                 </div>
               ))}
@@ -417,20 +419,20 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           </div>
 
           {/* Order Entry */}
-          <div className="rounded-xl border bg-surface p-4">
-            <h3 className="text-sm font-semibold mb-4">New Order</h3>
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <h3 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">New Order</h3>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Symbol</label>
-                <div className="rounded-md border bg-muted px-3 py-2 text-sm font-mono">{selected}</div>
+                <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-mono">{selected}</div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Quantity</label>
-                <input className="w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent/50" placeholder="0.00" />
+                <input className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent/50" placeholder="0.00" />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Price</label>
-                <input className="w-full rounded-md border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-accent/50" placeholder="Market" />
+                <input className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-accent/50" placeholder="Market" />
               </div>
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button className="rounded-md bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition-colors">LONG</button>
@@ -446,7 +448,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // AGENTS PAGE
   if (section === 'agents') {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {/* Metrics strip */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
@@ -455,24 +457,30 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             { label: 'Total Runs',  value: agentLogs.length },
             { label: 'Fallbacks',   value: agentLogs.filter(l => l.fallback).length },
           ].map((m, i) => (
-            <div key={i} className="rounded-xl border bg-surface px-4 py-3 text-center">
-              <p className="text-2xl font-semibold font-mono">{m.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{m.label}</p>
+            <div key={i} className="rounded-xl border border-border bg-surface p-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                  {m.label}
+                </p>
+              </div>
+              <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
+                {m.value}
+              </p>
             </div>
           ))}
         </div>
 
         {/* Log list */}
-        <div className="space-y-3">
+        <div className="space-y-px">
           {agentLogs.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-12 text-center">
+            <div className="rounded-xl border border-dashed border-border p-12 text-center">
               <Bot className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No reasoning logs yet</p>
             </div>
           ) : (
             agentLogs.slice(0, 20).map((log, i) => (
               <div key={i} className={cn(
-                "rounded-xl border bg-surface p-4",
+                "rounded-xl border border-border bg-surface p-5",
                 "border-l-4",
                 log.action === 'buy'  && "border-l-blue-500",
                 log.action === 'sell' && "border-l-red-500",
@@ -520,52 +528,58 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // LEARNING PAGE
   if (section === 'learning') {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {/* Stat cards */}
         <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border bg-surface p-5">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Trades Evaluated</p>
-            <p className="mt-2 text-2xl font-semibold font-mono">{learningEvents.length}</p>
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Trades Evaluated</p>
+            </div>
+            <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">{learningEvents.length}</p>
           </div>
-          <div className="rounded-xl border bg-surface p-5">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Reflections</p>
-            <p className="mt-2 text-2xl font-semibold font-mono">
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Reflections</p>
+            </div>
+            <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
               {learningEvents.filter(e => e.event === 'reflection_completed').length}
             </p>
           </div>
-          <div className="rounded-xl border bg-surface p-5">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">IC Updates</p>
-            <p className="mt-2 text-2xl font-semibold font-mono">0</p>
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">IC Updates</p>
+            </div>
+            <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">0</p>
           </div>
         </div>
 
         {/* Trade timeline */}
-        <div className="rounded-xl border bg-surface">
-          <div className="border-b px-5 py-3">
-            <h2 className="text-sm font-semibold">Trade Timeline</h2>
+        <div className="rounded-xl border border-border bg-surface overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Trade Timeline</h2>
           </div>
           {learningEvents.length === 0 ? (
-            <div className="px-5 py-12 text-center">
+            <div className="px-4 py-12 text-center">
               <TrendingUp className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">Complete paper trades to see performance</p>
             </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-muted/30">
-                  <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Symbol</th>
-                  <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Event</th>
-                  <th className="px-5 py-2.5 text-right text-xs font-medium text-muted-foreground">P&L</th>
+                <tr className="bg-muted/40">
+                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Symbol</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Event</th>
+                  <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">P&L</th>
                 </tr>
               </thead>
               <tbody>
                 {learningEvents.slice(0,20).map((e,i) => (
-                  <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
-                    <td className="px-5 py-3 font-medium">{e.symbol || '—'}</td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">{e.event || e.type}</td>
+                  <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
+                    <td className="px-4 py-3 font-medium">{e.symbol || '—'}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{e.event || e.type}</td>
                     <td className={cn(
-                      "px-5 py-3 text-right font-mono text-xs tabular-nums",
-                      Number(e.pnl) >= 0 ? "text-green-500" : "text-red-500"
+                      "px-4 py-3 text-right font-mono text-xs tabular-nums",
+                      Number(e.pnl) >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
                     )}>
                       {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
                     </td>
@@ -577,18 +591,18 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         </div>
 
         {/* Reflection log */}
-        <div className="rounded-xl border bg-surface">
-          <div className="border-b px-5 py-3">
-            <h2 className="text-sm font-semibold">Reflection Log</h2>
+        <div className="rounded-xl border border-border bg-surface overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Reflection Log</h2>
           </div>
           {learningEvents.filter(e => e.event === 'reflection_completed').length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               Reflections appear after every 20 trades
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-border">
               {learningEvents.filter(e => e.event === 'reflection_completed').map((e,i) => (
-                <div key={i} className="px-5 py-4">
+                <div key={i} className="px-4 py-4">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-mono text-muted-foreground">{e.trace_id}</p>
                   </div>
@@ -604,41 +618,41 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
   // SYSTEM PAGE
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Stream health full detail */}
-      <div className="rounded-xl border bg-surface">
-        <div className="border-b px-5 py-3">
-          <h2 className="text-sm font-semibold">Stream Health</h2>
+      <div className="rounded-xl border border-border bg-surface overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Stream Health</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b bg-muted/30">
-                <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Stream</th>
-                <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Lag</th>
-                <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Status</th>
-                <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Messages</th>
+              <tr className="bg-muted/40">
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Stream</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Lag</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Messages</th>
               </tr>
             </thead>
             <tbody>
               {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Waiting for stream data...
                   </td>
                 </tr>
               ) : (
                 systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
                   const lag = Number(m.value || 0)
-                  const lagColor = lag < 100 ? 'text-green-500' : lag < 1000 ? 'text-amber-500' : 'text-red-500'
+                  const lagColor = lag < 100 ? 'text-emerald-500 dark:text-emerald-400' : lag < 1000 ? 'text-amber-500 dark:text-amber-400' : 'text-red-500 dark:text-red-400'
                   return (
-                    <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
-                      <td className="px-5 py-3 font-mono text-xs">{m.metric_name?.replace('stream_lag:', '')}</td>
-                      <td className={cn("px-5 py-3 font-mono text-xs tabular-nums", lagColor)}>{lag}ms</td>
-                      <td className="px-5 py-3">
+                    <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
+                      <td className="px-4 py-3 font-mono text-xs">{m.metric_name?.replace('stream_lag:', '')}</td>
+                      <td className={cn("px-4 py-3 font-mono text-xs tabular-nums", lagColor)}>{lag}ms</td>
+                      <td className="px-4 py-3">
                         <span className={cn("h-1.5 w-1.5 rounded-full inline-block", lagColor.replace('text-', 'bg-'))} />
                       </td>
-                      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{m.labels?.length || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{m.labels?.length || '—'}</td>
                     </tr>
                   )
                 })
@@ -649,25 +663,25 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       </div>
 
       {/* DLQ inspector */}
-      <div className="rounded-xl border bg-surface">
-        <div className="border-b px-5 py-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Dead Letter Queue</h2>
+      <div className="rounded-xl border border-border bg-surface overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Dead Letter Queue</h2>
           <span className={cn(
             "rounded-full px-2 py-0.5 text-xs font-medium",
-            dlqItems.length > 0 ? "bg-red-500/10 text-red-500" : "bg-green-500/10 text-green-500"
+            dlqItems.length > 0 ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
           )}>
             {dlqItems.length} events
           </span>
         </div>
         {dlqItems.length === 0 ? (
-          <div className="flex items-center gap-2 px-5 py-8 text-sm text-green-500">
+          <div className="flex items-center gap-2 px-4 py-8 text-sm text-emerald-500">
             <CheckCircle2 className="h-4 w-4" />
             No failed events
           </div>
         ) : (
-          <div className="divide-y">
+          <div className="divide-y divide-border">
             {dlqItems.map((item, i) => (
-              <div key={i} className="flex items-center justify-between px-5 py-4 gap-4">
+              <div key={i} className="flex items-center justify-between px-4 py-4 gap-4">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{item.stream}</p>
                   <p className="text-xs text-muted-foreground truncate mt-0.5">{item.error}</p>
@@ -694,12 +708,12 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       </div>
 
       {/* Audit log */}
-      <div className="rounded-xl border bg-surface">
-        <div className="border-b px-5 py-3">
-          <h2 className="text-sm font-semibold">Audit Log</h2>
+      <div className="rounded-xl border border-border bg-surface overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Audit Log</h2>
         </div>
-        <div className="divide-y">
-          <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+        <div className="divide-y divide-border">
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             Audit events will appear here
           </div>
         </div>
