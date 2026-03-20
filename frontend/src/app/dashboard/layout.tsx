@@ -86,7 +86,7 @@ export default function DashboardLayout({
             TB
           </div>
           <span className="text-sm font-semibold tracking-tight">
-            Trading Bot
+            Trading Control
           </span>
         </div>
 
@@ -214,7 +214,7 @@ export default function DashboardLayout({
         {/* ── FOOTER ── */}
         <footer className="flex h-9 flex-shrink-0 items-center justify-between border-t border-border px-4 md:px-6">
           <span className="text-xs text-muted-foreground">
-            AI Trading Bot · Phase 2 · Paper Mode
+            AI Trading Control · Phase 2 · Paper Mode
           </span>
           <span className="text-xs text-muted-foreground">© 2026</span>
         </footer>
