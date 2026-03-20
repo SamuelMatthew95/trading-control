@@ -134,7 +134,7 @@ async def _record_system_metric(
         "metric_name": metric_name,
         "value": value,
         "labels": labels,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.utcnow().isoformat(),
     }
     try:
         async with AsyncSessionFactory() as session:
