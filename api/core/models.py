@@ -356,3 +356,29 @@ class SystemState(Base):
     id = Column(Integer, primary_key=True, default=1)
     last_signal_generation = Column(DateTime, nullable=True)
     last_signal_generation_status = Column(String, nullable=False, default="never")
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(String, primary_key=True, index=True)
+    strategy_id = Column(String, nullable=False, index=True)
+    symbol = Column(String(64), nullable=False)
+    side = Column(String(16), nullable=False)
+    qty = Column(String, nullable=False)  # Using String to match Numeric precision
+    price = Column(String, nullable=False)  # Using String to match Numeric precision
+    status = Column(String(32), nullable=False, index=True)
+    idempotency_key = Column(String(255), nullable=False, unique=True, index=True)
+    broker_order_id = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    filled_at = Column(DateTime, nullable=True)
+
+
+class SystemMetric(Base):
+    __tablename__ = "system_metrics"
+
+    id = Column(String, primary_key=True, index=True)
+    metric_name = Column(String(255), nullable=False, index=True)
+    value = Column(String, nullable=False)  # Using String to match Float
+    labels = Column(Text, nullable=True)  # JSONB stored as Text in SQLite
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
