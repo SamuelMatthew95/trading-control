@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Numeric, String, Text
 
 from api.database import Base
 
@@ -361,12 +361,12 @@ class SystemState(Base):
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(String, primary_key=True, index=True)
-    strategy_id = Column(String, nullable=False, index=True)
+    id = Column(String, primary_key=True, index=True)  # UUID stored as String for SQLite compatibility
+    strategy_id = Column(String, nullable=False, index=True)  # UUID stored as String for SQLite compatibility
     symbol = Column(String(64), nullable=False)
     side = Column(String(16), nullable=False)
-    qty = Column(String, nullable=False)  # Using String to match Numeric precision
-    price = Column(String, nullable=False)  # Using String to match Numeric precision
+    qty = Column(Numeric(precision=18, scale=8), nullable=False)
+    price = Column(Numeric(precision=18, scale=8), nullable=False)
     status = Column(String(32), nullable=False, index=True)
     idempotency_key = Column(String(255), nullable=False, unique=True, index=True)
     broker_order_id = Column(String(255), nullable=True)
@@ -377,8 +377,8 @@ class Order(Base):
 class SystemMetric(Base):
     __tablename__ = "system_metrics"
 
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True)  # UUID stored as String for SQLite compatibility
     metric_name = Column(String(255), nullable=False, index=True)
-    value = Column(String, nullable=False)  # Using String to match Float
+    value = Column(Float, nullable=False)
     labels = Column(Text, nullable=True)  # JSONB stored as Text in SQLite
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
