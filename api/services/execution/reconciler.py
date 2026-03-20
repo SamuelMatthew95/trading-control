@@ -38,7 +38,7 @@ class OrderReconciler:
         self._task = None
 
     async def run_once(self) -> None:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2)
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 text("SELECT id, broker_order_id, status FROM orders WHERE status IN ('pending', 'partial') AND created_at < :cutoff"),

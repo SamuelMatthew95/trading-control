@@ -134,7 +134,7 @@ async def _record_system_metric(
         "metric_name": metric_name,
         "value": value,
         "labels": labels,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     }
     try:
         async with AsyncSessionFactory() as session:
@@ -147,7 +147,7 @@ async def _record_system_metric(
                     "metric_name": metric_name,
                     "value": value,
                     "labels": json.dumps(labels, default=str),
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime.now(timezone.utc).replace(tzinfo=None),
                 },
             )
             await session.commit()
