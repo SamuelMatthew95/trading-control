@@ -55,7 +55,9 @@ class ICUpdater:
                 realized_return = float(pnl or 0.0)
                 for factor_name, score in parsed.items():
                     try:
-                        grouped[str(factor_name)].append((float(score), realized_return))
+                        grouped[str(factor_name)].append(
+                            (float(score), realized_return)
+                        )
                     except (TypeError, ValueError):
                         continue
 

@@ -157,7 +157,9 @@ class FakeBroker:
 async def test_paper_broker_updates_cash_and_position(monkeypatch):
     redis = FakeRedis()
     broker = PaperBroker(redis)
-    monkeypatch.setattr("api.services.execution.brokers.paper.random.uniform", lambda a, b: 0.0002)
+    monkeypatch.setattr(
+        "api.services.execution.brokers.paper.random.uniform", lambda a, b: 0.0002
+    )
 
     order = await broker.place_order("BTC/USD", "buy", 2, 100)
     position = await broker.get_position("BTC/USD")
@@ -178,7 +180,15 @@ async def test_execution_engine_respects_kill_switch():
     engine = ExecutionEngine(bus, dlq, redis, FakeBroker())
 
     with pytest.raises(RuntimeError, match="KillSwitchActive"):
-        await engine.process({"strategy_id": "s1", "symbol": "BTC/USD", "side": "buy", "qty": 1, "price": 100})
+        await engine.process(
+            {
+                "strategy_id": "s1",
+                "symbol": "BTC/USD",
+                "side": "buy",
+                "qty": 1,
+                "price": 100,
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -186,7 +196,9 @@ async def test_execution_engine_publishes_fill_metadata(monkeypatch):
     import api.services.execution.execution_engine as execution_module
 
     session = FakeSession(_execution_handler)
-    monkeypatch.setattr(execution_module, "AsyncSessionFactory", FakeSessionFactory(session))
+    monkeypatch.setattr(
+        execution_module, "AsyncSessionFactory", FakeSessionFactory(session)
+    )
 
     redis = FakeRedis()
     bus = RecordingBus(redis)
@@ -218,7 +230,9 @@ async def test_reasoning_agent_fallback_publishes_logs_and_orders(monkeypatch):
     from api.config import settings
 
     session = FakeSession(_reasoning_handler)
-    monkeypatch.setattr(reasoning_module, "AsyncSessionFactory", FakeSessionFactory(session))
+    monkeypatch.setattr(
+        reasoning_module, "AsyncSessionFactory", FakeSessionFactory(session)
+    )
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
     monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", "skip_reasoning")
 

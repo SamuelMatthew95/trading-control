@@ -87,7 +87,9 @@ class FakeRedis:
 
 class DummyConsumer(BaseStreamConsumer):
     def __init__(self, bus, dlq, should_fail=False):
-        super().__init__(bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="dummy")
+        super().__init__(
+            bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="dummy"
+        )
         self.should_fail = should_fail
         self.processed = []
 
@@ -108,10 +110,12 @@ async def test_event_bus_publish_consume_and_reclaim_decodes_payloads():
     messages = await bus.consume("signals", DEFAULT_GROUP, "worker-1")
     assert messages == [("1-0", {"foo": "bar"})]
 
-    redis.autoclaim_messages = [(
-        b"2-0",
-        {b"payload": json.dumps({"reclaimed": True}).encode("utf-8")},
-    )]
+    redis.autoclaim_messages = [
+        (
+            b"2-0",
+            {b"payload": json.dumps({"reclaimed": True}).encode("utf-8")},
+        )
+    ]
     reclaimed = await bus.reclaim_stale("signals", DEFAULT_GROUP)
     assert reclaimed == [("b'2-0'", {"reclaimed": True})]
 

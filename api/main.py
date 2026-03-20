@@ -281,7 +281,9 @@ async def lifespan(app: FastAPI):
             app.state.ic_updater = ic_updater
 
             consumer_lag_monitor = BackgroundServiceTask(
-                asyncio.create_task(monitor_consumer_lag(event_bus), name="consumer-lag-monitor")
+                asyncio.create_task(
+                    monitor_consumer_lag(event_bus), name="consumer-lag-monitor"
+                )
             )
             llm_cost_monitor_service = BackgroundServiceTask(
                 asyncio.create_task(

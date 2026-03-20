@@ -96,14 +96,18 @@ class RecordingBus(EventBus):
 
 
 @pytest.mark.asyncio
-async def test_trade_evaluator_persists_metrics_and_publishes_learning_event(monkeypatch):
+async def test_trade_evaluator_persists_metrics_and_publishes_learning_event(
+    monkeypatch,
+):
     import api.services.learning.evaluator as evaluator_module
 
     previous_time = datetime.now(timezone.utc) - timedelta(hours=1)
     session = FakeSession(
         lambda sql, params: _trade_evaluator_handler(sql, params, previous_time)
     )
-    monkeypatch.setattr(evaluator_module, "AsyncSessionFactory", FakeSessionFactory(session))
+    monkeypatch.setattr(
+        evaluator_module, "AsyncSessionFactory", FakeSessionFactory(session)
+    )
 
     redis = FakeRedis()
     bus = RecordingBus(redis)
@@ -153,7 +157,9 @@ async def test_reflection_service_triggers_and_resets_counter(monkeypatch):
         if "FROM trade_performance" in sql
         else FakeResult()
     )
-    monkeypatch.setattr(reflection_module, "AsyncSessionFactory", FakeSessionFactory(session))
+    monkeypatch.setattr(
+        reflection_module, "AsyncSessionFactory", FakeSessionFactory(session)
+    )
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
 
     redis = FakeRedis()
@@ -195,7 +201,10 @@ async def test_ic_updater_zeroes_negative_ic_and_normalizes(monkeypatch):
     assert weights == stored
     assert stored["factor_a"] == 1.0
     assert stored["factor_b"] == 0.0
-    assert sum(1 for sql, _ in session.executed if "INSERT INTO factor_ic_history" in sql) == 2
+    assert (
+        sum(1 for sql, _ in session.executed if "INSERT INTO factor_ic_history" in sql)
+        == 2
+    )
 
 
 @pytest.mark.asyncio
@@ -244,7 +253,18 @@ def _trade_evaluator_handler(sql: str, params, previous_time: datetime):
             ]
         )
     if "SELECT signal_data FROM agent_runs WHERE trace_id" in sql:
-        return FakeResult(first_row=[{"context": {"ofi_score": 0.6, "momentum_score": 0.8, "volume_ratio": 1.2}, "composite_score": 0.9}])
+        return FakeResult(
+            first_row=[
+                {
+                    "context": {
+                        "ofi_score": 0.6,
+                        "momentum_score": 0.8,
+                        "volume_ratio": 1.2,
+                    },
+                    "composite_score": 0.9,
+                }
+            ]
+        )
     if "SELECT tp.pnl FROM trade_performance" in sql:
         return FakeResult(rows=[(12.0,), (18.0,)])
     if "SELECT id FROM strategy_metrics" in sql:

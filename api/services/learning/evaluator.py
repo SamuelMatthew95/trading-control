@@ -48,8 +48,12 @@ class TradeEvaluator(BaseStreamConsumer):
         filled_at = self._parse_timestamp(data.get("filled_at"))
 
         async with AsyncSessionFactory() as session:
-            prior_trade = await self._fetch_prior_trade(session, strategy_id, symbol, order_id)
-            signal_payload = await self._fetch_signal_payload(session, trace_id, strategy_id, symbol)
+            prior_trade = await self._fetch_prior_trade(
+                session, strategy_id, symbol, order_id
+            )
+            signal_payload = await self._fetch_signal_payload(
+                session, trace_id, strategy_id, symbol
+            )
             factor_attribution = self._build_factor_attribution(signal_payload)
             pnl, holding_secs, entry_price = self._compute_trade_metrics(
                 prior_trade=prior_trade,
@@ -111,7 +115,9 @@ class TradeEvaluator(BaseStreamConsumer):
         }
         await self.bus.publish("learning_events", learning_event)
 
-    async def _fetch_prior_trade(self, session, strategy_id: str, symbol: str, order_id: str) -> dict[str, Any] | None:
+    async def _fetch_prior_trade(
+        self, session, strategy_id: str, symbol: str, order_id: str
+    ) -> dict[str, Any] | None:
         result = await session.execute(
             text(
                 "SELECT o.side, o.qty, o.price, o.filled_at, tp.exit_price, tp.created_at "
@@ -125,7 +131,9 @@ class TradeEvaluator(BaseStreamConsumer):
         row = result.mappings().first()
         return dict(row) if row else None
 
-    async def _fetch_signal_payload(self, session, trace_id: str | None, strategy_id: str, symbol: str) -> dict[str, Any]:
+    async def _fetch_signal_payload(
+        self, session, trace_id: str | None, strategy_id: str, symbol: str
+    ) -> dict[str, Any]:
         if trace_id:
             result = await session.execute(
                 text(
@@ -146,8 +154,12 @@ class TradeEvaluator(BaseStreamConsumer):
         row = fallback.first()
         return self._json_value(row[0]) if row is not None else {}
 
-    def _build_factor_attribution(self, signal_payload: dict[str, Any]) -> dict[str, float]:
-        context = signal_payload.get("context") if isinstance(signal_payload, dict) else {}
+    def _build_factor_attribution(
+        self, signal_payload: dict[str, Any]
+    ) -> dict[str, float]:
+        context = (
+            signal_payload.get("context") if isinstance(signal_payload, dict) else {}
+        )
         context = context if isinstance(context, dict) else {}
         attribution: dict[str, float] = {}
         for key in FACTOR_KEYS:
@@ -171,9 +183,7 @@ class TradeEvaluator(BaseStreamConsumer):
             return 0.0, 0, fill_price
 
         entry_price = float(
-            prior_trade.get("exit_price")
-            or prior_trade.get("price")
-            or fill_price
+            prior_trade.get("exit_price") or prior_trade.get("price") or fill_price
         )
         prior_side = str(prior_trade.get("side", "buy")).lower()
         prior_qty = float(prior_trade.get("qty", qty) or qty)
@@ -209,7 +219,9 @@ class TradeEvaluator(BaseStreamConsumer):
         win_rate = sum(1 for pnl in pnls if pnl > 0) / len(pnls)
         avg_pnl = mean(pnls)
         volatility = pstdev(pnls) if len(pnls) > 1 else 0.0
-        sharpe = 0.0 if volatility == 0 else (avg_pnl / volatility) * math.sqrt(len(pnls))
+        sharpe = (
+            0.0 if volatility == 0 else (avg_pnl / volatility) * math.sqrt(len(pnls))
+        )
         running = 0.0
         peak = 0.0
         max_drawdown = 0.0
@@ -274,7 +286,9 @@ class TradeEvaluator(BaseStreamConsumer):
             "factor_attribution": factor_attribution,
         }
         await session.execute(
-            text("UPDATE vector_memory SET outcome = CAST(:outcome AS JSONB) WHERE id = :id"),
+            text(
+                "UPDATE vector_memory SET outcome = CAST(:outcome AS JSONB) WHERE id = :id"
+            ),
             {"id": row["id"], "outcome": json.dumps(outcome, default=str)},
         )
 

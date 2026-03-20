@@ -140,9 +140,7 @@ class ReflectionService:
             "model": "claude-sonnet-4-20250514",
             "max_tokens": 400,
             "temperature": 0.2,
-            "messages": [
-                {"role": "user", "content": json.dumps(prompt, default=str)}
-            ],
+            "messages": [{"role": "user", "content": json.dumps(prompt, default=str)}],
         }
         try:
             async with aiohttp.ClientSession(
@@ -167,13 +165,19 @@ class ReflectionService:
             )
             parsed = json.loads(text_payload)
             return {
-                "winning_factors": parsed.get("winning_factors", fallback["winning_factors"]),
-                "losing_factors": parsed.get("losing_factors", fallback["losing_factors"]),
+                "winning_factors": parsed.get(
+                    "winning_factors", fallback["winning_factors"]
+                ),
+                "losing_factors": parsed.get(
+                    "losing_factors", fallback["losing_factors"]
+                ),
                 "regime_edge": parsed.get("regime_edge", fallback["regime_edge"]),
                 "sizing_recommendation": parsed.get(
                     "sizing_recommendation", fallback["sizing_recommendation"]
                 ),
-                "new_hypotheses": parsed.get("new_hypotheses", fallback["new_hypotheses"]),
+                "new_hypotheses": parsed.get(
+                    "new_hypotheses", fallback["new_hypotheses"]
+                ),
                 "summary": parsed.get("summary", fallback["summary"]),
             }
         except Exception as exc:  # noqa: BLE001
@@ -191,7 +195,9 @@ class ReflectionService:
                 except (TypeError, ValueError):
                     continue
 
-        def top_factors(source: defaultdict[str, list[float]]) -> list[dict[str, float]]:
+        def top_factors(
+            source: defaultdict[str, list[float]]
+        ) -> list[dict[str, float]]:
             ranked = sorted(
                 ((key, mean(values)) for key, values in source.items() if values),
                 key=lambda item: item[1],
