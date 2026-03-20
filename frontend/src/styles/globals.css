@@ -1,11 +1,9 @@
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 98%;
+  --background: 210 20% 98%;
   --foreground: 222 47% 11%;
   --surface: 0 0% 100%;
   --border: 214 32% 91%;
@@ -27,5 +25,15 @@
   --accent-foreground: 0 0% 100%;
 }
 
-* { border-color: hsl(var(--border)); }
-body { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+* {
+  border-color: hsl(var(--border));
+  box-sizing: border-box;
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: inherit;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

@@ -1,22 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCodexStore } from '@/stores/useCodexStore'
 import {
   LayoutDashboard,
   CandlestickChart,
   Bot,
   TrendingUp,
   Settings2,
-  Wifi,
-  WifiOff,
   AlertTriangle,
-  CheckCircle2,
-  Power
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { useCodexStore } from '@/stores/useCodexStore'
+import { ThemeToggle } from '@/components/ThemeToggle'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { useMemo, useState } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,139 +25,159 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { cn } from '@/lib/utils'
-import { useWebSocket } from '@/hooks/useWebSocket'
 
-const navigation = [
-  { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Trading', href: '/dashboard/trading', icon: CandlestickChart },
-  { name: 'Agents', href: '/dashboard/agents', icon: Bot },
-  { name: 'Learning', href: '/dashboard/learning', icon: TrendingUp },
-  { name: 'System', href: '/dashboard/system', icon: Settings2 },
+const NAV = [
+  { href: '/dashboard',          label: 'Overview',  Icon: LayoutDashboard },
+  { href: '/dashboard/trading',  label: 'Trading',   Icon: CandlestickChart },
+  { href: '/dashboard/agents',   label: 'Agents',    Icon: Bot },
+  { href: '/dashboard/learning', label: 'Learning',  Icon: TrendingUp },
+  { href: '/dashboard/system',   label: 'System',    Icon: Settings2 },
 ]
+
+function cn(...classes: (string | boolean | undefined | null)[]) {
+  return classes.filter(Boolean).join(' ')
+}
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const pathname = usePathname()
-  const [killSwitchDialogOpen, setKillSwitchDialogOpen] = useState(false)
-  
-  const {
-    wsConnected,
-    killSwitchActive,
-    prices,
-    orders,
-    riskAlerts,
-    regime,
-    setKillSwitch
-  } = useCodexStore()
-
-  const dailyPnl = orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0)
-
-  const toggleKillSwitch = () => {
-    setKillSwitch(!killSwitchActive)
-    setKillSwitchDialogOpen(false)
-  }
-
-  // Initialize WebSocket
   useWebSocket()
 
+  const pathname = usePathname()
+  const { orders, regime, wsConnected, killSwitchActive, setKillSwitch } =
+    useCodexStore()
+
+  const dailyPnl = useMemo(
+    () => orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0),
+    [orders]
+  )
+
+  const regimeColor =
+    regime === 'RISK ON'
+      ? 'bg-green-500/10 text-green-600 dark:text-green-400 ring-green-500/30'
+      : regime === 'RISK OFF'
+      ? 'bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/30'
+      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/30'
+
+  const handleKillSwitch = async (activate: boolean) => {
+    try {
+      const apiBase = (
+        process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+      ).replace(/\/$/, '')
+      const res = await fetch(`${apiBase}/v1/dashboard/kill_switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: activate }),
+      })
+      if (res.ok) setKillSwitch(activate)
+    } catch {}
+  }
+
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
 
-      {/* SIDEBAR — fixed left, full height */}
-      <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r bg-surface">
-
+      {/* ── SIDEBAR ── */}
+      <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r border-border bg-surface">
         {/* Logo */}
-        <div className="flex h-14 items-center gap-2 border-b px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground text-xs font-bold">TB</div>
-          <span className="font-semibold text-sm">Trading Bot</span>
+        <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground text-xs font-bold select-none">
+            TB
+          </div>
+          <span className="font-semibold text-sm tracking-tight">
+            Trading Bot
+          </span>
         </div>
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href
+          {NAV.map(({ href, label, Icon }) => {
+            const active =
+              href === '/dashboard'
+                ? pathname === '/dashboard'
+                : pathname.startsWith(href)
             return (
-              <a
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "bg-accent/10 text-accent font-medium"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <item.icon className="h-4 w-4 flex-shrink-0" />
-                {item.name}
-              </a>
+              <Link key={href} href={href}>
+                <div
+                  className={cn(
+                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors cursor-pointer',
+                    active
+                      ? 'bg-accent/10 text-accent font-medium'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {label}
+                </div>
+              </Link>
             )
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="border-t p-3">
-          <div className="text-xs text-muted-foreground">Phase 2 · Paper Mode</div>
+        {/* Sidebar footer */}
+        <div className="border-t border-border p-3">
+          <p className="text-xs text-muted-foreground">Phase 2 · Paper Mode</p>
         </div>
       </aside>
 
-      {/* MAIN */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* ── MAIN COLUMN ── */}
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
 
-        {/* HEADER — fixed top, full width of main area */}
-        <header className="flex h-14 flex-shrink-0 items-center justify-between border-b bg-surface px-4 md:px-6">
+        {/* ── HEADER ── */}
+        <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:px-6 gap-4">
 
           {/* Regime badge */}
-          <div className="flex items-center gap-2">
-            <span className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-              regime === 'RISK ON'  && "bg-green-500/10 text-green-500 ring-1 ring-green-500/20",
-              regime === 'RISK OFF' && "bg-red-500/10 text-red-500 ring-1 ring-red-500/20",
-              "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20"  // default neutral
-            )}>
-              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              {regime || 'NEUTRAL'}
-            </span>
-          </div>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1',
+              regimeColor
+            )}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {regime?.toUpperCase() || 'NEUTRAL'}
+          </span>
 
           {/* Right controls */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 ml-auto">
 
             {/* WS status */}
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                wsConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
-              )} />
-              <span className="text-muted-foreground hidden sm:inline">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full',
+                  wsConnected
+                    ? 'bg-green-500 animate-pulse'
+                    : 'bg-red-500'
+                )}
+              />
+              <span className="text-xs text-muted-foreground hidden sm:inline">
                 {wsConnected ? 'Live' : 'Offline'}
               </span>
             </div>
 
-            {/* Daily P&L */}
-            <div className={cn(
-              "text-sm font-mono font-medium tabular-nums",
-              dailyPnl >= 0 ? "text-green-500" : "text-red-500"
-            )}>
-              {dailyPnl >= 0 ? '+' : ''}{dailyPnl.toFixed(2)}
-            </div>
+            {/* P&L */}
+            <span
+              className={cn(
+                'text-sm font-mono font-semibold tabular-nums hidden sm:inline',
+                dailyPnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+              )}
+            >
+              {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
+            </span>
 
             {/* Theme toggle */}
             <ThemeToggle />
 
             {/* Kill switch */}
-            <AlertDialog open={killSwitchDialogOpen} onOpenChange={setKillSwitchDialogOpen}>
+            <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-semibold transition-all",
+                    'rounded-md px-3 py-1.5 text-xs font-semibold transition-all border',
                     killSwitchActive
-                      ? "bg-red-600 text-white shadow-lg shadow-red-500/20 animate-pulse"
-                      : "border border-red-500/50 text-red-500 hover:bg-red-500/10"
+                      ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-500/20 animate-pulse'
+                      : 'border-red-500/50 text-red-500 hover:bg-red-500/10'
                   )}
                 >
                   {killSwitchActive ? '⬛ ACTIVE' : 'Kill Switch'}
@@ -168,21 +185,22 @@ export default function DashboardLayout({
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Confirm Kill Switch</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {killSwitchActive ? 'Deactivate Kill Switch?' : 'Activate Kill Switch?'}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    {killSwitchActive 
-                      ? "Resume signal processing and order placement?"
-                      : "This will immediately halt all signal processing and order placement."
-                    }
+                    {killSwitchActive
+                      ? 'This will resume signal processing and order placement.'
+                      : 'This will immediately halt all signal processing and order placement.'}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={toggleKillSwitch}
-                    className={killSwitchActive ? "bg-blue-600 hover:bg-blue-700" : "bg-red-600 hover:bg-red-700"}
+                    onClick={() => handleKillSwitch(!killSwitchActive)}
+                    className={killSwitchActive ? '' : 'bg-red-600 hover:bg-red-700'}
                   >
-                    {killSwitchActive ? 'Resume' : 'Activate'}
+                    Confirm
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -190,10 +208,18 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        {/* PAGE CONTENT */}
+        {/* ── PAGE CONTENT ── */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
+
+        {/* ── FOOTER ── */}
+        <footer className="flex h-9 flex-shrink-0 items-center justify-between border-t border-border px-4 md:px-6">
+          <span className="text-xs text-muted-foreground">
+            AI Trading Bot · Phase 2 · Paper Mode
+          </span>
+          <span className="text-xs text-muted-foreground">© 2026</span>
+        </footer>
       </div>
     </div>
   )
