@@ -54,11 +54,13 @@ class AgentMemoryService:
         )
 
         await session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO task_type_baselines (task_type, baseline_slippage, established_at)
                 VALUES (:task_type, :baseline_slippage, :established_at)
                 ON CONFLICT(task_type) DO NOTHING
-                """),
+                """
+            ),
             {
                 "task_type": task_type,
                 "baseline_slippage": actual_slippage,

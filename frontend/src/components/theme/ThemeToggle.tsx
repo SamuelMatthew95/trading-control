@@ -6,22 +6,42 @@ import { Button } from '@/components/ui/button'
 
 export function ThemeToggle() {
   const [theme, setTheme] = React.useState<'light' | 'dark'>('light')
+  const [mounted, setMounted] = React.useState(false)
 
   React.useEffect(() => {
+    setMounted(true)
     // Check for saved theme preference or default to system preference
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
-    const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-    const initialTheme = savedTheme || systemTheme
-    
-    setTheme(initialTheme)
-    document.documentElement.classList.toggle('dark', initialTheme === 'dark')
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
+      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      const initialTheme = savedTheme || systemTheme
+      
+      setTheme(initialTheme)
+      document.documentElement.classList.toggle('dark', initialTheme === 'dark')
+    }
   }, [])
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light'
     setTheme(newTheme)
-    localStorage.setItem('theme', newTheme)
-    document.documentElement.classList.toggle('dark', newTheme === 'dark')
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('theme', newTheme)
+      document.documentElement.classList.toggle('dark', newTheme === 'dark')
+    }
+  }
+
+  // Prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="p-2 rounded-md hover:bg-accent transition-colors"
+      >
+        <div className="w-4 h-4" />
+        <span className="sr-only">Toggle theme</span>
+      </Button>
+    )
   }
 
   return (

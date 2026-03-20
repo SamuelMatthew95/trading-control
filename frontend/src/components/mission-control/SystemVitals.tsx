@@ -141,7 +141,7 @@ export function SystemVitals({ health, isLoading }: SystemVitalsProps) {
               <div className="flex items-center gap-1 text-destructive">
                 <AlertTriangle className="h-3 w-3" />
                 <span className="text-xs leading-relaxed">
-                  {currentData.data.feedback_jobs_failed} failed jobs
+                  {currentData?.data?.feedback_jobs_failed ?? 0} failed jobs
                 </span>
               </div>
             )}

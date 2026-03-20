@@ -146,3 +146,15 @@ class AgentLearningService:
             .all()
         )
         return list(rows)
+
+
+from api.services.learning.evaluator import TradeEvaluator
+from api.services.learning.ic_updater import ICUpdater
+from api.services.learning.reflection import ReflectionService
+
+__all__ = [
+    "AgentLearningService",
+    "TradeEvaluator",
+    "ReflectionService",
+    "ICUpdater",
+]

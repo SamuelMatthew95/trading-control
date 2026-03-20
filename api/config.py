@@ -2,24 +2,39 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Optional
 
-from pydantic import Field, PostgresDsn, ValidationError, model_validator
+from pydantic import (
+    Field,
+    PostgresDsn,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     DATABASE_URL: Optional[PostgresDsn] = Field(default=None)
+    REDIS_URL: Optional[str] = Field(default=None)
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
-    API_SECRET_KEY: Optional[str] = Field(default=None)
+    ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
+    LLM_FALLBACK_MODE: str = "skip_reasoning"
+    BROKER_MODE: str = "paper"
+    LLM_TIMEOUT_SECONDS: int = 15
+    LLM_MAX_RETRIES: int = 2
+    REFLECTION_TRADE_THRESHOLD: int = 20
+    MAX_CONSUMER_LAG_ALERT: int = 5_000
+    ANTHROPIC_COST_ALERT_USD: float = 5.0
+    FRONTEND_URL: str = "http://localhost:3000"
 
-    NODE_ENV: Literal["development", "staging", "production"] = "development"
+    API_SECRET_KEY: Optional[str] = Field(default=None)
+    NODE_ENV: str = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
     ALLOWED_ORIGINS: str = (
         "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
     )
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,*.vercel.app,*.onrender.com"
-
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_MS: int = 250
@@ -32,11 +47,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @field_validator("FRONTEND_URL")
+    @classmethod
+    def normalize_frontend_url(cls, value: str) -> str:
+        return value.rstrip("/")
+
     @model_validator(mode="after")
     def validate_runtime_requirements(self) -> "Settings":
-        if self.NODE_ENV == "production":
-            if not self.DATABASE_URL:
-                raise ValueError("DATABASE_URL is required in production")
+        if self.NODE_ENV == "production" and not self.DATABASE_URL:
+            raise ValueError("DATABASE_URL is required in production")
         return self
 
 
@@ -45,7 +64,8 @@ settings = Settings()
 
 def get_database_url() -> str:
     if settings.DATABASE_URL is None:
-        raise ValueError("DATABASE_URL is required for database connection")
+        return "sqlite+aiosqlite:///./trading-control.db"
+
     url = str(settings.DATABASE_URL)
     if url.startswith("postgres://") or url.startswith("postgresql://"):
         return url.replace("://", "+asyncpg://", 1)
@@ -54,6 +74,13 @@ def get_database_url() -> str:
 
 def parse_csv_env(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def get_cors_origins() -> list[str]:
+    origins = parse_csv_env(settings.ALLOWED_ORIGINS)
+    if settings.FRONTEND_URL not in origins:
+        origins.append(settings.FRONTEND_URL)
+    return origins
 
 
 def validate_all_settings() -> bool:
