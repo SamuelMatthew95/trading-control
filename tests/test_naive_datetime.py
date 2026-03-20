@@ -55,6 +55,12 @@ class TestNaiveDatetime:
                 # Verify it's a datetime with no timezone info
                 assert isinstance(timestamp, datetime), "timestamp should be a datetime object"
                 assert timestamp.tzinfo is None, f"timestamp should be naive (tzinfo=None), but got {timestamp.tzinfo}"
+                
+                # Also verify id parameter exists and is a UUID string
+                assert "id" in sql_params, "id parameter should be in SQL params"
+                id_param = sql_params["id"]
+                assert isinstance(id_param, str), "id should be a string"
+                assert len(id_param) == 36, f"id should be a UUID string (36 chars), got {len(id_param)}"
 
     # Skip this test due to async mocking complexity - the static analysis tests already verify the fix
     @pytest.mark.skip(reason="Static analysis tests already verify the fix")
