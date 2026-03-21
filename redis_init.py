@@ -56,12 +56,18 @@ async def ensure_redis_streams(redis_client: Optional[Redis] = None) -> None:
     for stream in ALL_STREAMS:
         try:
             # Create the stream and consumer group
-            await redis_client.xgroup_create(
+            # Handle both sync and async Redis clients
+            result = redis_client.xgroup_create(
                 stream, 
                 DEFAULT_GROUP, 
                 id="$",  # Use "$" for trading systems - only process new messages
                 mkstream=True
             )
+            
+            # If result is a coroutine, await it
+            if asyncio.iscoroutine(result):
+                await result
+                
             created_count += 1
             log_structured("info", "Created Redis stream and group", stream=stream, group=DEFAULT_GROUP)
             

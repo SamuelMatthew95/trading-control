@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from redis.asyncio import Redis
-from redis.exceptions import ConnectionError, ResponseError, TimeoutError
+from redis.exceptions import ResponseError
 
 from api.observability import log_structured
 
@@ -32,11 +32,6 @@ class EventBus:
         try:
             message_id = await self.redis.xadd(stream, payload)
             return str(message_id)
-        except (ConnectionError, TimeoutError) as exc:
-            log_structured(
-                "warning", "Redis connection error during publish", stream=stream, error=str(exc)
-            )
-            return None
         except Exception as exc:
             log_structured(
                 "warning", "Redis publish failed", stream=stream, error=str(exc)
@@ -51,41 +46,19 @@ class EventBus:
         count: int = 10,
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
-        try:
-            messages = await self.redis.xreadgroup(
-                groupname=group,
-                consumername=consumer,
-                streams={stream: ">"},
-                count=count,
-                block=block_ms,
-            )
-            return self._decode_message_batch(messages)
-        except (ConnectionError, TimeoutError) as exc:
-            log_structured(
-                "warning", "Redis connection error during consume", stream=stream, error=str(exc)
-            )
-            return []
-        except Exception as exc:
-            log_structured(
-                "warning", "Redis consume failed", stream=stream, error=str(exc)
-            )
-            return []
+        messages = await self.redis.xreadgroup(
+            groupname=group,
+            consumername=consumer,
+            streams={stream: ">"},
+            count=count,
+            block=block_ms,
+        )
+        return self._decode_message_batch(messages)
 
     async def acknowledge(self, stream: str, group: str, *ids: str) -> int:
         if not ids:
             return 0
-        try:
-            return int(await self.redis.xack(stream, group, *ids))
-        except (ConnectionError, TimeoutError) as exc:
-            log_structured(
-                "warning", "Redis connection error during acknowledge", stream=stream, error=str(exc)
-            )
-            return 0
-        except Exception as exc:
-            log_structured(
-                "warning", "Redis acknowledge failed", stream=stream, error=str(exc)
-            )
-            return 0
+        return int(await self.redis.xack(stream, group, *ids))
 
     async def create_groups(self) -> None:
         for stream in STREAMS:
@@ -123,39 +96,15 @@ class EventBus:
     async def reclaim_stale(
         self, stream: str, group: str, min_idle_ms: int = 60000
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Reclaim stale messages with robust error handling."""
-        try:
-            reclaimed = await self.redis.xautoclaim(
-                stream, group, DEFAULT_GROUP, min_idle_ms, start_id="0-0"
-            )
-            return self._decode_autoclaim(reclaimed)
-        except (ConnectionError, TimeoutError) as exc:
-            log_structured(
-                "warning",
-                "Redis connection error during reclaim_stale",
-                stream=stream,
-                group=group,
-                error=str(exc)
-            )
-            return []
-        except ResponseError as exc:
-            log_structured(
-                "warning",
-                "Redis response error during reclaim_stale",
-                stream=stream,
-                group=group,
-                error=str(exc)
-            )
-            return []
-        except Exception as exc:
-            log_structured(
-                "error",
-                "Unexpected error during reclaim_stale",
-                stream=stream,
-                group=group,
-                error=str(exc)
-            )
-            return []
+        result = self.redis.xautoclaim(
+            stream, group, DEFAULT_GROUP, min_idle_ms, start_id="0-0"
+        )
+        # Handle both sync and async Redis clients
+        if asyncio.iscoroutine(result):
+            reclaimed = await result
+        else:
+            reclaimed = result
+        return self._decode_autoclaim(reclaimed)
 
     def _decode_autoclaim(self, reclaimed: Any) -> list[tuple[str, dict[str, Any]]]:
         if isinstance(reclaimed, tuple):
