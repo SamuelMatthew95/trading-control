@@ -3,8 +3,8 @@
     "trace_summary": {
       "guard_hits": 1
     },
-    "task_id": "AAPL:2026-03-21T00:43:26.157770+00:00",
-    "timestamp": "2026-03-21T00:43:26.158390+00:00",
+    "task_id": "AAPL:2026-03-21T00:45:14.643555+00:00",
+    "timestamp": "2026-03-21T00:45:14.644237+00:00",
     "decision": {
       "DECISION": "FLAT",
       "ASSET": "AAPL",
@@ -30,10 +30,7 @@
             "timeframe": "1D",
             "portfolio_state": {
               "total_value": 100000,
-              "cash": 50000,
-              "positions": {},
-              "drawdown": -0.03,
-              "price_hint": 100.0
+              "drawdown": -0.02
             },
             "signals": [
               {
@@ -51,7 +48,7 @@
             "risk": {
               "approved": true,
               "veto": false,
-              "risk_score": 0.16,
+              "risk_score": 0.14,
               "size_multiplier": 1.0,
               "flags": []
             }
@@ -75,10 +72,7 @@
           "timeframe": "1D",
           "portfolio_state": {
             "total_value": 100000,
-            "cash": 50000,
-            "positions": {},
-            "drawdown": -0.03,
-            "price_hint": 100.0
+            "drawdown": -0.02
           },
           "signals": [
             {
@@ -90,7 +84,7 @@
           ]
         },
         "output_data": {},
-        "timestamp": "2026-03-21 00:43:26.157809+00:00",
+        "timestamp": "2026-03-21 00:45:14.643593+00:00",
         "success": true,
         "error": null,
         "duration_ms": 0
@@ -102,10 +96,7 @@
           "timeframe": "1D",
           "portfolio_state": {
             "total_value": 100000,
-            "cash": 50000,
-            "positions": {},
-            "drawdown": -0.03,
-            "price_hint": 100.0
+            "drawdown": -0.02
           },
           "signals": [
             {
@@ -126,7 +117,7 @@
           "agreement_ratio": 1.0,
           "signal_strength": 0.7
         },
-        "timestamp": "2026-03-21 00:43:26.157820+00:00",
+        "timestamp": "2026-03-21 00:45:14.643603+00:00",
         "success": true,
         "error": null,
         "duration_ms": 0
@@ -138,10 +129,7 @@
           "timeframe": "1D",
           "portfolio_state": {
             "total_value": 100000,
-            "cash": 50000,
-            "positions": {},
-            "drawdown": -0.03,
-            "price_hint": 100.0
+            "drawdown": -0.02
           },
           "signals": [
             {
@@ -159,7 +147,7 @@
           "risk": {
             "approved": true,
             "veto": false,
-            "risk_score": 0.16,
+            "risk_score": 0.14,
             "size_multiplier": 1.0,
             "flags": []
           }
@@ -167,11 +155,11 @@
         "output_data": {
           "approved": true,
           "veto": false,
-          "risk_score": 0.16,
+          "risk_score": 0.14,
           "size_multiplier": 1.0,
           "flags": []
         },
-        "timestamp": "2026-03-21 00:43:26.157825+00:00",
+        "timestamp": "2026-03-21 00:45:14.643610+00:00",
         "success": true,
         "error": null,
         "duration_ms": 0
@@ -183,10 +171,7 @@
           "timeframe": "1D",
           "portfolio_state": {
             "total_value": 100000,
-            "cash": 50000,
-            "positions": {},
-            "drawdown": -0.03,
-            "price_hint": 100.0
+            "drawdown": -0.02
           },
           "signals": [
             {
@@ -204,13 +189,13 @@
           "risk": {
             "approved": true,
             "veto": false,
-            "risk_score": 0.16,
+            "risk_score": 0.14,
             "size_multiplier": 1.0,
             "flags": []
           }
         },
         "output_data": {},
-        "timestamp": "2026-03-21 00:43:26.158384+00:00",
+        "timestamp": "2026-03-21 00:45:14.644229+00:00",
         "success": false,
         "error": "skipped_by_memory_guard:Known stale price feed",
         "duration_ms": 0
