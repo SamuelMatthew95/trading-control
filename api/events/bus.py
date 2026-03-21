@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
+from redis.exceptions import ConnectionError, ResponseError, TimeoutError
 
 from api.observability import log_structured
 
@@ -32,6 +33,11 @@ class EventBus:
         try:
             message_id = await self.redis.xadd(stream, payload)
             return str(message_id)
+        except (ConnectionError, TimeoutError) as exc:
+            log_structured(
+                "warning", "Redis connection error during publish", stream=stream, error=str(exc)
+            )
+            return None
         except Exception as exc:
             log_structured(
                 "warning", "Redis publish failed", stream=stream, error=str(exc)
@@ -46,19 +52,41 @@ class EventBus:
         count: int = 10,
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
-        messages = await self.redis.xreadgroup(
-            groupname=group,
-            consumername=consumer,
-            streams={stream: ">"},
-            count=count,
-            block=block_ms,
-        )
-        return self._decode_message_batch(messages)
+        try:
+            messages = await self.redis.xreadgroup(
+                groupname=group,
+                consumername=consumer,
+                streams={stream: ">"},
+                count=count,
+                block=block_ms,
+            )
+            return self._decode_message_batch(messages)
+        except (ConnectionError, TimeoutError) as exc:
+            log_structured(
+                "warning", "Redis connection error during consume", stream=stream, error=str(exc)
+            )
+            return []
+        except Exception as exc:
+            log_structured(
+                "warning", "Redis consume failed", stream=stream, error=str(exc)
+            )
+            return []
 
     async def acknowledge(self, stream: str, group: str, *ids: str) -> int:
         if not ids:
             return 0
-        return int(await self.redis.xack(stream, group, *ids))
+        try:
+            return int(await self.redis.xack(stream, group, *ids))
+        except (ConnectionError, TimeoutError) as exc:
+            log_structured(
+                "warning", "Redis connection error during acknowledge", stream=stream, error=str(exc)
+            )
+            return 0
+        except Exception as exc:
+            log_structured(
+                "warning", "Redis acknowledge failed", stream=stream, error=str(exc)
+            )
+            return 0
 
     async def create_groups(self) -> None:
         for stream in STREAMS:
