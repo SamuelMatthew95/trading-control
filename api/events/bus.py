@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -123,37 +124,29 @@ class EventBus:
     async def reclaim_stale(
         self, stream: str, group: str, min_idle_ms: int = 60000
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Reclaim stale messages with robust error handling."""
         try:
-            reclaimed = await self.redis.xautoclaim(
+            result = self.redis.xautoclaim(
                 stream, group, DEFAULT_GROUP, min_idle_ms, start_id="0-0"
             )
+            # Handle both sync and async Redis clients
+            if asyncio.iscoroutine(result):
+                reclaimed = await result
+            else:
+                reclaimed = result
             return self._decode_autoclaim(reclaimed)
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
-                "warning",
-                "Redis connection error during reclaim_stale",
-                stream=stream,
-                group=group,
-                error=str(exc)
+                "warning", "Redis connection error during reclaim_stale", stream=stream, group=group, error=str(exc)
             )
             return []
         except ResponseError as exc:
             log_structured(
-                "warning",
-                "Redis response error during reclaim_stale",
-                stream=stream,
-                group=group,
-                error=str(exc)
+                "warning", "Redis response error during reclaim_stale", stream=stream, group=group, error=str(exc)
             )
             return []
         except Exception as exc:
             log_structured(
-                "error",
-                "Unexpected error during reclaim_stale",
-                stream=stream,
-                group=group,
-                error=str(exc)
+                "error", "Unexpected error during reclaim_stale", stream=stream, group=group, error=str(exc)
             )
             return []
 
@@ -180,5 +173,23 @@ class EventBus:
         return decoded
 
 
-async def create_groups(redis_client: Redis) -> None:
+async def create_redis_groups(redis_client: Redis) -> None:
+    """Create all Redis streams and consumer groups."""
     await EventBus(redis_client).create_groups()
+
+
+def main() -> None:
+    """CLI entry point for manual Redis group creation."""
+    import asyncio
+    from api.redis_client import get_redis
+    
+    async def _init():
+        try:
+            redis_client = await get_redis()
+            await create_redis_groups(redis_client)
+            print("✅ Redis streams and groups initialized successfully")
+        except Exception as exc:
+            print(f"❌ Failed to initialize Redis streams and groups: {exc}")
+            raise
+    
+    asyncio.run(_init())
