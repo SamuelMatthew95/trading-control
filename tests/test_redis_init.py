@@ -14,8 +14,7 @@ from api.constants import (
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
 )
-from api.events.bus import DEFAULT_GROUP, EventBus
-from redis_init import ALL_STREAMS, ensure_redis_streams
+from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
 
 
 @pytest.mark.asyncio
@@ -25,7 +24,8 @@ async def test_happy_path_stream_creation(fake_redis):
     assert await fake_redis.dbsize() == 0
 
     # Run initialization
-    await ensure_redis_streams(fake_redis)
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
 
     # Verify all streams were created by checking groups exist
     expected_streams = {
@@ -36,6 +36,7 @@ async def test_happy_path_stream_creation(fake_redis):
         STREAM_RISK_ALERTS,
         STREAM_LEARNING_EVENTS,
         STREAM_SYSTEM_METRICS,
+        "agent_logs",  # Additional stream from EventBus.STREAMS
     }
 
     # Check that groups exist for all streams
@@ -53,14 +54,15 @@ async def test_happy_path_stream_creation(fake_redis):
 async def test_idempotency_multiple_calls(fake_redis):
     """Test 2: Idempotency - calling twice doesn't crash."""
     # First call - should succeed
-    await ensure_redis_streams(fake_redis)
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
 
     # Second call - should also succeed (BUSYGROUP handled silently)
     # This should not raise any exceptions
-    await ensure_redis_streams(fake_redis)
+    await event_bus.create_groups()
 
     # Verify groups still exist (no duplicates)
-    for stream in ALL_STREAMS:
+    for stream in STREAMS:
         groups = await fake_redis.xinfo_groups(stream)  # async call
         assert len(groups) == 1  # Only one group per stream
 
@@ -68,11 +70,11 @@ async def test_idempotency_multiple_calls(fake_redis):
 @pytest.mark.asyncio
 async def test_all_streams_have_consumers(fake_redis):
     """Test that all 7 streams can be consumed after initialization."""
-    await ensure_redis_streams(fake_redis)
     event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
 
     # Test consuming from each stream
-    for stream in ALL_STREAMS:
+    for stream in STREAMS:
         try:
             messages = await event_bus.consume(
                 stream, DEFAULT_GROUP, f"test_consumer_{stream}"
@@ -96,7 +98,8 @@ async def test_error_handling_unexpected_redis_error(fake_redis):
 
     # Should raise the unexpected error
     with pytest.raises(ResponseError) as exc_info:
-        await ensure_redis_streams(fake_redis)
+        event_bus = EventBus(fake_redis)
+        await event_bus.create_groups()
 
     assert "CONNECTION_LOST" in str(exc_info.value)
 
@@ -110,10 +113,10 @@ async def test_error_handling_unexpected_redis_error(fake_redis):
 async def test_stream_creation_with_messages(fake_redis):
     """Test that streams work correctly with actual messages."""
     # Initialize streams
-    await ensure_redis_streams(fake_redis)
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
 
     # Add a test message to a stream using EventBus.publish
-    event_bus = EventBus(fake_redis)
     message_id = await event_bus.publish(
         "market_ticks",
         {"symbol": "BTC/USD", "price": "67000", "timestamp": "1234567890"},
@@ -137,10 +140,10 @@ async def test_stream_creation_with_messages(fake_redis):
 @pytest.mark.asyncio
 async def test_group_id_parameter(fake_redis):
     """Test that the group is created with the correct id parameter ($ for new messages only)."""
-    await ensure_redis_streams(fake_redis)
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
 
     # Add a message using EventBus.publish
-    event_bus = EventBus(fake_redis)
     message_id = await event_bus.publish("signals", {"signal": "BUY", "symbol": "ETH/USD"})
     assert message_id is not None
 

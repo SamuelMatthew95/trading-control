@@ -173,5 +173,23 @@ class EventBus:
         return decoded
 
 
-async def create_groups(redis_client: Redis) -> None:
+async def create_redis_groups(redis_client: Redis) -> None:
+    """Create all Redis streams and consumer groups."""
     await EventBus(redis_client).create_groups()
+
+
+def main() -> None:
+    """CLI entry point for manual Redis group creation."""
+    import asyncio
+    from api.redis_client import get_redis
+    
+    async def _init():
+        try:
+            redis_client = await get_redis()
+            await create_redis_groups(redis_client)
+            print("✅ Redis streams and groups initialized successfully")
+        except Exception as exc:
+            print(f"❌ Failed to initialize Redis streams and groups: {exc}")
+            raise
+    
+    asyncio.run(_init())

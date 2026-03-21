@@ -33,7 +33,7 @@ from api.observability import (
     request_id_ctx,
 )
 from api.redis_client import close_redis, get_redis
-from redis_init import ensure_redis_streams
+from api.events.bus import EventBus, create_redis_groups
 from api.routes.analyze import router as analyze_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.dlq import router as dlq_router
@@ -292,10 +292,8 @@ async def lifespan(app: FastAPI):
         app.state.websocket_broadcaster = get_broadcaster()
         if redis_client is not None:
             # Ensure all Redis streams and consumer groups exist before starting any workers
-            await ensure_redis_streams(redis_client)
-            
             event_bus = EventBus(redis_client)
-            await event_bus.create_groups()
+            await create_redis_groups(redis_client)
 
             # Start the WebSocket broadcaster
             await app.state.websocket_broadcaster.start(redis_client)
