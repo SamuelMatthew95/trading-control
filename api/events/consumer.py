@@ -42,7 +42,11 @@ class BaseStreamConsumer(ABC):
         raise NotImplementedError
 
     async def _run(self) -> None:
-        reclaimed = await self.bus.reclaim_stale(self.stream, self.group)
+        try:
+            reclaimed = await self.bus.reclaim_stale(self.stream, self.group)
+        except Exception as exc:
+            log_structured("warning", "Redis reclaim failed, skipping", error=str(exc))
+            reclaimed = []
         for msg_id, data in reclaimed:
             await self._handle_message(msg_id, data)
         while self._running:

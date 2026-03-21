@@ -27,8 +27,12 @@ class EventBus:
 
     async def publish(self, stream: str, event: dict[str, Any]) -> str:
         payload = {"payload": json.dumps(event, default=str)}
-        message_id = await self.redis.xadd(stream, payload)
-        return str(message_id)
+        try:
+            message_id = await self.redis.xadd(stream, payload)
+            return str(message_id)
+        except Exception as exc:
+            log_structured("warning", "Redis publish failed", stream=stream, error=str(exc))
+            return None
 
     async def consume(self, stream: str, group: str, consumer: str, count: int = 10, block_ms: int = 500) -> list[tuple[str, dict[str, Any]]]:
         messages = await self.redis.xreadgroup(

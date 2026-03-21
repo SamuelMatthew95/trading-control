@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Numeric, String, Text
 
 from api.database import Base
@@ -168,6 +168,10 @@ class ErrorResponse(BaseModel):
     error: str
     detail: str
     timestamp: datetime
+
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        return value.isoformat()
 
 
 class HealthResponse(BaseModel):

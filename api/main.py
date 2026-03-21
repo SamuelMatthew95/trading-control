@@ -31,6 +31,7 @@ from api.observability import (
 from api.redis_client import close_redis, get_redis
 from api.routes.analyze import router as analyze_router
 from api.routes.dashboard import router as dashboard_router
+from api.routes.dlq import router as dlq_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.monitoring import router as monitoring_router
@@ -398,6 +399,7 @@ app.include_router(trades_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")
 app.include_router(monitoring_router, prefix="/api")
+app.include_router(dlq_router, prefix="/api")
 app.include_router(ws_router)
 
 
@@ -449,7 +451,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content=ErrorResponse(
             error="Internal Server Error",
             detail="Unexpected server error",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         ).model_dump(),
     )
 
