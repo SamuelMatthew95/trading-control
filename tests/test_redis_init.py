@@ -70,10 +70,10 @@ async def test_startup_order_fix(fake_redis):
     """Test 3: Startup order - proves the fix solves the original bug."""
     # Step 1: Worker tries to read before init - should fail
     event_bus = EventBus(fake_redis)
-
+    
     with pytest.raises(ResponseError) as exc_info:
         await event_bus.consume("market_ticks", DEFAULT_GROUP, "test_consumer")
-
+    
     # fakeredis gives a different error message, but it's still a NOGROUP-like error
     error_msg = str(exc_info.value)
     assert "key to exist" in error_msg or "NOGROUP" in error_msg
@@ -82,15 +82,11 @@ async def test_startup_order_fix(fake_redis):
     await ensure_redis_streams(fake_redis)
 
     # Step 3: Worker tries to read after init - should succeed
-    try:
-        # This should not raise an exception and should return empty list (no messages)
-        messages = await event_bus.consume(
-            "market_ticks", DEFAULT_GROUP, "test_consumer"
-        )
-        assert isinstance(messages, list)  # Should return a list (empty is fine)
-        assert len(messages) == 0  # Should be empty since no messages were added
-    except ResponseError as exc:
-        pytest.fail(f"XREADGROUP failed after init: {exc}")
+    # EventBus.consume() catches ResponseError internally and returns empty list
+    # So we should get an empty list without any exception being raised
+    messages = await event_bus.consume("market_ticks", DEFAULT_GROUP, "test_consumer")
+    assert isinstance(messages, list)  # Should return a list (empty is fine)
+    assert len(messages) == 0  # Should be empty since no messages were added
 
 
 @pytest.mark.asyncio
