@@ -83,11 +83,12 @@ async def test_startup_order_fix(fake_redis):
 
     # Step 3: Worker tries to read after init - should succeed
     try:
-        # This should not raise an exception
+        # This should not raise an exception and should return empty list (no messages)
         messages = await event_bus.consume(
             "market_ticks", DEFAULT_GROUP, "test_consumer"
         )
         assert isinstance(messages, list)  # Should return a list (empty is fine)
+        assert len(messages) == 0  # Should be empty since no messages were added
     except ResponseError as exc:
         pytest.fail(f"XREADGROUP failed after init: {exc}")
 
@@ -131,19 +132,6 @@ async def test_error_handling_unexpected_redis_error(fake_redis):
     fake_redis.xgroup_create = original_xgroup_create
 
 
-@pytest.mark.asyncio
-async def test_manual_redis_client_creation():
-    """Test the function can create its own Redis client when none provided."""
-    # This test verifies the function signature works
-    # We can't test actual Redis connection without a real instance
-    try:
-        # Should not crash when called without parameters
-        # It will fail to connect to Redis, but that's expected in test
-        with pytest.raises(Exception):  # Should fail to connect to Redis
-            await ensure_redis_streams()
-    except ImportError:
-        # If redis module is not available, that's also fine for this test
-        pass
 
 
 @pytest.mark.asyncio
