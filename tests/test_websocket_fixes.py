@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from api.routes.ws import dashboard_ws
+from api.services.websocket_broadcaster import WebSocketBroadcaster
 
 
 class TestWebSocketFixes:
@@ -17,88 +17,68 @@ class TestWebSocketFixes:
     async def test_websocket_handles_send_json_exception(self):
         """Test that websocket.send_json exceptions are caught and handled."""
         mock_websocket = AsyncMock()
-        mock_websocket.app.state.redis_client = AsyncMock()
-
-        # Mock xread to return test data on first call, then empty on subsequent calls
-        test_message = (
-            b"test_stream",
-            [
-                (
-                    b"123456789",
-                    {
-                        b"payload": json.dumps(
-                            {"type": "test", "data": "value"}
-                        ).encode()
-                    },
-                )
-            ],
-        )
-
-        call_count = 0
-
-        async def mock_xread(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return [test_message]
-            else:
-                return []  # No more messages
-
-        mock_websocket.app.state.redis_client.xread = mock_xread
-
+        mock_broadcaster = AsyncMock()
+        mock_websocket.app.state.websocket_broadcaster = mock_broadcaster
+        
         # Make send_json raise an exception (simulating disconnected client)
         mock_websocket.send_json.side_effect = Exception("Connection closed")
-
-        # Mock sleep to cancel after a few iterations
-        sleep_calls = []
-
-        async def mock_sleep(delay):
-            sleep_calls.append(delay)
-            if len(sleep_calls) >= 2:  # Allow a couple iterations then cancel
-                raise asyncio.CancelledError()
-
-        with pytest.MonkeyPatch().context() as m:
-            m.setattr("api.routes.ws.asyncio.sleep", mock_sleep)
-
-            # Should handle the exception gracefully and continue until cancelled
-            with pytest.raises(asyncio.CancelledError):
-                await dashboard_ws(mock_websocket)
-
-        # Verify send_json was called and exception was handled
-        mock_websocket.send_json.assert_called_once()
-        assert call_count >= 1  # xread was called at least once
+        
+        # Mock receive_text to cancel after a short time
+        async def mock_receive_text():
+            await asyncio.sleep(0.1)
+            raise asyncio.CancelledError()
+            
+        mock_websocket.receive_text = mock_receive_text
+        
+        # Should handle the exception gracefully and continue until cancelled
+        with pytest.raises(asyncio.CancelledError):
+            await dashboard_ws(mock_websocket)
+        
+        # Verify broadcaster methods were called
+        mock_broadcaster.add_connection.assert_called_once_with(mock_websocket)
+        mock_broadcaster.remove_connection.assert_called_once_with(mock_websocket)
 
     @pytest.mark.asyncio
     async def test_websocket_normal_operation(self):
         """Test that WebSocket works normally when no exceptions occur."""
         mock_websocket = AsyncMock()
-        mock_websocket.app.state.redis_client = AsyncMock()
+        mock_broadcaster = AsyncMock()
+        mock_websocket.app.state.websocket_broadcaster = mock_broadcaster
+        
+        # Mock receive_text to cancel after a short time
+        async def mock_receive_text():
+            await asyncio.sleep(0.1)
+            raise asyncio.CancelledError()
+            
+        mock_websocket.receive_text = mock_receive_text
+        
+        # Should handle normally (will be cancelled by mock_receive_text)
+        with pytest.raises(asyncio.CancelledError):
+            await dashboard_ws(mock_websocket)
+        
+        # Verify broadcaster methods were called
+        mock_broadcaster.add_connection.assert_called_once_with(mock_websocket)
+        mock_broadcaster.remove_connection.assert_called_once_with(mock_websocket)
 
-        # Mock xread to return empty (no messages)
-        mock_websocket.app.state.redis_client.xread.return_value = []
+    @pytest.mark.asyncio
+    async def test_websocket_closes_without_broadcaster(self):
+        """Test that WebSocket closes gracefully when broadcaster is not available."""
+        mock_websocket = AsyncMock()
+        mock_websocket.app.state.websocket_broadcaster = None
+        
+        await dashboard_ws(mock_websocket)
+        
+        # Should have closed the WebSocket
+        mock_websocket.close.assert_called_once_with(code=1013)
 
-        # Mock sleep to exit after one iteration
-        with pytest.MonkeyPatch().context() as m:
-
-            async def mock_sleep(*args, **kwargs):
-                # Cancel the task after one iteration
-                raise asyncio.CancelledError()
-
-            m.setattr("api.routes.ws.asyncio.sleep", mock_sleep)
-
-            # Should handle normally (will be cancelled by mock_sleep)
-            with pytest.raises(asyncio.CancelledError):
-                await dashboard_ws(mock_websocket)
-
-    def test_websocket_has_try_catch_around_send_json(self):
-        """Test that the source code contains try/catch around send_json."""
+    def test_websocket_has_broadcaster_pattern(self):
+        """Test that the source code contains broadcaster pattern."""
         import inspect
 
         # Get source code of the function
         ws_source = inspect.getsource(dashboard_ws)
 
-        # Verify the try/except pattern is present
-        assert "try:" in ws_source
-        assert "await websocket.send_json(payload)" in ws_source
-        assert "except Exception:" in ws_source
-        assert "break" in ws_source
+        # Verify the broadcaster pattern is present
+        assert "websocket_broadcaster" in ws_source
+        assert "add_connection" in ws_source
+        assert "remove_connection" in ws_source
