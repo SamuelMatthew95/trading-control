@@ -13,6 +13,7 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
+    STREAM_AGENT_LOGS,
 )
 from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
 
@@ -36,7 +37,7 @@ async def test_happy_path_stream_creation(fake_redis):
         STREAM_RISK_ALERTS,
         STREAM_LEARNING_EVENTS,
         STREAM_SYSTEM_METRICS,
-        "agent_logs",  # Additional stream from EventBus.STREAMS
+        STREAM_AGENT_LOGS,  # Use constant instead of hardcoded string
     }
 
     # Check that groups exist for all streams

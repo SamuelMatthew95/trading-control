@@ -23,6 +23,7 @@ STREAM_EXECUTIONS: Final[str] = "executions"
 STREAM_RISK_ALERTS: Final[str] = "risk_alerts"
 STREAM_LEARNING_EVENTS: Final[str] = "learning_events"
 STREAM_SYSTEM_METRICS: Final[str] = "system_metrics"
+STREAM_AGENT_LOGS: Final[str] = "agent_logs"
 
 # Default values
 DEFAULT_PAPER_CASH: Final[float] = 100_000.0
