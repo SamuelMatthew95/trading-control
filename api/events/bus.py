@@ -8,6 +8,8 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from api.observability import log_structured
+
 STREAMS = (
     "market_ticks",
     "signals",
@@ -27,13 +29,29 @@ class EventBus:
 
     async def publish(self, stream: str, event: dict[str, Any]) -> str:
         payload = {"payload": json.dumps(event, default=str)}
-        message_id = await self.redis.xadd(stream, payload)
-        return str(message_id)
+        try:
+            message_id = await self.redis.xadd(stream, payload)
+            return str(message_id)
+        except Exception as exc:
+            log_structured(
+                "warning", "Redis publish failed", stream=stream, error=str(exc)
+            )
+            return None
 
-    async def consume(self, stream: str, group: str, consumer: str, count: int = 10, block_ms: int = 500) -> list[tuple[str, dict[str, Any]]]:
+    async def consume(
+        self,
+        stream: str,
+        group: str,
+        consumer: str,
+        count: int = 10,
+        block_ms: int = 500,
+    ) -> list[tuple[str, dict[str, Any]]]:
         messages = await self.redis.xreadgroup(
-            groupname=group, consumername=consumer,
-            streams={stream: ">"}, count=count, block=block_ms,
+            groupname=group,
+            consumername=consumer,
+            streams={stream: ">"},
+            count=count,
+            block=block_ms,
         )
         return self._decode_message_batch(messages)
 
@@ -45,7 +63,9 @@ class EventBus:
     async def create_groups(self) -> None:
         for stream in STREAMS:
             try:
-                await self.redis.xgroup_create(stream, DEFAULT_GROUP, id="0", mkstream=True)
+                await self.redis.xgroup_create(
+                    stream, DEFAULT_GROUP, id="0", mkstream=True
+                )
             except ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     raise
@@ -60,12 +80,25 @@ class EventBus:
                 groups = []
             lag = 0
             for g in groups:
-                lag = max(lag, int(g.get("lag") or g.get("pending") or g.get(b"lag") or g.get(b"pending") or 0))
+                lag = max(
+                    lag,
+                    int(
+                        g.get("lag")
+                        or g.get("pending")
+                        or g.get(b"lag")
+                        or g.get(b"pending")
+                        or 0
+                    ),
+                )
             info[stream] = {"lag": lag, "length": length, "groups": len(groups)}
         return info
 
-    async def reclaim_stale(self, stream: str, group: str, min_idle_ms: int = 60000) -> list[tuple[str, dict[str, Any]]]:
-        reclaimed = await self.redis.xautoclaim(stream, group, DEFAULT_GROUP, min_idle_ms, start_id="0-0")
+    async def reclaim_stale(
+        self, stream: str, group: str, min_idle_ms: int = 60000
+    ) -> list[tuple[str, dict[str, Any]]]:
+        reclaimed = await self.redis.xautoclaim(
+            stream, group, DEFAULT_GROUP, min_idle_ms, start_id="0-0"
+        )
         return self._decode_autoclaim(reclaimed)
 
     def _decode_autoclaim(self, reclaimed: Any) -> list[tuple[str, dict[str, Any]]]:

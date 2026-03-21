@@ -106,7 +106,6 @@ async def trades_options() -> Dict[str, Any]:
 async def start_trading_bot() -> Dict[str, Any]:
     """Start the trading bot with standardized response format."""
     try:
-        global bot_state
         bot_state.update(
             {
                 "running": True,
@@ -134,7 +133,6 @@ async def start_trading_bot() -> Dict[str, Any]:
 async def stop_trading_bot() -> Dict[str, Any]:
     """Stop the trading bot with standardized response format."""
     try:
-        global bot_state
         bot_state.update(
             {
                 "running": False,
@@ -162,7 +160,6 @@ async def stop_trading_bot() -> Dict[str, Any]:
 async def get_trading_status() -> Dict[str, Any]:
     """Get current trading bot status with standardized response format."""
     try:
-        global bot_state
 
         return StandardResponse(
             success=True,
@@ -191,7 +188,6 @@ async def get_trading_status() -> Dict[str, Any]:
 async def emergency_stop_all() -> Dict[str, Any]:
     """Emergency stop all trading activities with standardized response format."""
     try:
-        global bot_state
         bot_state.update(
             {
                 "running": False,
@@ -215,11 +211,10 @@ async def emergency_stop_all() -> Dict[str, Any]:
         )
 
 
-@router.get("/bots/status")
+@router.get("/trading/bots")
 async def get_bots_status() -> Dict[str, Any]:
     """Get status of all bots for dashboard with standardized response format."""
     try:
-        global bot_state
 
         # Simulate multiple bots - in production this would query database
         bots = [

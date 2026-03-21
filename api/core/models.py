@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Numeric, String, Text
 
 from api.database import Base
@@ -169,6 +169,10 @@ class ErrorResponse(BaseModel):
     detail: str
     timestamp: datetime
 
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        return value.isoformat()
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -193,8 +197,14 @@ class Trade(Base):
     exit_price = Column(Float, nullable=True)
     pnl = Column(Float, nullable=True)
     outcome = Column(String, default="OPEN")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class AgentPerformance(Base):
@@ -207,8 +217,14 @@ class AgentPerformance(Base):
     avg_response_time = Column(Float, default=0.0)
     accuracy_score = Column(Float, default=0.0)
     improvement_areas = Column(Text, default="[]")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class Run(Base):
@@ -228,14 +244,20 @@ class Run(Base):
     scoring_status = Column(String, nullable=False, default="pending", index=True)
     scoring_attempt_count = Column(Integer, nullable=False, default=0)
     last_scoring_attempt_at = Column(DateTime(timezone=True), nullable=True)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
     scoring_abandoned_at = Column(DateTime(timezone=True), nullable=True)
     correction_verification_status = Column(
         String, nullable=False, default="pending", index=True
     )
     decision_json = Column(Text, nullable=False)
     trace_json = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+    )
 
 
 class AgentRun(Base):
@@ -245,7 +267,9 @@ class AgentRun(Base):
     task_id = Column(String, nullable=False, index=True)
     decision_json = Column(Text, nullable=False)
     trace_json = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class TraceStep(Base):
@@ -267,7 +291,9 @@ class TraceStep(Base):
     tokens_used = Column(Integer, nullable=True)
     context_limit = Column(Integer, nullable=True)
     token_cost_usd = Column(Float, default=0.0)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class VectorMemoryRecord(Base):
@@ -280,7 +306,9 @@ class VectorMemoryRecord(Base):
     content = Column(Text, nullable=False)
     embedding_json = Column(Text, nullable=False)
     metadata_json = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     correction_verified_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -295,8 +323,14 @@ class StrategyDNA(Base):
     baseline_version = Column(String, nullable=True)
     state = Column(String, nullable=False, default="active")
     last_promoted_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class Insight(Base):
@@ -310,7 +344,9 @@ class Insight(Base):
     payload_json = Column(Text, nullable=True)
     supporting_run_count = Column(Integer, default=1)
     dismissed = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class FeedbackJob(Base):
@@ -320,7 +356,9 @@ class FeedbackJob(Base):
     run_id = Column(Integer, nullable=False, index=True)
     status = Column(String, nullable=False, default="pending", index=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -333,7 +371,9 @@ class Signal(Base):
     action_label = Column(String, nullable=False)
     action_type = Column(String, nullable=False)
     run_id = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+    )
     dismissed = Column(Boolean, default=False, index=True)
     dismissed_at = Column(DateTime(timezone=True), nullable=True)
     source_entity_id = Column(String, nullable=True, index=True)
@@ -346,7 +386,11 @@ class TaskTypeBaseline(Base):
 
     task_type = Column(String, primary_key=True, index=True)
     baseline_slippage = Column(Float, nullable=False)
-    established_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    established_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     last_feedback_run_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -361,8 +405,12 @@ class SystemState(Base):
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(String, primary_key=True, index=True)  # UUID stored as String for SQLite compatibility
-    strategy_id = Column(String, nullable=False, index=True)  # UUID stored as String for SQLite compatibility
+    id = Column(
+        String, primary_key=True, index=True
+    )  # UUID stored as String for SQLite compatibility
+    strategy_id = Column(
+        String, nullable=False, index=True
+    )  # UUID stored as String for SQLite compatibility
     symbol = Column(String(64), nullable=False)
     side = Column(String(16), nullable=False)
     qty = Column(Numeric(precision=18, scale=8), nullable=False)
@@ -370,15 +418,26 @@ class Order(Base):
     status = Column(String(32), nullable=False, index=True)
     idempotency_key = Column(String(255), nullable=False, unique=True, index=True)
     broker_order_id = Column(String(255), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     filled_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class SystemMetric(Base):
     __tablename__ = "system_metrics"
 
-    id = Column(String, primary_key=True, index=True)  # UUID stored as String for SQLite compatibility
+    id = Column(
+        String, primary_key=True, index=True
+    )  # UUID stored as String for SQLite compatibility
     metric_name = Column(String(255), nullable=False, index=True)
     value = Column(Float, nullable=False)
     labels = Column(Text, nullable=True)  # JSONB stored as Text in SQLite
-    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    timestamp = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )

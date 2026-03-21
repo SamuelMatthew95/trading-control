@@ -73,4 +73,5 @@ RedisDep = Annotated[Redis, Depends(get_redis_client)]
 
 # Re-export existing dependencies
 from api.db import get_db
+
 DBSessionDep = Annotated[get_db(), Depends(get_db)]

@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
 from sqlalchemy import func, select
@@ -133,13 +133,13 @@ class FeedbackLearningService:
         try:
             result = await self.reinforce(session, request)
             job.status = "done"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             await session.flush()
             return result
         except Exception as exc:  # noqa: BLE001
             job.status = "failed"
             job.error = str(exc)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             await session.flush()
             raise
 
@@ -417,12 +417,12 @@ class FeedbackLearningService:
                     segment_text=f"Prioritize rule {step.promoted_rule_key}",
                     is_active=True,
                     value_delta_usd=100.0,
-                    last_promoted_at=datetime.utcnow(),
+                    last_promoted_at=datetime.now(timezone.utc),
                 )
                 session.add(row)
             else:
                 row.is_active = True
-                row.last_promoted_at = datetime.utcnow()
+                row.last_promoted_at = datetime.now(timezone.utc)
                 row.value_delta_usd = float(row.value_delta_usd or 0.0) + 100.0
             promoted.append(step.promoted_rule_key)
             delta += 100.0

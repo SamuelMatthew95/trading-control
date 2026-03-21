@@ -1,7 +1,7 @@
 """Monitoring system endpoints for production dashboard."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException
@@ -113,7 +113,7 @@ async def get_monitoring_summary() -> Dict[str, Any]:
             "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
             "agents_active": metrics.get("agents", {}).get("agents_active", 0),
             "data_freshness_ms": metrics.get("data", {}).get("data_freshness_ms", 0),
-            "last_update": datetime.utcnow().isoformat(),
+            "last_update": datetime.now(timezone.utc).isoformat(),
         }
         return {"success": True, "summary": summary}
     except Exception as e:
@@ -128,7 +128,7 @@ async def monitoring_health_check() -> Dict[str, Any]:
         return {
             "status": "healthy",
             "monitoring_active": True,
-            "last_update": datetime.utcnow().isoformat(),
+            "last_update": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         logger.error(f"Error in monitoring health check: {str(e)}")

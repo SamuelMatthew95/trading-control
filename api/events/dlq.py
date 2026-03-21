@@ -13,9 +13,24 @@ class DLQManager:
         self.redis = redis_client
         self.bus = bus
 
-    async def push(self, stream: str, event_id: str, payload: dict[str, Any], error: str, retries: int) -> None:
-        record = {"stream": stream, "event_id": event_id, "payload": payload, "error": error, "retries": retries}
-        await self.redis.hset(f"dlq:{stream}", event_id, json.dumps(record, default=str))
+    async def push(
+        self,
+        stream: str,
+        event_id: str,
+        payload: dict[str, Any],
+        error: str,
+        retries: int,
+    ) -> None:
+        record = {
+            "stream": stream,
+            "event_id": event_id,
+            "payload": payload,
+            "error": error,
+            "retries": retries,
+        }
+        await self.redis.hset(
+            f"dlq:{stream}", event_id, json.dumps(record, default=str)
+        )
 
     async def should_dlq(self, event_id: str) -> bool:
         retries_key = f"dlq:retries:{event_id}"

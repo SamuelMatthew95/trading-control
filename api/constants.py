@@ -54,8 +54,14 @@ LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
 
 # Valid symbols for trading
 VALID_SYMBOLS: Final[set[str]] = {
-    "BTC/USD", "ETH/USD", "SOL/USD",
-    "SPY", "AAPL", "NVDA", "MSFT", "GOOGL"
+    "BTC/USD",
+    "ETH/USD",
+    "SOL/USD",
+    "SPY",
+    "AAPL",
+    "NVDA",
+    "MSFT",
+    "GOOGL",
 }
 
 # Initial symbol prices for paper mode

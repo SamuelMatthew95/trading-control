@@ -41,7 +41,12 @@ class ICUpdater:
         now = (reference_dt or datetime.now(timezone.utc)).replace(tzinfo=None)
         since = now - timedelta(days=30)
         async with AsyncSessionFactory() as session:
-            result = await session.execute(text("SELECT factor_attribution, pnl FROM trade_performance WHERE created_at >= :since ORDER BY created_at ASC"), {"since": since})
+            result = await session.execute(
+                text(
+                    "SELECT factor_attribution, pnl FROM trade_performance WHERE created_at >= :since ORDER BY created_at ASC"
+                ),
+                {"since": since},
+            )
             rows = result.all()
             grouped: defaultdict[str, list[tuple[float, float]]] = defaultdict(list)
             for factor_attribution, pnl in rows:
@@ -49,15 +54,31 @@ class ICUpdater:
                 realized_return = float(pnl or 0.0)
                 for factor_name, score in parsed.items():
                     try:
-                        grouped[str(factor_name)].append((float(score), realized_return))
+                        grouped[str(factor_name)].append(
+                            (float(score), realized_return)
+                        )
                     except (TypeError, ValueError):
                         continue
-            ic_scores: dict[str, float] = {k: round(self._spearman(v), 6) for k, v in grouped.items()}
+            ic_scores: dict[str, float] = {
+                k: round(self._spearman(v), 6) for k, v in grouped.items()
+            }
             positive = {f: max(s, 0.0) for f, s in ic_scores.items() if not isnan(s)}
             total = sum(positive.values())
-            weights = {f: round(v / total, 6) if total > 0 else 0.0 for f, v in sorted(positive.items())}
+            weights = {
+                f: round(v / total, 6) if total > 0 else 0.0
+                for f, v in sorted(positive.items())
+            }
             for factor_name, ic_score in ic_scores.items():
-                await session.execute(text("INSERT INTO factor_ic_history (factor_name, ic_score, computed_at) VALUES (:factor_name, :ic_score, :computed_at)"), {"factor_name": factor_name, "ic_score": ic_score, "computed_at": now})
+                await session.execute(
+                    text(
+                        "INSERT INTO factor_ic_history (factor_name, ic_score, computed_at) VALUES (:factor_name, :ic_score, :computed_at)"
+                    ),
+                    {
+                        "factor_name": factor_name,
+                        "ic_score": ic_score,
+                        "computed_at": now,
+                    },
+                )
             await session.commit()
         await self.redis.set("alpha:ic_weights", json.dumps(weights, default=str))
         return weights
@@ -66,7 +87,9 @@ class ICUpdater:
         while self._running:
             try:
                 now = datetime.now(timezone.utc)
-                next_midnight = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) + timedelta(days=1)
+                next_midnight = datetime(
+                    now.year, now.month, now.day, tzinfo=timezone.utc
+                ) + timedelta(days=1)
                 await asyncio.sleep(max((next_midnight - now).total_seconds(), 1))
                 await self.run_once(next_midnight)
             except asyncio.CancelledError:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 
 from fastapi import HTTPException
@@ -66,7 +66,7 @@ class AgentLearningService:
             row.total_calls = perf["total_calls"]
             row.successful_calls = perf["successful_calls"]
             row.avg_response_time = perf["avg_response_time"]
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
 
     async def get_agent_performance(
         self, agent_name: str, session: AsyncSession
@@ -119,7 +119,7 @@ class AgentLearningService:
 
         for attempt in range(min(retries, len(backoff))):
             row.scoring_attempt_count = int(row.scoring_attempt_count or 0) + 1
-            row.last_scoring_attempt_at = datetime.utcnow()
+            row.last_scoring_attempt_at = datetime.now(timezone.utc)
             try:
                 await self.post_run_scoring(run_id, session)
                 return
@@ -136,7 +136,8 @@ class AgentLearningService:
                     select(Run.id)
                     .where(
                         Run.scoring_status == "failed",
-                        Run.created_at >= datetime.utcnow() - timedelta(hours=24),
+                        Run.created_at
+                        >= datetime.now(timezone.utc) - timedelta(hours=24),
                         Run.scoring_attempt_count < 10,
                     )
                     .order_by(Run.created_at.asc())

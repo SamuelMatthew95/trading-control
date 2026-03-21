@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,7 +36,7 @@ async def analyze_trade(
         if not request.symbol or not request.price:
             raise HTTPException(status_code=400, detail="Symbol and price are required")
 
-        start = datetime.utcnow()
+        start = datetime.now(timezone.utc)
 
         async def _run_analysis():
             return trading_service.analyze(
@@ -75,7 +75,7 @@ async def analyze_trade(
             ) from exc
 
         async with get_async_session() as session:
-            elapsed = (datetime.utcnow() - start).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             for agent in [
                 "SIGNAL_AGENT",
                 "RISK_AGENT",
@@ -101,7 +101,9 @@ async def analyze_trade(
             "task_completed",
             symbol=request.symbol,
             task="analyze",
-            latency_ms=round((datetime.utcnow() - start).total_seconds() * 1000, 2),
+            latency_ms=round(
+                (datetime.now(timezone.utc) - start).total_seconds() * 1000, 2
+            ),
             token_usage=estimated_tokens,
             cost_usd=estimated_cost_usd,
         )
@@ -111,7 +113,7 @@ async def analyze_trade(
             decision=result.get("DECISION", "FLAT"),
             confidence=float(result.get("confidence", 0.0)),
             reasoning=result.get("reasoning", "Analysis completed"),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             position_size=result.get("position_size"),
             risk_assessment=result.get("risk_assessment"),
         )
