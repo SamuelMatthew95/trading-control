@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Protocol
 
@@ -517,7 +517,7 @@ class MultiAgentOrchestrator:
                 agent_name,
                 input_data,
                 output,
-                datetime.utcnow(),
+                datetime.now(timezone.utc),
                 True,
                 duration_ms=int((time.time() - start) * 1000),
             )
@@ -528,7 +528,7 @@ class MultiAgentOrchestrator:
                 agent_name,
                 input_data,
                 {},
-                datetime.utcnow(),
+                datetime.now(timezone.utc),
                 False,
                 error=str(exc),
                 duration_ms=int((time.time() - start) * 1000),
@@ -539,7 +539,7 @@ class MultiAgentOrchestrator:
     def analyze_trade(
         self, asset: str, timeframe: str, portfolio_state: Dict[str, Any]
     ) -> Dict[str, Any]:
-        task_id = f"{asset}:{datetime.utcnow().isoformat()}"
+        task_id = f"{asset}:{datetime.now(timezone.utc).isoformat()}"
         plan = self.planner.build_plan(asset, timeframe)
         context: Dict[str, Any] = {
             "asset": asset,
@@ -589,7 +589,7 @@ class MultiAgentOrchestrator:
                         agent_name,
                         context.copy(),
                         {},
-                        datetime.utcnow(),
+                        datetime.now(timezone.utc),
                         False,
                         error=error_text,
                         duration_ms=int((time.time() - step_start) * 1000),
@@ -608,7 +608,7 @@ class MultiAgentOrchestrator:
                     step.name.upper(),
                     context.copy(),
                     context.get(step.name, {}),
-                    datetime.utcnow(),
+                    datetime.now(timezone.utc),
                     True,
                     duration_ms=int((time.time() - step_start) * 1000),
                 )
@@ -666,7 +666,7 @@ class MultiAgentOrchestrator:
         log_entry = {
             "trace_summary": {"guard_hits": self.executor.tools.guard_hits},
             "task_id": task_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "decision": decision,
             "trace": [asdict(call) for call in self.agent_calls],
         }

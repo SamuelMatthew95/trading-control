@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -53,7 +53,7 @@ class TradingService:
         self.virtual_trades.append(
             VirtualTrade(
                 symbol=symbol,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
                 intended_price=price,
                 decision=result.get("DECISION", "FLAT"),
                 confidence=float(result.get("confidence", 0)),
@@ -69,7 +69,7 @@ class TradingService:
         slippage_variance = abs(observed_price - trade.intended_price) / max(
             trade.intended_price, 1
         )
-        age_seconds = (datetime.utcnow() - trade.created_at) / timedelta(seconds=1)
+        age_seconds = (datetime.now(timezone.utc) - trade.created_at) / timedelta(seconds=1)
         profitable = (
             observed_price > trade.intended_price and trade.decision == "LONG"
         ) or (observed_price < trade.intended_price and trade.decision == "SHORT")

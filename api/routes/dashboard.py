@@ -68,7 +68,7 @@ def _trend(series: List[float | None]) -> str:
 @router.get("/dashboard/pnl")
 async def dashboard_pnl(response: Response, reference_dt: Optional[datetime] = None):
     try:
-        now = reference_dt or datetime.utcnow()
+        now = reference_dt or datetime.now(timezone.utc)
         today = _utc_midnight(now, 0)
         yesterday = _utc_midnight(now, -1)
         thirty_days = now - timedelta(days=30)
@@ -165,7 +165,7 @@ async def dashboard_learning_velocity(
     response: Response, reference_dt: Optional[datetime] = None
 ):
     try:
-        now = reference_dt or datetime.utcnow()
+        now = reference_dt or datetime.now(timezone.utc)
         since = _utc_midnight(now, -29)
         async with get_async_session() as session:
             pass_rows = (
@@ -287,7 +287,7 @@ async def dashboard_health_signals(
     response: Response, reference_dt: Optional[datetime] = None
 ):
     try:
-        now = reference_dt or datetime.utcnow()
+        now = reference_dt or datetime.now(timezone.utc)
         async with get_async_session() as session:
             context_ratio = float(
                 (
@@ -458,7 +458,7 @@ async def dashboard_run_summary(
     response: Response, reference_dt: Optional[datetime] = None
 ):
     try:
-        now = reference_dt or datetime.utcnow()
+        now = reference_dt or datetime.now(timezone.utc)
         since = now - timedelta(days=7)
         async with get_async_session() as session:
             groups = (
@@ -573,7 +573,7 @@ async def _upsert_signal(
 
 async def generate_signals(reference_dt: Optional[datetime] = None) -> None:
     global LAST_SIGNAL_GENERATION, LAST_SIGNAL_GENERATION_STATUS
-    now = reference_dt or datetime.utcnow()
+    now = reference_dt or datetime.now(timezone.utc)
     async with get_async_session() as session:
         bad_runs = (
             (
@@ -773,7 +773,7 @@ async def system_health():
                         select(func.count(FeedbackJob.id)).where(
                             FeedbackJob.status == "failed",
                             FeedbackJob.created_at
-                            >= datetime.utcnow() - timedelta(hours=24),
+                            >= datetime.now(timezone.utc) - timedelta(hours=24),
                         )
                     )
                 ).scalar()
@@ -802,7 +802,7 @@ async def system_health():
                     await session.execute(
                         select(func.count(Run.id)).where(
                             Run.scoring_status == "failed",
-                            Run.created_at >= datetime.utcnow() - timedelta(hours=24),
+                            Run.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
                         )
                     )
                 ).scalar()
@@ -843,7 +843,7 @@ async def system_health():
         oldest_pending_score_age_seconds = None
         if oldest_pending_created_at is not None:
             oldest_pending_score_age_seconds = (
-                datetime.utcnow() - oldest_pending_created_at
+                datetime.now(timezone.utc) - oldest_pending_created_at
             ).total_seconds()
 
         health_data = SystemHealth(
@@ -883,7 +883,7 @@ async def dashboard_options():
 # Generate signals function for signal scheduler
 async def generate_signals(reference_dt: Optional[datetime] = None) -> None:
     global LAST_SIGNAL_GENERATION, LAST_SIGNAL_GENERATION_STATUS
-    now = reference_dt or datetime.utcnow()
+    now = reference_dt or datetime.now(timezone.utc)
     async with get_async_session() as session:
         bad_runs = (
             (
@@ -1028,7 +1028,7 @@ async def _upsert_signal(
         existing.action_label = action_label
         existing.action_type = action_type
         existing.run_id = run_id
-        existing.created_at = datetime.utcnow()
+        existing.created_at = datetime.now(timezone.utc)
     else:
         signal = Signal(
             id=str(uuid.uuid4()),
@@ -1039,7 +1039,7 @@ async def _upsert_signal(
             action_label=action_label,
             action_type=action_type,
             run_id=run_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.add(signal)
 

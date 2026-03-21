@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -51,7 +51,7 @@ async def root() -> Dict[str, Any]:
                 status="running",
                 orchestrator=True,
                 database="unknown",
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 config_source="modular_app",
             ).model_dump(),
         ).model_dump()
@@ -107,7 +107,7 @@ async def system_health() -> Dict[str, Any]:
             oldest_created_at = oldest_pending.scalar()
             if oldest_created_at:
                 oldest_pending_age_seconds = (
-                    datetime.utcnow() - oldest_created_at
+                    datetime.now(timezone.utc) - oldest_created_at
                 ).total_seconds()
 
         return StandardResponse(
@@ -125,7 +125,7 @@ async def system_health() -> Dict[str, Any]:
                     "avg_latency_ms": telemetry["avg_latency_ms"],
                     "total_requests": telemetry["total_requests"],
                 },
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         ).model_dump()
     except Exception as e:

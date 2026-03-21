@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from sqlalchemy import func, select
@@ -63,7 +63,7 @@ class RunLifecycleService:
                             (
                                 (
                                     Run.created_at
-                                    <= datetime.utcnow() - timedelta(hours=24)
+                                    <= datetime.now(timezone.utc) - timedelta(hours=24)
                                 )
                                 | (Run.scoring_attempt_count >= 10)
                             ),
@@ -75,14 +75,14 @@ class RunLifecycleService:
                 .all()
             )
             for row in old_or_exhausted:
-                row.scoring_abandoned_at = datetime.utcnow()
+                row.scoring_abandoned_at = datetime.now(timezone.utc)
 
             correction_failed_ids = (
                 (
                     await session.execute(
                         select(Run.id).where(
                             Run.correction_verification_status == "failed",
-                            Run.created_at >= datetime.utcnow() - timedelta(hours=24),
+                            Run.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
                         )
                     )
                 )
@@ -150,4 +150,4 @@ class RunLifecycleService:
                     session, run.task_type
                 )
                 if baseline is not None:
-                    baseline.last_feedback_run_at = datetime.utcnow()
+                    baseline.last_feedback_run_at = datetime.now(timezone.utc)

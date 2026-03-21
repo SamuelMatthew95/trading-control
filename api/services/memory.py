@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from sqlalchemy import select, text
@@ -64,7 +64,7 @@ class AgentMemoryService:
             {
                 "task_type": task_type,
                 "baseline_slippage": actual_slippage,
-                "established_at": datetime.utcnow(),
+                "established_at": datetime.now(timezone.utc),
             },
         )
 
@@ -137,10 +137,10 @@ class AgentMemoryService:
             metadata = json.loads(rec.metadata_json) if rec.metadata_json else {}
             tool_name = metadata.get("tool_name")
             if not guard_tools:
-                rec.correction_verified_at = datetime.utcnow()
+                rec.correction_verified_at = datetime.now(timezone.utc)
                 updated = True
             elif tool_name and tool_name in guard_tools:
-                rec.correction_verified_at = datetime.utcnow()
+                rec.correction_verified_at = datetime.now(timezone.utc)
                 updated = True
 
         if updated:
