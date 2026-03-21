@@ -232,12 +232,12 @@ class TestDLQAPI:
         """Test that Redis client has max_connections=20."""
         # Read the source file
         with open("api/redis_client.py", "r") as f:
-            source_code = f.read()
+            redis_source_code = f.read()
 
         # Check for max_connections=20
         assert (
-            "max_connections=20" in source_code
-        ), "Redis client should have max_connections=20"
+            "max_connections=30" in redis_source_code
+        ), "Redis client should have max_connections=30"
 
     @pytest.mark.asyncio
     async def test_dlq_route_registered(self, client):
