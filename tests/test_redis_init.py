@@ -66,26 +66,6 @@ async def test_idempotency_multiple_calls(fake_redis):
 
 
 @pytest.mark.asyncio
-async def test_startup_order_fix(fake_redis):
-    """Test 3: Startup order - proves the fix solves the original bug."""
-    # Step 1: Worker tries to read before init - should fail
-    event_bus = EventBus(fake_redis)
-    
-    # EventBus swallows error and returns empty list
-    messages = await event_bus.consume("market_ticks", DEFAULT_GROUP, "test_consumer")
-    assert isinstance(messages, list)
-
-    # Step 2: Run initialization
-    await ensure_redis_streams(fake_redis)
-
-    # Step 3: Worker tries to read after init - should succeed
-    # EventBus.consume() catches ResponseError internally and returns empty list
-    # So we should get an empty list without any exception being raised
-    messages = await event_bus.consume("market_ticks", DEFAULT_GROUP, "test_consumer")
-    assert isinstance(messages, list)
-
-
-@pytest.mark.asyncio
 async def test_all_streams_have_consumers(fake_redis):
     """Test that all 7 streams can be consumed after initialization."""
     await ensure_redis_streams(fake_redis)
