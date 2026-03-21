@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import pytest
-try:
-    from fastapi.testclient import TestClient
-except ImportError:
-    from starlette.testclient import TestClient
+from starlette.testclient import TestClient
 from unittest.mock import AsyncMock
 
 # Import the FastAPI app
