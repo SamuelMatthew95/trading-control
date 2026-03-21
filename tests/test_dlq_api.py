@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from starlette.testclient import TestClient
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from unittest.mock import AsyncMock
 
 # Import the FastAPI app
@@ -13,9 +14,16 @@ from api.main import app
 class TestDLQAPI:
     """Test DLQ API endpoints."""
 
-    def test_get_dlq_empty(self):
+    @pytest_asyncio.fixture
+    async def client(self):
+        """Create an async client for testing."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://localhost") as client:
+            yield client
+
+    @pytest.mark.asyncio
+    async def test_get_dlq_empty(self, client):
         """Test GET /api/dlq with empty DLQ."""
-        client = TestClient(app)
         
         # Mock DLQ manager
         mock_dlq = AsyncMock()
@@ -24,7 +32,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.get("/api/dlq", headers={"Host": "localhost"})
+            response = await client.get("/api/dlq", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["items"] == []
@@ -35,9 +43,9 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_get_dlq_with_items(self):
+    @pytest.mark.asyncio
+    async def test_get_dlq_with_items(self, client):
         """Test GET /api/dlq with items."""
-        client = TestClient(app)
         
         # Mock DLQ manager with items (no datetime objects, just strings)
         mock_items = [
@@ -52,7 +60,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.get("/api/dlq", headers={"Host": "localhost"})
+            response = await client.get("/api/dlq", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["total"] == 3
@@ -64,9 +72,9 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_replay_event_success(self):
+    @pytest.mark.asyncio
+    async def test_replay_event_success(self, client):
         """Test POST /api/dlq/{event_id}/replay success."""
-        client = TestClient(app)
         
         mock_dlq = AsyncMock()
         mock_dlq.replay.return_value = True
@@ -74,7 +82,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.post("/api/dlq/abc123/replay", headers={"Host": "localhost"})
+            response = await client.post("/api/dlq/abc123/replay", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["replayed"] is True
@@ -84,9 +92,9 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_replay_event_not_found(self):
+    @pytest.mark.asyncio
+    async def test_replay_event_not_found(self, client):
         """Test POST /api/dlq/{event_id}/replay not found."""
-        client = TestClient(app)
         
         mock_dlq = AsyncMock()
         mock_dlq.replay.return_value = False
@@ -94,7 +102,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.post("/api/dlq/abc123/replay", headers={"Host": "localhost"})
+            response = await client.post("/api/dlq/abc123/replay", headers={"Host": "localhost"})
             assert response.status_code == 404
             data = response.json()
             assert "not found in DLQ" in data["detail"]
@@ -103,9 +111,9 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_clear_event(self):
+    @pytest.mark.asyncio
+    async def test_clear_event(self, client):
         """Test DELETE /api/dlq/{event_id}."""
-        client = TestClient(app)
         
         mock_dlq = AsyncMock()
         mock_dlq.clear.return_value = None
@@ -113,7 +121,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.delete("/api/dlq/abc123", headers={"Host": "localhost"})
+            response = await client.delete("/api/dlq/abc123", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["cleared"] is True
@@ -123,9 +131,9 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_replay_all(self):
+    @pytest.mark.asyncio
+    async def test_replay_all(self, client):
         """Test POST /api/dlq/replay-all."""
-        client = TestClient(app)
         
         mock_items = [
             {"event_id": "abc123"},
@@ -140,7 +148,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.post("/api/dlq/replay-all", headers={"Host": "localhost"})
+            response = await client.post("/api/dlq/replay-all", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert len(data["replayed"]) == 3
@@ -152,9 +160,9 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_clear_all(self):
+    @pytest.mark.asyncio
+    async def test_clear_all(self, client):
         """Test DELETE /api/dlq."""
-        client = TestClient(app)
         
         mock_items = [
             {"event_id": "abc123"},
@@ -169,7 +177,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = client.delete("/api/dlq", headers={"Host": "localhost"})
+            response = await client.delete("/api/dlq", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["cleared"] == 3
@@ -178,20 +186,21 @@ class TestDLQAPI:
             if hasattr(app.state, 'dlq_manager'):
                 delattr(app.state, 'dlq_manager')
 
-    def test_dlq_unavailable_returns_503(self):
+    @pytest.mark.asyncio
+    async def test_dlq_unavailable_returns_503(self, client):
         """Test 503 when DLQ manager is not available."""
-        client = TestClient(app)
         
         # Ensure dlq_manager doesn't exist
         if hasattr(app.state, 'dlq_manager'):
             delattr(app.state, 'dlq_manager')
         
-        response = client.get("/api/dlq", headers={"Host": "localhost"})
+        response = await client.get("/api/dlq", headers={"Host": "localhost"})
         assert response.status_code == 503
         data = response.json()
         assert "DLQ manager not available" in data["detail"]
 
-    def test_redis_max_connections_is_20(self):
+    @pytest.mark.asyncio
+    async def test_redis_max_connections_is_20(self):
         """Test that Redis client has max_connections=20."""
         # Read the source file
         with open('api/redis_client.py', 'r') as f:
@@ -200,9 +209,9 @@ class TestDLQAPI:
         # Check for max_connections=20
         assert 'max_connections=20' in source_code, "Redis client should have max_connections=20"
 
-    def test_dlq_route_registered(self):
+    @pytest.mark.asyncio
+    async def test_dlq_route_registered(self, client):
         """Test that /api/dlq route is registered."""
-        client = TestClient(app)
         
         # Check if the route exists by trying to access it
         # Even if DLQ manager is None, it should return 503, not 404
@@ -210,7 +219,7 @@ class TestDLQAPI:
         if hasattr(app.state, 'dlq_manager'):
             delattr(app.state, 'dlq_manager')
         
-        response = client.get("/api/dlq", headers={"Host": "localhost"})
+        response = await client.get("/api/dlq", headers={"Host": "localhost"})
         assert response.status_code == 503, "Route should be registered and return 503 when DLQ unavailable"
         
         # Also check that the route pattern exists in the app
