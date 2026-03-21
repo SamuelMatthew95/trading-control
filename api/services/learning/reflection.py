@@ -55,13 +55,37 @@ class ReflectionService:
         trace_id = f"reflection_{datetime.now(timezone.utc).isoformat()}"
         async with AsyncSessionFactory() as session:
             await session.execute(
-                text("INSERT INTO agent_logs (trace_id, log_type, payload) VALUES (:trace_id, 'reflection', CAST(:payload AS JSONB))"),
-                {"trace_id": trace_id, "payload": json.dumps({**payload, "type": "reflection", "trade_count": len(trades)}, default=str)},
+                text(
+                    "INSERT INTO agent_logs (trace_id, log_type, payload) VALUES (:trace_id, 'reflection', CAST(:payload AS JSONB))"
+                ),
+                {
+                    "trace_id": trace_id,
+                    "payload": json.dumps(
+                        {**payload, "type": "reflection", "trade_count": len(trades)},
+                        default=str,
+                    ),
+                },
             )
             await session.commit()
         await self.redis.set("reflection:trade_count", 0)
-        await self.bus.publish("agent_logs", {"type": "agent_log", "log_type": "reflection", "trace_id": trace_id, **payload})
-        await self.bus.publish("learning_events", {"type": "learning_event", "event": "reflection_completed", "trace_id": trace_id, "summary": payload.get("summary")})
+        await self.bus.publish(
+            "agent_logs",
+            {
+                "type": "agent_log",
+                "log_type": "reflection",
+                "trace_id": trace_id,
+                **payload,
+            },
+        )
+        await self.bus.publish(
+            "learning_events",
+            {
+                "type": "learning_event",
+                "event": "reflection_completed",
+                "trace_id": trace_id,
+                "summary": payload.get("summary"),
+            },
+        )
         return True
 
     async def _run_loop(self) -> None:
@@ -74,21 +98,68 @@ class ReflectionService:
 
     async def _fetch_recent_trades(self, limit: int) -> list[dict[str, Any]]:
         async with AsyncSessionFactory() as session:
-            result = await session.execute(text("SELECT tp.symbol, tp.pnl, tp.holding_secs, tp.factor_attribution, tp.market_context, tp.created_at FROM trade_performance tp ORDER BY tp.created_at DESC LIMIT :limit"), {"limit": limit})
-            return [{"symbol": row[0], "pnl": float(row[1]), "holding_secs": int(row[2]), "factor_attribution": self._json_value(row[3]), "market_context": self._json_value(row[4]), "created_at": row[5]} for row in result.all()]
+            result = await session.execute(
+                text(
+                    "SELECT tp.symbol, tp.pnl, tp.holding_secs, tp.factor_attribution, tp.market_context, tp.created_at FROM trade_performance tp ORDER BY tp.created_at DESC LIMIT :limit"
+                ),
+                {"limit": limit},
+            )
+            return [
+                {
+                    "symbol": row[0],
+                    "pnl": float(row[1]),
+                    "holding_secs": int(row[2]),
+                    "factor_attribution": self._json_value(row[3]),
+                    "market_context": self._json_value(row[4]),
+                    "created_at": row[5],
+                }
+                for row in result.all()
+            ]
 
-    async def _build_reflection_payload(self, trades: list[dict[str, Any]]) -> dict[str, Any]:
+    async def _build_reflection_payload(
+        self, trades: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         fallback = self._fallback_reflection(trades)
         if not settings.ANTHROPIC_API_KEY:
             return fallback
-        payload = {"model": "claude-sonnet-4-20250514", "max_tokens": 400, "temperature": 0.2, "messages": [{"role": "user", "content": json.dumps({"trades": trades, "instruction": "Return JSON only with keys winning_factors, losing_factors, regime_edge, sizing_recommendation, new_hypotheses, summary."}, default=str)}]}
+        payload = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 400,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "trades": trades,
+                            "instruction": "Return JSON only with keys winning_factors, losing_factors, regime_edge, sizing_recommendation, new_hypotheses, summary.",
+                        },
+                        default=str,
+                    ),
+                }
+            ],
+        }
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=settings.LLM_TIMEOUT_SECONDS)) as session:
-                async with session.post(ANTHROPIC_URL, headers={"x-api-key": settings.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json=payload) as response:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=settings.LLM_TIMEOUT_SECONDS)
+            ) as session:
+                async with session.post(
+                    ANTHROPIC_URL,
+                    headers={
+                        "x-api-key": settings.ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json=payload,
+                ) as response:
                     if response.status >= 400:
                         raise RuntimeError(f"anthropic_status_{response.status}")
                     body = await response.json()
-            text_payload = "".join(block.get("text", "") for block in body.get("content", []) if block.get("type") == "text")
+            text_payload = "".join(
+                block.get("text", "")
+                for block in body.get("content", [])
+                if block.get("type") == "text"
+            )
             parsed = json.loads(text_payload)
             return {k: parsed.get(k, fallback[k]) for k in fallback}
         except Exception as exc:  # noqa: BLE001
@@ -106,12 +177,30 @@ class ReflectionService:
                 except (TypeError, ValueError):
                     continue
 
-        def top_factors(source: defaultdict[str, list[float]]) -> list[dict[str, float]]:
-            ranked = sorted(((k, mean(v)) for k, v in source.items() if v), key=lambda x: x[1], reverse=True)
+        def top_factors(
+            source: defaultdict[str, list[float]],
+        ) -> list[dict[str, float]]:
+            ranked = sorted(
+                ((k, mean(v)) for k, v in source.items() if v),
+                key=lambda x: x[1],
+                reverse=True,
+            )
             return [{"factor": k, "score": round(s, 6)} for k, s in ranked[:3]]
 
-        avg_hold = round(mean([max(int(t.get("holding_secs", 0)), 0) for t in trades]), 2)
-        return {"winning_factors": top_factors(wins), "losing_factors": top_factors(losses), "regime_edge": "paper-mode regime inference from recent trade batch", "sizing_recommendation": "increase only when top winning factors stay positive and lag stays low", "new_hypotheses": ["Favor signals whose positive factor cluster repeats across winning trades.", "Reduce size when recent losing factor cluster dominates consecutive trades."], "summary": f"Reflection batch analyzed {len(trades)} trades with average holding time {avg_hold} seconds."}
+        avg_hold = round(
+            mean([max(int(t.get("holding_secs", 0)), 0) for t in trades]), 2
+        )
+        return {
+            "winning_factors": top_factors(wins),
+            "losing_factors": top_factors(losses),
+            "regime_edge": "paper-mode regime inference from recent trade batch",
+            "sizing_recommendation": "increase only when top winning factors stay positive and lag stays low",
+            "new_hypotheses": [
+                "Favor signals whose positive factor cluster repeats across winning trades.",
+                "Reduce size when recent losing factor cluster dominates consecutive trades.",
+            ],
+            "summary": f"Reflection batch analyzed {len(trades)} trades with average holding time {avg_hold} seconds.",
+        }
 
     def _json_value(self, value: Any) -> dict[str, Any]:
         if value is None:

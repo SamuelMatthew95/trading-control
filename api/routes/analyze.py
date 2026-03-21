@@ -101,7 +101,9 @@ async def analyze_trade(
             "task_completed",
             symbol=request.symbol,
             task="analyze",
-            latency_ms=round((datetime.now(timezone.utc) - start).total_seconds() * 1000, 2),
+            latency_ms=round(
+                (datetime.now(timezone.utc) - start).total_seconds() * 1000, 2
+            ),
             token_usage=estimated_tokens,
             cost_usd=estimated_cost_usd,
         )

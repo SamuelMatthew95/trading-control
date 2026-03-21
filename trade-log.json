@@ -3,8 +3,8 @@
     "trace_summary": {
       "guard_hits": 1
     },
-    "task_id": "AAPL:2026-03-21T00:45:14.643555+00:00",
-    "timestamp": "2026-03-21T00:45:14.644237+00:00",
+    "task_id": "AAPL:2026-03-21T00:53:51.678805+00:00",
+    "timestamp": "2026-03-21T00:53:51.680126+00:00",
     "decision": {
       "DECISION": "FLAT",
       "ASSET": "AAPL",
@@ -84,7 +84,7 @@
           ]
         },
         "output_data": {},
-        "timestamp": "2026-03-21 00:45:14.643593+00:00",
+        "timestamp": "2026-03-21 00:53:51.678877+00:00",
         "success": true,
         "error": null,
         "duration_ms": 0
@@ -117,7 +117,7 @@
           "agreement_ratio": 1.0,
           "signal_strength": 0.7
         },
-        "timestamp": "2026-03-21 00:45:14.643603+00:00",
+        "timestamp": "2026-03-21 00:53:51.678899+00:00",
         "success": true,
         "error": null,
         "duration_ms": 0
@@ -159,7 +159,7 @@
           "size_multiplier": 1.0,
           "flags": []
         },
-        "timestamp": "2026-03-21 00:45:14.643610+00:00",
+        "timestamp": "2026-03-21 00:53:51.678912+00:00",
         "success": true,
         "error": null,
         "duration_ms": 0
@@ -195,10 +195,10 @@
           }
         },
         "output_data": {},
-        "timestamp": "2026-03-21 00:45:14.644229+00:00",
+        "timestamp": "2026-03-21 00:53:51.680115+00:00",
         "success": false,
         "error": "skipped_by_memory_guard:Known stale price feed",
-        "duration_ms": 0
+        "duration_ms": 1
       }
     ]
   }

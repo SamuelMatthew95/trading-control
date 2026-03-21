@@ -802,7 +802,8 @@ async def system_health():
                     await session.execute(
                         select(func.count(Run.id)).where(
                             Run.scoring_status == "failed",
-                            Run.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                            Run.created_at
+                            >= datetime.now(timezone.utc) - timedelta(hours=24),
                         )
                     )
                 ).scalar()

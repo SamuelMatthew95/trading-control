@@ -9,9 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 # Import models to ensure they are registered with Base
 from api.core.models import (
-    Trade, AgentPerformance, Run, AgentRun, TraceStep, 
-    VectorMemoryRecord, StrategyDNA, Insight, FeedbackJob,
-    Signal, TaskTypeBaseline, SystemState, Order, SystemMetric
+    Trade,
+    AgentPerformance,
+    Run,
+    AgentRun,
+    TraceStep,
+    VectorMemoryRecord,
+    StrategyDNA,
+    Insight,
+    FeedbackJob,
+    Signal,
+    TaskTypeBaseline,
+    SystemState,
+    Order,
+    SystemMetric,
 )
 from api.database import Base
 
@@ -48,7 +59,7 @@ class TestDatabaseInit:
             async with engine.begin() as conn:
                 # First call
                 await conn.run_sync(Base.metadata.create_all)
-                
+
                 # Second call should also work without errors
                 await conn.run_sync(Base.metadata.create_all)
         finally:
@@ -75,19 +86,31 @@ class TestDatabaseInit:
             async with AsyncSessionLocal() as session:
                 # Check that key tables exist
                 metadata_tables = set(Base.metadata.tables.keys())
-                
+
                 # Check that expected tables are in the metadata and created
-                expected_tables = ["trades", "agent_performance", "runs", "orders", "system_metrics"]
+                expected_tables = [
+                    "trades",
+                    "agent_performance",
+                    "runs",
+                    "orders",
+                    "system_metrics",
+                ]
                 for table_name in expected_tables:
-                    assert table_name in metadata_tables, f"Table '{table_name}' not found in Base.metadata.tables"
-                    
+                    assert (
+                        table_name in metadata_tables
+                    ), f"Table '{table_name}' not found in Base.metadata.tables"
+
                     # Verify table was created in database
                     result = await session.execute(
-                        text(f"SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"),
-                        {"table_name": table_name}
+                        text(
+                            f"SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"
+                        ),
+                        {"table_name": table_name},
                     )
                     table_exists = result.fetchone() is not None
-                    assert table_exists, f"Table '{table_name}' was not created in the database"
+                    assert (
+                        table_exists
+                    ), f"Table '{table_name}' was not created in the database"
         finally:
             await engine.dispose()
 
@@ -113,22 +136,26 @@ class TestDatabaseInit:
                 # Verify all metadata tables exist in the database
                 for table_name in Base.metadata.tables.keys():
                     result = await session.execute(
-                        text(f"SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"),
-                        {"table_name": table_name}
+                        text(
+                            f"SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"
+                        ),
+                        {"table_name": table_name},
                     )
                     table_exists = result.fetchone() is not None
-                    assert table_exists, f"Table '{table_name}' from metadata was not created"
+                    assert (
+                        table_exists
+                    ), f"Table '{table_name}' from metadata was not created"
         finally:
             await engine.dispose()
 
     def test_base_metadata_contains_expected_tables(self):
         """Test that Base.metadata contains the expected tables."""
         metadata_tables = set(Base.metadata.tables.keys())
-        
+
         # Check for key tables that should be defined as models
         expected_model_tables = [
             "trades",
-            "agent_performance", 
+            "agent_performance",
             "runs",
             "agent_runs",
             "trace_steps",
@@ -140,11 +167,13 @@ class TestDatabaseInit:
             "task_type_baselines",
             "system_state",
             "orders",
-            "system_metrics"
+            "system_metrics",
         ]
-        
+
         for table in expected_model_tables:
-            assert table in metadata_tables, f"Expected table '{table}' not found in Base.metadata"
-        
+            assert (
+                table in metadata_tables
+            ), f"Expected table '{table}' not found in Base.metadata"
+
         # All tables including orders and system_metrics are now defined in SQLAlchemy models
         # and will be created by Base.metadata.create_all

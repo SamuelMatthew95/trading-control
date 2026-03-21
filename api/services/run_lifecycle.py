@@ -82,7 +82,8 @@ class RunLifecycleService:
                     await session.execute(
                         select(Run.id).where(
                             Run.correction_verification_status == "failed",
-                            Run.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                            Run.created_at
+                            >= datetime.now(timezone.utc) - timedelta(hours=24),
                         )
                     )
                 )

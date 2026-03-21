@@ -9,23 +9,27 @@ from pydantic import BaseModel, Field
 
 class KillSwitchRequest(BaseModel):
     """Request to toggle kill switch."""
+
     active: bool = Field(..., description="Kill switch state")
 
 
 class KillSwitchResponse(BaseModel):
     """Response from kill switch operation."""
+
     active: bool = Field(..., description="Current kill switch state")
     timestamp: str = Field(..., description="Operation timestamp")
 
 
 class DLQReplayResponse(BaseModel):
     """Response from DLQ replay operation."""
+
     replayed: bool = Field(..., description="Whether replay was successful")
     event_id: str = Field(..., description="ID of replayed event")
 
 
 class PositionResponse(BaseModel):
     """Position information response."""
+
     symbol: str = Field(..., description="Trading symbol")
     qty: float = Field(..., description="Position quantity")
     side: str = Field(..., description="Position side (long/short)")
@@ -36,6 +40,7 @@ class PositionResponse(BaseModel):
 
 class OrderResponse(BaseModel):
     """Order information response."""
+
     order_id: str = Field(..., description="Unique order identifier")
     symbol: str = Field(..., description="Trading symbol")
     side: str = Field(..., description="Order side (buy/sell)")
@@ -50,6 +55,7 @@ class OrderResponse(BaseModel):
 
 class DLQEntryResponse(BaseModel):
     """DLQ entry information."""
+
     event_id: str = Field(..., description="Event ID")
     stream: str = Field(..., description="Original stream")
     error: str = Field(..., description="Error message")
@@ -59,6 +65,7 @@ class DLQEntryResponse(BaseModel):
 
 class SystemMetricResponse(BaseModel):
     """System metric information."""
+
     metric_name: str = Field(..., description="Metric name")
     value: float = Field(..., description="Metric value")
     unit: Optional[str] = Field(None, description="Value unit")
@@ -68,6 +75,7 @@ class SystemMetricResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     """Standard error response."""
+
     error: str = Field(..., description="Error type")
     message: str = Field(..., description="Error message")
     timestamp: str = Field(..., description="Error timestamp")
@@ -75,6 +83,7 @@ class ErrorResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str = Field(..., description="Service health status")
     timestamp: str = Field(..., description="Health check timestamp")
     services: Dict[str, str] = Field(..., description="Individual service statuses")

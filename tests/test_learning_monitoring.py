@@ -153,9 +153,9 @@ async def test_reflection_service_triggers_and_resets_counter(monkeypatch):
         for index in range(settings.REFLECTION_TRADE_THRESHOLD)
     ]
     session = FakeSession(
-        lambda sql, params: FakeResult(rows=trades)
-        if "FROM trade_performance" in sql
-        else FakeResult()
+        lambda sql, params: (
+            FakeResult(rows=trades) if "FROM trade_performance" in sql else FakeResult()
+        )
     )
     monkeypatch.setattr(
         reflection_module, "AsyncSessionFactory", FakeSessionFactory(session)
@@ -186,9 +186,11 @@ async def test_ic_updater_zeroes_negative_ic_and_normalizes(monkeypatch):
         (json.dumps({"factor_a": 3, "factor_b": 1}), 3.0),
     ]
     session = FakeSession(
-        lambda sql, params: FakeResult(rows=rows)
-        if "SELECT factor_attribution, pnl FROM trade_performance" in sql
-        else FakeResult()
+        lambda sql, params: (
+            FakeResult(rows=rows)
+            if "SELECT factor_attribution, pnl FROM trade_performance" in sql
+            else FakeResult()
+        )
     )
     monkeypatch.setattr(ic_module, "AsyncSessionFactory", FakeSessionFactory(session))
 

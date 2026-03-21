@@ -17,7 +17,12 @@ from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
 from api.core.models import ErrorResponse
-from api.database import Base, get_settings_info, init_database, test_database_connection
+from api.database import (
+    Base,
+    get_settings_info,
+    init_database,
+    test_database_connection,
+)
 from api.db import AsyncSessionFactory, engine
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -115,9 +120,11 @@ async def _retry_loop(stop_event: asyncio.Event) -> None:
             log_structured("warning", "Score retry loop failed", error=str(exc))
         try:
             await asyncio.wait(
-                [asyncio.create_task(asyncio.sleep(3600)),
-                 asyncio.create_task(stop_event.wait())],
-                return_when=asyncio.FIRST_COMPLETED
+                [
+                    asyncio.create_task(asyncio.sleep(3600)),
+                    asyncio.create_task(stop_event.wait()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
             )
         except asyncio.CancelledError:
             break
@@ -194,9 +201,11 @@ async def monitor_consumer_lag(bus: EventBus, stop_event: asyncio.Event) -> None
             log_structured("warning", "Consumer lag monitor failed", error=str(exc))
         try:
             await asyncio.wait(
-                [asyncio.create_task(asyncio.sleep(30)),
-                 asyncio.create_task(stop_event.wait())],
-                return_when=asyncio.FIRST_COMPLETED
+                [
+                    asyncio.create_task(asyncio.sleep(30)),
+                    asyncio.create_task(stop_event.wait()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
             )
         except asyncio.CancelledError:
             break
@@ -218,7 +227,9 @@ async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
         )
 
 
-async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Event) -> None:
+async def monitor_llm_cost(
+    bus: EventBus, redis_client, stop_event: asyncio.Event
+) -> None:
     while not stop_event.is_set():
         try:
             await collect_llm_cost_metric(bus, redis_client)
@@ -226,9 +237,11 @@ async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Even
             log_structured("warning", "LLM cost monitor failed", error=str(exc))
         try:
             await asyncio.wait(
-                [asyncio.create_task(asyncio.sleep(60)),
-                 asyncio.create_task(stop_event.wait())],
-                return_when=asyncio.FIRST_COMPLETED
+                [
+                    asyncio.create_task(asyncio.sleep(60)),
+                    asyncio.create_task(stop_event.wait()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
             )
         except asyncio.CancelledError:
             break
@@ -311,7 +324,8 @@ async def lifespan(app: FastAPI):
 
             consumer_lag_monitor = BackgroundServiceTask(
                 asyncio.create_task(
-                    monitor_consumer_lag(event_bus, stop_event), name="consumer-lag-monitor"
+                    monitor_consumer_lag(event_bus, stop_event),
+                    name="consumer-lag-monitor",
                 )
             )
             llm_cost_monitor_service = BackgroundServiceTask(
@@ -346,7 +360,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Signal all background tasks to stop
         stop_event.set()
-        
+
         if llm_cost_monitor_service is not None:
             await llm_cost_monitor_service.stop()
         if consumer_lag_monitor is not None:

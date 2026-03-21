@@ -69,7 +69,9 @@ class TradingService:
         slippage_variance = abs(observed_price - trade.intended_price) / max(
             trade.intended_price, 1
         )
-        age_seconds = (datetime.now(timezone.utc) - trade.created_at) / timedelta(seconds=1)
+        age_seconds = (datetime.now(timezone.utc) - trade.created_at) / timedelta(
+            seconds=1
+        )
         profitable = (
             observed_price > trade.intended_price and trade.decision == "LONG"
         ) or (observed_price < trade.intended_price and trade.decision == "SHORT")

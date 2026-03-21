@@ -111,9 +111,7 @@ async def system_health() -> Dict[str, Any]:
                 if oldest_created_at.tzinfo is None:
                     # If oldest_created_at is naive, assume it's UTC
                     oldest_created_at = oldest_created_at.replace(tzinfo=timezone.utc)
-                oldest_pending_age_seconds = (
-                    now - oldest_created_at
-                ).total_seconds()
+                oldest_pending_age_seconds = (now - oldest_created_at).total_seconds()
 
         return StandardResponse(
             success=True,
