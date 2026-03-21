@@ -34,6 +34,7 @@ from api.observability import (
     request_id_ctx,
 )
 from api.redis_client import close_redis, get_redis
+from redis_init import ensure_redis_streams
 from api.routes.analyze import router as analyze_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.dlq import router as dlq_router
@@ -295,8 +296,10 @@ async def lifespan(app: FastAPI):
             )
         app.state.redis_client = redis_client
         if redis_client is not None:
+            # Ensure all Redis streams and consumer groups exist before starting any workers
+            await ensure_redis_streams(redis_client)
+            
             event_bus = EventBus(redis_client)
-            await event_bus.create_groups()
             dlq_manager = DLQManager(redis_client, event_bus)
             paper_broker = PaperBroker(redis_client)
             app.state.event_bus = event_bus
