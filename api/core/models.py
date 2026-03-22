@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_serializer
-from sqlalchemy import Boolean, Column, DateTime, Date, Float, Integer, Numeric, String, Text, UUID
-from sqlalchemy import text as sa_text
+from sqlalchemy import Boolean, Column, DateTime, Date, Float, Integer, Numeric, String, Text, UUID, text
 try:
     from sqlalchemy.dialects.postgresql.json import JSONB
     from pgvector.sqlalchemy import Vector
@@ -470,7 +469,8 @@ class VectorMemory(Base):
 
     id = Column(
         String, primary_key=True, index=True,
-        server_default=sa_text("gen_random_uuid()::text")
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
     )
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
@@ -484,7 +484,8 @@ class AgentLog(Base):
 
     id = Column(
         String, primary_key=True, index=True,
-        server_default=sa_text("gen_random_uuid()::text")
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
     )
     trace_id = Column(String(255), nullable=False)
     log_type = Column(String(100), nullable=False)
@@ -497,7 +498,8 @@ class LLMCostTracking(Base):
 
     id = Column(
         String, primary_key=True, index=True,
-        server_default=sa_text("gen_random_uuid()::text")
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
     )
     date = Column(Date, nullable=False)
     tokens_used = Column(Integer, server_default="0")

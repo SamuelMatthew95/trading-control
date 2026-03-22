@@ -19,13 +19,19 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Enable pgvector
+    op.execute('CREATE EXTENSION IF NOT EXISTS vector')
+    
     # Set server defaults for id columns that use raw SQL inserts without specifying id
     op.alter_column('vector_memory', 'id',
-        server_default=sa.text("gen_random_uuid()::text"))
+        server_default=sa.text("gen_random_uuid()::text"),
+        existing_type=sa.String())
     op.alter_column('agent_logs', 'id',
-        server_default=sa.text("gen_random_uuid()::text"))
+        server_default=sa.text("gen_random_uuid()::text"),
+        existing_type=sa.String())
     op.alter_column('llm_cost_tracking', 'id',
-        server_default=sa.text("gen_random_uuid()::text"))
+        server_default=sa.text("gen_random_uuid()::text"),
+        existing_type=sa.String())
     
     # Add missing columns to agent_runs (matching reasoning_agent.py raw SQL)
     op.add_column('agent_runs', sa.Column('symbol', sa.String(64), nullable=True))
