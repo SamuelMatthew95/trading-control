@@ -29,11 +29,14 @@ class MarketIngestor:
         self._prices = dict(self.SYMBOLS)
         self._running = False
         self._live_task: asyncio.Task[None] | None = None
+        self.symbols = list(self.SYMBOLS.keys())
+        self.interval = settings.MARKET_TICK_INTERVAL_SECONDS
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
+        log_structured("info", "MarketIngestor starting", symbols=self.symbols, interval_seconds=self.interval)
         if settings.BROKER_MODE == "paper":
             for symbol in self.SYMBOLS:
                 if symbol not in self._tasks or self._tasks[symbol].done():
@@ -74,10 +77,10 @@ class MarketIngestor:
                 "source": "paper",
             }
             if self._is_valid_tick(tick):
-                await self.bus.publish("market_ticks", tick)
+                await self.bus.publish("market_ticks", tick, maxlen=1000)
             else:
                 log_structured("debug", "Rejected invalid paper tick", tick=tick)
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(self.interval)
 
     def _is_valid_tick(self, tick: dict[str, Any]) -> bool:
         try:
@@ -86,23 +89,27 @@ class MarketIngestor:
         except Exception:  # noqa: BLE001
             return False
         return (
-            tick.get("symbol") in self.SYMBOLS
+            (tick.get("symbol") in self.SYMBOLS or tick.get("symbol") in ["SPY", "AAPL", "NVDA"])
             and float(tick.get("price", 0)) > 0
             and float(tick.get("bid", 0)) > 0
+            and float(tick.get("ask", 0)) > 0
             and float(tick.get("ask", 0)) >= float(tick.get("bid", 0))
+            and tick.get("source", "paper") in {"paper", "alpaca_live"}
             and age_seconds < 60
         )
 
     async def _connect_live(self) -> None:
-        backoff = 1
-        while self._running:
-            try:
-                log_structured(
-                    "info",
-                    "Live market connector stub waiting for implementation",
-                    backoff_seconds=backoff,
-                )
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)
-            except asyncio.CancelledError:
-                raise
+        """Connect to Alpaca live market data stream."""
+        from api.services.market_data_stream import AlpacaStream
+
+        async def on_tick(tick: dict) -> None:
+            if self._is_valid_tick(tick):
+                await self.bus.publish("market_ticks", tick, maxlen=1000)
+                log_structured("debug", "Live tick published",
+                              symbol=tick["symbol"], price=tick["price"])
+            else:
+                log_structured("debug", "Live tick rejected", tick=tick)
+
+        stream = AlpacaStream(on_tick=on_tick)
+        log_structured("info", "Starting Alpaca live stream")
+        await stream.start()

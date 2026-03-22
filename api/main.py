@@ -44,6 +44,7 @@ from api.routes.trades import router as trades_router
 from api.routes.ws import router as ws_router
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.execution.brokers.paper import PaperBroker
+from api.services.execution.brokers.alpaca import AlpacaBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.execution.reconciler import OrderReconciler
 from api.services.feedback import FeedbackLearningService
@@ -56,6 +57,7 @@ from api.services.learning import (
 from api.services.market_ingestor import MarketIngestor
 from api.services.memory import AgentMemoryService
 from api.services.run_lifecycle import RunLifecycleService
+from api.services.signal_generator import SignalGenerator
 from api.services.trading import TradingService
 
 configure_logging(settings.LOG_LEVEL)
@@ -257,6 +259,7 @@ async def lifespan(app: FastAPI):
     trade_evaluator: TradeEvaluator | None = None
     reflection_service: ReflectionService | None = None
     ic_updater: ICUpdater | None = None
+    signal_generator: SignalGenerator | None = None
     consumer_lag_monitor: BackgroundServiceTask | None = None
     llm_cost_monitor_service: BackgroundServiceTask | None = None
     app.state.redis_client = None
@@ -295,12 +298,30 @@ async def lifespan(app: FastAPI):
             )
         app.state.redis_client = redis_client
         if redis_client is not None:
+            # Trim market_ticks backlog on startup
+            await redis_client.xtrim("market_ticks", maxlen=1000, approximate=True)
+            log_structured("info", "Trimmed market_ticks stream to 1000 messages")
+            
             event_bus = EventBus(redis_client)
             await event_bus.create_groups()
             dlq_manager = DLQManager(redis_client, event_bus)
-            paper_broker = PaperBroker(redis_client)
+            
+            # Choose broker based on config
+            if settings.BROKER_MODE == "paper" or not settings.ALPACA_API_KEY:
+                broker = PaperBroker(redis_client)
+                log_structured("info", "Using PaperBroker — fake money, simulated prices")
+            else:
+                broker = AlpacaBroker()
+                log_structured("info", "Using AlpacaBroker — fake money, real prices",
+                              paper=settings.ALPACA_PAPER,
+                              base_url=settings.ALPACA_BASE_URL)
+            
             app.state.event_bus = event_bus
             app.state.dlq_manager = dlq_manager
+
+            signal_generator = SignalGenerator(event_bus, dlq_manager)
+            await signal_generator.start()
+            app.state.signal_generator = signal_generator
 
             market_ingestor = MarketIngestor(event_bus)
             await market_ingestor.start()
@@ -335,16 +356,15 @@ async def lifespan(app: FastAPI):
                 )
             )
 
-            if settings.BROKER_MODE == "paper":
-                execution_engine = ExecutionEngine(
-                    event_bus, dlq_manager, redis_client, paper_broker
-                )
-                await execution_engine.start()
-                app.state.execution_engine = execution_engine
+            execution_engine = ExecutionEngine(
+                event_bus, dlq_manager, redis_client, broker
+            )
+            await execution_engine.start()
+            app.state.execution_engine = execution_engine
 
-                order_reconciler = OrderReconciler(paper_broker)
-                await order_reconciler.start()
-                app.state.order_reconciler = order_reconciler
+            order_reconciler = OrderReconciler(broker)
+            await order_reconciler.start()
+            app.state.order_reconciler = order_reconciler
 
         initialize_services()
         if ENABLE_SIGNAL_SCHEDULER:
@@ -377,6 +397,8 @@ async def lifespan(app: FastAPI):
             await execution_engine.stop()
         if order_reconciler is not None:
             await order_reconciler.stop()
+        if signal_generator is not None:
+            await signal_generator.stop()
         if market_ingestor is not None:
             await market_ingestor.stop()
         if retry_task is not None:

@@ -599,6 +599,8 @@ async def test_system_health_oldest_pending_score(api_client):
         )
         await session.commit()
     body = (await api_client.get("/api/system/health")).json()
+    print("DEBUG: Response keys:", list(body.keys()))
+    print("DEBUG: Response body:", body)
     assert body["data"]["oldest_pending_score_age_seconds"] is not None
     assert body["data"]["oldest_pending_score_age_seconds"] >= 400
 

@@ -18,6 +18,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.llm_router import call_llm
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
@@ -71,7 +72,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 "risk_alerts",
                 {
                     "type": "llm_budget",
-                    "message": "Daily Anthropic token budget exceeded",
+                    "message": "Daily LLM token budget exceeded",
                     "tokens_used": int(await self.redis.get(budget_key) or 0),
                     "limit": settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
                 },
@@ -166,53 +167,10 @@ class ReasoningAgent(BaseStreamConsumer):
     async def _call_reasoning_model(
         self, data: dict[str, Any], similar_trades: list[dict[str, Any]], trace_id: str
     ) -> tuple[dict[str, Any], int, float]:
-        if not settings.ANTHROPIC_API_KEY:
-            raise RuntimeError("anthropic_api_key_missing")
-        payload = {
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 300,
-            "temperature": 0.2,
-            "system": "Return ONLY valid JSON with keys: action, confidence, primary_edge, risk_factors, size_pct, stop_atr_x, rr_ratio, latency_ms, cost_usd, trace_id, fallback.",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {"signal": data, "similar_trades": similar_trades}, default=str
-                    ),
-                }
-            ],
-        }
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=settings.LLM_TIMEOUT_SECONDS)
-        ) as session:
-            async with session.post(
-                ANTHROPIC_URL,
-                headers={
-                    "x-api-key": settings.ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            ) as response:
-                if response.status >= 400:
-                    raise RuntimeError(f"anthropic_status_{response.status}")
-                body = await response.json()
-        text_payload = "".join(
-            block.get("text", "")
-            for block in body.get("content", [])
-            if block.get("type") == "text"
+        prompt = json.dumps(
+            {"signal": data, "similar_trades": similar_trades}, default=str
         )
-        parsed = json.loads(text_payload)
-        parsed["trace_id"] = trace_id
-        parsed["fallback"] = False
-        tokens_used = int(body.get("usage", {}).get("input_tokens", 0)) + int(
-            body.get("usage", {}).get("output_tokens", 0)
-        )
-        cost_usd = round(tokens_used * 0.000003, 6)
-        parsed.setdefault("latency_ms", 0)
-        parsed.setdefault("cost_usd", cost_usd)
-        parsed.setdefault("risk_factors", [])
-        return parsed, tokens_used, cost_usd
+        return await call_llm(prompt, trace_id)
 
     async def _apply_fallback(
         self, data: dict[str, Any], trace_id: str, reason: str

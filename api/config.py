@@ -28,6 +28,28 @@ class Settings(BaseSettings):
     ANTHROPIC_COST_ALERT_USD: float = 5.0
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Market data
+    MARKET_TICK_INTERVAL_SECONDS: float = 10.0
+
+    # LLM provider routing
+    LLM_PROVIDER: str = "groq"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Alpaca — use paper trading keys from alpaca.markets
+    ALPACA_API_KEY: str = ""
+    ALPACA_SECRET_KEY: str = ""
+    ALPACA_PAPER: bool = True  # True = paper trading, False = live real money
+    # Paper base URL: https://paper-api.alpaca.markets
+    # Live base URL: https://api.alpaca.markets
+    ALPACA_BASE_URL: str = "https://paper-api.alpaca.markets"
+    ALPACA_WS_URL: str = "wss://stream.data.alpaca.markets/v2/iex"
+
+    # Optional - kept for backwards compatibility
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+    OPENAI_API_KEY: Optional[str] = Field(default=None)
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
     API_SECRET_KEY: Optional[str] = Field(default=None)
     NODE_ENV: str = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"

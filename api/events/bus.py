@@ -27,10 +27,14 @@ class EventBus:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any]) -> str:
+    async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str:
         payload = {"payload": json.dumps(event, default=str)}
         try:
-            message_id = await self.redis.xadd(stream, payload)
+            kwargs = {}
+            if maxlen:
+                kwargs["maxlen"] = maxlen
+                kwargs["approximate"] = True
+            message_id = await self.redis.xadd(stream, payload, **kwargs)
             return str(message_id)
         except Exception as exc:
             log_structured(
