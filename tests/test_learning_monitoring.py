@@ -16,10 +16,11 @@ from api.services.learning.reflection import ReflectionService
 
 
 class FakeResult:
-    def __init__(self, rows=None, first_row=None, mapping_rows=None):
+    def __init__(self, rows=None, first_row=None, mapping_rows=None, scalar=None):
         self._rows = rows or []
         self._first_row = first_row
         self._mapping_rows = mapping_rows or []
+        self._scalar = scalar
 
     def mappings(self):
         return self
@@ -31,6 +32,12 @@ class FakeResult:
         if self._mapping_rows:
             return self._mapping_rows[0]
         return self._first_row
+
+    def scalar_one(self):
+        return self._scalar
+
+    def scalar(self):
+        return self._scalar
 
 
 class FakeSession:

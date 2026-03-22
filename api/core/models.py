@@ -324,6 +324,7 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
 
     id = Column(String, primary_key=True, index=True, default=uuid_default, server_default=UUID_DEFAULT)
+    task_id = Column(String, nullable=True, index=True)  # Backward compatibility for tests
     strategy_id = Column(String, nullable=True, index=True)
     symbol = Column(String(64), nullable=True)
     signal_data = Column(JSONType, nullable=True)
@@ -338,6 +339,8 @@ class AgentRun(Base):
     cost_usd = Column(Float, nullable=True)
     trace_id = Column(String(255), nullable=False, index=True)
     fallback = Column(Boolean, default=False)
+    decision_json = Column(Text, nullable=True)  # Backward compatibility for tests
+    trace_json = Column(Text, nullable=True)   # Backward compatibility for tests
     created_at = Column(DateTime(timezone=True), default=datetime_default, server_default=DATETIME_DEFAULT)
 
 
