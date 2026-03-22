@@ -330,23 +330,20 @@ class AgentRun(Base):
         default=uuid_default,
         server_default=UUID_DEFAULT
     )
-    task_id = Column(String, nullable=True, index=True)  # Restored for test compatibility
-    strategy_id = Column(String, nullable=True, index=True)
-    symbol = Column(String(64), nullable=True)
-    signal_data = Column(JSONType, nullable=True)
-    action = Column(String(32), nullable=True)
-    confidence = Column(Float, nullable=True)
-    primary_edge = Column(Text, nullable=True)
-    risk_factors = Column(JSONType, nullable=True)
-    size_pct = Column(Float, nullable=True)
-    stop_atr_x = Column(Float, nullable=True)
-    rr_ratio = Column(Float, nullable=True)
-    latency_ms = Column(Integer, nullable=True)
-    cost_usd = Column(Float, nullable=True)
-    trace_id = Column(String(255), nullable=False, index=True)
-    fallback = Column(Boolean, default=False)
-    decision_json = Column(Text, nullable=False)  # Restored for test compatibility
-    trace_json = Column(Text, nullable=False)      # Restored for test compatibility
+    strategy_id = Column(String, nullable=True, index=True)  # Production field for strategy identification
+    symbol = Column(String(64), nullable=True)  # Trading symbol
+    signal_data = Column(JSONType, nullable=True)  # Production field for signal information
+    action = Column(String(32), nullable=True)  # Trading action (buy/sell/hold)
+    confidence = Column(Float, nullable=True)  # Action confidence score
+    primary_edge = Column(Text, nullable=True)  # Primary reasoning edge
+    risk_factors = Column(JSONType, nullable=True)  # Risk assessment factors
+    size_pct = Column(Float, nullable=True)  # Position size as percentage
+    stop_atr_x = Column(Float, nullable=True)  # Stop loss as ATR multiple
+    rr_ratio = Column(Float, nullable=True)  # Risk-reward ratio
+    latency_ms = Column(Integer, nullable=True)  # Processing latency in milliseconds
+    cost_usd = Column(Float, nullable=True)  # LLM processing cost in USD
+    trace_id = Column(String(255), nullable=False, index=True)  # Trace identifier for correlation
+    fallback = Column(Boolean, default=False)  # Whether fallback logic was used
     created_at = Column(
         DateTime(timezone=True),
         default=datetime_default,
