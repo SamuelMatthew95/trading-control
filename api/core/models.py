@@ -468,9 +468,11 @@ class VectorMemory(Base):
     __tablename__ = "vector_memory"
 
     id = Column(
-        String, primary_key=True, index=True,
-        default=lambda: str(uuid4()),
-        server_default=text("gen_random_uuid()::text")
+        String, 
+        primary_key=True, 
+        index=True, 
+        default=lambda: str(uuid4()),  # For ORM usage
+        server_default=text("gen_random_uuid()::text")  # For Raw SQL/Agents
     )
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
@@ -483,9 +485,11 @@ class AgentLog(Base):
     __tablename__ = "agent_logs"
 
     id = Column(
-        String, primary_key=True, index=True,
-        default=lambda: str(uuid4()),
-        server_default=text("gen_random_uuid()::text")
+        String, 
+        primary_key=True, 
+        index=True, 
+        default=lambda: str(uuid4()),  # For ORM usage
+        server_default=text("gen_random_uuid()::text")  # For Raw SQL/Agents
     )
     trace_id = Column(String(255), nullable=False)
     log_type = Column(String(100), nullable=False)
@@ -497,9 +501,11 @@ class LLMCostTracking(Base):
     __tablename__ = "llm_cost_tracking"
 
     id = Column(
-        String, primary_key=True, index=True,
-        default=lambda: str(uuid4()),
-        server_default=text("gen_random_uuid()::text")
+        String, 
+        primary_key=True, 
+        index=True, 
+        default=lambda: str(uuid4()),  # For ORM usage
+        server_default=text("gen_random_uuid()::text")  # For Raw SQL/Agents
     )
     date = Column(Date, nullable=False)
     tokens_used = Column(Integer, server_default="0")
