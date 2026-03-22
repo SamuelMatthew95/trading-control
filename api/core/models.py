@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy import Boolean, Column, DateTime, Date, Float, Integer, Numeric, String, Text, UUID
+from sqlalchemy import text as sa_text
 try:
     from sqlalchemy.dialects.postgresql.json import JSONB
     from pgvector.sqlalchemy import Vector
@@ -468,8 +469,9 @@ class VectorMemory(Base):
     __tablename__ = "vector_memory"
 
     id = Column(
-        String, primary_key=True, index=True, default=lambda: str(uuid4())
-    )  # UUID stored as String for SQLite compatibility
+        String, primary_key=True, index=True,
+        server_default=sa_text("gen_random_uuid()::text") if POSTGRES_AVAILABLE else lambda: str(uuid4())
+    )
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
     metadata_ = Column(JSONB, nullable=True)
@@ -481,8 +483,9 @@ class AgentLog(Base):
     __tablename__ = "agent_logs"
 
     id = Column(
-        String, primary_key=True, index=True, default=lambda: str(uuid4())
-    )  # UUID stored as String for SQLite compatibility
+        String, primary_key=True, index=True,
+        server_default=sa_text("gen_random_uuid()::text") if POSTGRES_AVAILABLE else lambda: str(uuid4())
+    )
     trace_id = Column(String(255), nullable=False)
     log_type = Column(String(100), nullable=False)
     payload = Column(JSONB, nullable=False)
@@ -493,8 +496,9 @@ class LLMCostTracking(Base):
     __tablename__ = "llm_cost_tracking"
 
     id = Column(
-        String, primary_key=True, index=True, default=lambda: str(uuid4())
-    )  # UUID stored as String for SQLite compatibility
+        String, primary_key=True, index=True,
+        server_default=sa_text("gen_random_uuid()::text") if POSTGRES_AVAILABLE else lambda: str(uuid4())
+    )
     date = Column(Date, nullable=False)
     tokens_used = Column(Integer, server_default="0")
     cost_usd = Column(Float, server_default="0.0")
