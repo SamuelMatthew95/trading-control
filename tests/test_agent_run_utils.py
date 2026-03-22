@@ -23,133 +23,27 @@ from api.core.models import AgentRun
 
 
 class TestAgentRun(AgentRun):
-    """
-    Test-compatible AgentRun subclass that adds legacy fields for backward compatibility.
-    
-    This class extends the production AgentRun model with temporary fields that
-    were removed from production but are still expected by existing tests.
-    
-    Legacy fields added:
-    - decision_json: Temporary field for decision data (tests expect this)
-    - trace_json: Temporary field for trace data (tests expect this)
-    - task_id: Temporary field for task identification (tests expect this)
-    
-    Note: These fields exist only in test code and are NOT part of the production schema.
-    They are stored as instance attributes and do not create database columns.
-    """
-    
-    def __init__(
-        self,
-        decision_json: Optional[str] = None,
-        trace_json: Optional[str] = None,
-        task_id: Optional[str] = None,
-        **kwargs
-    ):
-        """
-        Initialize TestAgentRun with legacy fields for test compatibility.
-        
-        Args:
-            decision_json: Legacy decision data (test-only field)
-            trace_json: Legacy trace data (test-only field)
-            task_id: Legacy task identifier (test-only field)
-            **kwargs: Production AgentRun fields
-        """
-        # Store legacy fields as instance attributes (non-persistent)
+    def __init__(self, task_id=None, decision_json=None, trace_json=None, **kwargs):
+        self._task_id = task_id
         self._decision_json = decision_json or "{}"
         self._trace_json = trace_json or "[]"
-        self._task_id = task_id
-        
-        # Initialize production AgentRun
         super().__init__(**kwargs)
-    
+
     @property
-    def decision_json(self) -> str:
-        """Get legacy decision_json field for test compatibility."""
-        return self._decision_json
-    
-    @decision_json.setter
-    def decision_json(self, value: str):
-        """Set legacy decision_json field for test compatibility."""
-        self._decision_json = value
-    
-    @property
-    def trace_json(self) -> str:
-        """Get legacy trace_json field for test compatibility."""
-        return self._trace_json
-    
-    @trace_json.setter
-    def trace_json(self, value: str):
-        """Set legacy trace_json field for test compatibility."""
-        self._trace_json = value
-    
-    @property
-    def task_id(self) -> Optional[str]:
-        """Get legacy task_id field for test compatibility."""
+    def task_id(self):
         return self._task_id
-    
-    @task_id.setter
-    def task_id(self, value: Optional[str]):
-        """Set legacy task_id field for test compatibility."""
-        self._task_id = value
+
+    @property
+    def decision_json(self):
+        return self._decision_json
+
+    @property
+    def trace_json(self):
+        return self._trace_json
 
 
-def create_test_agent_run(
-    task_id: str = "test_task",
-    decision_json: str = "{}",
-    trace_json: str = "[]",
-    trace_id: str = "test_trace",
-    strategy_id: Optional[str] = None,
-    symbol: Optional[str] = None,
-    signal_data: Optional[dict] = None,
-    **kwargs
-) -> TestAgentRun:
-    """
-    Factory function to create TestAgentRun instances with sensible defaults.
-    
-    This factory provides a convenient way to create test-compatible AgentRun
-    instances with all the legacy fields that existing tests expect.
-    
-    Args:
-        task_id: Legacy task identifier (test-only)
-        decision_json: Legacy decision data (test-only)
-        trace_json: Legacy trace data (test-only)
-        trace_id: Required trace identifier for correlation
-        strategy_id: Production strategy identifier
-        symbol: Trading symbol
-        signal_data: Production signal data
-        **kwargs: Additional AgentRun fields
-        
-    Returns:
-        TestAgentRun instance with legacy fields for test compatibility
-        
-    Example:
-        # Create a test-compatible AgentRun
-        run = create_test_agent_run(
-            task_id="my_task",
-            decision_json='{"action": "buy", "confidence": 0.8}',
-            trace_json='[{"step": "analyze", "result": "bullish"}]',
-            trace_id="trace_123",
-            strategy_id="momentum_v1",
-            symbol="AAPL"
-        )
-        
-        # Access both legacy and production fields
-        assert run.decision_json == '{"action": "buy", "confidence": 0.8}'
-        assert run.trace_json == '[{"step": "analyze", "result": "bullish"}]'
-        assert run.task_id == "my_task"
-        assert run.strategy_id == "momentum_v1"
-        assert run.symbol == "AAPL"
-    """
-    return TestAgentRun(
-        task_id=task_id,
-        decision_json=decision_json,
-        trace_json=trace_json,
-        trace_id=trace_id,
-        strategy_id=strategy_id,
-        symbol=symbol,
-        signal_data=signal_data,
-        **kwargs
-    )
+def create_test_agent_run(**kwargs):
+    return TestAgentRun(**kwargs)
 
 
 # Enhanced FakeSession with proper async context manager support

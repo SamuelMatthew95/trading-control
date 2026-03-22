@@ -3,7 +3,6 @@ import json
 import pytest
 
 from api.core.models import (
-    AgentRun,
     ReinforceRequest,
     StrategyDNA,
     TraceStep,
@@ -12,6 +11,7 @@ from api.core.models import (
 from api.database import AsyncSessionLocal, init_database
 from api.services.feedback import FeedbackLearningService
 from multi_agent_orchestrator import ToolError, TradeTools
+from tests.test_agent_run_utils import create_test_agent_run
 
 
 @pytest.mark.asyncio
@@ -20,10 +20,11 @@ async def test_feedback_reinforce_promotes_dna_and_memories():
     service = FeedbackLearningService()
 
     async with AsyncSessionLocal() as session:
-        run = AgentRun(
+        run = create_test_agent_run(
             task_id="risk:run-1",
             decision_json=json.dumps({"decision": "LONG"}),
             trace_json=json.dumps([{"type": "think"}, {"type": "do", "success": True}]),
+            trace_id="trace_123"
         )
         session.add(run)
         await session.flush()
@@ -65,7 +66,7 @@ async def test_feedback_job_persistence():
     service = FeedbackLearningService()
 
     async with AsyncSessionLocal() as session:
-        run = AgentRun(task_id="consensus:run-2", decision_json="{}", trace_json="[]")
+        run = create_test_agent_run(task_id="consensus:run-2", decision_json="{}", trace_json="[]", trace_id="trace_456")
         session.add(run)
         await session.flush()
 
@@ -111,10 +112,11 @@ async def test_insight_confidence_in_response():
     service = FeedbackLearningService()
 
     async with AsyncSessionLocal() as session:
-        run = AgentRun(
+        run = create_test_agent_run(
             task_id="signal:run-3",
             decision_json="{}",
             trace_json=json.dumps([{"type": "think"}, {"type": "do"}]),
+            trace_id="trace_789"
         )
         session.add(run)
         await session.flush()

@@ -37,6 +37,9 @@ class FakeResult:
     def scalar_one(self):
         return self._scalar
 
+    def scalar(self):
+        return self._scalar
+
 
 class FakeSession:
     def __init__(self, handler):
