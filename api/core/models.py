@@ -273,7 +273,7 @@ class Run(Base):
 class AgentRun(Base):
     __tablename__ = "agent_runs"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     strategy_id = Column(String, nullable=True, index=True)
     symbol = Column(String(64), nullable=True)
     signal_data = Column(JSONB, nullable=True)
@@ -288,9 +288,7 @@ class AgentRun(Base):
     cost_usd = Column(Float, nullable=True)
     trace_id = Column(String(255), nullable=True, index=True)
     fallback = Column(Boolean, default=False)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class TraceStep(Base):
@@ -450,9 +448,7 @@ class Order(Base):
 class SystemMetric(Base):
     __tablename__ = "system_metrics"
 
-    id = Column(
-        String, primary_key=True, index=True
-    )  # UUID stored as String for SQLite compatibility
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     metric_name = Column(String(255), nullable=False, index=True)
     value = Column(Float, nullable=False)
     labels = Column(Text, nullable=True)  # JSONB stored as Text in SQLite
@@ -467,13 +463,7 @@ class SystemMetric(Base):
 class VectorMemory(Base):
     __tablename__ = "vector_memory"
 
-    id = Column(
-        String, 
-        primary_key=True, 
-        index=True, 
-        default=lambda: str(uuid4()),  # For ORM usage
-        server_default=text("gen_random_uuid()::text")  # For Raw SQL/Agents
-    )
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
     metadata_ = Column(JSONB, nullable=True)
@@ -484,13 +474,7 @@ class VectorMemory(Base):
 class AgentLog(Base):
     __tablename__ = "agent_logs"
 
-    id = Column(
-        String, 
-        primary_key=True, 
-        index=True, 
-        default=lambda: str(uuid4()),  # For ORM usage
-        server_default=text("gen_random_uuid()::text")  # For Raw SQL/Agents
-    )
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     trace_id = Column(String(255), nullable=False)
     log_type = Column(String(100), nullable=False)
     payload = Column(JSONB, nullable=False)
@@ -500,13 +484,7 @@ class AgentLog(Base):
 class LLMCostTracking(Base):
     __tablename__ = "llm_cost_tracking"
 
-    id = Column(
-        String, 
-        primary_key=True, 
-        index=True, 
-        default=lambda: str(uuid4()),  # For ORM usage
-        server_default=text("gen_random_uuid()::text")  # For Raw SQL/Agents
-    )
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     date = Column(Date, nullable=False)
     tokens_used = Column(Integer, server_default="0")
     cost_usd = Column(Float, server_default="0.0")
