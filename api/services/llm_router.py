@@ -13,17 +13,44 @@ SYSTEM_PROMPT = (
 def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
     text = text.strip()
     if text.startswith("```"):
-        parts = text.split("```")
-        text = parts[1] if len(parts) > 1 else text
-        if text.startswith("json"):
-            text = text[4:]
-    parsed = json.loads(text.strip())
-    parsed["fallback"] = False
-    parsed["trace_id"] = trace_id
-    parsed.setdefault("latency_ms", 0)
-    parsed.setdefault("cost_usd", cost_usd)
-    parsed.setdefault("risk_factors", [])
-    return parsed
+        # Remove opening fence
+        text = text[3:]
+        # Remove language identifier if present (e.g. "json\n")
+        if "\n" in text:
+            first_line, rest = text.split("\n", 1)
+            if first_line.strip() in {"json", "JSON", ""}:
+                text = rest
+        # Remove closing fence
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+    # Clean up any remaining whitespace and handle edge cases
+    text = text.strip()
+    if not text:
+        return {
+            "action": "reject",
+            "trace_id": trace_id,
+            "fallback": True,
+            "error": "Empty response from LLM",
+            "latency_ms": 0,
+            "cost_usd": cost_usd,
+        }
+    try:
+        parsed = json.loads(text)
+        parsed["fallback"] = False
+        parsed["trace_id"] = trace_id
+        parsed.setdefault("latency_ms", 0)
+        parsed.setdefault("cost_usd", cost_usd)
+        parsed.setdefault("risk_factors", [])
+        return parsed
+    except json.JSONDecodeError as exc:
+        return {
+            "action": "reject",
+            "trace_id": trace_id,
+            "fallback": True,
+            "error": f"Invalid JSON from LLM: {exc}",
+            "latency_ms": 0,
+            "cost_usd": cost_usd,
+        }
 
 def _get_provider_key(provider: str) -> str:
     keys = {
