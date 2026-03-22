@@ -8555,8 +8555,13 @@
       "trace_summary": {
         "guard_hits": 0
       },
+<<<<<<< HEAD
       "task_id": "AAPL:2026-03-22T02:37:39.936216+00:00",
       "timestamp": "2026-03-22T02:37:39.936280+00:00",
+=======
+      "task_id": "AAPL:2026-03-21T20:30:11.133968+00:00",
+      "timestamp": "2026-03-21T20:30:11.134061+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
       "decision": {
         "DECISION": "LONG",
         "ASSET": "AAPL",
@@ -8605,7 +8610,11 @@
             ]
           },
           "output_data": {},
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:39.936260+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:11.134029+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -8616,8 +8625,13 @@
       "trace_summary": {
         "guard_hits": 1
       },
+<<<<<<< HEAD
       "task_id": "AAPL:2026-03-22T02:37:39.945483+00:00",
       "timestamp": "2026-03-22T02:37:39.946088+00:00",
+=======
+      "task_id": "AAPL:2026-03-21T20:30:11.193119+00:00",
+      "timestamp": "2026-03-21T20:30:11.194081+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
       "decision": {
         "DECISION": "FLAT",
         "ASSET": "AAPL",
@@ -8703,7 +8717,11 @@
             ]
           },
           "output_data": {},
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:39.945521+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:11.193167+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -8739,7 +8757,11 @@
             "agreement_ratio": 1.0,
             "signal_strength": 0.7
           },
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:39.945531+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:11.193181+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -8784,7 +8806,11 @@
             "size_multiplier": 1.0,
             "flags": []
           },
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:39.945536+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:11.193188+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -8823,7 +8849,11 @@
             }
           },
           "output_data": {},
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:39.946082+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:11.194072+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": false,
           "error": "skipped_by_memory_guard:Known stale price feed",
           "duration_ms": 0
@@ -8834,8 +8864,13 @@
       "trace_summary": {
         "guard_hits": 1
       },
+<<<<<<< HEAD
       "task_id": "AAPL:2026-03-22T02:37:40.917619+00:00",
       "timestamp": "2026-03-22T02:37:40.918414+00:00",
+=======
+      "task_id": "AAPL:2026-03-21T20:30:12.387585+00:00",
+      "timestamp": "2026-03-21T20:30:12.388478+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
       "decision": {
         "DECISION": "FLAT",
         "ASSET": "AAPL",
@@ -8915,7 +8950,11 @@
             ]
           },
           "output_data": {},
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:40.917652+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:12.387637+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -8948,7 +8987,11 @@
             "agreement_ratio": 1.0,
             "signal_strength": 0.7
           },
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:40.917661+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:12.387649+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -8990,7 +9033,11 @@
             "size_multiplier": 1.0,
             "flags": []
           },
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:40.917667+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:12.387658+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": true,
           "error": null,
           "duration_ms": 0
@@ -9026,6 +9073,7 @@
             }
           },
           "output_data": {},
+<<<<<<< HEAD
           "timestamp": "2026-03-22 02:37:40.918406+00:00",
           "success": false,
           "error": "skipped_by_memory_guard:Known stale price feed",
@@ -11437,6 +11485,9 @@
           },
           "output_data": {},
           "timestamp": "2026-03-22 03:23:44.757880+00:00",
+=======
+          "timestamp": "2026-03-21 20:30:12.388471+00:00",
+>>>>>>> e832abf1e3e79e8b1d14d721cc936829ddfac100
           "success": false,
           "error": "skipped_by_memory_guard:Known stale price feed",
           "duration_ms": 0

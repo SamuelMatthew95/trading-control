@@ -20,7 +20,6 @@ from api.core.models import ErrorResponse
 from api.database import (
     Base,
     get_settings_info,
-    init_database,
     test_database_connection,
 )
 from api.db import AsyncSessionFactory, engine
@@ -34,6 +33,7 @@ from api.observability import (
     request_id_ctx,
 )
 from api.redis_client import close_redis, get_redis
+from api.events.bus import EventBus, create_redis_groups
 from api.routes.analyze import router as analyze_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.dlq import router as dlq_router
@@ -59,6 +59,7 @@ from api.services.memory import AgentMemoryService
 from api.services.run_lifecycle import RunLifecycleService
 from api.services.signal_generator import SignalGenerator
 from api.services.trading import TradingService
+from api.services.websocket_broadcaster import get_broadcaster
 
 configure_logging(settings.LOG_LEVEL)
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
@@ -97,9 +98,7 @@ def initialize_services() -> None:
     learning_service = AgentLearningService()
     memory_service = AgentMemoryService()
     feedback_service = FeedbackLearningService()
-    run_lifecycle_service = RunLifecycleService(
-        learning_service, memory_service, feedback_service
-    )
+    run_lifecycle_service = RunLifecycleService(learning_service, memory_service, feedback_service)
     set_services(
         trading_service,
         learning_service,
@@ -229,9 +228,7 @@ async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
         )
 
 
-async def monitor_llm_cost(
-    bus: EventBus, redis_client, stop_event: asyncio.Event
-) -> None:
+async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
         try:
             await collect_llm_cost_metric(bus, redis_client)
@@ -293,17 +290,21 @@ async def lifespan(app: FastAPI):
             redis_client = await get_redis()
         except Exception as exc:  # noqa: BLE001
             redis_client = None
-            log_structured(
-                "warning", "Redis unavailable during startup", error=str(exc)
-            )
+            log_structured("warning", "Redis unavailable during startup", error=str(exc))
         app.state.redis_client = redis_client
+        app.state.websocket_broadcaster = get_broadcaster()
         if redis_client is not None:
             # Trim market_ticks backlog on startup
             await redis_client.xtrim("market_ticks", maxlen=1000, approximate=True)
             log_structured("info", "Trimmed market_ticks stream to 1000 messages")
             
+            # Ensure all Redis streams and consumer groups exist before starting any workers
             event_bus = EventBus(redis_client)
-            await event_bus.create_groups()
+            await create_redis_groups(redis_client)
+
+            # Start the WebSocket broadcaster
+            await app.state.websocket_broadcaster.start(redis_client)
+
             dlq_manager = DLQManager(redis_client, event_bus)
             
             # Choose broker based on config
@@ -405,6 +406,14 @@ async def lifespan(app: FastAPI):
             retry_task.cancel()
             with suppress(asyncio.CancelledError):
                 await retry_task
+
+        # Stop WebSocket broadcaster
+        if (
+            hasattr(app.state, "websocket_broadcaster")
+            and app.state.websocket_broadcaster is not None
+        ):
+            await app.state.websocket_broadcaster.stop()
+
         await close_redis()
         await engine.dispose()
 
@@ -480,9 +489,7 @@ async def telemetry_and_security_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    log_structured(
-        "error", "Unhandled API exception", path=request.url.path, error=str(exc)
-    )
+    log_structured("error", "Unhandled API exception", path=request.url.path, error=str(exc))
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(

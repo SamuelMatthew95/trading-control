@@ -1,63 +1,52 @@
-"""Dashboard WebSocket fanout."""
+"""Dashboard WebSocket fanout with single Redis connection."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-router = APIRouter(tags=["ws"])
+from api.observability import log_structured
 
-STREAM_TYPE_MAP = {
-    "market_ticks": "market_tick",
-    "signals": "signal",
-    "orders": "order_update",
-    "executions": "order_update",
-    "risk_alerts": "risk_alert",
-    "learning_events": "learning_event",
-    "system_metrics": "system_metric",
-    "agent_logs": "agent_log",
-}
+router = APIRouter(tags=["ws"])
 
 
 @router.websocket("/ws/dashboard")
 async def dashboard_ws(websocket: WebSocket) -> None:
     await websocket.accept()
-    redis_client = getattr(websocket.app.state, "redis_client", None)
-    if redis_client is None:
+
+    # Get the global broadcaster
+    broadcaster = getattr(websocket.app.state, "websocket_broadcaster", None)
+    if broadcaster is None:
         await websocket.close(code=1013)
         return
-    last_ids = {stream: "$" for stream in STREAM_TYPE_MAP}
+
+    # Add this connection to the broadcaster
+    await broadcaster.add_connection(websocket)
+
     try:
+        # Keep the WebSocket alive and handle client messages
         while True:
-            messages = await redis_client.xread(last_ids, block=1000, count=50)
-            for stream_name, entries in messages:
-                stream_key = (
-                    stream_name.decode("utf-8")
-                    if isinstance(stream_name, bytes)
-                    else stream_name
-                )
-                for entry_id, fields in entries:
-                    payload_raw = (
-                        fields.get("payload") or fields.get(b"payload") or "{}"
-                    )
-                    if isinstance(payload_raw, bytes):
-                        payload_raw = payload_raw.decode("utf-8")
-                    payload: dict[str, Any] = json.loads(payload_raw)
-                    payload.setdefault(
-                        "type", STREAM_TYPE_MAP.get(stream_key, stream_key)
-                    )
-                    try:
-                        await websocket.send_json(payload)
-                    except Exception:
-                        break
-                    last_ids[stream_key] = (
-                        entry_id.decode("utf-8")
-                        if isinstance(entry_id, bytes)
-                        else entry_id
-                    )
-            await asyncio.sleep(0.05)
+            try:
+                # Wait for client message or heartbeat
+                await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Send heartbeat to keep connection alive
+                try:
+                    await websocket.send_json({"type": "heartbeat"})
+                except Exception:
+                    break
+            except WebSocketDisconnect:
+                break
+            except Exception as exc:
+                log_structured("warning", "WebSocket receive error", error=str(exc))
+                break
+
     except WebSocketDisconnect:
-        return
+        log_structured("info", "WebSocket client disconnected")
+    except Exception as exc:
+        log_structured("error", "WebSocket handler error", error=str(exc))
+    finally:
+        # Always remove the connection from broadcaster
+        await broadcaster.remove_connection(websocket)
+        log_structured("info", "WebSocket cleanup completed")
