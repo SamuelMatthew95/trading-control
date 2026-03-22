@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_serializer
-from sqlalchemy import Boolean, Column, DateTime, Date, Float, Integer, Numeric, String, Text, UUID, text
+from sqlalchemy import Boolean, Column, DateTime, Date, Float, ForeignKey, Integer, Numeric, String, Text, UUID, text
 try:
     from sqlalchemy.dialects.postgresql.json import JSONB
     from pgvector.sqlalchemy import Vector
@@ -15,6 +15,10 @@ except ImportError:
     JSONB = Text
     Vector = Text
     POSTGRES_AVAILABLE = False
+
+# Unified types for cross-database compatibility
+JSONType = JSONB if POSTGRES_AVAILABLE else Text
+VectorType = Vector(1536) if POSTGRES_AVAILABLE else Text
 
 from api.database import Base
 
@@ -59,11 +63,11 @@ class AgentPerformanceView(BaseModel):
 
 
 class ReinforceRequest(BaseModel):
-    run_id: int
+    run_id: str
 
 
 class ReinforceResponse(BaseModel):
-    run_id: int
+    run_id: str
     status: str
     negative_memories: int
     few_shot_memories: int
@@ -73,7 +77,7 @@ class ReinforceResponse(BaseModel):
 
 
 class AnnotationCreate(BaseModel):
-    run_id: int
+    run_id: str
     node_name: str
     tool_call: Optional[str] = None
     transcript: Optional[str] = None
@@ -85,11 +89,11 @@ class AnnotationCreate(BaseModel):
 
 
 class InsightView(BaseModel):
-    id: int
+    id: str
     tag: str
     confidence: float
     summary: str
-    run_id: int
+    run_id: str
     needs_more_data: bool
     supporting_run_count: int
     created_at: datetime
@@ -104,7 +108,7 @@ class ProposedRun(BaseModel):
 
 class FeedbackJobStatusView(BaseModel):
     id: str
-    run_id: int
+    run_id: str
     status: str
     error: Optional[str] = None
     completed_at: Optional[datetime] = None
@@ -195,7 +199,13 @@ class HealthResponse(BaseModel):
 class Trade(Base):
     __tablename__ = "trades"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     date = Column(String, nullable=False)
     asset = Column(String, nullable=False)
     direction = Column(String, nullable=False)
@@ -208,19 +218,25 @@ class Trade(Base):
     pnl = Column(Float, nullable=True)
     outcome = Column(String, default="OPEN")
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
     updated_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
 
 
 class AgentPerformance(Base):
     __tablename__ = "agent_performance"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     agent_name = Column(String, nullable=False, unique=True)
     total_calls = Column(Integer, default=0)
     successful_calls = Column(Integer, default=0)
@@ -228,19 +244,25 @@ class AgentPerformance(Base):
     accuracy_score = Column(Float, default=0.0)
     improvement_areas = Column(Text, default="[]")
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
     updated_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
 
 
 class Run(Base):
     __tablename__ = "runs"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     task_id = Column(String, nullable=False, index=True)
     task_type = Column(String, nullable=False, index=True, default="general")
     status = Column(String, nullable=False, index=True, default="failed")
@@ -256,8 +278,8 @@ class Run(Base):
     last_scoring_attempt_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
     scoring_abandoned_at = Column(DateTime(timezone=True), nullable=True)
     correction_verification_status = Column(
@@ -266,7 +288,7 @@ class Run(Base):
     decision_json = Column(Text, nullable=False)
     trace_json = Column(Text, nullable=False)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+        DateTime(timezone=True), server_default=text("now()"), index=True
     )
 
 
@@ -276,26 +298,32 @@ class AgentRun(Base):
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     strategy_id = Column(String, nullable=True, index=True)
     symbol = Column(String(64), nullable=True)
-    signal_data = Column(JSONB, nullable=True)
+    signal_data = Column(JSONType, nullable=True)
     action = Column(String(32), nullable=True)
     confidence = Column(Float, nullable=True)
     primary_edge = Column(Text, nullable=True)
-    risk_factors = Column(JSONB, nullable=True)
+    risk_factors = Column(JSONType, nullable=True)
     size_pct = Column(Float, nullable=True)
     stop_atr_x = Column(Float, nullable=True)
     rr_ratio = Column(Float, nullable=True)
     latency_ms = Column(Integer, nullable=True)
     cost_usd = Column(Float, nullable=True)
-    trace_id = Column(String(255), nullable=True, index=True)
+    trace_id = Column(String(255), nullable=False, index=True)
     fallback = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class TraceStep(Base):
     __tablename__ = "trace_steps"
 
-    id = Column(Integer, primary_key=True, index=True)
-    run_id = Column(Integer, nullable=False, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
+    run_id = Column(String, ForeignKey("runs.id"), nullable=False, index=True)
     node_name = Column(String, nullable=False)
     tool_call = Column(Text, nullable=True)
     transcript = Column(Text, nullable=True)
@@ -311,22 +339,28 @@ class TraceStep(Base):
     context_limit = Column(Integer, nullable=True)
     token_cost_usd = Column(Float, default=0.0)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
 
 
 class VectorMemoryRecord(Base):
     __tablename__ = "vector_memory_records"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     store_type = Column(String, nullable=False, index=True)
-    run_id = Column(Integer, nullable=False, index=True)
+    run_id = Column(String, ForeignKey("runs.id"), nullable=False, index=True)
     node_name = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     embedding_json = Column(Text, nullable=False)
     metadata_json = Column(Text, nullable=True)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
     correction_verified_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -334,7 +368,13 @@ class VectorMemoryRecord(Base):
 class StrategyDNA(Base):
     __tablename__ = "strategy_dna"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     rule_key = Column(String, nullable=False, unique=True, index=True)
     segment_text = Column(Text, nullable=False)
     is_active = Column(Boolean, default=False, index=True)
@@ -343,40 +383,52 @@ class StrategyDNA(Base):
     state = Column(String, nullable=False, default="active")
     last_promoted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
     updated_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        onupdate=text("now()"),
     )
 
 
 class Insight(Base):
     __tablename__ = "insights"
 
-    id = Column(Integer, primary_key=True, index=True)
-    run_id = Column(Integer, nullable=False, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
+    run_id = Column(String, ForeignKey("runs.id"), nullable=False, index=True)
     tag = Column(String, nullable=False, index=True)
     confidence = Column(Float, nullable=False)
     summary = Column(Text, nullable=False)
-    payload_json = Column(Text, nullable=True)
+    payload_json = Column(JSONType, nullable=True)
     supporting_run_count = Column(Integer, default=1)
     dismissed = Column(Boolean, default=False)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
 
 
 class FeedbackJob(Base):
     __tablename__ = "feedback_jobs"
 
-    id = Column(String, primary_key=True, index=True)
-    run_id = Column(Integer, nullable=False, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
+    run_id = Column(String, ForeignKey("runs.id"), nullable=False, index=True)
     status = Column(String, nullable=False, default="pending", index=True)
     error = Column(Text, nullable=True)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), server_default=text("now()")
     )
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -384,14 +436,20 @@ class FeedbackJob(Base):
 class Signal(Base):
     __tablename__ = "signals"
 
-    id = Column(String, primary_key=True, index=True)
+    id = Column(
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     priority = Column(String, nullable=False, index=True)
     message = Column(Text, nullable=False)
     action_label = Column(String, nullable=False)
     action_type = Column(String, nullable=False)
     run_id = Column(String, nullable=True)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+        DateTime(timezone=True), server_default=text("now()"), index=True
     )
     dismissed = Column(Boolean, default=False, index=True)
     dismissed_at = Column(DateTime(timezone=True), nullable=True)
@@ -407,7 +465,7 @@ class TaskTypeBaseline(Base):
     baseline_slippage = Column(Float, nullable=False)
     established_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
         nullable=False,
     )
     last_feedback_run_at = Column(DateTime(timezone=True), nullable=True)
@@ -425,8 +483,12 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(
-        String, primary_key=True, index=True
-    )  # UUID stored as String for SQLite compatibility
+        String,
+        primary_key=True,
+        index=True,
+        default=lambda: str(uuid4()),
+        server_default=text("gen_random_uuid()::text")
+    )
     strategy_id = Column(
         String, nullable=False, index=True
     )  # UUID stored as String for SQLite compatibility
@@ -439,7 +501,7 @@ class Order(Base):
     broker_order_id = Column(String(255), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
         nullable=False,
     )
     filled_at = Column(DateTime(timezone=True), nullable=True)
@@ -451,10 +513,10 @@ class SystemMetric(Base):
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     metric_name = Column(String(255), nullable=False, index=True)
     value = Column(Float, nullable=False)
-    labels = Column(Text, nullable=True)  # JSONB stored as Text in SQLite
+    labels = Column(JSONType, nullable=True)  # JSONB stored as Text in SQLite
     timestamp = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
         nullable=False,
         index=True,
     )
@@ -465,10 +527,10 @@ class VectorMemory(Base):
 
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(1536), nullable=True)
-    metadata_ = Column(JSONB, nullable=True)
-    outcome = Column(JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    embedding = Column(VectorType, nullable=True)
+    metadata_ = Column(JSONType, nullable=True)
+    outcome = Column(JSONType, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class AgentLog(Base):
@@ -477,8 +539,8 @@ class AgentLog(Base):
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     trace_id = Column(String(255), nullable=False)
     log_type = Column(String(100), nullable=False)
-    payload = Column(JSONB, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    payload = Column(JSONType, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class LLMCostTracking(Base):
@@ -486,6 +548,6 @@ class LLMCostTracking(Base):
 
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid4()), server_default=text("gen_random_uuid()::text"))
     date = Column(Date, nullable=False)
-    tokens_used = Column(Integer, server_default="0")
-    cost_usd = Column(Float, server_default="0.0")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    tokens_used = Column(Integer, server_default=text("0"))
+    cost_usd = Column(Float, server_default=text("0.0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
