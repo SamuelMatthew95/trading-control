@@ -468,7 +468,7 @@ class VectorMemory(Base):
     __tablename__ = "vector_memory"
 
     id = Column(
-        String, primary_key=True, index=True
+        String, primary_key=True, index=True, default=lambda: str(uuid4())
     )  # UUID stored as String for SQLite compatibility
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
@@ -481,7 +481,7 @@ class AgentLog(Base):
     __tablename__ = "agent_logs"
 
     id = Column(
-        String, primary_key=True, index=True
+        String, primary_key=True, index=True, default=lambda: str(uuid4())
     )  # UUID stored as String for SQLite compatibility
     trace_id = Column(String(255), nullable=False)
     log_type = Column(String(100), nullable=False)
@@ -493,7 +493,7 @@ class LLMCostTracking(Base):
     __tablename__ = "llm_cost_tracking"
 
     id = Column(
-        String, primary_key=True, index=True
+        String, primary_key=True, index=True, default=lambda: str(uuid4())
     )  # UUID stored as String for SQLite compatibility
     date = Column(Date, nullable=False)
     tokens_used = Column(Integer, server_default="0")
