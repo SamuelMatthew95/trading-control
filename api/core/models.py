@@ -345,6 +345,8 @@ class AgentRun(Base):
     cost_usd = Column(Float, nullable=True)
     trace_id = Column(String(255), nullable=False, index=True)
     fallback = Column(Boolean, default=False)
+    decision_json = Column(Text, nullable=False)  # Restored for test compatibility
+    trace_json = Column(Text, nullable=False)      # Restored for test compatibility
     created_at = Column(
         DateTime(timezone=True),
         default=datetime_default,
