@@ -1,10 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_serializer
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Date, Float, Integer, Numeric, String, Text, UUID
+try:
+    from sqlalchemy.dialects.postgresql.json import JSONB
+    from pgvector.sqlalchemy import Vector
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    # Fallback for SQLite compatibility
+    JSONB = Text
+    Vector = Text
+    POSTGRES_AVAILABLE = False
 
 from api.database import Base
 
@@ -265,6 +275,7 @@ class AgentRun(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(String, nullable=False, index=True)
+    strategy_id = Column(String, nullable=True)
     decision_json = Column(Text, nullable=False)
     trace_json = Column(Text, nullable=False)
     created_at = Column(
@@ -430,7 +441,7 @@ class SystemMetric(Base):
     __tablename__ = "system_metrics"
 
     id = Column(
-        String, primary_key=True, index=True
+        String, primary_key=True
     )  # UUID stored as String for SQLite compatibility
     metric_name = Column(String(255), nullable=False, index=True)
     value = Column(Float, nullable=False)
@@ -441,3 +452,40 @@ class SystemMetric(Base):
         nullable=False,
         index=True,
     )
+
+
+class VectorMemory(Base):
+    __tablename__ = "vector_memory"
+
+    id = Column(
+        String, primary_key=True, index=True
+    )  # UUID stored as String for SQLite compatibility
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(1536), nullable=True)
+    metadata_ = Column(JSONB, nullable=True)
+    outcome = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class AgentLog(Base):
+    __tablename__ = "agent_logs"
+
+    id = Column(
+        String, primary_key=True, index=True
+    )  # UUID stored as String for SQLite compatibility
+    trace_id = Column(String(255), nullable=False)
+    log_type = Column(String(100), nullable=False)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class LLMCostTracking(Base):
+    __tablename__ = "llm_cost_tracking"
+
+    id = Column(
+        String, primary_key=True, index=True
+    )  # UUID stored as String for SQLite compatibility
+    date = Column(Date, nullable=False)
+    tokens_used = Column(Integer, server_default="0")
+    cost_usd = Column(Float, server_default="0.0")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
