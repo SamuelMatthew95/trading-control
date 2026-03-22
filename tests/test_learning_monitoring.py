@@ -16,10 +16,11 @@ from api.services.learning.reflection import ReflectionService
 
 
 class FakeResult:
-    def __init__(self, rows=None, first_row=None, mapping_rows=None):
+    def __init__(self, rows=None, first_row=None, mapping_rows=None, scalar=None):
         self._rows = rows or []
         self._first_row = first_row
         self._mapping_rows = mapping_rows or []
+        self._scalar = scalar
 
     def mappings(self):
         return self
@@ -32,18 +33,46 @@ class FakeResult:
             return self._mapping_rows[0]
         return self._first_row
 
+    def scalar_one(self):
+        return self._scalar
+
+    def scalar(self):
+        return self._scalar
+
 
 class FakeSession:
     def __init__(self, handler):
         self.handler = handler
         self.executed = []
         self.commits = 0
+        self._in_transaction = False
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
+
+    def begin(self):
+        """Return a transaction context manager for async with session.begin()"""
+        return self._TransactionContext(self)
+
+    class _TransactionContext:
+        """Inner class to handle transaction context management"""
+        def __init__(self, session):
+            self.session = session
+            self._in_transaction = False
+
+        async def __aenter__(self):
+            self.session._in_transaction = True
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            self.session._in_transaction = False
+            if exc_type is not None:
+                # On exception, rollback would happen here
+                pass
+            return False
 
     async def execute(self, statement, params=None):
         sql = str(statement)

@@ -286,6 +286,20 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         log_structured("info", "Database tables verified/created")
 
+        # Run Alembic migrations to ensure database schema is up to date
+        try:
+            import subprocess
+            import sys
+            result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], 
+                                    capture_output=True, text=True, cwd="api")
+            if result.returncode != 0:
+                log_structured("warning", "Alembic migration failed", 
+                              error=result.stderr, returncode=result.returncode)
+            else:
+                log_structured("info", "Alembic migration completed successfully")
+        except Exception as exc:
+            log_structured("warning", "Alembic migration failed", error=str(exc))
+
         try:
             redis_client = await get_redis()
         except Exception as exc:  # noqa: BLE001

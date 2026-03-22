@@ -13,6 +13,7 @@ import aiohttp
 from sqlalchemy import text
 
 from api.config import settings
+from api.core.models import POSTGRES_AVAILABLE
 from api.db import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -31,6 +32,16 @@ class ReasoningAgent(BaseStreamConsumer):
             bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="reasoning-agent"
         )
         self.redis = redis_client
+
+    def _json_expr(self, field: str) -> str:
+        if POSTGRES_AVAILABLE:
+            return f"CAST(:{field} AS JSONB)"
+        return f":{field}"
+
+    def _vector_expr(self) -> str:
+        if POSTGRES_AVAILABLE:
+            return "CAST(:embedding AS vector)"
+        return ":embedding"
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
@@ -56,35 +67,48 @@ class ReasoningAgent(BaseStreamConsumer):
                     data, trace_id, reason=fallback_reason
                 )
                 tokens_used, cost_usd = 0, 0.0
-        await self._store_agent_run(
-            data, summary, trace_id, fallback_reason is not None
+        
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                await self._store_agent_run(data, summary, trace_id, fallback_reason is not None, session=session)
+                await self._store_vector_memory(signal_summary, embedding, summary, session=session)
+                await self._store_agent_log(trace_id, summary, fallback_reason, session=session)
+                await self._store_cost_tracking(today, tokens_used, cost_usd, session=session)
+        
+        log_structured(
+            "info",
+            "agent_transaction_success",
+            trace_id=trace_id,
+            action=summary.get("action")
         )
-        await self._store_vector_memory(signal_summary, embedding, summary)
-        await self._store_agent_log(trace_id, summary, fallback_reason)
+        
         await self.redis.incrby(budget_key, tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
-        await self._store_cost_tracking(today, tokens_used, cost_usd)
+        
+        # Cache updated budget to avoid redundant Redis calls
+        updated_budget = int(await self.redis.get(budget_key) or 0)
         if (
-            int(await self.redis.get(budget_key) or 0)
-            >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET
+            updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET
         ):
             await self.bus.publish(
                 "risk_alerts",
                 {
                     "type": "llm_budget",
                     "message": "Daily LLM token budget exceeded",
-                    "tokens_used": int(await self.redis.get(budget_key) or 0),
+                    "tokens_used": updated_budget,
                     "limit": settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
                 },
             )
         await self.bus.publish("agent_logs", {"type": "agent_log", **summary})
-        if summary["action"].lower() not in {"reject", "hold", "flat"}:
+        # Normalize action to lowercase for consistent comparison
+        action = summary.get("action", "").lower()
+        if action not in {"reject", "hold", "flat"}:
             await self.bus.publish(
                 "orders",
                 {
                     "strategy_id": data.get("strategy_id"),
                     "symbol": data.get("symbol"),
-                    "side": summary["action"].lower(),
+                    "side": action,
                     "qty": max(
                         float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))
                     ),
@@ -141,10 +165,17 @@ class ReasoningAgent(BaseStreamConsumer):
     async def _search_vector_memory(
         self, embedding: list[float]
     ) -> list[dict[str, Any]]:
+        if not POSTGRES_AVAILABLE:
+            return []
+        
         vector_literal = self._vector_literal(embedding)
-        query = text(
-            "SELECT id, content, metadata_, outcome, 1 - (embedding <=> CAST(:embedding AS vector)) AS sim FROM vector_memory ORDER BY embedding <=> CAST(:embedding AS vector) LIMIT 5"
-        )
+        query = text(f"""
+SELECT id, content, metadata_, outcome,
+       1 - (embedding <=> {self._vector_expr()}) AS sim
+FROM vector_memory
+ORDER BY embedding <=> {self._vector_expr()}
+LIMIT 5
+""")
         try:
             async with AsyncSessionFactory() as session:
                 result = await session.execute(query, {"embedding": vector_literal})
@@ -160,7 +191,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 ]
         except Exception as exc:  # noqa: BLE001
             log_structured(
-                "warning", "Vector memory search unavailable", error=str(exc)
+                "error",
+                "vector_memory_search_failed",
+                error=str(exc),
             )
             return []
 
@@ -218,7 +251,12 @@ class ReasoningAgent(BaseStreamConsumer):
                 if isinstance(payload, str):
                     return json.loads(payload)
                 return payload or {}
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            log_structured(
+                "error",
+                "get_last_reflection_failed",
+                error=str(exc),
+            )
             return {}
 
     async def _store_agent_run(
@@ -227,98 +265,173 @@ class ReasoningAgent(BaseStreamConsumer):
         summary: dict[str, Any],
         trace_id: str,
         fallback: bool,
+        session,
     ) -> None:
+        query = text(f"""
+INSERT INTO agent_runs (
+    strategy_id,
+    symbol,
+    signal_data,
+    action,
+    confidence,
+    primary_edge,
+    risk_factors,
+    size_pct,
+    stop_atr_x,
+    rr_ratio,
+    latency_ms,
+    cost_usd,
+    trace_id,
+    fallback
+)
+VALUES (
+    :strategy_id,
+    :symbol,
+    {self._json_expr("signal_data")},
+    :action,
+    :confidence,
+    :primary_edge,
+    {self._json_expr("risk_factors")},
+    :size_pct,
+    :stop_atr_x,
+    :rr_ratio,
+    :latency_ms,
+    :cost_usd,
+    :trace_id,
+    :fallback
+)
+RETURNING id
+""")
         try:
-            async with AsyncSessionFactory() as session:
-                await session.execute(
-                    text(
-                        "INSERT INTO agent_runs (strategy_id, symbol, signal_data, action, confidence, primary_edge, risk_factors, size_pct, stop_atr_x, rr_ratio, latency_ms, cost_usd, trace_id, fallback) VALUES (:strategy_id, :symbol, CAST(:signal_data AS JSONB), :action, :confidence, :primary_edge, CAST(:risk_factors AS JSONB), :size_pct, :stop_atr_x, :rr_ratio, :latency_ms, :cost_usd, :trace_id, :fallback)"
+            result = await session.execute(
+                query,
+                {
+                    "strategy_id": data.get("strategy_id"),
+                    "symbol": data.get("symbol"),
+                    "signal_data": json.dumps(data, default=str),
+                    "action": summary["action"],
+                    "confidence": summary["confidence"],
+                    "primary_edge": summary["primary_edge"],
+                    "risk_factors": json.dumps(
+                        summary["risk_factors"], default=str
                     ),
-                    {
-                        "strategy_id": data.get("strategy_id"),
-                        "symbol": data.get("symbol"),
-                        "signal_data": json.dumps(data, default=str),
-                        "action": summary["action"],
-                        "confidence": summary["confidence"],
-                        "primary_edge": summary["primary_edge"],
-                        "risk_factors": json.dumps(
-                            summary["risk_factors"], default=str
-                        ),
-                        "size_pct": summary["size_pct"],
-                        "stop_atr_x": summary["stop_atr_x"],
-                        "rr_ratio": summary["rr_ratio"],
-                        "latency_ms": summary["latency_ms"],
-                        "cost_usd": summary["cost_usd"],
-                        "trace_id": trace_id,
-                        "fallback": fallback,
-                    },
-                )
-                await session.commit()
-        except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Unable to store agent run", error=str(exc))
-
-    async def _store_vector_memory(
-        self, content: str, embedding: list[float], summary: dict[str, Any]
-    ) -> None:
-        try:
-            async with AsyncSessionFactory() as session:
-                await session.execute(
-                    text(
-                        "INSERT INTO vector_memory (content, embedding, metadata_, outcome) VALUES (:content, CAST(:embedding AS vector), CAST(:metadata AS JSONB), CAST(:outcome AS JSONB))"
-                    ),
-                    {
-                        "content": content,
-                        "embedding": self._vector_literal(embedding),
-                        "metadata": json.dumps({"trace_id": summary["trace_id"]}),
-                        "outcome": json.dumps(
-                            {
-                                "action": summary["action"],
-                                "confidence": summary["confidence"],
-                            }
-                        ),
-                    },
-                )
-                await session.commit()
-        except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Unable to store vector memory", error=str(exc))
-
-    async def _store_agent_log(
-        self, trace_id: str, summary: dict[str, Any], fallback_reason: str | None
-    ) -> None:
-        try:
-            async with AsyncSessionFactory() as session:
-                await session.execute(
-                    text(
-                        "INSERT INTO agent_logs (trace_id, log_type, payload) VALUES (:trace_id, :log_type, CAST(:payload AS JSONB))"
-                    ),
-                    {
-                        "trace_id": trace_id,
-                        "log_type": "reasoning_summary",
-                        "payload": json.dumps(
-                            {**summary, "fallback_reason": fallback_reason}, default=str
-                        ),
-                    },
-                )
-                await session.commit()
-        except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Unable to store agent log", error=str(exc))
-
-    async def _store_cost_tracking(
-        self, today: str, tokens_used: int, cost_usd: float
-    ) -> None:
-        try:
-            async with AsyncSessionFactory() as session:
-                await session.execute(
-                    text(
-                        "INSERT INTO llm_cost_tracking (date, tokens_used, cost_usd) VALUES (:date, :tokens_used, :cost_usd)"
-                    ),
-                    {"date": today, "tokens_used": tokens_used, "cost_usd": cost_usd},
-                )
-                await session.commit()
+                    "size_pct": summary["size_pct"],
+                    "stop_atr_x": summary["stop_atr_x"],
+                    "rr_ratio": summary["rr_ratio"],
+                    "latency_ms": summary["latency_ms"],
+                    "cost_usd": summary["cost_usd"],
+                    "trace_id": trace_id,
+                    "fallback": fallback,
+                },
+            )
+            row_id = result.scalar()
         except Exception as exc:  # noqa: BLE001
             log_structured(
-                "warning", "Unable to store LLM cost tracking", error=str(exc)
+                "error",
+                "agent_run_insert_failed",
+                error=str(exc),
+                trace_id=trace_id
             )
+            raise
+
+    async def _store_vector_memory(
+        self, content: str, embedding: list[float], summary: dict[str, Any], session
+    ) -> None:
+        query = text(f"""
+INSERT INTO vector_memory (
+    content,
+    embedding,
+    metadata_,
+    outcome
+)
+VALUES (
+    :content,
+    {self._vector_expr()},
+    {self._json_expr("metadata")},
+    {self._json_expr("outcome")}
+)
+RETURNING id
+""")
+        try:
+            result = await session.execute(
+                query,
+                {
+                    "content": content,
+                    "embedding": self._vector_literal(embedding),
+                    "metadata": json.dumps({"trace_id": summary["trace_id"]}),
+                    "outcome": json.dumps(
+                        {
+                            "action": summary["action"],
+                            "confidence": summary["confidence"],
+                        }
+                    ),
+                },
+            )
+            row_id = result.scalar()
+        except Exception as exc:  # noqa: BLE001
+            log_structured(
+                "error",
+                "vector_memory_insert_failed",
+                error=str(exc),
+                trace_id=summary.get("trace_id")
+            )
+            raise
+
+    async def _store_agent_log(
+        self, trace_id: str, summary: dict[str, Any], fallback_reason: str | None, session
+    ) -> None:
+        query = text(f"""
+INSERT INTO agent_logs (
+    trace_id,
+    log_type,
+    payload
+)
+VALUES (
+    :trace_id,
+    :log_type,
+    {self._json_expr("payload")}
+)
+RETURNING id
+""")
+        try:
+            result = await session.execute(
+                query,
+                {
+                    "trace_id": trace_id,
+                    "log_type": "reasoning_summary",
+                    "payload": json.dumps(
+                        {**summary, "fallback_reason": fallback_reason}, default=str
+                    ),
+                },
+            )
+            row_id = result.scalar()
+        except Exception as exc:  # noqa: BLE001
+            log_structured(
+                "error",
+                "agent_log_insert_failed",
+                error=str(exc),
+                trace_id=trace_id
+            )
+            raise
+
+    async def _store_cost_tracking(
+        self, today: str, tokens_used: int, cost_usd: float, session
+    ) -> None:
+        try:
+            result = await session.execute(
+                text(
+                    "INSERT INTO llm_cost_tracking (date, tokens_used, cost_usd) VALUES (:date, :tokens_used, :cost_usd) RETURNING id"
+                ),
+                {"date": today, "tokens_used": tokens_used, "cost_usd": cost_usd},
+            )
+            row_id = result.scalar()
+        except Exception as exc:  # noqa: BLE001
+            log_structured(
+                "error",
+                "cost_tracking_insert_failed",
+                error=str(exc),
+            )
+            raise
 
     def _vector_literal(self, embedding: list[float]) -> str:
         return "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"
