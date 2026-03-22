@@ -441,7 +441,7 @@ class SystemMetric(Base):
     __tablename__ = "system_metrics"
 
     id = Column(
-        String, primary_key=True
+        String, primary_key=True, index=True
     )  # UUID stored as String for SQLite compatibility
     metric_name = Column(String(255), nullable=False, index=True)
     value = Column(Float, nullable=False)
