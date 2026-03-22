@@ -24,22 +24,21 @@ from api.core.models import AgentRun
 
 class TestAgentRun(AgentRun):
     def __init__(self, task_id=None, decision_json=None, trace_json=None, **kwargs):
-        self._task_id = task_id
-        self._decision_json = decision_json or "{}"
-        self._trace_json = trace_json or "[]"
-        super().__init__(**kwargs)
-
-    @property
-    def task_id(self):
-        return self._task_id
-
-    @property
-    def decision_json(self):
-        return self._decision_json
-
-    @property
-    def trace_json(self):
-        return self._trace_json
+        # Provide safe defaults to prevent None.encode() errors
+        if decision_json is None:
+            decision_json = "{}"
+        if trace_json is None:
+            trace_json = "[]"
+        if task_id is None:
+            task_id = ""
+            
+        # Pass all fields to parent constructor since they now exist in production model
+        super().__init__(
+            task_id=task_id,
+            decision_json=decision_json,
+            trace_json=trace_json,
+            **kwargs
+        )
 
 
 def create_test_agent_run(**kwargs):
