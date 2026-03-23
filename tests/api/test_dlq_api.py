@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 # Import the FastAPI app
 from api.main import app
+from api.observability import bind_request_context
 
 
 class TestDLQAPI:

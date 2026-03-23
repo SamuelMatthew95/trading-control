@@ -23,17 +23,16 @@ from api.database import (
     test_database_connection,
 )
 from api.db import AsyncSessionFactory, engine
-from api.events.bus import EventBus
+from api.events.bus import EventBus, create_redis_groups
 from api.events.dlq import DLQManager
 from api.main_state import set_services
 from api.observability import (
+    bind_request_context,
     configure_logging,
     log_structured,
     metrics_store,
-    request_id_ctx,
 )
 from api.redis_client import close_redis, get_redis
-from api.events.bus import EventBus, create_redis_groups
 from api.routes.analyze import router as analyze_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.dlq import router as dlq_router
