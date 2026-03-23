@@ -112,11 +112,11 @@ class AlpacaStream:
                 await self.on_tick(tick)
 
         elif msg_type == "error":
-            log_structured("error", "Alpaca stream error", event=event)
+            log_structured("error", "Alpaca stream error", extra_data=event)
 
         elif msg_type in {"success", "subscription"}:
             log_structured(
                 "info", "Alpaca stream status",
                 msg_type=msg_type,
-                event=event,
+                extra_data=event,
             )
