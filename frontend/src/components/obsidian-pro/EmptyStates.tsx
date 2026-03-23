@@ -18,17 +18,19 @@ export function EmptyState({ type, className }: EmptyStateProps) {
           title: 'Markets Closed',
           description: 'Trading markets are currently closed. Check back during market hours.',
           color: 'text-muted-foreground',
-          bgColor: 'bg-muted/50',
-          borderColor: 'border-border'
+          bgColor: 'bg-muted/30',
+          borderColor: 'border-border',
+          iconBg: 'bg-slate-100'
         }
       case 'bot-offline':
         return {
           icon: Power,
           title: 'System Sleeping',
           description: 'The trading bot is currently offline. Start trading to activate the system.',
-          color: 'text-amber-600',
+          color: 'text-amber-700',
           bgColor: 'bg-amber-50',
-          borderColor: 'border-amber-200'
+          borderColor: 'border-amber-200',
+          iconBg: 'bg-amber-100'
         }
       case 'no-data':
         return {
@@ -36,8 +38,9 @@ export function EmptyState({ type, className }: EmptyStateProps) {
           title: 'No Data Available',
           description: 'No trading data is available at the moment. Please check your connection.',
           color: 'text-muted-foreground',
-          bgColor: 'bg-muted/50',
-          borderColor: 'border-border'
+          bgColor: 'bg-muted/30',
+          borderColor: 'border-border',
+          iconBg: 'bg-slate-100'
         }
       case 'loading':
         return {
@@ -46,7 +49,8 @@ export function EmptyState({ type, className }: EmptyStateProps) {
           description: 'Initializing trading system and fetching market data.',
           color: 'text-primary',
           bgColor: 'bg-primary/10',
-          borderColor: 'border-primary/30'
+          borderColor: 'border-primary/30',
+          iconBg: 'bg-primary/20'
         }
       default:
         return {
@@ -54,8 +58,9 @@ export function EmptyState({ type, className }: EmptyStateProps) {
           title: 'System Idle',
           description: 'The system is waiting for the next trading opportunity.',
           color: 'text-muted-foreground',
-          bgColor: 'bg-muted/50',
-          borderColor: 'border-border'
+          bgColor: 'bg-muted/30',
+          borderColor: 'border-border',
+          iconBg: 'bg-slate-100'
         }
     }
   }
@@ -99,7 +104,7 @@ export function EmptyState({ type, className }: EmptyStateProps) {
           }
           className={cn(
             'w-16 h-16 rounded-full flex items-center justify-center',
-            config.bgColor,
+            config.iconBg,
             'ring-2',
             config.borderColor
           )}

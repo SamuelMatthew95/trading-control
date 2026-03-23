@@ -59,49 +59,57 @@
 }
 
 .light {
-  /* Light Mode Variables - Professional Trading Theme */
-  --background: 45 20% 96%; /* Warm off-white */
-  --foreground: 30 15% 15%; /* Dark charcoal */
-  --muted: 45 15% 92%; /* Light warm grey */
-  --muted-foreground: 30 10% 45%; /* Medium grey */
-  --popover: 45 20% 95%; /* Soft white */
-  --popover-foreground: 30 15% 15%; /* Dark charcoal */
-  --card: 45 15% 97%; /* Very light warm white */
-  --card-foreground: 30 15% 15%; /* Dark charcoal */
-  --border: 30 15% 88%; /* Light grey border */
-  --input: 30 15% 90%; /* Light input background */
+  /* Light Mode Variables - Mission-Critical Trading Theme */
+  --background: 210 20% 96%; /* Soft off-white #F5F5F7 */
+  --foreground: 210 15% 11%; /* Dark charcoal #1C1C1C */
+  --muted: 210 15% 94%; /* Light grey #F0F0F2 */
+  --muted-foreground: 210 10% 35%; /* Medium grey #5A5A5A */
+  --popover: 210 20% 95%; /* Soft white */
+  --popover-foreground: 210 15% 11%; /* Dark charcoal */
+  --card: 210 15% 97%; /* Very light warm white */
+  --card-foreground: 210 15% 11%; /* Dark charcoal */
+  --border: 210 15% 82%; /* Light grey border #D0D0D5 */
+  --input: 210 15% 90%; /* Light input background */
   --primary: 263 70% 45%; /* Muted violet for light mode */
-  --primary-foreground: 45 20% 96%; /* Light text on primary */
-  --secondary: 30 15% 94%; /* Light secondary background */
-  --secondary-foreground: 30 15% 20%; /* Dark text on secondary */
-  --accent: 30 15% 92%; /* Light accent background */
-  --accent-foreground: 30 15% 20%; /* Dark text on accent */
-  --destructive: 0 72% 51%; /* Strong red for light mode */
-  --destructive-foreground: 45 20% 96%; /* Light text on destructive */
+  --primary-foreground: 210 20% 96%; /* Light text on primary */
+  --secondary: 210 15% 94%; /* Light secondary background */
+  --secondary-foreground: 210 15% 20%; /* Dark text on secondary */
+  --accent: 210 15% 92%; /* Light accent background */
+  --accent-foreground: 210 15% 20%; /* Dark text on accent */
+  --destructive: 0 62% 39%; /* Strong red #DB4437 */
+  --destructive-foreground: 210 20% 96%; /* Light text on destructive */
   --ring: 263 70% 45%; /* Muted violet ring */
   --radius: 0.5rem;
   
-  /* Trading Colors - Light Mode */
-  --bullish: 142 71% 45%; /* Stronger green for light mode */
-  --bearish: 0 71% 51%; /* Stronger red for light mode */
-  --neutral: 263 70% 45%; /* Muted violet */
+  /* Trading Colors - Light Mode (High Contrast) */
+  --bullish: 142 71% 33%; /* Strong green #0F9D58 */
+  --bearish: 0 62% 56%; /* Strong red #DB4437 */
+  --neutral: 30 85% 60%; /* Soft amber #F4B400 */
   
   /* Surface Colors - Light Mode */
-  --surface: 45 15% 98%; /* Very light warm surface */
-  --surface-hover: 45 15% 95%; /* Slightly darker on hover */
-  --surface-active: 45 15% 92%; /* Active surface */
+  --surface: 210 15% 98%; /* Very light warm surface */
+  --surface-hover: 210 15% 95%; /* Slightly darker on hover */
+  --surface-active: 210 15% 92%; /* Active surface */
   
-  /* Glassmorphism support - Light Mode */
-  --glass-bg: 45 15% 97% / 0.9;      /* Light warm white with 90% opacity */
-  --glass-border: 30 15% 88% / 0.4;   /* Light grey border with 40% opacity */
-  --glass-highlight: 0 0% 100% / 0.3; /* White highlight for light mode */
+  /* Glassmorphism support - Light Mode (Professional) */
+  --glass-bg: 210 15% 98% / 0.95;     /* Light warm white with 95% opacity */
+  --glass-border: 210 15% 82% / 0.8;   /* Light grey border with 80% opacity */
+  --glass-highlight: 0 0% 100% / 0.5; /* Strong white highlight */
   
-  /* Light Mode Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  /* Light Mode Shadows (Professional Depth) */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.12), 0 1px 2px -1px rgb(0 0 0 / 0.12);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.15), 0 2px 4px -2px rgb(0 0 0 / 0.15);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.18), 0 4px 6px -4px rgb(0 0 0 / 0.18);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.2), 0 8px 10px -6px rgb(0 0 0 / 0.2);
+  
+  /* High Contrast Text Variables */
+  --text-primary: 210 15% 11%; /* #1C1C1C - Primary metrics */
+  --text-secondary: 210 10% 35%; /* #5A5A5A - Labels and secondary info */
+  --text-accent: 263 70% 45%; /* Violet for primary actions */
+  --text-success: 142 71% 33%; /* #0F9D58 - Bullish */
+  --text-error: 0 62% 56%; /* #DB4437 - Bearish */
+  --text-warning: 30 85% 60%; /* #F4B400 - Neutral/Warning */
 }
 
 * {
@@ -125,7 +133,7 @@ body {
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid hsl(var(--glass-border));
     border-radius: 0.75rem;
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
     position: relative;
     overflow: hidden;
   }
@@ -147,7 +155,7 @@ body {
   
   .glass-card-hover:hover {
     background: hsl(var(--surface-hover));
-    box-shadow: var(--shadow-xl);
+    box-shadow: var(--shadow-lg);
     transform: translateY(-2px);
   }
   
@@ -163,7 +171,7 @@ body {
     @apply text-[10px] font-semibold uppercase tracking-[0.2em] text-[hsl(var(--text-label-strong))];
   }
   
-  /* Light mode specific styles */
+  /* Light mode specific styles - Professional High Contrast */
   .light .glass-card {
     background: hsl(var(--glass-bg));
     border: 1px solid hsl(var(--glass-border));
@@ -176,16 +184,36 @@ body {
   }
   
   .light .data-value {
-    @apply text-foreground font-mono tabular-nums;
+    color: hsl(var(--text-primary));
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
   }
   
   .light .data-value-large {
-    @apply text-2xl font-bold font-mono tabular-nums text-foreground;
+    font-size: 1.75rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    color: hsl(var(--text-primary));
   }
   
   .light .section-header {
-    @apply text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: hsl(var(--text-secondary));
   }
+  
+  /* High contrast trading colors for light mode */
+  .light .bullish-text { color: hsl(var(--text-success)); }
+  .light .bearish-text { color: hsl(var(--text-error)); }
+  .light .neutral-text { color: hsl(var(--text-warning)); }
+  
+  .light .bullish-bg { background-color: hsl(var(--text-success) / 0.15); }
+  .light .bearish-bg { background-color: hsl(var(--text-error) / 0.15); }
+  .light .neutral-bg { background-color: hsl(var(--text-warning) / 0.15); }
   
   .bullish-text { color: hsl(var(--bullish)); }
   .bearish-text { color: hsl(var(--bearish)); }

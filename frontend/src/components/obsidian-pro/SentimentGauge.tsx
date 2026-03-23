@@ -20,24 +20,24 @@ export function SentimentGauge({
     if (val < 33) {
       return {
         label: 'FEAR',
-        gradient: 'from-rose-500 to-orange-500',
-        ringColor: 'border-rose-500/30',
-        glowColor: 'shadow-rose-500/20'
+        gradient: 'from-rose-500 to-red-600',
+        ringColor: 'border-rose-500/50',
+        glowColor: 'shadow-rose-500/30'
       }
     }
     if (val < 67) {
       return {
         label: 'NEUTRAL',
-        gradient: 'from-violet-500 to-purple-500',
-        ringColor: 'border-violet-500/30',
-        glowColor: 'shadow-violet-500/20'
+        gradient: 'from-amber-500 to-yellow-600',
+        ringColor: 'border-amber-500/50',
+        glowColor: 'shadow-amber-500/30'
       }
     }
     return {
       label: 'GREED',
-      gradient: 'from-emerald-500 to-green-500',
-      ringColor: 'border-emerald-500/30',
-      glowColor: 'shadow-emerald-500/20'
+      gradient: 'from-emerald-500 to-green-600',
+      ringColor: 'border-emerald-500/50',
+      glowColor: 'shadow-emerald-500/30'
     }
   }
 
