@@ -95,7 +95,7 @@ class ICUpdater:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                log_structured("warning", "IC updater failed", error=str(exc))
+                log_structured("warning", "IC updater failed", exc_info=True)
 
     def _spearman(self, pairs: list[tuple[float, float]]) -> float:
         if len(pairs) < 2:

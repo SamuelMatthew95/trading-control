@@ -37,9 +37,8 @@ class AlpacaStream:
                 raise
             except Exception as exc:
                 log_structured(
-                    "warning", "Alpaca stream disconnected, reconnecting",
-                    error=str(exc),
-                    backoff=backoff,
+                    "warning", "alpaca_stream_reconnecting",
+                    backoff=backoff, exc_info=True
                 )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)

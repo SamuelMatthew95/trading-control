@@ -68,7 +68,7 @@ async def analyze_trade(
                 "task_failed", symbol=request.symbol, task="analyze", error=str(exc)
             )
             log_structured(
-                "error", "Trade analysis failed", symbol=request.symbol, error=str(exc)
+                "error", "Trade analysis failed", symbol=request.symbol, exc_info=True
             )
             raise HTTPException(
                 status_code=500, detail="Trade analysis failed"

@@ -118,7 +118,7 @@ async def _retry_loop(stop_event: asyncio.Event) -> None:
         try:
             await get_run_lifecycle_service().requeue_failed_scores_and_corrections()
         except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Score retry loop failed", error=str(exc))
+            log_structured("warning", "Score retry loop failed", exc_info=True)
         try:
             await asyncio.wait(
                 [
@@ -166,7 +166,7 @@ async def _record_system_metric(
             "warning",
             "Unable to persist system metric",
             metric_name=metric_name,
-            error=str(exc),
+            exc_info=True,
         )
     await bus.publish("system_metrics", payload)
 
@@ -199,7 +199,7 @@ async def monitor_consumer_lag(bus: EventBus, stop_event: asyncio.Event) -> None
         try:
             await collect_consumer_lag_metrics(bus)
         except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Consumer lag monitor failed", error=str(exc))
+            log_structured("warning", "Consumer lag monitor failed", exc_info=True)
         try:
             await asyncio.wait(
                 [
@@ -233,7 +233,7 @@ async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Even
         try:
             await collect_llm_cost_metric(bus, redis_client)
         except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "LLM cost monitor failed", error=str(exc))
+            log_structured("warning", "LLM cost monitor failed", exc_info=True)
         try:
             await asyncio.wait(
                 [
@@ -298,13 +298,13 @@ async def lifespan(app: FastAPI):
             else:
                 log_structured("info", "Alembic migration completed successfully")
         except Exception as exc:
-            log_structured("warning", "Alembic migration failed", error=str(exc))
+            log_structured("warning", "Alembic migration failed", exc_info=True)
 
         try:
             redis_client = await get_redis()
         except Exception as exc:  # noqa: BLE001
             redis_client = None
-            log_structured("warning", "Redis unavailable during startup", error=str(exc))
+            log_structured("warning", "Redis unavailable during startup", exc_info=True)
         app.state.redis_client = redis_client
         app.state.websocket_broadcaster = get_broadcaster()
         if redis_client is not None:
@@ -503,7 +503,7 @@ async def telemetry_and_security_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    log_structured("error", "Unhandled API exception", path=request.url.path, error=str(exc))
+    log_structured("error", "Unhandled API exception", path=request.url.path, exc_info=True)
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(

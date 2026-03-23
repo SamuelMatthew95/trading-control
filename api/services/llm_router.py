@@ -165,8 +165,8 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         error_str = str(exc).lower()
         if "rate" in error_str or "429" in error_str or "limit" in error_str:
             log_structured("warning", "LLM rate limit hit",
-                          provider=provider, error=str(exc))
+                          provider=provider, exc_info=True)
         else:
             log_structured("warning", "LLM call failed",
-                          provider=provider, error=str(exc))
+                          provider=provider, exc_info=True)
         raise

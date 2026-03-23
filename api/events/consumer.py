@@ -49,7 +49,7 @@ class BaseStreamConsumer(ABC):
                 await self._task
         except Exception as exc:
             log_structured(
-                "error", "Unexpected error stopping consumer", stream=self.stream, error=str(exc)
+                "error", "Unexpected error stopping consumer", stream=self.stream, exc_info=True
             )
         finally:
             self._task = None
@@ -62,7 +62,7 @@ class BaseStreamConsumer(ABC):
         try:
             reclaimed = await self._safe_reclaim_stale()
         except Exception as exc:
-            log_structured("warning", "Redis reclaim failed, skipping", error=str(exc))
+            log_structured("warning", "Redis reclaim failed, skipping", exc_info=True)
             reclaimed = []
 
         for msg_id, data in reclaimed:
@@ -84,7 +84,7 @@ class BaseStreamConsumer(ABC):
                     "warning",
                     "Redis connection error in consumer loop",
                     stream=self.stream,
-                    error=str(exc),
+                    exc_info=True,
                 )
                 # Brief backoff before retry
                 try:
@@ -94,7 +94,7 @@ class BaseStreamConsumer(ABC):
                 break
             except Exception as exc:
                 log_structured(
-                    "error", "Unexpected error in consumer loop", stream=self.stream, error=str(exc)
+                    "error", "Unexpected error in consumer loop", stream=self.stream, exc_info=True
                 )
                 break
 
@@ -112,7 +112,7 @@ class BaseStreamConsumer(ABC):
                 "warning",
                 "Redis connection error during reclaim",
                 stream=self.stream,
-                error=str(exc),
+                exc_info=True,
             )
             return []
 
@@ -126,7 +126,7 @@ class BaseStreamConsumer(ABC):
                 if send_to_dlq:
                     retries_key = f"dlq:retries:{msg_id}"
                     retries = int(await self.dlq.redis.get(retries_key) or 0)
-                    await self.dlq.push(self.stream, msg_id, data, error=str(exc), retries=retries)
+                    await self.dlq.push(self.stream, msg_id, data, exc_info=True, retries=retries)
                     await self.bus.acknowledge(self.stream, self.group, msg_id)
             except (ConnectionError, TimeoutError) as redis_exc:
                 log_structured(
@@ -134,13 +134,13 @@ class BaseStreamConsumer(ABC):
                     "Redis error during DLQ handling",
                     stream=self.stream,
                     message_id=msg_id,
-                    error=str(redis_exc),
+                    exc_info=True,
                 )
             log_structured(
                 "warning",
                 "Stream consumer failed to process message",
                 stream=self.stream,
                 message_id=msg_id,
-                error=str(exc),
+                exc_info=True,
                 dlq=send_to_dlq if "send_to_dlq" in locals() else "unknown",
             )

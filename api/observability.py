@@ -114,12 +114,27 @@ START_TIME = time.time()
 metrics_store = MetricsStore()
 
 
+# Valid log levels for validation
+VALID_LEVELS = {"debug", "info", "warning", "error", "exception", "critical"}
+
+
+def bind_request_context(request_id: str) -> None:
+    """Bind request context once per request/task."""
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+
+
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
-    # Prevent accidental event= keyword argument which causes structlog conflicts
-    if "event" in extra_data:
-        # Remove event from kwargs to prevent "multiple values for argument 'event'" error
-        extra_data = {k: v for k, v in extra_data.items() if k != "event"}
+    """Production-safe structured logging with validation and hardening."""
     
-    structlog.contextvars.bind_contextvars(request_id=request_id_ctx.get())
+    # Validate log level
+    if level.lower() not in VALID_LEVELS:
+        level = "info"
+    
+    # STRICTLY reject event keyword argument - never pass forward
+    if "event" in extra_data:
+        # Remove event to prevent "multiple values for argument 'event'" error
+        extra_data.pop("event")
+    
+    # Get logger method with validated level
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(message, **extra_data)

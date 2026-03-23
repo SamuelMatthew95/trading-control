@@ -39,13 +39,13 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             except WebSocketDisconnect:
                 break
             except Exception as exc:
-                log_structured("warning", "WebSocket receive error", error=str(exc))
+                log_structured("warning", "WebSocket receive error", exc_info=True)
                 break
 
     except WebSocketDisconnect:
         log_structured("info", "WebSocket client disconnected")
     except Exception as exc:
-        log_structured("error", "WebSocket handler error", error=str(exc))
+        log_structured("error", "WebSocket handler error", exc_info=True)
     finally:
         # Always remove the connection from broadcaster
         await broadcaster.remove_connection(websocket)
