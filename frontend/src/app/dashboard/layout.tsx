@@ -121,7 +121,7 @@ export default function DashboardLayout({
               initial={{ x: -280 }}
               animate={{ x: 0 }}
               exit={{ x: -280 }}
-              className="fixed top-0 left-0 z-50 w-64 h-full glass-card border-r border-slate-800/60 md:hidden"
+              className="fixed top-0 left-0 z-50 w-64 h-full glass-card border-r border-slate-800/60 md:hidden sidebar"
             >
               <SidebarContent 
                 pathname={pathname} 
@@ -133,12 +133,12 @@ export default function DashboardLayout({
       </AnimatePresence>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-64 flex-shrink-0 flex-col glass-card border-r border-slate-800/60">
+      <aside className="hidden md:flex w-64 flex-shrink-0 flex-col glass-card border-r border-slate-800/60 sidebar">
         <SidebarContent pathname={pathname} />
       </aside>
 
       {/* Main Column */}
-      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[hsl(var(--background))]">
 
         {/* Header */}
         <header className="flex h-16 flex-shrink-0 items-center justify-between glass-card border-b border-slate-800/60 px-6 gap-4">

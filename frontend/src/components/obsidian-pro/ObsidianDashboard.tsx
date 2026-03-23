@@ -67,7 +67,7 @@ const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-card p-8 relative overflow-hidden col-span-8 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+      className="glass-card p-8 relative overflow-hidden col-span-8"
     >
       {/* Background sparkline */}
       <div className="absolute inset-0 opacity-10">
@@ -75,12 +75,12 @@ const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
           <path
             d="M0,50 L50,45 L100,55 L150,30 L200,40 L250,25 L300,35 L350,20 L400,30"
             fill="none"
-            stroke={isPositive ? "#10b981" : "#f43f5e"}
+            stroke={isPositive ? "hsl(var(--bullish))" : "hsl(var(--bearish))"}
             strokeWidth="2"
           />
           <path
             d="M0,50 L50,45 L100,55 L150,30 L200,40 L250,25 L300,35 L350,20 L400,30 L400,100 L0,100 Z"
-            fill={isPositive ? "#10b981" : "#f43f5e"}
+            fill={isPositive ? "hsl(var(--bullish))" : "hsl(var(--bearish))"}
             opacity="0.2"
           />
         </svg>
@@ -95,12 +95,12 @@ const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
             animate={{ scale: 1, opacity: 1 }}
             className={cn(
               "data-value-large",
-              isPositive ? "text-emerald-400" : "text-rose-400"
+              isPositive ? "bullish-text" : "bearish-text"
             )}
           >
             {isPositive ? '+' : ''}${dailyPnl.toFixed(2)}
           </motion.div>
-          <p className="text-sm text-slate-400 mt-2">24h Performance</p>
+          <p className="text-sm text-muted-foreground mt-2">24h Performance</p>
         </div>
       </div>
     </motion.div>
@@ -158,13 +158,13 @@ const MarketTicker = memo(({ prices }: { prices: Record<string, any> }) => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="glass-card p-4 col-span-12 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+      className="glass-card p-4 col-span-12"
     >
       <h3 className="section-header">MARKET TICKER</h3>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6 mt-4">
         {Object.entries(prices).length === 0 ? (
           <div className="col-span-full flex items-center justify-center py-8">
-            <p className="text-sm text-slate-400">Waiting for market data...</p>
+            <p className="text-sm text-muted-foreground">Waiting for market data...</p>
           </div>
         ) : (
           Object.entries(prices).map(([symbol, record], index) => {
@@ -181,8 +181,8 @@ const MarketTicker = memo(({ prices }: { prices: Record<string, any> }) => {
                   priceChange === 'down' && "price-flash-rose"
                 )}
               >
-                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{symbol}</p>
-                <p className="mt-1.5 data-value text-slate-200">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{symbol}</p>
+                <p className="mt-1.5 data-value">
                   ${record.price.toFixed(2)}
                 </p>
                 <div className="mt-1">
@@ -228,7 +228,7 @@ const AgentStatusPulse = memo(({ agentLogs }: { agentLogs: any[] }) => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
-      className="glass-card p-6 col-span-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+      className="glass-card p-6 col-span-6"
     >
       <h3 className="section-header">AGENT STATUS</h3>
       <div className="grid grid-cols-2 gap-4 mt-4">
@@ -241,14 +241,14 @@ const AgentStatusPulse = memo(({ agentLogs }: { agentLogs: any[] }) => {
             className="glass-card-hover p-4"
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-slate-200">{agent.name}</span>
+              <span className="text-sm font-medium text-foreground">{agent.name}</span>
               <AgentStatusChip 
                 status={agent.status as 'running' | 'idle' | 'error'}
                 label={agent.status}
                 size="sm"
               />
             </div>
-            <p className="text-xs text-slate-400 truncate">{agent.lastAction}</p>
+            <p className="text-xs text-muted-foreground truncate">{agent.lastAction}</p>
           </motion.div>
         ))}
       </div>
@@ -266,9 +266,9 @@ const SystemHealthMetrics = memo(({ systemMetrics }: { systemMetrics: any[] }) =
     Math.max(1, systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length)
   
   const getSignalStrength = (lag: number) => {
-    if (lag < 100) return { icon: SignalHigh, color: 'text-emerald-400', status: 'Excellent' }
-    if (lag < 1000) return { icon: SignalMedium, color: 'text-amber-400', status: 'Good' }
-    return { icon: SignalLow, color: 'text-rose-400', status: 'Poor' }
+    if (lag < 100) return { icon: SignalHigh, color: 'text-success', status: 'Excellent' }
+    if (lag < 1000) return { icon: SignalMedium, color: 'text-warning', status: 'Good' }
+    return { icon: SignalLow, color: 'text-error', status: 'Poor' }
   }
   
   const signalStatus = getSignalStrength(avgLag)
@@ -279,7 +279,7 @@ const SystemHealthMetrics = memo(({ systemMetrics }: { systemMetrics: any[] }) =
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4 }}
-      className="glass-card p-6 col-span-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+      className="glass-card p-6 col-span-6"
     >
       <h3 className="section-header">SYSTEM HEALTH</h3>
       <div className="grid grid-cols-2 gap-6 mt-4">

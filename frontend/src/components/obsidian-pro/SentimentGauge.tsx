@@ -20,24 +20,39 @@ export function SentimentGauge({
     if (val < 33) {
       return {
         label: 'FEAR',
-        gradient: 'from-rose-500 to-red-600',
-        ringColor: 'border-rose-500/50',
-        glowColor: 'shadow-rose-500/30'
+        gradient: 'from-rose-400 to-red-500',
+        ringColor: 'border-rose-200',
+        glowColor: 'shadow-rose-100',
+        lightMode: {
+          gradient: 'from-rose-300 to-red-400',
+          ringColor: 'border-rose-200',
+          glowColor: 'shadow-rose-50'
+        }
       }
     }
     if (val < 67) {
       return {
         label: 'NEUTRAL',
-        gradient: 'from-amber-500 to-yellow-600',
-        ringColor: 'border-amber-500/50',
-        glowColor: 'shadow-amber-500/30'
+        gradient: 'from-amber-400 to-yellow-500',
+        ringColor: 'border-amber-200',
+        glowColor: 'shadow-amber-100',
+        lightMode: {
+          gradient: 'from-amber-300 to-yellow-400',
+          ringColor: 'border-amber-200',
+          glowColor: 'shadow-amber-50'
+        }
       }
     }
     return {
       label: 'GREED',
-      gradient: 'from-emerald-500 to-green-600',
-      ringColor: 'border-emerald-500/50',
-      glowColor: 'shadow-emerald-500/30'
+      gradient: 'from-emerald-400 to-green-500',
+      ringColor: 'border-emerald-200',
+      glowColor: 'shadow-emerald-100',
+      lightMode: {
+        gradient: 'from-emerald-300 to-green-400',
+        ringColor: 'border-emerald-200',
+        glowColor: 'shadow-emerald-50'
+      }
     }
   }
 
@@ -60,21 +75,12 @@ export function SentimentGauge({
         whileHover={{ scale: 1.05 }}
         className="relative"
       >
-        {/* Glow effect */}
-        <motion.div
+        {/* Solid border instead of blur for clean appearance */}
+        <div
           className={cn(
-            'absolute inset-0 rounded-full blur-xl opacity-50',
-            `bg-gradient-to-r ${config.gradient}`
+            'absolute inset-0 rounded-full border-2',
+            config.ringColor
           )}
-          animate={{
-            scale: [1, 1.2, 1],
-            opacity: [0.5, 0.8, 0.5]
-          }}
-          transition={{
-            duration: 3,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
         />
 
         {/* SVG Gauge */}
@@ -88,7 +94,7 @@ export function SentimentGauge({
           <path
             d={`M ${strokeWidth} ${height/2} A ${width/2 - strokeWidth} ${width/2 - strokeWidth} 0 0 1 ${width - strokeWidth} ${height/2}`}
             fill="none"
-            stroke="rgba(148, 163, 184, 0.2)"
+            stroke="hsl(var(--border))"
             strokeWidth={strokeWidth}
             strokeLinecap="round"
           />
@@ -97,7 +103,7 @@ export function SentimentGauge({
           <motion.path
             d={`M ${strokeWidth} ${height/2} A ${width/2 - strokeWidth} ${width/2 - strokeWidth} 0 0 1 ${width - strokeWidth} ${height/2}`}
             fill="none"
-            stroke={`url(#gradient-${value})`}
+            stroke="hsl(var(--neutral))"
             strokeWidth={strokeWidth}
             strokeLinecap="round"
             initial={{ pathLength: 0 }}

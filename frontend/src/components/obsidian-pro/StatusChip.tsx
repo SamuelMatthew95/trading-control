@@ -23,55 +23,114 @@ export function StatusChip({
   pulse = false,
   className
 }: StatusChipProps) {
-  const getStatusConfig = (statusType: StatusChipProps['status']) => {
-    switch (statusType) {
-      case 'active':
-        return {
-          bg: 'bg-emerald-500/20',
-          text: 'text-emerald-400',
-          border: 'border-emerald-500/30',
-          iconBg: 'bg-emerald-500'
+  const getStatusConfig = (status: StatusChipProps['status'], variant: StatusChipProps['variant'] = 'solid') => {
+    const configs = {
+      online: {
+        solid: {
+          color: 'text-emerald-700 dark:text-emerald-400',
+          bgColor: 'bg-emerald-100 dark:bg-emerald-500/20',
+          borderColor: 'border-emerald-200 dark:border-emerald-500/30',
+          iconColor: 'text-emerald-600 dark:text-emerald-400'
+        },
+        outline: {
+          color: 'text-emerald-600 dark:text-emerald-400',
+          bgColor: 'bg-emerald-50 dark:bg-emerald-500/10',
+          borderColor: 'border-emerald-200 dark:border-emerald-500/30',
+          iconColor: 'text-emerald-500 dark:text-emerald-400'
+        },
+        ghost: {
+          color: 'text-emerald-600 dark:text-emerald-400',
+          bgColor: 'bg-emerald-50 dark:bg-emerald-500/10',
+          borderColor: 'border-transparent dark:border-transparent',
+          iconColor: 'text-emerald-500 dark:text-emerald-400'
         }
-      case 'inactive':
-        return {
-          bg: 'bg-slate-500/20',
-          text: 'text-slate-400',
-          border: 'border-slate-500/30',
-          iconBg: 'bg-slate-500'
+      },
+      offline: {
+        solid: {
+          color: 'text-slate-600 dark:text-slate-400',
+          bgColor: 'bg-slate-100 dark:bg-slate-500/20',
+          borderColor: 'border-slate-200 dark:border-slate-500/30',
+          iconColor: 'text-slate-500 dark:text-slate-400'
+        },
+        outline: {
+          color: 'text-slate-500 dark:text-slate-400',
+          bgColor: 'bg-slate-50 dark:bg-slate-500/10',
+          borderColor: 'border-slate-200 dark:border-slate-500/30',
+          iconColor: 'text-slate-400 dark:text-slate-400'
+        },
+        ghost: {
+          color: 'text-slate-500 dark:text-slate-400',
+          bgColor: 'bg-slate-50 dark:bg-slate-500/10',
+          borderColor: 'border-transparent dark:border-transparent',
+          iconColor: 'text-slate-400 dark:text-slate-400'
         }
-      case 'warning':
-        return {
-          bg: 'bg-amber-500/20',
-          text: 'text-amber-400',
-          border: 'border-amber-500/30',
-          iconBg: 'bg-amber-500'
+      },
+      warning: {
+        solid: {
+          color: 'text-amber-700 dark:text-amber-400',
+          bgColor: 'bg-amber-100 dark:bg-amber-500/20',
+          borderColor: 'border-amber-200 dark:border-amber-500/30',
+          iconColor: 'text-amber-600 dark:text-amber-400'
+        },
+        outline: {
+          color: 'text-amber-600 dark:text-amber-400',
+          bgColor: 'bg-amber-50 dark:bg-amber-500/10',
+          borderColor: 'border-amber-200 dark:border-amber-500/30',
+          iconColor: 'text-amber-500 dark:text-amber-400'
+        },
+        ghost: {
+          color: 'text-amber-600 dark:text-amber-400',
+          bgColor: 'bg-amber-50 dark:bg-amber-500/10',
+          borderColor: 'border-transparent dark:border-transparent',
+          iconColor: 'text-amber-500 dark:text-amber-400'
         }
-      case 'error':
-        return {
-          bg: 'bg-rose-500/20',
-          text: 'text-rose-400',
-          border: 'border-rose-500/30',
-          iconBg: 'bg-rose-500'
+      },
+      error: {
+        solid: {
+          color: 'text-rose-700 dark:text-rose-400',
+          bgColor: 'bg-rose-100 dark:bg-rose-500/20',
+          borderColor: 'border-rose-200 dark:border-rose-500/30',
+          iconColor: 'text-rose-600 dark:text-rose-400'
+        },
+        outline: {
+          color: 'text-rose-600 dark:text-rose-400',
+          bgColor: 'bg-rose-50 dark:bg-rose-500/10',
+          borderColor: 'border-rose-200 dark:border-rose-500/30',
+          iconColor: 'text-rose-500 dark:text-rose-400'
+        },
+        ghost: {
+          color: 'text-rose-600 dark:text-rose-400',
+          bgColor: 'bg-rose-50 dark:bg-rose-500/10',
+          borderColor: 'border-transparent dark:border-transparent',
+          iconColor: 'text-rose-500 dark:text-rose-400'
         }
-      case 'success':
-        return {
-          bg: 'bg-emerald-500/20',
-          text: 'text-emerald-400',
-          border: 'border-emerald-500/30',
-          iconBg: 'bg-emerald-500'
+      },
+      success: {
+        solid: {
+          color: 'text-emerald-700 dark:text-emerald-400',
+          bgColor: 'bg-emerald-100 dark:bg-emerald-500/20',
+          borderColor: 'border-emerald-200 dark:border-emerald-500/30',
+          iconColor: 'text-emerald-600 dark:text-emerald-400'
+        },
+        outline: {
+          color: 'text-emerald-600 dark:text-emerald-400',
+          bgColor: 'bg-emerald-50 dark:bg-emerald-500/10',
+          borderColor: 'border-emerald-200 dark:border-emerald-500/30',
+          iconColor: 'text-emerald-500 dark:text-emerald-400'
+        },
+        ghost: {
+          color: 'text-emerald-600 dark:text-emerald-400',
+          bgColor: 'bg-emerald-50 dark:bg-emerald-500/10',
+          borderColor: 'border-transparent dark:border-transparent',
+          iconColor: 'text-emerald-500 dark:text-emerald-400'
         }
-      case 'neutral':
-      default:
-        return {
-          bg: 'bg-violet-500/20',
-          text: 'text-violet-400',
-          border: 'border-violet-500/30',
-          iconBg: 'bg-violet-500'
-        }
+      }
     }
+
+    return configs[status]?.[variant] || configs.offline.solid
   }
 
-  const config = getStatusConfig(status)
+  const config = getStatusConfig(status, variant)
 
   const sizeStyles = {
     sm: 'px-2 py-1 text-[10px] gap-1',
