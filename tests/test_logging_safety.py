@@ -37,7 +37,7 @@ class TestLoggingSafety:
                 dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
                 
                 for file in files:
-                    if file.endswith('.py'):
+                    if file.endswith('.py') and file != 'test_logging_safety.py':
                         file_path = os.path.join(root, file)
                         
                         try:

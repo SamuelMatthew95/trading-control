@@ -87,7 +87,7 @@ def initialize_services() -> None:
     if ORCHESTRATOR_AVAILABLE and MultiAgentOrchestrator:
         orchestrator = MultiAgentOrchestrator(settings.ANTHROPIC_API_KEY)
         trading_service = TradingService(orchestrator)
-        log_structured("info", "MultiAgentOrchestrator loaded successfully")
+        log_structured("info", "multi_agent_orchestrator_loaded")
     else:
         trading_service = TradingService(None)
         log_structured(
@@ -284,7 +284,7 @@ async def lifespan(app: FastAPI):
 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        log_structured("info", "Database tables verified/created")
+        log_structured("info", "database_initialized")
 
         # Run Alembic migrations to ensure database schema is up to date
         try:
@@ -293,10 +293,10 @@ async def lifespan(app: FastAPI):
             result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], 
                                     capture_output=True, text=True, cwd="api")
             if result.returncode != 0:
-                log_structured("warning", "Alembic migration failed", 
-                              error=result.stderr, returncode=result.returncode)
+                log_structured("warning", "alembic_migration_failed", 
+                              stderr=result.stderr, returncode=result.returncode)
             else:
-                log_structured("info", "Alembic migration completed successfully")
+                log_structured("info", "alembic_migration_completed")
         except Exception as exc:
             log_structured("warning", "Alembic migration failed", exc_info=True)
 
@@ -310,7 +310,7 @@ async def lifespan(app: FastAPI):
         if redis_client is not None:
             # Trim market_ticks backlog on startup
             await redis_client.xtrim("market_ticks", maxlen=1000, approximate=True)
-            log_structured("info", "Trimmed market_ticks stream to 1000 messages")
+            log_structured("info", "market_ticks_stream_trimmed")
             
             # Ensure all Redis streams and consumer groups exist before starting any workers
             event_bus = EventBus(redis_client)
@@ -324,12 +324,10 @@ async def lifespan(app: FastAPI):
             # Choose broker based on config
             if settings.BROKER_MODE == "paper" or not settings.ALPACA_API_KEY:
                 broker = PaperBroker(redis_client)
-                log_structured("info", "Using PaperBroker — fake money, simulated prices")
+                log_structured("info", "paper_broker_enabled")
             else:
                 broker = AlpacaBroker()
-                log_structured("info", "Using AlpacaBroker — fake money, real prices",
-                              paper=settings.ALPACA_PAPER,
-                              base_url=settings.ALPACA_BASE_URL)
+                log_structured("info", "alpaca_broker_enabled", paper=settings.ALPACA_PAPER, base_url=settings.ALPACA_BASE_URL)
             
             app.state.event_bus = event_bus
             app.state.dlq_manager = dlq_manager
@@ -472,6 +470,7 @@ async def root_redirect():
 async def telemetry_and_security_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
     request_id_ctx.set(request_id)
+    bind_request_context(request_id)  # ✅ THIS IS REQUIRED
 
     started = time.perf_counter()
     try:

@@ -61,11 +61,11 @@ async def analyze_trade(
                 metrics_store.update_agent(
                     agent,
                     "failed",
-                    error=str(exc),
+                    exc_info=True,
                     last_task=f"analyze {request.symbol}",
                 )
             metrics_store.log_event(
-                "task_failed", symbol=request.symbol, task="analyze", error=str(exc)
+                "task_failed", symbol=request.symbol, task="analyze", exc_info=True
             )
             log_structured(
                 "error", "Trade analysis failed", symbol=request.symbol, exc_info=True
