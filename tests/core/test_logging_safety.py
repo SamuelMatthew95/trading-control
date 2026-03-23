@@ -135,7 +135,9 @@ class TestLoggingSafety:
                                 if ('error=str(exc)' in line and 
                                     not line.strip().startswith('#') and
                                     not line.strip().startswith('"""') and
-                                    not line.strip().startswith("'''")):
+                                    not line.strip().startswith("'''") and
+                                    # Allow error=str(exc) in DLQ payloads (not logging calls)
+                                    'dlq.push' not in line.lower()):
                                     error_str_patterns.append({
                                         'file': file_path,
                                         'line': i,

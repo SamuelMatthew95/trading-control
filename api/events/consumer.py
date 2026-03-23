@@ -126,7 +126,7 @@ class BaseStreamConsumer(ABC):
                 if send_to_dlq:
                     retries_key = f"dlq:retries:{msg_id}"
                     retries = int(await self.dlq.redis.get(retries_key) or 0)
-                    await self.dlq.push(self.stream, msg_id, data, error="Processing failed", retries=retries)
+                    await self.dlq.push(self.stream, msg_id, data, error=str(exc), retries=retries)
                     await self.bus.acknowledge(self.stream, self.group, msg_id)
             except (ConnectionError, TimeoutError) as redis_exc:
                 log_structured(
