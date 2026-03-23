@@ -115,6 +115,11 @@ metrics_store = MetricsStore()
 
 
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
+    # Prevent accidental event= keyword argument which causes structlog conflicts
+    if "event" in extra_data:
+        # Remove event from kwargs to prevent "multiple values for argument 'event'" error
+        extra_data = {k: v for k, v in extra_data.items() if k != "event"}
+    
     structlog.contextvars.bind_contextvars(request_id=request_id_ctx.get())
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(message, **extra_data)
