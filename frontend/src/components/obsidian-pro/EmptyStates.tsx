@@ -139,9 +139,9 @@ export function EmptyState({ type, className }: EmptyStateProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="text-xs text-muted-foreground"
+            className="text-xs font-medium text-gray-600 bg-gray-50 dark:bg-gray-800 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700"
           >
-            <Clock className="w-4 h-4 inline-block mr-2" />
+            <Clock className="w-4 h-4 inline-block mr-2 text-gray-500" />
             Market Hours: 9:30 AM - 4:00 PM EST
           </motion.div>
         )}

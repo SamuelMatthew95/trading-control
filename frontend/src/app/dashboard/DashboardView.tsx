@@ -117,14 +117,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // TRADING PAGE
   if (section === 'trading') {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-slate-400">
+            <div className="flex items-center gap-2 text-gray-600">
               <span>System</span>
-              <span className="text-slate-600">/</span>
-              <span className="text-slate-200">Trading</span>
+              <span className="text-gray-500">/</span>
+              <span className="text-gray-900">Trading</span>
             </div>
           </div>
         </div>
@@ -133,7 +133,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           {/* Left: Chart + Positions */}
           <div className="space-y-6">
             {/* Symbol + Timeframe */}
-            <div className="glass-card p-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex flex-wrap gap-2">
                   {['BTC/USD','ETH/USD','SOL/USD','SPY','AAPL','NVDA'].map(s => (
@@ -142,8 +142,8 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                       className={cn(
                         "px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200",
                         selected === s
-                          ? "bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/50"
-                          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                          ? "bg-gray-100 text-gray-900 ring-1 ring-gray-300"
+                          : "text-gray-600 hover:bg-slate-800/50 hover:text-gray-900"
                       )}
                       onClick={() => setSelected(s)}
                     >
@@ -159,7 +159,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                         "px-2.5 py-1 text-xs rounded-md transition-all duration-200",
                         selectedTf === tf 
                           ? "bg-slate-700 text-slate-100" 
-                          : "text-slate-500 hover:bg-slate-800/50 hover:text-slate-300"
+                          : "text-gray-700 hover:bg-slate-800/50 hover:text-slate-300"
                       )}
                       onClick={() => setSelectedTf(tf)}
                     >
@@ -171,38 +171,38 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             </div>
 
             {/* Chart placeholder */}
-            <div className="glass-card p-8 flex items-center justify-center min-h-80 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-8 flex items-center justify-center min-h-80 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
               <div className="text-center">
-                <CandlestickChart className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-                <p className="text-sm text-slate-400 font-medium">Chart Integration</p>
-                <p className="text-xs text-slate-500 mt-2">{selected} · {selectedTf} timeframe</p>
+                <CandlestickChart className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+                <p className="text-sm text-gray-600 font-medium">Chart Integration</p>
+                <p className="text-xs text-gray-700 mt-2">{selected} · {selectedTf} timeframe</p>
               </div>
             </div>
 
             {/* Positions table */}
-            <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
               <div className="px-6 py-4 border-b border-slate-700">
-                <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Open Positions</h3>
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Open Positions</h3>
               </div>
               {orders.length === 0 ? (
                 <div className="px-6 py-12 text-center">
-                  <p className="text-sm text-slate-400">No open positions</p>
+                  <p className="text-sm text-gray-600">No open positions</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="bg-slate-800/30">
-                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Symbol</th>
-                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Side</th>
-                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Qty</th>
-                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">P&L</th>
+                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Symbol</th>
+                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Side</th>
+                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Qty</th>
+                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">P&L</th>
                       </tr>
                     </thead>
                     <tbody>
                       {orders.slice(0,10).map((o,i) => (
                         <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
-                          <td className="px-6 py-4 font-medium text-slate-200">{o.symbol}</td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{o.symbol}</td>
                           <td className="px-6 py-4">
                             <span className={cn(
                               "inline-flex px-2 py-1 text-xs font-medium rounded-md",
@@ -232,13 +232,13 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           {/* Right: Order Book + Entry Form */}
           <div className="space-y-6">
             {/* Order Book */}
-            <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 mb-4">Order Book</h3>
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 mb-4">Order Book</h3>
               <div className="space-y-1">
                 {[67510, 67505, 67500].map(p => (
                   <div key={p} className="flex justify-between text-xs py-1">
                     <span className="text-rose-400 font-mono tabular-nums">{p.toLocaleString()}</span>
-                    <span className="text-slate-500">0.42</span>
+                    <span className="text-gray-700">0.42</span>
                   </div>
                 ))}
                 <div className="my-3 py-2 text-center border-t border-b border-slate-700">
@@ -249,31 +249,31 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 {[67495, 67490, 67485].map(p => (
                   <div key={p} className="flex justify-between text-xs py-1">
                     <span className="text-emerald-400 font-mono tabular-nums">{p.toLocaleString()}</span>
-                    <span className="text-slate-500">1.05</span>
+                    <span className="text-gray-700">1.05</span>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Order Entry */}
-            <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 mb-4">New Order</h3>
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 mb-4">New Order</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs text-slate-500 mb-2 block font-medium uppercase tracking-[0.2em]">Symbol</label>
-                  <div className="glass-card px-3 py-2 text-sm font-mono text-slate-200">{selected}</div>
+                  <label className="text-xs text-gray-700 mb-2 block font-medium uppercase tracking-[0.2em]">Symbol</label>
+                  <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm px-3 py-2 text-sm font-mono text-gray-900">{selected}</div>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-500 mb-2 block font-medium uppercase tracking-[0.2em]">Quantity</label>
+                  <label className="text-xs text-gray-700 mb-2 block font-medium uppercase tracking-[0.2em]">Quantity</label>
                   <input 
-                    className="w-full glass-card px-3 py-2 text-sm font-mono text-slate-200 bg-transparent outline-none focus:ring-2 focus:ring-violet-500/50 transition-all duration-200" 
+                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm px-3 py-2 text-sm font-mono text-gray-900 bg-transparent outline-none focus:ring-2 focus:ring-gray-400/50 transition-all duration-200" 
                     placeholder="0.00" 
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-500 mb-2 block font-medium uppercase tracking-[0.2em]">Price</label>
+                  <label className="text-xs text-gray-700 mb-2 block font-medium uppercase tracking-[0.2em]">Price</label>
                   <input 
-                    className="w-full glass-card px-3 py-2 text-sm font-mono text-slate-200 bg-transparent outline-none focus:ring-2 focus:ring-violet-500/50 transition-all duration-200" 
+                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm px-3 py-2 text-sm font-mono text-gray-900 bg-transparent outline-none focus:ring-2 focus:ring-gray-400/50 transition-all duration-200" 
                     placeholder="Market" 
                   />
                 </div>
@@ -296,14 +296,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // AGENTS PAGE
   if (section === 'agents') {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-slate-400">
+            <div className="flex items-center gap-2 text-gray-600">
               <span>System</span>
-              <span className="text-slate-600">/</span>
-              <span className="text-slate-200">Agents</span>
+              <span className="text-gray-500">/</span>
+              <span className="text-gray-900">Agents</span>
             </div>
           </div>
         </div>
@@ -316,14 +316,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             { label: 'Total Runs', value: agentLogs.length, icon: Bot },
             { label: 'Fallbacks', value: agentLogs.filter(l => l.fallback).length, icon: AlertTriangle },
           ].map((m, i) => (
-            <div key={i} className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+            <div key={i} className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">
                   {m.label}
                 </p>
-                <m.icon className="h-4 w-4 text-slate-500" />
+                <m.icon className="h-4 w-4 text-gray-700" />
               </div>
-              <p className="data-value-large text-slate-200">
+              <p className="data-value-large text-gray-900">
                 {m.value}
               </p>
             </div>
@@ -333,17 +333,17 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         {/* Log List */}
         <div className="space-y-3">
           {agentLogs.length === 0 ? (
-            <div className="glass-card p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <Bot className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-              <p className="text-sm text-slate-400 font-medium">No reasoning logs yet</p>
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <Bot className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+              <p className="text-sm text-gray-600 font-medium">No reasoning logs yet</p>
             </div>
           ) : (
             agentLogs.slice(0, 20).map((log, i) => (
               <div key={i} className={cn(
-                "glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-l-4 transition-all duration-200 hover:shadow-[0_12px_40px_rgb(0,0,0,0.18)]",
+                "bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-l-4 transition-all duration-200 hover:shadow-[0_12px_40px_rgb(0,0,0,0.18)]",
                 log.action === 'buy'  && "border-l-emerald-500",
                 log.action === 'sell' && "border-l-rose-500",
-                !log.action || log.action === 'hold' && "border-l-violet-500"
+                !log.action || log.action === 'hold' && "border-l-gray-400"
               )}>
                 <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
                   <div className="flex items-center gap-3">
@@ -351,13 +351,13 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                       "inline-flex px-2 py-1 text-xs font-semibold uppercase rounded-md",
                       log.action === 'buy'  ? "bg-emerald-500/10 text-emerald-400" :
                       log.action === 'sell' ? "bg-rose-500/10 text-rose-400" :
-                      "bg-violet-500/10 text-violet-400"
+                      "bg-gray-100 text-gray-700"
                     )}>
                       {log.action || 'HOLD'}
                     </span>
-                    <span className="text-sm font-medium text-slate-200">{log.symbol || '—'}</span>
+                    <span className="text-sm font-medium text-gray-900">{log.symbol || '—'}</span>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-slate-500">
+                  <div className="flex items-center gap-4 text-xs text-gray-700">
                     <span className="font-mono">{log.latency_ms || 0}ms</span>
                     <span className="font-mono">${log.cost_usd || '0.000'}</span>
                     {log.fallback && (
@@ -372,11 +372,11 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 <div className="mb-3">
                   <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                     <div 
-                      className="bg-gradient-to-r from-violet-500 to-violet-400 h-2 rounded-full transition-all duration-500 ease-out"
+                      className="bg-gradient-to-r from-gray-400 to-gray-300 h-2 rounded-full transition-all duration-500 ease-out"
                       style={{ width: `${(log.confidence || 0) * 100}%` }} 
                     />
                   </div>
-                  <div className="mt-1 text-xs text-slate-500 font-medium">
+                  <div className="mt-1 text-xs text-gray-700 font-medium">
                     Confidence: {((log.confidence || 0) * 100).toFixed(0)}%
                   </div>
                 </div>
@@ -389,7 +389,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 {(log.risk_factors || []).length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {log.risk_factors.map((rf, j) => (
-                      <span key={j} className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-slate-700/50 text-slate-400 border border-slate-600/50">
+                      <span key={j} className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-slate-700/50 text-gray-600 border border-slate-600/50">
                         {rf}
                       </span>
                     ))}
@@ -406,70 +406,70 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // LEARNING PAGE
   if (section === 'learning') {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-slate-400">
+            <div className="flex items-center gap-2 text-gray-600">
               <span>System</span>
-              <span className="text-slate-600">/</span>
-              <span className="text-slate-200">Learning</span>
+              <span className="text-gray-500">/</span>
+              <span className="text-gray-900">Learning</span>
             </div>
           </div>
         </div>
 
         {/* Stat Cards */}
         <div className="grid grid-cols-3 gap-4">
-          <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Trades Evaluated</p>
-              <TrendingUp className="h-4 w-4 text-slate-500" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Trades Evaluated</p>
+              <TrendingUp className="h-4 w-4 text-gray-700" />
             </div>
-            <p className="data-value-large text-slate-200">{learningEvents.length}</p>
+            <p className="data-value-large text-gray-900">{learningEvents.length}</p>
           </div>
-          <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Reflections</p>
-              <BookOpen className="h-4 w-4 text-slate-500" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Reflections</p>
+              <BookOpen className="h-4 w-4 text-gray-700" />
             </div>
-            <p className="data-value-large text-slate-200">
+            <p className="data-value-large text-gray-900">
               {learningEvents.filter(e => e.event === 'reflection_completed').length}
             </p>
           </div>
-          <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">IC Updates</p>
-              <Settings2 className="h-4 w-4 text-slate-500" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">IC Updates</p>
+              <Settings2 className="h-4 w-4 text-gray-700" />
             </div>
-            <p className="data-value-large text-slate-200">0</p>
+            <p className="data-value-large text-gray-900">0</p>
           </div>
         </div>
 
         {/* Trade Timeline */}
-        <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
+        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
           <div className="px-6 py-4 border-b border-slate-700">
-            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Trade Timeline</h3>
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Trade Timeline</h3>
           </div>
           {learningEvents.length === 0 ? (
             <div className="px-6 py-12 text-center">
               <TrendingUp className="h-12 w-12 text-slate-700 mx-auto mb-4" />
-              <p className="text-base text-slate-600 font-medium">Complete paper trades to see performance</p>
+              <p className="text-base text-gray-500 font-medium">Complete paper trades to see performance</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-800/30">
-                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 w-1/3">Symbol</th>
-                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 w-1/3">Event</th>
-                    <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 w-1/3">P&L</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 w-1/3">Symbol</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 w-1/3">Event</th>
+                    <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 w-1/3">P&L</th>
                   </tr>
                 </thead>
                 <tbody>
                   {learningEvents.slice(0,20).map((e,i) => (
                     <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
-                      <td className="px-6 py-4 font-medium text-slate-200">{e.symbol || '—'}</td>
-                      <td className="px-6 py-4 text-sm text-slate-400">{e.event || e.type}</td>
+                      <td className="px-6 py-4 font-medium text-gray-900">{e.symbol || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.event || e.type}</td>
                       <td className={cn(
                         "px-6 py-4 text-right font-mono text-sm tabular-nums font-semibold",
                         Number(e.pnl) >= 0 ? "text-emerald-400" : "text-rose-400"
@@ -485,25 +485,25 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         </div>
 
         {/* Reflection Log */}
-        <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
           <div className="px-6 py-4 border-b border-slate-700">
-            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Reflection Log</h3>
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Reflection Log</h3>
           </div>
           {learningEvents.filter(e => e.event === 'reflection_completed').length === 0 ? (
             <div className="px-6 py-8 text-center">
-              <p className="text-sm text-slate-400">Reflections appear after every 20 trades</p>
+              <p className="text-sm text-gray-600">Reflections appear after every 20 trades</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-800/50">
               {learningEvents.filter(e => e.event === 'reflection_completed').map((e,i) => (
                 <div key={i} className="px-6 py-4">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-mono text-slate-500 truncate flex-1 mr-4">{e.trace_id}</p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs font-mono text-gray-700 truncate flex-1 mr-4">{e.trace_id}</p>
+                    <p className="text-xs text-gray-600">
                       {new Date(e.timestamp || Date.now()).toLocaleDateString()}
                     </p>
                   </div>
-                  <p className="text-sm text-slate-200 font-medium leading-relaxed">{e.summary || 'No summary'}</p>
+                  <p className="text-sm text-gray-900 font-medium leading-relaxed">{e.summary || 'No summary'}</p>
                 </div>
               ))}
             </div>
@@ -515,37 +515,37 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
   // SYSTEM PAGE
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-slate-400">
+          <div className="flex items-center gap-2 text-gray-600">
             <span>System</span>
-            <span className="text-slate-600">/</span>
-            <span className="text-slate-200">System</span>
+            <span className="text-gray-500">/</span>
+            <span className="text-gray-900">System</span>
           </div>
         </div>
       </div>
 
       {/* Stream Health */}
-      <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
         <div className="px-6 py-4 border-b border-slate-700">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Stream Health</h3>
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Stream Health</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-slate-800/30">
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Stream</th>
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Lag</th>
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Status</th>
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Messages</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Stream</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Lag</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Status</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Messages</th>
               </tr>
             </thead>
             <tbody>
               {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-slate-400">
+                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-gray-600">
                     Waiting for stream data...
                   </td>
                 </tr>
@@ -573,7 +573,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                   
                   return (
                     <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
-                      <td className="px-6 py-4 font-mono text-sm text-slate-200">{m.metric_name?.replace('stream_lag:', '')}</td>
+                      <td className="px-6 py-4 font-mono text-sm text-gray-900">{m.metric_name?.replace('stream_lag:', '')}</td>
                       <td className={cn("px-6 py-4 font-mono text-sm tabular-nums font-semibold", lagStatus.text)}>{lag}ms</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
@@ -581,7 +581,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                           <span className={cn("text-xs font-medium", lagStatus.text)}>{lagStatus.label}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm text-slate-400">{m.labels?.length || '—'}</td>
+                      <td className="px-6 py-4 font-mono text-sm text-gray-600">{m.labels?.length || '—'}</td>
                     </tr>
                   )
                 })
@@ -592,9 +592,9 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       </div>
 
       {/* Dead Letter Queue */}
-      <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
         <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Dead Letter Queue</h3>
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Dead Letter Queue</h3>
           <span className={cn(
             "inline-flex px-2 py-1 text-xs font-medium rounded-full",
             dlqItems.length > 0 
@@ -614,14 +614,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             {dlqItems.map((item, i) => (
               <div key={i} className="flex items-center justify-between px-6 py-4 gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 mb-1">{item.stream}</p>
-                  <p className="text-xs text-slate-400 truncate mb-1" title={item.error}>{item.error}</p>
-                  <p className="text-xs text-slate-500">Retries: {item.retries}</p>
+                  <p className="text-sm font-medium text-gray-900 mb-1">{item.stream}</p>
+                  <p className="text-xs text-gray-600 truncate mb-1" title={item.error}>{item.error}</p>
+                  <p className="text-xs text-gray-700">Retries: {item.retries}</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
                   <button
                     onClick={() => replayDlq(item.event_id)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/30 hover:bg-violet-500/20 transition-all duration-200"
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 transition-all duration-200"
                   >
                     <RotateCcw className="w-3 h-3 inline mr-1" />
                     Replay
@@ -641,13 +641,13 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       </div>
 
       {/* Audit Log */}
-      <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
         <div className="px-6 py-4 border-b border-slate-700">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Audit Log</h3>
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Audit Log</h3>
         </div>
         <div className="divide-y divide-slate-800/50">
           <div className="px-6 py-12 text-center">
-            <p className="text-sm text-slate-400">Audit events will appear here</p>
+            <p className="text-sm text-gray-600">Audit events will appear here</p>
           </div>
         </div>
       </div>

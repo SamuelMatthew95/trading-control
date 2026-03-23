@@ -87,20 +87,20 @@ const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
       </div>
       
       <div className="relative z-10">
-        <h3 className="section-header">TOTAL P&L</h3>
-        <div className="mt-4">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-600">TOTAL P&L</h3>
+        <div className="mt-6">
           <motion.div
             key={dailyPnl}
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className={cn(
-              "data-value-large",
-              isPositive ? "bullish-text" : "bearish-text"
+              "text-4xl font-black tabular-nums",
+              isPositive ? "text-emerald-500" : "text-rose-500"
             )}
           >
             {isPositive ? '+' : ''}${dailyPnl.toFixed(2)}
           </motion.div>
-          <p className="text-sm text-muted-foreground mt-2">24h Performance</p>
+          <p className="text-sm font-semibold text-gray-700 mt-3">24h Performance</p>
         </div>
       </div>
     </motion.div>
@@ -426,7 +426,7 @@ export function ObsidianDashboard() {
             <div className="flex items-center gap-2 text-slate-400">
               <span>System</span>
               <span className="text-slate-600">/</span>
-              <span className="bg-violet-600 text-white px-3 py-1 rounded-md font-semibold">Overview</span>
+              <span className="bg-gray-900 text-white px-3 py-1 rounded-md font-bold">Overview</span>
             </div>
             <div className="flex items-center gap-2">
               <motion.div
