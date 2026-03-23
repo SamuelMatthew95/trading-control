@@ -193,7 +193,7 @@ LIMIT 5
             log_structured(
                 "error",
                 "vector_memory_search_failed",
-                error=str(exc),
+                exc_info=True,
             )
             return []
 
@@ -255,7 +255,7 @@ LIMIT 5
             log_structured(
                 "error",
                 "get_last_reflection_failed",
-                error=str(exc),
+                exc_info=True,
             )
             return {}
 
@@ -329,7 +329,7 @@ RETURNING id
             log_structured(
                 "error",
                 "agent_run_insert_failed",
-                error=str(exc),
+                exc_info=True,
                 trace_id=trace_id
             )
             raise
@@ -372,7 +372,7 @@ RETURNING id
             log_structured(
                 "error",
                 "vector_memory_insert_failed",
-                error=str(exc),
+                exc_info=True,
                 trace_id=summary.get("trace_id")
             )
             raise
@@ -409,7 +409,7 @@ RETURNING id
             log_structured(
                 "error",
                 "agent_log_insert_failed",
-                error=str(exc),
+                exc_info=True,
                 trace_id=trace_id
             )
             raise
@@ -429,7 +429,7 @@ RETURNING id
             log_structured(
                 "error",
                 "cost_tracking_insert_failed",
-                error=str(exc),
+                exc_info=True,
             )
             raise
 

@@ -17,6 +17,7 @@ from api.core.models import (
 )
 from api.database import AsyncSessionLocal, init_database
 from api.main import app
+from api.observability import bind_request_context
 from api.routes import dashboard
 from api.routes.dashboard import generate_signals
 from tests.conftest import TEST_REFERENCE_DT

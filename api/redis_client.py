@@ -39,7 +39,7 @@ async def get_redis() -> Redis:
             await _redis_client.ping()
             log_structured("info", "Redis connection established", pool_size=30)
         except (ConnectionError, TimeoutError) as exc:
-            log_structured("error", "Redis connection failed", error=str(exc))
+            log_structured("error", "Redis connection failed", exc_info=True)
             await close_redis()
             raise
     return _redis_client
@@ -52,7 +52,7 @@ async def close_redis() -> None:
             await _redis_client.aclose()
             log_structured("info", "Redis client closed")
         except (ConnectionError, TimeoutError) as exc:
-            log_structured("warning", "Error closing Redis client", error=str(exc))
+            log_structured("warning", "Error closing Redis client", exc_info=True)
         finally:
             _redis_client = None
 
@@ -61,6 +61,6 @@ async def close_redis() -> None:
             await _redis_pool.aclose()
             log_structured("info", "Redis connection pool closed")
         except (ConnectionError, TimeoutError) as exc:
-            log_structured("warning", "Error closing Redis pool", error=str(exc))
+            log_structured("warning", "Error closing Redis pool", exc_info=True)
         finally:
             _redis_pool = None

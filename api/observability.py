@@ -114,7 +114,20 @@ START_TIME = time.time()
 metrics_store = MetricsStore()
 
 
+# Valid log levels for validation
+VALID_LEVELS = {"debug", "info", "warning", "error", "exception", "critical"}
+
+
+def bind_request_context(request_id: str) -> None:
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+
+
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
-    structlog.contextvars.bind_contextvars(request_id=request_id_ctx.get())
+    if level.lower() not in {"debug", "info", "warning", "error", "exception", "critical"}:
+        level = "info"
+
+    if "event" in extra_data:
+        extra_data.pop("event")
+
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(message, **extra_data)

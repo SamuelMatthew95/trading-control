@@ -93,7 +93,7 @@ class ReflectionService:
             try:
                 await self.run_once()
             except Exception as exc:  # noqa: BLE001
-                log_structured("warning", "Reflection service failed", error=str(exc))
+                log_structured("warning", "Reflection service failed", exc_info=True)
             await asyncio.sleep(self.poll_interval_seconds)
 
     async def _fetch_recent_trades(self, limit: int) -> list[dict[str, Any]]:
@@ -163,7 +163,7 @@ class ReflectionService:
             parsed = json.loads(text_payload)
             return {k: parsed.get(k, fallback[k]) for k in fallback}
         except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Reflection LLM call failed", error=str(exc))
+            log_structured("warning", "Reflection LLM call failed", exc_info=True)
             return fallback
 
     def _fallback_reflection(self, trades: list[dict[str, Any]]) -> dict[str, Any]:

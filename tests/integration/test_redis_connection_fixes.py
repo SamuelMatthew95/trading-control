@@ -87,7 +87,7 @@ class TestRedisConnectionFixes:
                     await get_redis()
                 
                 # Verify error was logged and cleanup called
-                mock_log.assert_called_with("error", "Redis connection failed", error="Connection failed")
+                mock_log.assert_called_with("error", "Redis connection failed", exc_info=True)
                 mock_close.assert_called_once()
 
     @pytest.mark.asyncio
@@ -123,8 +123,8 @@ class TestRedisConnectionFixes:
             await close_redis()
             
             # Verify errors were logged but didn't crash
-            mock_log.assert_any_call("warning", "Error closing Redis client", error="Close failed")
-            mock_log.assert_any_call("warning", "Error closing Redis pool", error="Pool close failed")
+            mock_log.assert_any_call("warning", "Error closing Redis client", exc_info=True)
+            mock_log.assert_any_call("warning", "Error closing Redis pool", exc_info=True)
 
 
 class TestWebSocketBroadcaster:
@@ -275,7 +275,7 @@ class TestEventBusErrorHandling:
                 "warning", 
                 "Redis connection error during publish", 
                 stream="test_stream", 
-                error="Connection failed"
+                exc_info=True
             )
 
     @pytest.mark.asyncio
@@ -291,7 +291,7 @@ class TestEventBusErrorHandling:
                 "warning", 
                 "Redis connection error during consume", 
                 stream="test_stream", 
-                error="Timeout"
+                exc_info=True
             )
 
     @pytest.mark.asyncio
@@ -309,7 +309,7 @@ class TestEventBusErrorHandling:
                 "Redis connection error during reclaim_stale",
                 stream="test_stream",
                 group="group",
-                error="Connection failed"
+                exc_info=True
             )
 
         # Test ResponseError
@@ -324,7 +324,7 @@ class TestEventBusErrorHandling:
                 "Unexpected error during reclaim_stale",
                 stream="test_stream",
                 group="group",
-                error="Other error"
+                exc_info=True
             )
 
     @pytest.mark.asyncio
@@ -340,7 +340,7 @@ class TestEventBusErrorHandling:
                 "warning", 
                 "Redis connection error during acknowledge", 
                 stream="test_stream", 
-                error="Connection failed"
+                exc_info=True
             )
 
 
@@ -457,5 +457,5 @@ class TestConsumerShutdownFixes:
                 "warning",
                 "Redis connection error in consumer loop",
                 stream="test_stream",
-                error="Connection failed"
+                exc_info=True
             )

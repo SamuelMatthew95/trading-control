@@ -39,12 +39,12 @@ class EventBus:
             return str(message_id)
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
-                "warning", "Redis connection error during publish", stream=stream, error=str(exc)
+                "warning", "Redis connection error during publish", stream=stream, exc_info=True
             )
             return None
         except Exception as exc:
             log_structured(
-                "warning", "Redis publish failed", stream=stream, error=str(exc)
+                "warning", "Redis publish failed", stream=stream, exc_info=True
             )
             return None
 
@@ -67,12 +67,12 @@ class EventBus:
             return self._decode_message_batch(messages)
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
-                "warning", "Redis connection error during consume", stream=stream, error=str(exc)
+                "warning", "Redis connection error during consume", stream=stream, exc_info=True
             )
             return []
         except Exception as exc:
             log_structured(
-                "warning", "Redis consume failed", stream=stream, error=str(exc)
+                "warning", "Redis consume failed", stream=stream, exc_info=True
             )
             return []
 
@@ -83,12 +83,12 @@ class EventBus:
             return int(await self.redis.xack(stream, group, *ids))
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
-                "warning", "Redis connection error during acknowledge", stream=stream, error=str(exc)
+                "warning", "Redis connection error during acknowledge", stream=stream, exc_info=True
             )
             return 0
         except Exception as exc:
             log_structured(
-                "warning", "Redis acknowledge failed", stream=stream, error=str(exc)
+                "warning", "Redis acknowledge failed", stream=stream, exc_info=True
             )
             return 0
 
@@ -140,17 +140,17 @@ class EventBus:
             return self._decode_autoclaim(reclaimed)
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
-                "warning", "Redis connection error during reclaim_stale", stream=stream, group=group, error=str(exc)
+                "warning", "Redis connection error during reclaim_stale", stream=stream, group=group, exc_info=True
             )
             return []
         except ResponseError as exc:
             log_structured(
-                "warning", "Redis response error during reclaim_stale", stream=stream, group=group, error=str(exc)
+                "warning", "Redis response error during reclaim_stale", stream=stream, group=group, exc_info=True
             )
             return []
         except Exception as exc:
             log_structured(
-                "error", "Unexpected error during reclaim_stale", stream=stream, group=group, error=str(exc)
+                "error", "Unexpected error during reclaim_stale", stream=stream, group=group, exc_info=True
             )
             return []
 

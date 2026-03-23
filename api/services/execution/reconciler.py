@@ -81,7 +81,7 @@ class OrderReconciler:
             try:
                 await self.run_once()
             except Exception as exc:  # noqa: BLE001
-                log_structured("warning", "Order reconciliation failed", error=str(exc))
+                log_structured("warning", "Order reconciliation failed", exc_info=True)
             await asyncio.sleep(self.interval_seconds)
 
     def _build_discrepancy(

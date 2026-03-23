@@ -142,7 +142,7 @@ class WebSocketBroadcaster:
                 # Normal timeout, continue
                 continue
             except Exception as exc:
-                log_structured("error", "Redis listener error", error=str(exc))
+                log_structured("error", "Redis listener error", exc_info=True)
                 await asyncio.sleep(1.0)
 
     async def _broadcast_loop(self) -> None:
@@ -159,7 +159,7 @@ class WebSocketBroadcaster:
                         await websocket.send_json(payload)
                     except Exception as exc:
                         log_structured(
-                            "info", "WebSocket send failed, marking for removal", error=str(exc)
+                            "info", "WebSocket send failed, marking for removal", exc_info=True
                         )
                         disconnected.append(websocket)
 
@@ -171,7 +171,7 @@ class WebSocketBroadcaster:
                 # No messages to broadcast, continue
                 continue
             except Exception as exc:
-                log_structured("error", "Broadcast loop error", error=str(exc))
+                log_structured("error", "Broadcast loop error", exc_info=True)
                 await asyncio.sleep(0.1)
 
 
