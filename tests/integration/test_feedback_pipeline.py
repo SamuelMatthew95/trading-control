@@ -11,7 +11,7 @@ from api.core.models import (
 from api.database import AsyncSessionLocal, init_database
 from api.services.feedback import FeedbackLearningService
 from multi_agent_orchestrator import ToolError, TradeTools
-from tests.test_agent_run_utils import create_test_agent_run
+from tests.core.test_agent_run_utils import create_test_agent_run
 
 
 @pytest.mark.asyncio
