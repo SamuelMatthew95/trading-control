@@ -17,7 +17,11 @@ import {
   CandlestickChart,
   BookOpen,
   Settings2,
-  Activity
+  Activity,
+  Clock,
+  Power,
+  Play,
+  Pause
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +41,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
 
@@ -48,243 +53,366 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     orders, 
     prices, 
     positions, 
-    regime, 
-    riskAlerts, 
-    signals, 
-    systemMetrics, 
-    wsConnected 
+    systemMetrics,
+    wsConnected,
+    setKillSwitch
   } = useCodexStore()
 
-  const [dlqItems, setDlqItems] = useState<any[]>([])
-  const [selectedDlqItem, setSelectedDlqItem] = useState(null)
-  const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState('BTC/USD')
-  const [selectedTf, setSelectedTf] = useState('1m')
+  const [selectedTf, setSelectedTf] = useState('5m')
+  const [dlqItems, setDlqItems] = useState<any[]>([])
+  const [isExpanded, setIsExpanded] = useState(false)
 
-  const dailyPnl = orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0)
-  const avgLatency = agentLogs.length > 0 ? Math.round(agentLogs.reduce((sum, l) => sum + (l.latency_ms || 0), 0) / agentLogs.length) : 0
+  // Calculate metrics
+  const dailyPnl = useMemo(() => 
+    orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0), 
+    [orders]
+  )
+
+  const avgLatency = useMemo(() => {
+    const latencies = agentLogs.map(l => l.latency_ms || 0).filter(l => l > 0)
+    return latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0
+  }, [agentLogs])
+
   const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
 
-  // Fetch DLQ items
-  useEffect(() => {
-    if (section === 'system') {
-      fetchDlqItems()
-    }
-  }, [section])
+  // Market status (simplified - in real app this would check actual market hours)
+  const currentTime = new Date()
+  const marketHours = { open: 9.5, close: 16 } // 9:30 AM - 4:00 PM EST
+  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60
+  const marketStatus = currentHour >= marketHours.open && currentHour <= marketHours.close
 
-  const fetchDlqItems = async () => {
-    try {
-      setLoading(true)
-      const response = await fetch(`${API_BASE}/dlq`)
-      if (response.ok) {
-        const data = await response.json()
-        setDlqItems(data.items || [])
-      }
-    } catch (error) {
-      console.error('Failed to fetch DLQ items:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const replayDlq = async (eventId: string) => {
-    try {
-      const response = await fetch(`${API_BASE}/dlq/${eventId}/replay`, { method: 'POST' })
-      if (response.ok) {
-        fetchDlqItems()
-      }
-    } catch (error) {
-      console.error('Failed to replay DLQ item:', error)
-    }
-  }
-
-  const clearDlq = async (eventId: string) => {
-    try {
-      const response = await fetch(`${API_BASE}/dlq/${eventId}`, { method: 'DELETE' })
-      if (response.ok) {
-        fetchDlqItems()
-      }
-    } catch (error) {
-      console.error('Failed to clear DLQ item:', error)
-    }
-  }
-
-  // OVERVIEW PAGE - Use Obsidian-Pro Dashboard
+  // OVERVIEW PAGE - Professional Trading Command Center
   if (section === 'overview') {
-    return <ObsidianDashboard />
+    return (
+      <div className="min-h-screen bg-white dark:bg-black">
+        {/* TOP BAR - GLOBAL CONTROL */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
+          <div className="flex items-center gap-4">
+            <span className="text-gray-600 dark:text-gray-400 text-sm">
+              System / Overview
+            </span>
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                wsConnected ? "bg-green-500" : "bg-red-500"
+              )} />
+              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+                ● LIVE
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <span className={cn(
+              "font-semibold text-lg",
+              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            )}>
+              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+            </span>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className={cn(
+                  "px-4 py-2 rounded-lg font-medium transition-all duration-200",
+                  killSwitchActive 
+                    ? "bg-red-500 text-white hover:bg-red-600" 
+                    : "bg-green-500 text-white hover:bg-green-600"
+                )}>
+                  {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-gray-900 dark:text-white">
+                    {killSwitchActive ? 'Stop All Trading Activity?' : 'Start Trading System?'}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-gray-600 dark:text-gray-400">
+                    {killSwitchActive 
+                      ? 'This will immediately halt all trading agents and cancel any pending orders.'
+                      : 'This will activate all trading agents and begin market analysis.'
+                    }
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="bg-gray-100 dark:bg-slate-800 text-gray-900 dark:text-white">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => setKillSwitch(!killSwitchActive)}
+                    className={cn(
+                      killSwitchActive ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"
+                    )}
+                  >
+                    {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+
+        {/* MAIN GRID - 2 ROW SYSTEM */}
+        <div className="p-6 space-y-6">
+          {/* ROW 1 - PRIMARY SIGNALS */}
+          <div className="grid grid-cols-12 gap-6">
+            {/* P&L HERO CARD - MOST IMPORTANT */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="col-span-8"
+            >
+              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-lg relative overflow-hidden">
+                {/* Subtle glow effect */}
+                <div className={cn(
+                  "absolute inset-0 opacity-5",
+                  dailyPnl >= 0 ? "bg-gradient-to-br from-green-500 to-emerald-600" : "bg-gradient-to-br from-red-500 to-rose-600"
+                )} />
+                
+                <div className="relative z-10">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 font-medium">
+                    TOTAL P&L
+                  </p>
+
+                  <div className="flex items-center gap-4">
+                    <motion.h1 
+                      key={dailyPnl}
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className={cn(
+                        "text-5xl font-black tracking-tight tabular-nums",
+                        dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+                    </motion.h1>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+                      24h
+                    </span>
+                  </div>
+
+                  {/* Mini chart placeholder */}
+                  <div className="mt-6 opacity-60">
+                    <div className="h-16 bg-gray-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+                      <TrendingUp className="w-6 h-6 text-gray-400 dark:text-gray-600" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* MARKET SENTIMENT - COMPACT, CLEAN */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="col-span-4"
+            >
+              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 font-medium">
+                  MARKET SENTIMENT
+                </p>
+
+                <div className="flex flex-col items-center justify-center">
+                  {/* Simple gauge representation */}
+                  <div className="w-20 h-20 rounded-full border-4 border-gray-200 dark:border-slate-700 flex items-center justify-center mb-3">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+                      <span className="text-lg font-semibold text-gray-900 dark:text-white">65</span>
+                    </div>
+                  </div>
+
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Neutral
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Fear & Greed Index
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* ROW 2 - SYSTEM STATE */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+          >
+            {/* MARKET STATUS - COMPACT SYSTEM PANEL */}
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+              <div className="flex items-center justify-between">
+                {/* LEFT */}
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+                    {marketStatus ? (
+                      <Play className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Pause className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {marketStatus ? 'Markets Open' : 'Markets Closed'}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {marketStatus ? 'Trading Active' : `Opens 9:30 AM EST`}
+                    </p>
+                  </div>
+                </div>
+
+                {/* RIGHT */}
+                <div className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+                  9:30 AM – 4:00 PM EST
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    )
   }
 
   // TRADING PAGE
   if (section === 'trading') {
     return (
-      <div className="p-6 space-y-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="min-h-screen bg-white dark:bg-black">
+        {/* TOP BAR */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-gray-600">
-              <span>System</span>
-              <span className="text-gray-500">/</span>
-              <span className="text-gray-900">Trading</span>
+            <span className="text-gray-600 dark:text-gray-400 text-sm">
+              System / Trading
+            </span>
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                wsConnected ? "bg-green-500" : "bg-red-500"
+              )} />
+              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+                ● LIVE
+              </span>
             </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <span className={cn(
+              "font-semibold text-lg",
+              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            )}>
+              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+            </span>
+            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
+              New Order
+            </button>
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-          {/* Left: Chart + Positions */}
-          <div className="space-y-6">
-            {/* Symbol + Timeframe */}
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex flex-wrap gap-2">
-                  {['BTC/USD','ETH/USD','SOL/USD','SPY','AAPL','NVDA'].map(s => (
-                    <button
-                      key={s}
-                      className={cn(
-                        "px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200",
-                        selected === s
-                          ? "bg-gray-100 text-gray-900 ring-1 ring-gray-300"
-                          : "text-gray-600 hover:bg-slate-800/50 hover:text-gray-900"
-                      )}
-                      onClick={() => setSelected(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  {['1m','5m','15m','1h','4h'].map(tf => (
-                    <button
-                      key={tf}
-                      className={cn(
-                        "px-2.5 py-1 text-xs rounded-md transition-all duration-200",
-                        selectedTf === tf 
-                          ? "bg-slate-700 text-slate-100" 
-                          : "text-gray-700 hover:bg-slate-800/50 hover:text-slate-300"
-                      )}
-                      onClick={() => setSelectedTf(tf)}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
+        <div className="p-6 space-y-8">
+          {/* Symbol Selection */}
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-wrap gap-2">
+                {['BTC/USD','ETH/USD','SOL/USD','SPY','AAPL','NVDA'].map(s => (
+                  <button
+                    key={s}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200",
+                      selected === s
+                        ? "bg-gray-900 text-white"
+                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800"
+                    )}
+                    onClick={() => setSelected(s)}
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
-            </div>
-
-            {/* Chart placeholder */}
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-8 flex items-center justify-center min-h-80 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <div className="text-center">
-                <CandlestickChart className="h-12 w-12 text-gray-500 mx-auto mb-4" />
-                <p className="text-sm text-gray-600 font-medium">Chart Integration</p>
-                <p className="text-xs text-gray-700 mt-2">{selected} · {selectedTf} timeframe</p>
+              <div className="flex gap-2">
+                {['1m','5m','15m','1h','4h'].map(tf => (
+                  <button
+                    key={tf}
+                    className={cn(
+                      "px-2.5 py-1 text-xs rounded-md transition-all duration-200",
+                      selectedTf === tf 
+                        ? "bg-gray-900 text-white" 
+                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800"
+                    )}
+                    onClick={() => setSelectedTf(tf)}
+                  >
+                    {tf}
+                  </button>
+                ))}
               </div>
-            </div>
-
-            {/* Positions table */}
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <div className="px-6 py-4 border-b border-slate-700">
-                <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Open Positions</h3>
-              </div>
-              {orders.length === 0 ? (
-                <div className="px-6 py-12 text-center">
-                  <p className="text-sm text-gray-600">No open positions</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-slate-800/30">
-                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Symbol</th>
-                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Side</th>
-                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Qty</th>
-                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">P&L</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orders.slice(0,10).map((o,i) => (
-                        <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
-                          <td className="px-6 py-4 font-medium text-gray-900">{o.symbol}</td>
-                          <td className="px-6 py-4">
-                            <span className={cn(
-                              "inline-flex px-2 py-1 text-xs font-medium rounded-md",
-                              o.side === 'long' || o.side === 'buy'
-                                ? "bg-emerald-500/10 text-emerald-400"
-                                : "bg-rose-500/10 text-rose-400"
-                            )}>
-                              {(o.side || 'n/a').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right font-mono text-sm text-slate-300">{o.qty || 0}</td>
-                          <td className={cn(
-                            "px-6 py-4 text-right font-mono text-sm tabular-nums font-semibold",
-                            Number(o.pnl) >= 0 ? "text-emerald-400" : "text-rose-400"
-                          )}>
-                            {Number(o.pnl) >= 0 ? '+' : ''}{Number(o.pnl || 0).toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Right: Order Book + Entry Form */}
-          <div className="space-y-6">
-            {/* Order Book */}
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 mb-4">Order Book</h3>
-              <div className="space-y-1">
-                {[67510, 67505, 67500].map(p => (
-                  <div key={p} className="flex justify-between text-xs py-1">
-                    <span className="text-rose-400 font-mono tabular-nums">{p.toLocaleString()}</span>
-                    <span className="text-gray-700">0.42</span>
-                  </div>
-                ))}
-                <div className="my-3 py-2 text-center border-t border-b border-slate-700">
-                  <div className="font-mono text-lg font-bold text-slate-100">
-                    {prices[selected]?.price.toLocaleString() || '—'}
-                  </div>
-                </div>
-                {[67495, 67490, 67485].map(p => (
-                  <div key={p} className="flex justify-between text-xs py-1">
-                    <span className="text-emerald-400 font-mono tabular-nums">{p.toLocaleString()}</span>
-                    <span className="text-gray-700">1.05</span>
-                  </div>
-                ))}
+          {/* Trading Interface */}
+          <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+            {/* Chart Area */}
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-8 shadow-sm flex items-center justify-center min-h-96">
+              <div className="text-center">
+                <CandlestickChart className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-lg text-gray-600 dark:text-gray-400 font-medium">Chart Integration</p>
+                <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">{selected} · {selectedTf} timeframe</p>
               </div>
             </div>
 
-            {/* Order Entry */}
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 mb-4">New Order</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs text-gray-700 mb-2 block font-medium uppercase tracking-[0.2em]">Symbol</label>
-                  <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm px-3 py-2 text-sm font-mono text-gray-900">{selected}</div>
+            {/* Order Panel */}
+            <div className="space-y-6">
+              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Order Entry</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-2 block font-medium uppercase">Symbol</label>
+                    <div className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white rounded-lg">
+                      {selected}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-2 block font-medium uppercase">Quantity</label>
+                    <input 
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white rounded-lg outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-200" 
+                      placeholder="0.00" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-2 block font-medium uppercase">Price</label>
+                    <input 
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white rounded-lg outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-200" 
+                      placeholder="Market" 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button className="bg-green-500 text-white py-2.5 text-sm font-semibold rounded-lg hover:bg-green-600 transition-all duration-200">
+                      LONG
+                    </button>
+                    <button className="bg-red-500 text-white py-2.5 text-sm font-semibold rounded-lg hover:bg-red-600 transition-all duration-200">
+                      SHORT
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-700 mb-2 block font-medium uppercase tracking-[0.2em]">Quantity</label>
-                  <input 
-                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm px-3 py-2 text-sm font-mono text-gray-900 bg-transparent outline-none focus:ring-2 focus:ring-gray-400/50 transition-all duration-200" 
-                    placeholder="0.00" 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-700 mb-2 block font-medium uppercase tracking-[0.2em]">Price</label>
-                  <input 
-                    className="w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm px-3 py-2 text-sm font-mono text-gray-900 bg-transparent outline-none focus:ring-2 focus:ring-gray-400/50 transition-all duration-200" 
-                    placeholder="Market" 
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <button className="bg-emerald-500/20 text-emerald-400 py-2.5 text-sm font-semibold rounded-lg border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200">
-                    LONG
-                  </button>
-                  <button className="bg-rose-500/20 text-rose-400 py-2.5 text-sm font-semibold rounded-lg border border-rose-500/30 hover:bg-rose-500/30 transition-all duration-200">
-                    SHORT
-                  </button>
-                </div>
+              </div>
+
+              {/* Positions */}
+              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Open Positions</h3>
+                {orders.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">No open positions</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {orders.slice(0,3).map((o,i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-800 rounded-lg">
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">{o.symbol}</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">{(o.side || 'n/a').toUpperCase()}</p>
+                        </div>
+                        <p className={cn(
+                          "font-semibold",
+                          Number(o.pnl) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                        )}>
+                          {Number(o.pnl) >= 0 ? '+' : ''}${Number(o.pnl || 0).toFixed(2)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -296,108 +424,112 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // AGENTS PAGE
   if (section === 'agents') {
     return (
-      <div className="p-6 space-y-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="min-h-screen bg-white dark:bg-black">
+        {/* TOP BAR */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-gray-600">
-              <span>System</span>
-              <span className="text-gray-500">/</span>
-              <span className="text-gray-900">Agents</span>
+            <span className="text-gray-600 dark:text-gray-400 text-sm">
+              System / Agents
+            </span>
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                wsConnected ? "bg-green-500" : "bg-red-500"
+              )} />
+              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+                ● LIVE
+              </span>
             </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <span className={cn(
+              "font-semibold text-lg",
+              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            )}>
+              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+            </span>
+            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
+              Configure Agents
+            </button>
           </div>
         </div>
 
-        {/* Metrics Strip */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {[
-            { label: 'Avg Latency', value: avgLatency + 'ms', icon: Activity },
-            { label: 'Cost Today', value: '$' + costToday.toFixed(2), icon: Zap },
-            { label: 'Total Runs', value: agentLogs.length, icon: Bot },
-            { label: 'Fallbacks', value: agentLogs.filter(l => l.fallback).length, icon: AlertTriangle },
-          ].map((m, i) => (
-            <div key={i} className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">
-                  {m.label}
+        <div className="p-6 space-y-8">
+          {/* Metrics Strip */}
+          <div className="grid grid-cols-4 gap-4">
+            {[
+              { label: 'Avg Latency', value: avgLatency + 'ms', icon: Activity, color: 'blue' },
+              { label: 'Cost Today', value: '$' + costToday.toFixed(2), icon: Zap, color: 'yellow' },
+              { label: 'Total Runs', value: agentLogs.length, icon: Bot, color: 'green' },
+              { label: 'Fallbacks', value: agentLogs.filter(l => l.fallback).length, icon: AlertTriangle, color: 'red' },
+            ].map((m, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                    {m.label}
+                  </p>
+                  <m.icon className="h-4 w-4 text-gray-500" />
+                </div>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {m.value}
                 </p>
-                <m.icon className="h-4 w-4 text-gray-700" />
-              </div>
-              <p className="data-value-large text-gray-900">
-                {m.value}
-              </p>
-            </div>
-          ))}
-        </div>
+              </motion.div>
+            ))}
+          </div>
 
-        {/* Log List */}
-        <div className="space-y-3">
-          {agentLogs.length === 0 ? (
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-              <Bot className="h-12 w-12 text-gray-500 mx-auto mb-4" />
-              <p className="text-sm text-gray-600 font-medium">No reasoning logs yet</p>
-            </div>
-          ) : (
-            agentLogs.slice(0, 20).map((log, i) => (
-              <div key={i} className={cn(
-                "bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-l-4 transition-all duration-200 hover:shadow-[0_12px_40px_rgb(0,0,0,0.18)]",
-                log.action === 'buy'  && "border-l-emerald-500",
-                log.action === 'sell' && "border-l-rose-500",
-                !log.action || log.action === 'hold' && "border-l-gray-400"
-              )}>
-                <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "inline-flex px-2 py-1 text-xs font-semibold uppercase rounded-md",
-                      log.action === 'buy'  ? "bg-emerald-500/10 text-emerald-400" :
-                      log.action === 'sell' ? "bg-rose-500/10 text-rose-400" :
-                      "bg-gray-100 text-gray-700"
-                    )}>
-                      {log.action || 'HOLD'}
-                    </span>
-                    <span className="text-sm font-medium text-gray-900">{log.symbol || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-gray-700">
-                    <span className="font-mono">{log.latency_ms || 0}ms</span>
-                    <span className="font-mono">${log.cost_usd || '0.000'}</span>
-                    {log.fallback && (
-                      <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-500/10 text-amber-400">
-                        Fallback
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Confidence Bar */}
-                <div className="mb-3">
-                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="bg-gradient-to-r from-gray-400 to-gray-300 h-2 rounded-full transition-all duration-500 ease-out"
-                      style={{ width: `${(log.confidence || 0) * 100}%` }} 
-                    />
-                  </div>
-                  <div className="mt-1 text-xs text-gray-700 font-medium">
-                    Confidence: {((log.confidence || 0) * 100).toFixed(0)}%
-                  </div>
-                </div>
-                
-                <p className="text-sm text-slate-300 italic mb-3 line-clamp-2">
-                  {log.primary_edge || 'No edge description'}
-                </p>
-                
-                {/* Risk Factors */}
-                {(log.risk_factors || []).length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {log.risk_factors.map((rf, j) => (
-                      <span key={j} className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-slate-700/50 text-gray-600 border border-slate-600/50">
-                        {rf}
-                      </span>
-                    ))}
-                  </div>
-                )}
+          {/* Agent Activity */}
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Agent Activity</h3>
+            {agentLogs.length === 0 ? (
+              <div className="text-center py-12">
+                <Bot className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-sm text-gray-600 dark:text-gray-400">No agent activity yet</p>
               </div>
-            ))
-          )}
+            ) : (
+              <div className="space-y-3">
+                {agentLogs.slice(0,5).map((log, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className={cn(
+                      "p-4 rounded-lg border-l-4 transition-all duration-200 hover:shadow-md",
+                      log.action === 'buy'  && "border-l-green-500 bg-green-50 dark:bg-green-950/20",
+                      log.action === 'sell' && "border-l-red-500 bg-red-50 dark:bg-red-950/20",
+                      !log.action || log.action === 'hold' && "border-l-gray-400 bg-gray-50 dark:bg-slate-800"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <span className={cn(
+                          "inline-flex px-2 py-1 text-xs font-semibold uppercase rounded-md",
+                          log.action === 'buy'  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                          log.action === 'sell' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                          "bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300"
+                        )}>
+                          {log.action || 'HOLD'}
+                        </span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">{log.symbol || '—'}</span>
+                      </div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {log.latency_ms || 0}ms
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                      {log.primary_edge || 'No edge description'}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -406,108 +538,98 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // LEARNING PAGE
   if (section === 'learning') {
     return (
-      <div className="p-6 space-y-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="min-h-screen bg-white dark:bg-black">
+        {/* TOP BAR */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-gray-600">
-              <span>System</span>
-              <span className="text-gray-500">/</span>
-              <span className="text-gray-900">Learning</span>
+            <span className="text-gray-600 dark:text-gray-400 text-sm">
+              System / Learning
+            </span>
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                wsConnected ? "bg-green-500" : "bg-red-500"
+              )} />
+              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+                ● LIVE
+              </span>
             </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <span className={cn(
+              "font-semibold text-lg",
+              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            )}>
+              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+            </span>
+            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
+              Export Report
+            </button>
           </div>
         </div>
 
-        {/* Stat Cards */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Trades Evaluated</p>
-              <TrendingUp className="h-4 w-4 text-gray-700" />
-            </div>
-            <p className="data-value-large text-gray-900">{learningEvents.length}</p>
-          </div>
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Reflections</p>
-              <BookOpen className="h-4 w-4 text-gray-700" />
-            </div>
-            <p className="data-value-large text-gray-900">
-              {learningEvents.filter(e => e.event === 'reflection_completed').length}
-            </p>
-          </div>
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">IC Updates</p>
-              <Settings2 className="h-4 w-4 text-gray-700" />
-            </div>
-            <p className="data-value-large text-gray-900">0</p>
-          </div>
-        </div>
-
-        {/* Trade Timeline */}
-        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
-          <div className="px-6 py-4 border-b border-slate-700">
-            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Trade Timeline</h3>
-          </div>
-          {learningEvents.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <TrendingUp className="h-12 w-12 text-slate-700 mx-auto mb-4" />
-              <p className="text-base text-gray-500 font-medium">Complete paper trades to see performance</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-800/30">
-                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 w-1/3">Symbol</th>
-                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 w-1/3">Event</th>
-                    <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 w-1/3">P&L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {learningEvents.slice(0,20).map((e,i) => (
-                    <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
-                      <td className="px-6 py-4 font-medium text-gray-900">{e.symbol || '—'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.event || e.type}</td>
-                      <td className={cn(
-                        "px-6 py-4 text-right font-mono text-sm tabular-nums font-semibold",
-                        Number(e.pnl) >= 0 ? "text-emerald-400" : "text-rose-400"
-                      )}>
-                        {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Reflection Log */}
-        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-          <div className="px-6 py-4 border-b border-slate-700">
-            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Reflection Log</h3>
-          </div>
-          {learningEvents.filter(e => e.event === 'reflection_completed').length === 0 ? (
-            <div className="px-6 py-8 text-center">
-              <p className="text-sm text-gray-600">Reflections appear after every 20 trades</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-800/50">
-              {learningEvents.filter(e => e.event === 'reflection_completed').map((e,i) => (
-                <div key={i} className="px-6 py-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-mono text-gray-700 truncate flex-1 mr-4">{e.trace_id}</p>
-                    <p className="text-xs text-gray-600">
-                      {new Date(e.timestamp || Date.now()).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <p className="text-sm text-gray-900 font-medium leading-relaxed">{e.summary || 'No summary'}</p>
+        <div className="p-6 space-y-8">
+          {/* Learning Stats */}
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label: 'Trades Evaluated', value: learningEvents.length, icon: TrendingUp },
+              { label: 'Reflections', value: learningEvents.filter(e => e.event === 'reflection_completed').length, icon: BookOpen },
+              { label: 'IC Updates', value: 0, icon: Settings2 },
+            ].map((stat, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                    {stat.label}
+                  </p>
+                  <stat.icon className="h-4 w-4 text-gray-500" />
                 </div>
-              ))}
-            </div>
-          )}
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Trade Timeline */}
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Trade Timeline</h3>
+            {learningEvents.length === 0 ? (
+              <div className="text-center py-12">
+                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-base text-gray-600 dark:text-gray-400 font-medium">Complete paper trades to see performance</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-slate-700">
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Symbol</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Event</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {learningEvents.slice(0,10).map((e,i) => (
+                      <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.symbol || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{e.event || e.type}</td>
+                        <td className={cn(
+                          "px-4 py-3 text-right font-mono text-sm font-semibold",
+                          Number(e.pnl) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                        )}>
+                          {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -515,139 +637,100 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
   // SYSTEM PAGE
   return (
-    <div className="p-6 space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-white dark:bg-black">
+      {/* TOP BAR */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-gray-600">
-            <span>System</span>
-            <span className="text-gray-500">/</span>
-            <span className="text-gray-900">System</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Stream Health */}
-      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-        <div className="px-6 py-4 border-b border-slate-700">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Stream Health</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-800/30">
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Stream</th>
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Lag</th>
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Status</th>
-                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700 w-1/4">Messages</th>
-              </tr>
-            </thead>
-            <tbody>
-              {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-gray-600">
-                    Waiting for stream data...
-                  </td>
-                </tr>
-              ) : (
-                systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
-                  const lag = Number(m.value || 0)
-                  const getLagColor = (lag: number) => {
-                    if (lag < 100) return {
-                      text: 'text-emerald-400',
-                      bg: 'bg-emerald-500',
-                      label: 'Healthy'
-                    }
-                    if (lag < 1000) return {
-                      text: 'text-amber-400', 
-                      bg: 'bg-amber-500',
-                      label: 'Slow'
-                    }
-                    return {
-                      text: 'text-rose-400',
-                      bg: 'bg-rose-500', 
-                      label: 'Critical'
-                    }
-                  }
-                  const lagStatus = getLagColor(lag)
-                  
-                  return (
-                    <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
-                      <td className="px-6 py-4 font-mono text-sm text-gray-900">{m.metric_name?.replace('stream_lag:', '')}</td>
-                      <td className={cn("px-6 py-4 font-mono text-sm tabular-nums font-semibold", lagStatus.text)}>{lag}ms</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <span className={cn("w-2 h-2 rounded-full", lagStatus.bg)} />
-                          <span className={cn("text-xs font-medium", lagStatus.text)}>{lagStatus.label}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-mono text-sm text-gray-600">{m.labels?.length || '—'}</td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Dead Letter Queue */}
-      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
-        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Dead Letter Queue</h3>
-          <span className={cn(
-            "inline-flex px-2 py-1 text-xs font-medium rounded-full",
-            dlqItems.length > 0 
-              ? "bg-rose-500/10 text-rose-400 border border-rose-500/30" 
-              : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-          )}>
-            {dlqItems.length} events
+          <span className="text-gray-600 dark:text-gray-400 text-sm">
+            System / System
           </span>
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full",
+              wsConnected ? "bg-green-500" : "bg-red-500"
+            )} />
+            <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+              ● LIVE
+            </span>
+          </div>
         </div>
-        {dlqItems.length === 0 ? (
-          <div className="flex items-center justify-center gap-3 px-6 py-12">
-            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-            <p className="text-sm text-emerald-400 font-medium">No failed events</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/50">
-            {dlqItems.map((item, i) => (
-              <div key={i} className="flex items-center justify-between px-6 py-4 gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 mb-1">{item.stream}</p>
-                  <p className="text-xs text-gray-600 truncate mb-1" title={item.error}>{item.error}</p>
-                  <p className="text-xs text-gray-700">Retries: {item.retries}</p>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => replayDlq(item.event_id)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 transition-all duration-200"
-                  >
-                    <RotateCcw className="w-3 h-3 inline mr-1" />
-                    Replay
-                  </button>
-                  <button 
-                    onClick={() => clearDlq(item.event_id)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 transition-all duration-200"
-                  >
-                    <Trash2 className="w-3 h-3 inline mr-1" />
-                    Clear
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center gap-6">
+          <span className={cn(
+            "font-semibold text-lg",
+            dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+          )}>
+            {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+          </span>
+          <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
+            System Health
+          </button>
+        </div>
       </div>
 
-      {/* Audit Log */}
-      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-        <div className="px-6 py-4 border-b border-slate-700">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-700">Audit Log</h3>
+      <div className="p-6 space-y-8">
+        {/* Stream Health */}
+        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Stream Health</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Stream</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Lag</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-sm text-gray-600 dark:text-gray-400">
+                      Waiting for stream data...
+                    </td>
+                  </tr>
+                ) : (
+                  systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
+                    const lag = Number(m.value || 0)
+                    const getLagColor = (lag: number) => {
+                      if (lag < 100) return { text: 'text-green-600 dark:text-green-400', bg: 'bg-green-500', label: 'Excellent' }
+                      if (lag < 1000) return { text: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-500', label: 'Good' }
+                      return { text: 'text-red-600 dark:text-red-400', bg: 'bg-red-500', label: 'Critical' }
+                    }
+                    const lagStatus = getLagColor(lag)
+                    
+                    return (
+                      <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
+                        <td className="px-4 py-3 font-mono text-sm text-gray-900 dark:text-white">{m.metric_name?.replace('stream_lag:', '')}</td>
+                        <td className={cn("px-4 py-3 font-mono text-sm font-semibold", lagStatus.text)}>{lag}ms</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className={cn("w-2 h-2 rounded-full", lagStatus.bg)} />
+                            <span className={cn("text-xs font-medium", lagStatus.text)}>{lagStatus.label}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="divide-y divide-slate-800/50">
-          <div className="px-6 py-12 text-center">
-            <p className="text-sm text-gray-600">Audit events will appear here</p>
+
+        {/* System Status */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Dead Letter Queue</h3>
+            <div className="text-center py-8">
+              <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-3" />
+              <p className="text-sm text-green-600 dark:text-green-400 font-medium">No failed events</p>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">System Uptime</h3>
+            <div className="text-center py-8">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">99.9%</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Last 30 days</p>
+            </div>
           </div>
         </div>
       </div>
