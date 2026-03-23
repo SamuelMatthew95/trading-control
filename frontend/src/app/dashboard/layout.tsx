@@ -9,6 +9,7 @@ import {
   TrendingUp,
   Settings2,
   AlertTriangle,
+  BarChart3,
 } from 'lucide-react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -82,8 +83,8 @@ export default function DashboardLayout({
       <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r border-border bg-surface">
         {/* Logo */}
         <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground text-xs font-bold select-none">
-            TB
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+            <BarChart3 className="h-4 w-4" />
           </div>
           <span className="text-sm font-semibold tracking-tight">
             Trading Control
