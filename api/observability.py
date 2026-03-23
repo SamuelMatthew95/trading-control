@@ -119,7 +119,6 @@ VALID_LEVELS = {"debug", "info", "warning", "error", "exception", "critical"}
 
 
 def bind_request_context(request_id: str) -> None:
-    request_id_ctx.set(request_id)
     structlog.contextvars.bind_contextvars(request_id=request_id)
 
 

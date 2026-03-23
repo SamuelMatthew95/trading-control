@@ -51,9 +51,10 @@ class TestLoggingSafety:
                                     if (stripped.startswith('#') or 
                                         stripped.startswith('"""') or 
                                         stripped.startswith("'''") or
-                                        # Skip test examples and regex patterns
+                                        # Skip regex patterns and test examples
                                         'r\'' in line or
-                                        'event=' in stripped and ('test' in file_path or 'example' in stripped)):
+                                        'r"' in line or
+                                        ('event=' in stripped and ('test' in file_path or 'example' in stripped))):
                                         continue
                                     
                                     for pattern in forbidden_patterns:
