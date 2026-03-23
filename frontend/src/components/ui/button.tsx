@@ -9,18 +9,18 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-violet-500/20 text-violet-400 border-violet-500/30 hover:bg-violet-500/30 focus-visible:ring-violet-500/50",
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
         outline:
-          "border-slate-700 bg-slate-800/50 text-slate-200 hover:bg-slate-800/70 hover:text-slate-100 focus-visible:ring-slate-500/50",
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
-          "bg-slate-700/50 text-slate-300 hover:bg-slate-700/70 focus-visible:ring-slate-500/50",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
-          "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 focus-visible:ring-slate-500/50",
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
         destructive:
-          "bg-rose-500/20 text-rose-400 border-rose-500/30 hover:bg-rose-500/30 focus-visible:ring-rose-500/50",
+          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         success:
           "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30 focus-visible:ring-emerald-500/50",
-        link: "text-violet-400 underline-offset-4 hover:underline",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
         default:

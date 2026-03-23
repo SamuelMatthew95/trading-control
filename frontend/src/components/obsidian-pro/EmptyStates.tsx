@@ -17,45 +17,45 @@ export function EmptyState({ type, className }: EmptyStateProps) {
           icon: Moon,
           title: 'Markets Closed',
           description: 'Trading markets are currently closed. Check back during market hours.',
-          color: 'text-slate-400',
-          bgColor: 'bg-slate-800/20',
-          borderColor: 'border-slate-700/50'
+          color: 'text-muted-foreground',
+          bgColor: 'bg-muted/50',
+          borderColor: 'border-border'
         }
       case 'bot-offline':
         return {
           icon: Power,
           title: 'System Sleeping',
           description: 'The trading bot is currently offline. Start trading to activate the system.',
-          color: 'text-amber-400',
-          bgColor: 'bg-amber-500/10',
-          borderColor: 'border-amber-500/30'
+          color: 'text-amber-600',
+          bgColor: 'bg-amber-50',
+          borderColor: 'border-amber-200'
         }
       case 'no-data':
         return {
           icon: TrendingDown,
           title: 'No Data Available',
           description: 'No trading data is available at the moment. Please check your connection.',
-          color: 'text-slate-400',
-          bgColor: 'bg-slate-800/20',
-          borderColor: 'border-slate-700/50'
+          color: 'text-muted-foreground',
+          bgColor: 'bg-muted/50',
+          borderColor: 'border-border'
         }
       case 'loading':
         return {
           icon: Activity,
           title: 'Loading...',
           description: 'Initializing trading system and fetching market data.',
-          color: 'text-violet-400',
-          bgColor: 'bg-violet-500/10',
-          borderColor: 'border-violet-500/30'
+          color: 'text-primary',
+          bgColor: 'bg-primary/10',
+          borderColor: 'border-primary/30'
         }
       default:
         return {
           icon: Clock,
           title: 'System Idle',
           description: 'The system is waiting for the next trading opportunity.',
-          color: 'text-slate-400',
-          bgColor: 'bg-slate-800/20',
-          borderColor: 'border-slate-700/50'
+          color: 'text-muted-foreground',
+          bgColor: 'bg-muted/50',
+          borderColor: 'border-border'
         }
     }
   }
@@ -134,7 +134,7 @@ export function EmptyState({ type, className }: EmptyStateProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="text-xs text-slate-600"
+            className="text-xs text-muted-foreground"
           >
             <Clock className="w-4 h-4 inline-block mr-2" />
             Market Hours: 9:30 AM - 4:00 PM EST
@@ -146,7 +146,7 @@ export function EmptyState({ type, className }: EmptyStateProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="text-xs text-slate-600"
+            className="text-xs text-muted-foreground"
           >
             Last active: {new Date().toLocaleTimeString()}
           </motion.div>
