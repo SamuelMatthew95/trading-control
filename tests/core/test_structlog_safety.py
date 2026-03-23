@@ -102,32 +102,3 @@ class TestStructlogSafety:
             pytest.fail(f"Correct structlog usage should work: {e}")
 
 
-if __name__ == '__main__':
-    # Run the safety test directly
-    test_instance = TestStructlogSafety()
-    
-    print("🔧 Running structlog safety tests...")
-    
-    try:
-        test_instance.test_no_event_keyword_argument_in_log_calls()
-        print("✅ No event= usage found in codebase")
-    except AssertionError as e:
-        print(f"❌ Safety test failed: {e}")
-        exit(1)
-    
-    try:
-        test_instance.test_log_structured_function_signature()
-        print("✅ log_structured function signature is correct")
-    except Exception as e:
-        print(f"❌ Function signature test failed: {e}")
-        exit(1)
-    
-    try:
-        test_instance.test_correct_structlog_usage_examples()
-        print("✅ Correct structlog usage works")
-    except Exception as e:
-        print(f"❌ Usage examples test failed: {e}")
-        exit(1)
-    
-    print("\n🎉 All structlog safety tests passed!")
-    print("No event= keyword arguments found - WebSocket stability protected!")

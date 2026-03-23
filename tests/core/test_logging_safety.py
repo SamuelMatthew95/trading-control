@@ -154,35 +154,3 @@ class TestLoggingSafety:
         )
 
 
-if __name__ == '__main__':
-    """Run comprehensive logging safety tests."""
-    
-    test_instance = TestLoggingSafety()
-    
-    print("🔧 RUNNING PRODUCTION-GRADE LOGGING SAFETY TESTS")
-    print("=" * 60)
-    
-    tests = [
-        ("No event= keyword arguments", test_instance.test_no_event_keyword_argument_anywhere),
-        ("Log structured hardening", test_instance.test_log_structured_hardening),
-        ("Request context binding", test_instance.test_bind_request_context_function),
-        ("Error logging patterns", test_instance.test_error_logging_patterns_fixed),
-    ]
-    
-    passed = 0
-    for test_name, test_func in tests:
-        try:
-            test_func()
-            print(f"✅ {test_name}: PASSED")
-            passed += 1
-        except Exception as e:
-            print(f"❌ {test_name}: FAILED - {e}")
-    
-    print("=" * 60)
-    if passed == len(tests):
-        print("🎉 ALL LOGGING SAFETY TESTS PASSED!")
-        print("Production-grade logging system verified!")
-    else:
-        print(f"❌ {len(tests) - passed} TESTS FAILED")
-        print("Logging system needs fixes before production deployment!")
-        exit(1)
