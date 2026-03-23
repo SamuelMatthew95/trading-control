@@ -10,11 +10,18 @@ import {
   Settings2,
   AlertTriangle,
   BarChart3,
+  Power,
+  Activity,
+  ChevronDown,
+  ChevronUp,
+  Menu,
+  X
 } from 'lucide-react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,18 +56,38 @@ export default function DashboardLayout({
   const pathname = usePathname()
   const { orders, regime, wsConnected, killSwitchActive, setKillSwitch } =
     useCodexStore()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const dailyPnl = useMemo(
     () => orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0),
     [orders]
   )
 
-  const regimeColor =
-    regime === 'RISK ON'
-      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30'
-      : regime === 'RISK OFF'
-      ? 'bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/30'
-      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/30'
+  const regimeConfig = useMemo(() => {
+    switch (regime) {
+      case 'RISK ON':
+        return {
+          bg: 'bg-emerald-500/10',
+          text: 'text-emerald-400',
+          border: 'border-emerald-500/30',
+          ring: 'ring-emerald-500/20'
+        }
+      case 'RISK OFF':
+        return {
+          bg: 'bg-rose-500/10',
+          text: 'text-rose-400',
+          border: 'border-rose-500/30',
+          ring: 'ring-rose-500/20'
+        }
+      default:
+        return {
+          bg: 'bg-amber-500/10',
+          text: 'text-amber-400',
+          border: 'border-amber-500/30',
+          ring: 'ring-amber-500/20'
+        }
+    }
+  }, [regime])
 
   const handleKillSwitch = async (activate: boolean) => {
     try {
@@ -77,95 +104,116 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
 
-      {/* ── SIDEBAR ── */}
-      <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r border-border bg-surface">
-        {/* Logo */}
-        <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-            <BarChart3 className="h-4 w-4" />
-          </div>
-          <span className="text-sm font-semibold tracking-tight">
-            Trading Control
-          </span>
-        </div>
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/50 z-40 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              className="fixed top-0 left-0 z-50 w-64 h-full glass-card border-r border-slate-800/60 md:hidden"
+            >
+              <SidebarContent 
+                pathname={pathname} 
+                onClose={() => setSidebarOpen(false)} 
+              />
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
 
-        {/* Nav */}
-        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {NAV.map(({ href, label, Icon }) => {
-            const active =
-              href === '/dashboard'
-                ? pathname === '/dashboard'
-                : pathname.startsWith(href)
-            return (
-              <Link key={href} href={href}>
-                <div
-                  className={cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer',
-                    active
-                      ? 'bg-accent/10 text-accent rounded-md'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-md transition-colors'
-                  )}
-                >
-                  <Icon className="h-4 w-4 flex-shrink-0" />
-                  {label}
-                </div>
-              </Link>
-            )
-          })}
-        </nav>
-
-        {/* Sidebar footer */}
-        <div className="border-t border-border p-3">
-          <p className="text-[11px] text-muted-foreground">Phase 2 · Paper Mode</p>
-        </div>
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-64 flex-shrink-0 flex-col glass-card border-r border-slate-800/60">
+        <SidebarContent pathname={pathname} />
       </aside>
 
-      {/* ── MAIN COLUMN ── */}
+      {/* Main Column */}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
 
-        {/* ── HEADER ── */}
-        <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:px-6 gap-4">
+        {/* Header */}
+        <header className="flex h-16 flex-shrink-0 items-center justify-between glass-card border-b border-slate-800/60 px-6 gap-4">
+
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
 
           {/* Regime badge */}
-          <span
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1',
-              regimeColor
-            )}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {regime?.toUpperCase() || 'NEUTRAL'}
-          </span>
+          <div className="flex items-center gap-4">
+            <motion.div
+              key={regime}
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] border ring-1',
+                regimeConfig.bg,
+                regimeConfig.text,
+                regimeConfig.border,
+                regimeConfig.ring
+              )}
+            >
+              <motion.span 
+                className="w-1.5 h-1.5 rounded-full bg-current"
+                animate={{
+                  scale: [1, 1.3, 1],
+                  opacity: [0.8, 1, 0.8]
+                }}
+                transition={{
+                  duration: 4, // Slow breathing pulse
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+              />
+              {regime?.toUpperCase() || 'NEUTRAL'}
+            </motion.div>
+          </div>
 
           {/* Right controls */}
-          <div className="flex items-center gap-3 ml-auto">
+          <div className="flex items-center gap-4 ml-auto">
 
             {/* WS status */}
-            <div className="flex items-center gap-1.5">
-              <span
+            <div className="flex items-center gap-2">
+              <motion.div
                 className={cn(
-                  'h-1.5 w-1.5 rounded-full flex-shrink-0',
-                  wsConnected
-                    ? 'bg-emerald-500 animate-pulse'
-                    : 'bg-red-500'
+                  'w-2 h-2 rounded-full',
+                  wsConnected ? 'bg-emerald-500' : 'bg-rose-500'
                 )}
+                animate={wsConnected ? {
+                  scale: [1, 1.2, 1],
+                  opacity: [1, 0.8, 1]
+                } : {}}
+                transition={{ duration: 2, repeat: Infinity }}
               />
-              <span className="text-xs text-muted-foreground hidden sm:inline">
-                {wsConnected ? 'Live' : 'Offline'}
+              <span className="text-xs text-slate-400 hidden sm:inline font-medium">
+                {wsConnected ? 'LIVE' : 'OFFLINE'}
               </span>
             </div>
 
             {/* P&L */}
-            <span
+            <motion.div
+              key={dailyPnl}
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
               className={cn(
                 'text-sm font-mono font-semibold tabular-nums hidden sm:inline',
-                dailyPnl >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'
+                dailyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
               )}
             >
               {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
-            </span>
+            </motion.div>
 
             {/* Theme toggle */}
             <ThemeToggle />
@@ -173,31 +221,40 @@ export default function DashboardLayout({
             {/* Kill switch */}
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   className={cn(
-                    'text-[11px] font-semibold border border-red-500/40 text-red-400 rounded-md px-3 py-1.5 hover:bg-red-500/10 transition-colors',
-                    killSwitchActive && 'bg-red-600 text-white animate-pulse border-red-600'
+                    'flex items-center gap-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] rounded-lg border transition-all duration-200',
+                    killSwitchActive
+                      ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 ring-2 ring-rose-500/20 animate-pulse'
+                      : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200'
                   )}
                 >
-                  {killSwitchActive ? '⬛ ACTIVE' : 'Kill Switch'}
-                </button>
+                  <Power className="w-3 h-3" />
+                  {killSwitchActive ? 'ACTIVE' : 'KILL SWITCH'}
+                </motion.button>
               </AlertDialogTrigger>
-              <AlertDialogContent>
+              <AlertDialogContent className="glass-card">
                 <AlertDialogHeader>
-                  <AlertDialogTitle>
+                  <AlertDialogTitle className="text-slate-200">
                     {killSwitchActive ? 'Deactivate Kill Switch?' : 'Activate Kill Switch?'}
                   </AlertDialogTitle>
-                  <AlertDialogDescription>
+                  <AlertDialogDescription className="text-slate-400">
                     {killSwitchActive
                       ? 'This will resume signal processing and order placement.'
                       : 'This will immediately halt all signal processing and order placement.'}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel className="bg-slate-700 text-slate-200 hover:bg-slate-600">
+                    Cancel
+                  </AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => handleKillSwitch(!killSwitchActive)}
-                    className={killSwitchActive ? '' : 'bg-red-600 hover:bg-red-700'}
+                    className={cn(
+                      killSwitchActive ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+                    )}
                   >
                     Confirm
                   </AlertDialogAction>
@@ -207,19 +264,69 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        {/* ── PAGE CONTENT ── */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        {/* Page Content */}
+        <main className="flex-1 overflow-y-auto">
           {children}
         </main>
 
-        {/* ── FOOTER ── */}
-        <footer className="flex h-9 flex-shrink-0 items-center justify-between border-t border-border px-4 md:px-6">
-          <span className="text-xs text-muted-foreground">
+        {/* Footer */}
+        <footer className="flex h-10 flex-shrink-0 items-center justify-between glass-card border-t border-slate-800/60 px-6">
+          <span className="text-xs text-slate-500">
             AI Trading Control · Phase 2 · Paper Mode
           </span>
-          <span className="text-xs text-muted-foreground">© 2026</span>
+          <span className="text-xs text-slate-500">© 2026</span>
         </footer>
       </div>
     </div>
+  )
+}
+
+function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () => void }) {
+  return (
+    <>
+      {/* Logo */}
+      <div className="flex h-16 items-center gap-3 border-b border-slate-800/60 px-6">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/20 text-violet-400 border border-violet-500/30">
+          <BarChart3 className="h-4 w-4" />
+        </div>
+        <span className="text-sm font-semibold tracking-tight text-slate-200">
+          Trading Control
+        </span>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        {NAV.map(({ href, label, Icon }) => {
+          const active =
+            href === '/dashboard'
+              ? pathname === '/dashboard'
+              : pathname.startsWith(href)
+          return (
+            <Link key={href} href={href} onClick={onClose}>
+              <motion.div
+                whileHover={{ x: 4 }}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer',
+                  active
+                    ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                )}
+              >
+                <Icon className="h-4 w-4 flex-shrink-0" />
+                {label}
+              </motion.div>
+            </Link>
+          )
+        })}
+      </nav>
+
+      {/* Sidebar footer */}
+      <div className="border-t border-slate-800/60 p-4">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Activity className="h-3 w-3" />
+          Phase 2 · Paper Mode
+        </div>
+      </div>
+    </>
   )
 }

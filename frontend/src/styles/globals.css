@@ -2,9 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @layer base {
-  html { font-family: 'Inter', system-ui, sans-serif; }
-  h1, h2, h3, h4, h5, h6 { font-weight: 600; letter-spacing: -0.02em; }
+  html { 
+    font-family: 'Inter', 'Geist Sans', system-ui, sans-serif; 
+  }
+  
+  h1, h2, h3, h4, h5, h6 { 
+    font-weight: 600; 
+    letter-spacing: -0.02em; 
+  }
+  
+  .font-mono {
+    font-family: 'JetBrains Mono', 'Geist Mono', 'Fira Code', monospace;
+  }
 }
 
 :root {
@@ -20,14 +32,25 @@
 }
 
 .dark {
-  --background: 222 47% 7%;
-  --foreground: 213 31% 91%;
-  --surface: 222 47% 11%;
-  --border: 216 34% 17%;
-  --muted: 223 47% 14%;
-  --muted-foreground: 215 20% 55%;
-  --accent: 221 83% 53%;
+  /* Obsidian-Pro Design System */
+  --background: 215 28% 5%;           /* #020617 Deep Midnight */
+  --foreground: 213 31% 91%;          /* #f1f5f9 */
+  --surface: 215 32% 12%;             /* #0f172a with opacity */
+  --border: 215 32% 20%;             /* slate-800/60 */
+  --muted: 215 32% 16%;              /* slate-700/50 */
+  --muted-foreground: 215 20% 65%;   /* slate-400 */
+  --accent: 221 83% 53%;             /*保持原有的accent */
   --accent-foreground: 0 0% 100%;
+  
+  /* Trading-specific colors */
+  --bullish: 142 76% 36%;            /* #10b981 */
+  --bearish: 0 79% 63%;              /* #f43f5e */
+  --neutral: 258 85% 65%;            /* #8b5cf6 */
+  
+  /* Glassmorphism support */
+  --glass-bg: 215 32% 12% / 0.8;     /* #0f172a with 80% opacity */
+  --glass-border: 215 32% 20% / 0.6;  /* slate-800/60 */
+  --glass-highlight: 0 0% 100% / 0.1; /* white/10 for top-light */
 }
 
 * {
@@ -41,4 +64,100 @@ body {
   font-family: inherit;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Obsidian-Pro Component Classes */
+@layer components {
+  .glass-card {
+    @apply backdrop-blur-md bg-surface/80 border border-slate-800/60 rounded-xl;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 
+                0 2px 4px -2px rgb(0 0 0 / 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 hover:bg-surface/90 hover:shadow-xl;
+  }
+  
+  .data-value {
+    @apply text-slate-200 font-mono tabular-nums;
+  }
+  
+  .data-value-large {
+    @apply text-2xl font-bold font-mono tabular-nums text-[hsl(var(--text-data-primary))];
+  }
+  
+  .section-header {
+    @apply text-[10px] font-semibold uppercase tracking-[0.2em] text-[hsl(var(--text-label-strong))];
+  }
+  
+  .bullish-text { color: hsl(var(--bullish)); }
+  .bearish-text { color: hsl(var(--bearish)); }
+  .neutral-text { color: hsl(var(--neutral)); }
+  
+  .bullish-bg { background-color: hsl(var(--bullish) / 0.1); }
+  .bearish-bg { background-color: hsl(var(--bearish) / 0.1); }
+  .neutral-bg { background-color: hsl(var(--neutral) / 0.1); }
+  
+  .pulse-dot {
+    @apply w-2 h-2 rounded-full bg-emerald-500;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  .breathing-dot {
+    @apply w-2 h-2 rounded-full;
+    animation: breathe 3s ease-in-out infinite;
+  }
+  
+  .price-flash-emerald {
+    animation: flash-emerald 0.05s ease-out; /* Fast snap for high-frequency data */
+  }
+  
+  .price-flash-rose {
+    animation: flash-rose 0.05s ease-out; /* Fast snap for high-frequency data */
+  }
+}
+
+@layer utilities {
+  :root {
+    --text-muted-foreground: hsl(var(--muted-foreground));
+    --text-accent-foreground: hsl(var(--accent-foreground));
+    --text-destructive-foreground: hsl(var(--destructive-foreground));
+    
+    /* High contrast text for accessibility */
+    --text-label: hsl(215 20% 65%); /* slate-500 with better contrast */
+    --text-label-strong: hsl(215 25% 75%); /* slate-400 for emphasis */
+    --text-data-primary: hsl(210 40% 98%); /* slate-100 for main data */
+    --text-data-secondary: hsl(210 30% 85%); /* slate-200 for secondary data */
+  }
+  
+  .text-bullish { color: hsl(var(--bullish)); }
+  .text-bearish { color: hsl(var(--bearish)); }
+  .text-neutral { color: hsl(var(--neutral)); }
+  
+  .bg-bullish { background-color: hsl(var(--bullish) / 0.1); }
+  .bg-bearish { background-color: hsl(var(--bearish) / 0.1); }
+  .bg-neutral { background-color: hsl(var(--neutral) / 0.1); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes flash-emerald {
+  0% { background-color: hsl(var(--bullish) / 0.2); }
+  50% { background-color: hsl(var(--bullish) / 0.3); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-rose {
+  0% { background-color: hsl(var(--bearish) / 0.2); }
+  50% { background-color: hsl(var(--bearish) / 0.3); }
+  100% { background-color: transparent; }
 }

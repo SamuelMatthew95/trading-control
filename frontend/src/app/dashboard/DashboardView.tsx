@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
+import { ObsidianDashboard } from '@/components/obsidian-pro/ObsidianDashboard'
 import {
   TrendingUp,
   BarChart3,
@@ -15,7 +16,8 @@ import {
   Trash2,
   CandlestickChart,
   BookOpen,
-  Settings2
+  Settings2,
+  Activity
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -107,336 +109,182 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     }
   }
 
-  // OVERVIEW PAGE
+  // OVERVIEW PAGE - Use Obsidian-Pro Dashboard
   if (section === 'overview') {
-    const statCards = [
-      { label: 'Total P&L', Icon: TrendingUp, value: `${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`, color: dailyPnl >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400' },
-      { label: 'Win Rate', Icon: BarChart3, value: '0.0%', color: 'text-foreground' },
-      { label: 'Open Positions', Icon: Layers, value: orders.length.toString(), color: 'text-foreground' },
-      { label: 'LLM Cost Today', Icon: Zap, value: `$${costToday.toFixed(2)}`, color: 'text-foreground' },
-    ]
-
-    return (
-      <div className="space-y-6">
-        {/* Stat cards row */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {statCards.map((card, i) => (
-            <div key={i} className="rounded-xl border border-border bg-surface p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  {card.label}
-                </p>
-                <card.Icon className="h-3.5 w-3.5 text-muted-foreground" />
-              </div>
-              <p className={cn("text-2xl font-semibold font-mono tabular-nums text-foreground", card.color)}>
-                {card.value}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Price grid */}
-        <div>
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Live Prices</h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {Object.entries(prices).length === 0 ? (
-              <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-10">
-                <p className="text-sm text-muted-foreground">
-                  Waiting for market data...
-                </p>
-              </div>
-            ) : (
-              Object.entries(prices).map(([symbol, record]) => (
-                <div key={symbol} className="rounded-lg border border-border bg-muted/30 p-3 hover:bg-muted/50 transition-colors">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{symbol}</p>
-                  <p className="mt-1.5 text-base font-semibold font-mono tabular-nums">
-                    ${record.price.toFixed(2)}
-                  </p>
-                  <span className={cn(
-                    "mt-1 inline-flex items-center text-[11px] font-medium",
-                    record.change >= 0 ? "text-emerald-500" : "text-red-500"
-                  )}>
-                    {record.change >= 0 ? "▲" : "▼"} {Math.abs(record.change).toFixed(2)}%
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Two-col row: Risk Alerts + Agent Status */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Risk Alerts */}
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Risk Alerts</h2>
-            {riskAlerts.length === 0 ? (
-              <div className="flex items-center gap-2 py-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                <span className="text-sm text-muted-foreground">No active alerts</span>
-              </div>
-            ) : (
-              riskAlerts.slice(0, 5).map((alert, i) => (
-                <div key={i} className="flex items-start gap-3 rounded-lg bg-amber-500/5 border border-amber-500/20 p-3 mb-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground">{alert.message || alert.type}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{alert.timestamp || ''}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Agent Status */}
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Agent Status</h2>
-            <div className="space-y-px">
-              {[
-                { name: 'Reasoning Agent', status: 'Running' },
-                { name: 'Execution Engine', status: 'Running' },
-                { name: 'Learning Service', status: 'Idle' },
-                { name: 'IC Updater', status: 'Idle' },
-              ].map((agent, i) => (
-                <div key={i} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
-                  <span className="text-sm text-foreground">{agent.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      "h-1.5 w-1.5 rounded-full flex-shrink-0",
-                      agent.status === 'Running' ? "bg-emerald-500" : "bg-muted-foreground"
-                    )} />
-                    <span className="text-xs text-muted-foreground w-14 text-right">
-                      {agent.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Stream Health table */}
-        <div className="rounded-xl border border-border bg-surface overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Stream Health</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Stream</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Lag</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Messages</th>
-                </tr>
-              </thead>
-              <tbody>
-                {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      Waiting for stream data...
-                    </td>
-                  </tr>
-                ) : (
-                  systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
-                    const lag = Number(m.value || 0)
-                    const lagColor = lag < 100 ? 'text-emerald-500 dark:text-emerald-400' : lag < 1000 ? 'text-amber-500 dark:text-amber-400' : 'text-red-500 dark:text-red-400'
-                    return (
-                      <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
-                        <td className="px-4 py-3 font-mono text-xs">{m.metric_name?.replace('stream_lag:', '')}</td>
-                        <td className={cn("px-4 py-3 font-mono text-xs tabular-nums", lagColor)}>{lag}ms</td>
-                        <td className="px-4 py-3">
-                          <span className={cn("h-1.5 w-1.5 rounded-full inline-block", lagColor.replace('text-', 'bg-'))} />
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{m.labels?.length || '—'}</td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Last reasoning summary */}
-        {agentLogs[0] && (
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Last Reasoning Summary</h2>
-            <div className="flex items-start gap-3">
-              <span className={cn(
-                "rounded-md px-2 py-1 text-xs font-semibold uppercase flex-shrink-0",
-                agentLogs[0].action === 'buy' ? "bg-blue-500/10 text-blue-500" :
-                agentLogs[0].action === 'sell' ? "bg-red-500/10 text-red-500" :
-                "bg-muted text-muted-foreground"
-              )}>
-                {agentLogs[0].action || 'HOLD'}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm italic text-muted-foreground">
-                  {agentLogs[0].primary_edge || 'No edge description'}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(agentLogs[0].risk_factors || []).map((rf, i) => (
-                    <span key={i} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      {rf}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>Confidence: {((agentLogs[0].confidence || 0) * 100).toFixed(0)}%</span>
-                  <span>Latency: {agentLogs[0].latency_ms || 0}ms</span>
-                  <span>Cost: ${agentLogs[0].cost_usd || '0.000'}</span>
-                  {agentLogs[0].fallback && (
-                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-500">Fallback</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    )
+    return <ObsidianDashboard />
   }
 
   // TRADING PAGE
   if (section === 'trading') {
     return (
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        {/* Left: Chart + Positions */}
-        <div className="space-y-6">
-          {/* Symbol + Timeframe */}
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1">
-              {['BTC/USD','ETH/USD','SOL/USD','SPY','AAPL','NVDA'].map(s => (
-                <button
-                  key={s}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                    selected === s
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-muted"
-                  )}
-                  onClick={() => setSelected(s)}
-                >
-                  {s}
-                </button>
-              ))}
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-slate-400">
+              <span>System</span>
+              <span className="text-slate-600">/</span>
+              <span className="text-slate-200">Trading</span>
             </div>
-            <div className="flex gap-1">
-              {['1m','5m','15m','1h','4h'].map(tf => (
-                <button
-                  key={tf}
-                  className={cn(
-                    "rounded-md px-2.5 py-1 text-xs transition-colors",
-                    selectedTf === tf ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/50"
-                  )}
-                  onClick={() => setSelectedTf(tf)}
-                >
-                  {tf}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Chart placeholder */}
-          <div className="rounded-xl border border-border bg-surface flex items-center justify-center min-h-64">
-            <div className="text-center">
-              <CandlestickChart className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">Chart — lightweight-charts integration</p>
-              <p className="text-xs text-muted-foreground mt-1">{selected} · {selectedTf}</p>
-            </div>
-          </div>
-
-          {/* Positions table */}
-          <div className="rounded-xl border border-border bg-surface overflow-hidden">
-            <div className="px-4 py-3 border-b border-border">
-              <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Open Positions</h2>
-            </div>
-            {orders.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                No open positions
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted/40">
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Symbol</th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Side</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Qty</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">P&L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.slice(0,10).map((o,i) => (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
-                      <td className="px-4 py-3 font-medium">{o.symbol}</td>
-                      <td className="px-4 py-3">
-                        <span className={cn(
-                          "rounded-full px-2 py-0.5 text-xs font-medium",
-                          o.side === 'long' || o.side === 'buy'
-                            ? "bg-blue-500/10 text-blue-500"
-                            : "bg-red-500/10 text-red-500"
-                        )}>
-                          {(o.side || 'n/a').toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{o.qty || 0}</td>
-                      <td className={cn(
-                        "px-4 py-3 text-right font-mono text-xs tabular-nums",
-                        Number(o.pnl) >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
-                      )}>
-                        {Number(o.pnl) >= 0 ? '+' : ''}{Number(o.pnl || 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
           </div>
         </div>
 
-        {/* Right: Order Book + Entry Form */}
-        <div className="space-y-6">
-          {/* Order Book */}
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h3 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">Order Book</h3>
-            <div className="space-y-1">
-              {[67510, 67505, 67500].map(p => (
-                <div key={p} className="flex justify-between text-xs">
-                  <span className="text-red-500 font-mono tabular-nums">{p.toLocaleString()}</span>
-                  <span className="text-muted-foreground">0.42</span>
+        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+          {/* Left: Chart + Positions */}
+          <div className="space-y-6">
+            {/* Symbol + Timeframe */}
+            <div className="glass-card p-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex flex-wrap gap-2">
+                  {['BTC/USD','ETH/USD','SOL/USD','SPY','AAPL','NVDA'].map(s => (
+                    <button
+                      key={s}
+                      className={cn(
+                        "px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200",
+                        selected === s
+                          ? "bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/50"
+                          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                      )}
+                      onClick={() => setSelected(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
-              ))}
-              <div className="my-2 border-y py-2 text-center font-mono text-base font-bold">
-                {prices[selected]?.price.toLocaleString() || '—'}
+                <div className="flex gap-2">
+                  {['1m','5m','15m','1h','4h'].map(tf => (
+                    <button
+                      key={tf}
+                      className={cn(
+                        "px-2.5 py-1 text-xs rounded-md transition-all duration-200",
+                        selectedTf === tf 
+                          ? "bg-slate-700 text-slate-100" 
+                          : "text-slate-500 hover:bg-slate-800/50 hover:text-slate-300"
+                      )}
+                      onClick={() => setSelectedTf(tf)}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
               </div>
-              {[67495, 67490, 67485].map(p => (
-                <div key={p} className="flex justify-between text-xs">
-                  <span className="text-emerald-500 font-mono tabular-nums">{p.toLocaleString()}</span>
-                  <span className="text-muted-foreground">1.05</span>
+            </div>
+
+            {/* Chart placeholder */}
+            <div className="glass-card p-8 flex items-center justify-center min-h-80 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <div className="text-center">
+                <CandlestickChart className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                <p className="text-sm text-slate-400 font-medium">Chart Integration</p>
+                <p className="text-xs text-slate-500 mt-2">{selected} · {selectedTf} timeframe</p>
+              </div>
+            </div>
+
+            {/* Positions table */}
+            <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <div className="px-6 py-4 border-b border-slate-700">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Open Positions</h3>
+              </div>
+              {orders.length === 0 ? (
+                <div className="px-6 py-12 text-center">
+                  <p className="text-sm text-slate-400">No open positions</p>
                 </div>
-              ))}
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-slate-800/30">
+                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Symbol</th>
+                        <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Side</th>
+                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Qty</th>
+                        <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">P&L</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.slice(0,10).map((o,i) => (
+                        <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
+                          <td className="px-6 py-4 font-medium text-slate-200">{o.symbol}</td>
+                          <td className="px-6 py-4">
+                            <span className={cn(
+                              "inline-flex px-2 py-1 text-xs font-medium rounded-md",
+                              o.side === 'long' || o.side === 'buy'
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : "bg-rose-500/10 text-rose-400"
+                            )}>
+                              {(o.side || 'n/a').toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-sm text-slate-300">{o.qty || 0}</td>
+                          <td className={cn(
+                            "px-6 py-4 text-right font-mono text-sm tabular-nums font-semibold",
+                            Number(o.pnl) >= 0 ? "text-emerald-400" : "text-rose-400"
+                          )}>
+                            {Number(o.pnl) >= 0 ? '+' : ''}{Number(o.pnl || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Order Entry */}
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h3 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-4">New Order</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Symbol</label>
-                <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-mono">{selected}</div>
+          {/* Right: Order Book + Entry Form */}
+          <div className="space-y-6">
+            {/* Order Book */}
+            <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 mb-4">Order Book</h3>
+              <div className="space-y-1">
+                {[67510, 67505, 67500].map(p => (
+                  <div key={p} className="flex justify-between text-xs py-1">
+                    <span className="text-rose-400 font-mono tabular-nums">{p.toLocaleString()}</span>
+                    <span className="text-slate-500">0.42</span>
+                  </div>
+                ))}
+                <div className="my-3 py-2 text-center border-t border-b border-slate-700">
+                  <div className="font-mono text-lg font-bold text-slate-100">
+                    {prices[selected]?.price.toLocaleString() || '—'}
+                  </div>
+                </div>
+                {[67495, 67490, 67485].map(p => (
+                  <div key={p} className="flex justify-between text-xs py-1">
+                    <span className="text-emerald-400 font-mono tabular-nums">{p.toLocaleString()}</span>
+                    <span className="text-slate-500">1.05</span>
+                  </div>
+                ))}
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Quantity</label>
-                <input className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent/50" placeholder="0.00" />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Price</label>
-                <input className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-accent/50" placeholder="Market" />
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button className="rounded-md bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition-colors">LONG</button>
-                <button className="rounded-md bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-500 transition-colors">SHORT</button>
+            </div>
+
+            {/* Order Entry */}
+            <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 mb-4">New Order</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs text-slate-500 mb-2 block font-medium uppercase tracking-[0.2em]">Symbol</label>
+                  <div className="glass-card px-3 py-2 text-sm font-mono text-slate-200">{selected}</div>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-2 block font-medium uppercase tracking-[0.2em]">Quantity</label>
+                  <input 
+                    className="w-full glass-card px-3 py-2 text-sm font-mono text-slate-200 bg-transparent outline-none focus:ring-2 focus:ring-violet-500/50 transition-all duration-200" 
+                    placeholder="0.00" 
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-2 block font-medium uppercase tracking-[0.2em]">Price</label>
+                  <input 
+                    className="w-full glass-card px-3 py-2 text-sm font-mono text-slate-200 bg-transparent outline-none focus:ring-2 focus:ring-violet-500/50 transition-all duration-200" 
+                    placeholder="Market" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button className="bg-emerald-500/20 text-emerald-400 py-2.5 text-sm font-semibold rounded-lg border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200">
+                    LONG
+                  </button>
+                  <button className="bg-rose-500/20 text-rose-400 py-2.5 text-sm font-semibold rounded-lg border border-rose-500/30 hover:bg-rose-500/30 transition-all duration-200">
+                    SHORT
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -448,72 +296,102 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // AGENTS PAGE
   if (section === 'agents') {
     return (
-      <div className="space-y-6">
-        {/* Metrics strip */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-slate-400">
+              <span>System</span>
+              <span className="text-slate-600">/</span>
+              <span className="text-slate-200">Agents</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Metrics Strip */}
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
-            { label: 'Avg Latency', value: avgLatency + 'ms' },
-            { label: 'Cost Today',  value: '$' + costToday.toFixed(2) },
-            { label: 'Total Runs',  value: agentLogs.length },
-            { label: 'Fallbacks',   value: agentLogs.filter(l => l.fallback).length },
+            { label: 'Avg Latency', value: avgLatency + 'ms', icon: Activity },
+            { label: 'Cost Today', value: '$' + costToday.toFixed(2), icon: Zap },
+            { label: 'Total Runs', value: agentLogs.length, icon: Bot },
+            { label: 'Fallbacks', value: agentLogs.filter(l => l.fallback).length, icon: AlertTriangle },
           ].map((m, i) => (
-            <div key={i} className="rounded-xl border border-border bg-surface p-5">
+            <div key={i} className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
                   {m.label}
                 </p>
+                <m.icon className="h-4 w-4 text-slate-500" />
               </div>
-              <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
+              <p className="data-value-large text-slate-200">
                 {m.value}
               </p>
             </div>
           ))}
         </div>
 
-        {/* Log list */}
-        <div className="space-y-px">
+        {/* Log List */}
+        <div className="space-y-3">
           {agentLogs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border p-12 text-center">
-              <Bot className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No reasoning logs yet</p>
+            <div className="glass-card p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+              <Bot className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+              <p className="text-sm text-slate-400 font-medium">No reasoning logs yet</p>
             </div>
           ) : (
             agentLogs.slice(0, 20).map((log, i) => (
               <div key={i} className={cn(
-                "rounded-xl border border-border bg-surface p-5",
-                "border-l-4",
-                log.action === 'buy'  && "border-l-blue-500",
-                log.action === 'sell' && "border-l-red-500",
-                "border-l-border"
+                "glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-l-4 transition-all duration-200 hover:shadow-[0_12px_40px_rgb(0,0,0,0.18)]",
+                log.action === 'buy'  && "border-l-emerald-500",
+                log.action === 'sell' && "border-l-rose-500",
+                !log.action || log.action === 'hold' && "border-l-violet-500"
               )}>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+                  <div className="flex items-center gap-3">
                     <span className={cn(
-                      "rounded px-2 py-0.5 text-xs font-semibold uppercase",
-                      log.action === 'buy'  ? "bg-blue-500/10 text-blue-500" :
-                      log.action === 'sell' ? "bg-red-500/10 text-red-500" :
-                      "bg-muted text-muted-foreground"
+                      "inline-flex px-2 py-1 text-xs font-semibold uppercase rounded-md",
+                      log.action === 'buy'  ? "bg-emerald-500/10 text-emerald-400" :
+                      log.action === 'sell' ? "bg-rose-500/10 text-rose-400" :
+                      "bg-violet-500/10 text-violet-400"
                     )}>
                       {log.action || 'HOLD'}
                     </span>
-                    <span className="text-sm font-medium">{log.symbol || '—'}</span>
+                    <span className="text-sm font-medium text-slate-200">{log.symbol || '—'}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span>{log.latency_ms || 0}ms</span>
-                    <span>${log.cost_usd || '0.000'}</span>
-                    {log.fallback && <span className="rounded-full bg-amber-500/10 text-amber-500 px-2 py-0.5">Fallback</span>}
+                  <div className="flex items-center gap-4 text-xs text-slate-500">
+                    <span className="font-mono">{log.latency_ms || 0}ms</span>
+                    <span className="font-mono">${log.cost_usd || '0.000'}</span>
+                    {log.fallback && (
+                      <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-500/10 text-amber-400">
+                        Fallback
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="mt-1.5 w-full bg-muted rounded-full h-1">
-                  <div className="bg-accent h-1 rounded-full" style={{ width: `${(log.confidence || 0) * 100}%` }} />
+                
+                {/* Confidence Bar */}
+                <div className="mb-3">
+                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-gradient-to-r from-violet-500 to-violet-400 h-2 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${(log.confidence || 0) * 100}%` }} 
+                    />
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500 font-medium">
+                    Confidence: {((log.confidence || 0) * 100).toFixed(0)}%
+                  </div>
                 </div>
-                <p className="mt-2 text-sm italic text-muted-foreground">
+                
+                <p className="text-sm text-slate-300 italic mb-3 line-clamp-2">
                   {log.primary_edge || 'No edge description'}
                 </p>
+                
+                {/* Risk Factors */}
                 {(log.risk_factors || []).length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-2">
                     {log.risk_factors.map((rf, j) => (
-                      <span key={j} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{rf}</span>
+                      <span key={j} className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-slate-700/50 text-slate-400 border border-slate-600/50">
+                        {rf}
+                      </span>
                     ))}
                   </div>
                 )}
@@ -528,85 +406,104 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // LEARNING PAGE
   if (section === 'learning') {
     return (
-      <div className="space-y-6">
-        {/* Stat cards */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Trades Evaluated</p>
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-slate-400">
+              <span>System</span>
+              <span className="text-slate-600">/</span>
+              <span className="text-slate-200">Learning</span>
             </div>
-            <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">{learningEvents.length}</p>
           </div>
-          <div className="rounded-xl border border-border bg-surface p-5">
+        </div>
+
+        {/* Stat Cards */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Reflections</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Trades Evaluated</p>
+              <TrendingUp className="h-4 w-4 text-slate-500" />
             </div>
-            <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
+            <p className="data-value-large text-slate-200">{learningEvents.length}</p>
+          </div>
+          <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Reflections</p>
+              <BookOpen className="h-4 w-4 text-slate-500" />
+            </div>
+            <p className="data-value-large text-slate-200">
               {learningEvents.filter(e => e.event === 'reflection_completed').length}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="glass-card p-6 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">IC Updates</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">IC Updates</p>
+              <Settings2 className="h-4 w-4 text-slate-500" />
             </div>
-            <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">0</p>
+            <p className="data-value-large text-slate-200">0</p>
           </div>
         </div>
 
-        {/* Trade timeline */}
-        <div className="rounded-xl border border-border bg-surface overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Trade Timeline</h2>
+        {/* Trade Timeline */}
+        <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
+          <div className="px-6 py-4 border-b border-slate-700">
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Trade Timeline</h3>
           </div>
           {learningEvents.length === 0 ? (
-            <div className="px-4 py-12 text-center">
-              <TrendingUp className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">Complete paper trades to see performance</p>
+            <div className="px-6 py-12 text-center">
+              <TrendingUp className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+              <p className="text-sm text-slate-400 font-medium">Complete paper trades to see performance</p>
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Symbol</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Event</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">P&L</th>
-                </tr>
-              </thead>
-              <tbody>
-                {learningEvents.slice(0,20).map((e,i) => (
-                  <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
-                    <td className="px-4 py-3 font-medium">{e.symbol || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{e.event || e.type}</td>
-                    <td className={cn(
-                      "px-4 py-3 text-right font-mono text-xs tabular-nums",
-                      Number(e.pnl) >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
-                    )}>
-                      {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-800/30">
+                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/3">Symbol</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/3">Event</th>
+                    <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/3">P&L</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {learningEvents.slice(0,20).map((e,i) => (
+                    <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
+                      <td className="px-6 py-4 font-medium text-slate-200">{e.symbol || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-400">{e.event || e.type}</td>
+                      <td className={cn(
+                        "px-6 py-4 text-right font-mono text-sm tabular-nums font-semibold",
+                        Number(e.pnl) >= 0 ? "text-emerald-400" : "text-rose-400"
+                      )}>
+                        {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
-        {/* Reflection log */}
-        <div className="rounded-xl border border-border bg-surface overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Reflection Log</h2>
+        {/* Reflection Log */}
+        <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+          <div className="px-6 py-4 border-b border-slate-700">
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Reflection Log</h3>
           </div>
           {learningEvents.filter(e => e.event === 'reflection_completed').length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              Reflections appear after every 20 trades
+            <div className="px-6 py-8 text-center">
+              <p className="text-sm text-slate-400">Reflections appear after every 20 trades</p>
             </div>
           ) : (
-            <div className="divide-y divide-border">
+            <div className="divide-y divide-slate-800/50">
               {learningEvents.filter(e => e.event === 'reflection_completed').map((e,i) => (
-                <div key={i} className="px-4 py-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-mono text-muted-foreground">{e.trace_id}</p>
+                <div key={i} className="px-6 py-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-mono text-slate-500 truncate flex-1 mr-4">{e.trace_id}</p>
+                    <p className="text-xs text-slate-400">
+                      {new Date(e.timestamp || Date.now()).toLocaleDateString()}
+                    </p>
                   </div>
-                  <p className="mt-1 text-sm text-foreground">{e.summary || 'No summary'}</p>
+                  <p className="text-sm text-slate-200 font-medium leading-relaxed">{e.summary || 'No summary'}</p>
                 </div>
               ))}
             </div>
@@ -618,41 +515,73 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
   // SYSTEM PAGE
   return (
-    <div className="space-y-6">
-      {/* Stream health full detail */}
-      <div className="rounded-xl border border-border bg-surface overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Stream Health</h2>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-slate-400">
+            <span>System</span>
+            <span className="text-slate-600">/</span>
+            <span className="text-slate-200">System</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Stream Health */}
+      <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+        <div className="px-6 py-4 border-b border-slate-700">
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Stream Health</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
-              <tr className="bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Stream</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Lag</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Status</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Messages</th>
+              <tr className="bg-slate-800/30">
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Stream</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Lag</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Status</th>
+                <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/4">Messages</th>
               </tr>
             </thead>
             <tbody>
               {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-slate-400">
                     Waiting for stream data...
                   </td>
                 </tr>
               ) : (
                 systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
                   const lag = Number(m.value || 0)
-                  const lagColor = lag < 100 ? 'text-emerald-500 dark:text-emerald-400' : lag < 1000 ? 'text-amber-500 dark:text-amber-400' : 'text-red-500 dark:text-red-400'
+                  const getLagColor = (lag: number) => {
+                    if (lag < 100) return {
+                      text: 'text-emerald-400',
+                      bg: 'bg-emerald-500',
+                      label: 'Healthy'
+                    }
+                    if (lag < 1000) return {
+                      text: 'text-amber-400', 
+                      bg: 'bg-amber-500',
+                      label: 'Slow'
+                    }
+                    return {
+                      text: 'text-rose-400',
+                      bg: 'bg-rose-500', 
+                      label: 'Critical'
+                    }
+                  }
+                  const lagStatus = getLagColor(lag)
+                  
                   return (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors divide-y divide-border">
-                      <td className="px-4 py-3 font-mono text-xs">{m.metric_name?.replace('stream_lag:', '')}</td>
-                      <td className={cn("px-4 py-3 font-mono text-xs tabular-nums", lagColor)}>{lag}ms</td>
-                      <td className="px-4 py-3">
-                        <span className={cn("h-1.5 w-1.5 rounded-full inline-block", lagColor.replace('text-', 'bg-'))} />
+                    <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/20 transition-colors duration-150">
+                      <td className="px-6 py-4 font-mono text-sm text-slate-200">{m.metric_name?.replace('stream_lag:', '')}</td>
+                      <td className={cn("px-6 py-4 font-mono text-sm tabular-nums font-semibold", lagStatus.text)}>{lag}ms</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className={cn("w-2 h-2 rounded-full", lagStatus.bg)} />
+                          <span className={cn("text-xs font-medium", lagStatus.text)}>{lagStatus.label}</span>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{m.labels?.length || '—'}</td>
+                      <td className="px-6 py-4 font-mono text-sm text-slate-400">{m.labels?.length || '—'}</td>
                     </tr>
                   )
                 })
@@ -662,42 +591,46 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         </div>
       </div>
 
-      {/* DLQ inspector */}
-      <div className="rounded-xl border border-border bg-surface overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Dead Letter Queue</h2>
+      {/* Dead Letter Queue */}
+      <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] mb-6">
+        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Dead Letter Queue</h3>
           <span className={cn(
-            "rounded-full px-2 py-0.5 text-xs font-medium",
-            dlqItems.length > 0 ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+            "inline-flex px-2 py-1 text-xs font-medium rounded-full",
+            dlqItems.length > 0 
+              ? "bg-rose-500/10 text-rose-400 border border-rose-500/30" 
+              : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
           )}>
             {dlqItems.length} events
           </span>
         </div>
         {dlqItems.length === 0 ? (
-          <div className="flex items-center gap-2 px-4 py-8 text-sm text-emerald-500">
-            <CheckCircle2 className="h-4 w-4" />
-            No failed events
+          <div className="flex items-center justify-center gap-3 px-6 py-12">
+            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+            <p className="text-sm text-emerald-400 font-medium">No failed events</p>
           </div>
         ) : (
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-slate-800/50">
             {dlqItems.map((item, i) => (
-              <div key={i} className="flex items-center justify-between px-4 py-4 gap-4">
+              <div key={i} className="flex items-center justify-between px-6 py-4 gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{item.stream}</p>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{item.error}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Retries: {item.retries}</p>
+                  <p className="text-sm font-medium text-slate-200 mb-1">{item.stream}</p>
+                  <p className="text-xs text-slate-400 truncate mb-1" title={item.error}>{item.error}</p>
+                  <p className="text-xs text-slate-500">Retries: {item.retries}</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
                   <button
                     onClick={() => replayDlq(item.event_id)}
-                    className="rounded-md border border-accent/50 px-3 py-1.5 text-xs text-accent hover:bg-accent/5 transition-colors"
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/30 hover:bg-violet-500/20 transition-all duration-200"
                   >
+                    <RotateCcw className="w-3 h-3 inline mr-1" />
                     Replay
                   </button>
                   <button 
                     onClick={() => clearDlq(item.event_id)}
-                    className="rounded-md border border-red-500/30 px-3 py-1.5 text-xs text-red-500 hover:bg-red-500/5 transition-colors"
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 transition-all duration-200"
                   >
+                    <Trash2 className="w-3 h-3 inline mr-1" />
                     Clear
                   </button>
                 </div>
@@ -707,14 +640,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         )}
       </div>
 
-      {/* Audit log */}
-      <div className="rounded-xl border border-border bg-surface overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Audit Log</h2>
+      {/* Audit Log */}
+      <div className="glass-card overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+        <div className="px-6 py-4 border-b border-slate-700">
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Audit Log</h3>
         </div>
-        <div className="divide-y divide-border">
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Audit events will appear here
+        <div className="divide-y divide-slate-800/50">
+          <div className="px-6 py-12 text-center">
+            <p className="text-sm text-slate-400">Audit events will appear here</p>
           </div>
         </div>
       </div>
