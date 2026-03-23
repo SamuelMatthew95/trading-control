@@ -469,9 +469,7 @@ async def root_redirect():
 @app.middleware("http")
 async def telemetry_and_security_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
-    request_id_ctx.set(request_id)
-    bind_request_context(request_id)  # ✅ THIS IS REQUIRED
-
+    bind_request_context(request_id)
     started = time.perf_counter()
     try:
         response = await call_next(request)

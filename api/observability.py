@@ -119,22 +119,16 @@ VALID_LEVELS = {"debug", "info", "warning", "error", "exception", "critical"}
 
 
 def bind_request_context(request_id: str) -> None:
-    """Bind request context once per request/task."""
+    request_id_ctx.set(request_id)
     structlog.contextvars.bind_contextvars(request_id=request_id)
 
 
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
-    """Production-safe structured logging with validation and hardening."""
-    
-    # Validate log level
-    if level.lower() not in VALID_LEVELS:
+    if level.lower() not in {"debug", "info", "warning", "error", "exception", "critical"}:
         level = "info"
-    
-    # STRICTLY reject event keyword argument - never pass forward
+
     if "event" in extra_data:
-        # Remove event to prevent "multiple values for argument 'event'" error
         extra_data.pop("event")
-    
-    # Get logger method with validated level
+
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(message, **extra_data)
