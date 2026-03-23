@@ -452,17 +452,17 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           </div>
           {learningEvents.length === 0 ? (
             <div className="px-6 py-12 text-center">
-              <TrendingUp className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-              <p className="text-sm text-slate-400 font-medium">Complete paper trades to see performance</p>
+              <TrendingUp className="h-12 w-12 text-slate-700 mx-auto mb-4" />
+              <p className="text-base text-slate-600 font-medium">Complete paper trades to see performance</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-800/30">
-                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/3">Symbol</th>
-                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/3">Event</th>
-                    <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 w-1/3">P&L</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 w-1/3">Symbol</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 w-1/3">Event</th>
+                    <th className="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 w-1/3">P&L</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -426,7 +426,7 @@ export function ObsidianDashboard() {
             <div className="flex items-center gap-2 text-slate-400">
               <span>System</span>
               <span className="text-slate-600">/</span>
-              <span className="text-slate-200">Overview</span>
+              <span className="bg-violet-600 text-white px-3 py-1 rounded-md font-semibold">Overview</span>
             </div>
             <div className="flex items-center gap-2">
               <motion.div
