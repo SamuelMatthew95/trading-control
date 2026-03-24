@@ -7,7 +7,6 @@ import {
   Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ThemeToggle } from '@/components/theme/ThemeToggle';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -25,21 +24,19 @@ export function Sidebar({ className }: SidebarProps) {
   const router = useRouter();
 
   return (
-    <div className={cn('w-[220px] bg-card border-r border-border', className)}>
+    <div className={cn('w-[220px] bg-white dark:bg-black border-r border-gray-200 dark:border-slate-800', className)}>
       <div className="flex h-full flex-col">
         {/* Logo/Brand */}
-        <div className="flex h-16 items-center justify-between px-4 border-b border-border">
+        <div className="flex h-16 items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-success">
-              <Activity className="h-4 w-4 text-primary-foreground" />
+            <div className="flex h-8 w-8 items-center justify-center bg-gray-900 dark:bg-white">
+              <Activity className="h-4 w-4 text-white dark:text-gray-900" />
             </div>
             <div className="leading-tight">
-              <h1 className="text-[0.95rem] font-bold text-foreground">Mission Control</h1>
-              <p className="text-[0.75rem] text-muted-foreground">Trading System</p>
-              <p className="text-[0.7rem] text-slate-500 italic">by Matthew Samuel</p>
+              <h1 className="text-[0.95rem] font-bold text-gray-900 dark:text-white">Mission Control</h1>
+              <p className="text-[0.75rem] text-gray-600 dark:text-gray-400">Trading System</p>
             </div>
           </div>
-          <ThemeToggle />
         </div>
 
         {/* Navigation */}
@@ -51,9 +48,9 @@ export function Sidebar({ className }: SidebarProps) {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors h-10',
+                  'flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors',
                   isActive
-                    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+                    ? 'bg-gray-900 text-white border-l-2 border-green-500'
                     : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800'
                 )}
               >
@@ -65,8 +62,8 @@ export function Sidebar({ className }: SidebarProps) {
         </nav>
 
         {/* Bottom */}
-        <div className="border-t border-border p-4">
-          <div className="text-[0.65rem] text-muted-foreground text-center">
+        <div className="border-t border-gray-200 dark:border-slate-800 p-4">
+          <div className="text-[0.65rem] text-gray-500 dark:text-gray-500 text-center">
             v1.0.0
           </div>
         </div>
