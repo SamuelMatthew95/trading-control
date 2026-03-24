@@ -157,31 +157,19 @@ export default function DashboardLayout({
 
             {/* Single LIVE status indicator */}
             <div className="flex items-center gap-2">
-              <motion.div
-                className={cn(
-                  'w-2 h-2 rounded-full',
-                  wsConnected ? 'bg-emerald-500' : 'bg-rose-500'
-                )}
-                animate={wsConnected ? {
-                  scale: [1, 1.2, 1],
-                  opacity: [1, 0.8, 1]
-                } : {}}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
+              <div className={cn(
+                'w-2 h-2 rounded-full',
+                wsConnected ? 'bg-emerald-500' : 'bg-rose-500'
+              )} />
               <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
                 {wsConnected ? 'LIVE' : 'OFFLINE'}
               </span>
             </div>
 
             {/* P&L - Monospace font */}
-            <motion.div
-              key={dailyPnl}
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="text-sm font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100"
-            >
+            <div className="text-sm font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
-            </motion.div>
+            </div>
 
             {/* Theme toggle */}
             <ThemeToggle />
@@ -189,19 +177,15 @@ export default function DashboardLayout({
             {/* Kill Switch - High Contrast */}
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] rounded-lg border transition-all duration-200',
-                    killSwitchActive
-                      ? 'bg-slate-900 text-white dark:bg-red-600 dark:hover:bg-red-700 border-slate-300 dark:border-red-500'
-                      : 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  )}
-                >
+                <button className={cn(
+                  'flex items-center gap-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] rounded-lg border transition-all duration-200',
+                  killSwitchActive
+                    ? 'bg-slate-900 text-white dark:bg-red-600 dark:hover:bg-red-700 border-slate-300 dark:border-red-500'
+                    : 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'
+                )}>
                   <Power className="w-3 h-3" />
                   {killSwitchActive ? 'ACTIVE' : 'KILL SWITCH'}
-                </motion.button>
+                </button>
               </AlertDialogTrigger>
               <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                 <AlertDialogHeader>

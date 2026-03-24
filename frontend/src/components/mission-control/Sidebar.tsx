@@ -12,44 +12,34 @@ const navigation = [
 ];
 
 export function Sidebar() {
-  const router = useRouter();
-
   return (
     <div className="w-64 flex flex-col h-screen bg-white dark:bg-zinc-950 border-r border-slate-200 dark:border-slate-800 font-sans select-none">
-      {/* Brand Header - High Contrast Professional */}
+      {/* Brand Header - Clean Professional */}
       <div className="p-6 mb-4">
         <div className="flex items-center gap-3">
-          {/* Professional logo with Deep Indigo */}
-          <div className="h-4 w-4 bg-indigo-600 rounded-none" />
+          {/* Clean logo */}
+          <div className="h-4 w-4 bg-slate-600 rounded-none" />
           <h1 className="text-[11px] font-bold tracking-tighter text-slate-950 dark:text-white uppercase">
             Trading Control
           </h1>
         </div>
       </div>
 
-      {/* Navigation - Deep Indigo Active State */}
+      {/* Navigation - All items identical, no active states */}
       <nav className="flex-1 px-0 space-y-0">
-        {navigation.map((item) => {
-          const isActive = router.pathname === item.href;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                'group flex items-center gap-4 px-6 py-4 text-[10px] uppercase tracking-[0.2em] transition-all rounded-lg',
-                isActive
-                  ? 'bg-indigo-600 text-white shadow-lg font-bold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
-              )}
-            >
-              <item.icon className={cn("w-4 h-4", isActive ? "text-white" : "text-slate-500")} />
-              {item.name}
-            </Link>
-          );
-        })}
+        {navigation.map((item) => (
+          <Link
+            key={item.name}
+            href={item.href}
+            className="group flex items-center gap-4 px-6 py-4 text-[10px] uppercase tracking-[0.2em] transition-all rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <item.icon className="w-4 h-4" />
+            {item.name}
+          </Link>
+        ))}
       </nav>
 
-      {/* Kill Switch - High Contrast Industrial */}
+      {/* Kill Switch - Clean Industrial */}
       <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
         <button 
           className="w-full bg-slate-900 text-white dark:bg-red-600 border-2 border-slate-300 dark:border-red-500 hover:bg-slate-800 dark:hover:bg-red-700 px-4 py-4 transition-all rounded-lg"
