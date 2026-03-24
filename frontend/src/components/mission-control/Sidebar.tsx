@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { LayoutGrid, BarChart3, Bot, Zap, Settings2, Power, AlertTriangle } from 'lucide-react';
+import { LayoutGrid, BarChart3, Bot, Zap, Settings2, Power } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
@@ -14,32 +13,22 @@ const navigation = [
 
 export function Sidebar() {
   const router = useRouter();
-  const [isConfirming, setIsConfirming] = useState(false);
-
-  const handleKillSwitch = () => {
-    if (!isConfirming) {
-      setIsConfirming(true);
-      setTimeout(() => setIsConfirming(false), 3000); // Reset after 3 seconds
-      return;
-    }
-    console.log("EMERGENCY STOP EXECUTED");
-    setIsConfirming(false);
-  };
 
   return (
-    <div className="w-[240px] flex flex-col h-screen bg-slate-950 border-r border-white/5 font-mono select-none">
-      {/* Brand Header - Terminal Style */}
+    <div className="w-[240px] flex flex-col h-screen bg-[#020617] border-r border-white/10 font-mono select-none">
+      {/* Brand Header - Sharp Square Logo */}
       <div className="p-6 mb-4">
         <div className="flex items-center gap-3">
-          <div className="h-2 w-2 bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,1)]" />
-          <h1 className="text-[10px] font-bold tracking-[0.3em] text-slate-200 uppercase font-mono">
+          {/* Square, not a circle */}
+          <div className="h-4 w-4 bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.6)] rounded-none" />
+          <h1 className="text-[11px] font-black tracking-[0.3em] text-white uppercase">
             Trading Control
           </h1>
         </div>
       </div>
 
-      {/* Navigation - Sharp Terminal Style */}
-      <nav className="flex-1 px-3 space-y-0.5">
+      {/* Navigation - Sharp edges, high contrast */}
+      <nav className="flex-1 px-0 space-y-0">
         {navigation.map((item) => {
           const isActive = router.pathname === item.href;
           return (
@@ -47,38 +36,35 @@ export function Sidebar() {
               key={item.name}
               href={item.href}
               className={cn(
-                'group flex items-center gap-3 px-4 py-2 text-[10px] font-mono uppercase tracking-widest transition-all border-l-2 rounded-none',
+                'group flex items-center gap-4 px-6 py-4 text-[10px] uppercase tracking-[0.2em] transition-all border-l-4',
                 isActive
-                  ? 'bg-indigo-500/10 border-indigo-500 text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
+                  ? 'bg-white/[0.03] border-indigo-500 text-white font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.02]'
               )}
             >
-              <item.icon className={cn("w-4 h-4", isActive ? "text-indigo-400" : "text-slate-600 group-hover:text-slate-400")} />
+              <item.icon className={cn("w-4 h-4", isActive ? "text-indigo-400" : "text-slate-600")} />
               {item.name}
             </Link>
           );
         })}
       </nav>
 
-      {/* CRITICAL ACTION KILL SWITCH */}
-      <div className="p-4 border-t border-white/10 bg-black/30">
+      {/* Kill Switch - Emergency Industrial Style */}
+      <div className="p-4 border-t border-white/5 bg-black/40">
         <button 
-          onClick={handleKillSwitch}
-          className={cn(
-            "w-full h-10 border-2 font-black uppercase tracking-widest text-[10px] font-mono transition-all rounded-none outline-none",
-            isConfirming 
-              ? "bg-red-600 border-red-500 text-white animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]" 
-              : "bg-red-950/20 border-red-500 text-red-500 hover:bg-red-950/40 hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-          )}
+          className="w-full group relative bg-red-950/20 border-2 border-red-900/50 hover:border-red-500 px-4 py-4 transition-all rounded-none"
+          onClick={() => console.log("TERMINATE ALL")}
         >
-          {isConfirming ? 'CONFIRM STOP' : 'KILL SWITCH'}
+          <div className="relative z-10 flex items-center justify-between">
+            <div className="text-left">
+              <p className="text-[9px] font-bold text-red-500/60 uppercase tracking-tighter">Emergency</p>
+              <p className="text-[12px] font-black text-red-500 uppercase leading-none">Kill Switch</p>
+            </div>
+            <Power className="w-5 h-5 text-red-500" />
+          </div>
+          {/* Subtle Warning Pattern */}
+          <div className="absolute inset-0 opacity-[0.03] group-hover:opacity-[0.05] pointer-events-none bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,red_10px,red_20px)]" />
         </button>
-        
-        <div className="mt-4 flex items-center justify-center gap-2 opacity-40">
-          <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold font-mono">
-            PHASE 2 // PAPER_MODE
-          </span>
-        </div>
       </div>
     </div>
   );
