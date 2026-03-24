@@ -8,20 +8,14 @@ import {
   Bot,
   TrendingUp,
   Settings2,
-  AlertTriangle,
-  BarChart3,
   Power,
-  Activity,
-  ChevronDown,
-  ChevronUp,
   Menu,
-  X
+  Activity
 } from 'lucide-react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useMemo, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,11 +29,11 @@ import {
 } from '@/components/ui/alert-dialog'
 
 const NAV = [
-  { href: '/dashboard',          label: 'Overview',  Icon: LayoutDashboard },
-  { href: '/dashboard/trading',  label: 'Trading',   Icon: CandlestickChart },
-  { href: '/dashboard/agents',   label: 'Agents',    Icon: Bot },
-  { href: '/dashboard/learning', label: 'Learning',  Icon: TrendingUp },
-  { href: '/dashboard/system',   label: 'System',    Icon: Settings2 },
+  { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
+  { href: '/dashboard/trading', label: 'Trading', Icon: CandlestickChart },
+  { href: '/dashboard/agents', label: 'Agents', Icon: Bot },
+  { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
+  { href: '/dashboard/system', label: 'System', Icon: Settings2 },
 ]
 
 function cn(...classes: (string | boolean | undefined | null)[]) {
@@ -52,15 +46,11 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   useWebSocket()
-
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { 
-    agentLogs, 
     killSwitchActive, 
-    regime, 
     orders, 
-    prices, 
     positions, 
     systemMetrics,
     wsConnected,
@@ -70,19 +60,8 @@ export default function DashboardLayout({
   const { dailyPnl } = useMemo(() => {
     const realized = orders.reduce((sum, order) => sum + (order.pnl || 0), 0)
     const unrealized = positions.reduce((sum, pos) => sum + (pos.pnl || 0), 0)
-    return realized + unrealized
+    return realized + unrealized || 0
   }, [orders, positions])
-
-  const regimeConfig = useMemo(() => {
-    switch (regime) {
-      case 'bullish':
-        return { bg: 'bg-emerald-500/10', text: 'text-emerald-600', border: 'border-emerald-500/20', ring: 'ring-emerald-500/10' }
-      case 'bearish':
-        return { bg: 'bg-rose-500/10', text: 'text-rose-600', border: 'border-rose-500/20', ring: 'ring-rose-500/10' }
-      default:
-        return { bg: 'bg-slate-500/10', text: 'text-slate-600', border: 'border-slate-500/20', ring: 'ring-slate-500/10' }
-    }
-  }, [regime])
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -98,203 +77,192 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F8FAFC] dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
+    <div className="flex h-screen bg-white dark:bg-zinc-950">
+      {/* Sidebar */}
+      <Sidebar pathname={pathname} mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      {/* Mobile Sidebar Overlay */}
-      <AnimatePresence>
-        {sidebarOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 z-40 md:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-            <motion.aside
-              initial={{ x: -280 }}
-              animate={{ x: 0 }}
-              exit={{ x: -280 }}
-              className="fixed top-0 left-0 z-50 w-64 h-full bg-white dark:bg-zinc-950 border-r border-slate-200 dark:border-slate-800 md:hidden"
-            >
-              <SidebarContent 
-                pathname={pathname} 
-                onClose={() => setSidebarOpen(false)} 
-              />
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-64 flex-shrink-0 flex-col bg-white dark:bg-zinc-950 border-r border-slate-200 dark:border-slate-800">
-        <SidebarContent pathname={pathname} />
-      </aside>
-
-      {/* Main Column */}
-      <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[#F8FAFC] dark:bg-zinc-950">
-
-        {/* Master Controller - Unified Command Bar */}
-        <header className="flex h-16 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 px-6 gap-4 transition-all duration-300">
-
-          {/* Mobile menu button */}
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-
-          {/* Left - Clean breadcrumb */}
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {pathname === '/dashboard' ? 'Overview' : (pathname.split('/').pop()?.charAt(0)?.toUpperCase() || '') + (pathname.split('/').pop()?.slice(1) || '')}
-            </span>
-          </div>
-
-          {/* Master Controller - Center */}
-          <div className="flex items-center gap-6 mx-auto">
-            {/* System Status & P&L */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <motion.div
-                  className={cn(
-                    'w-3 h-3 rounded-full',
-                    killSwitchActive && wsConnected ? 'bg-emerald-500' : 'bg-rose-500'
-                  )}
-                  animate={killSwitchActive && wsConnected ? {
-                    scale: [1, 1.2, 1],
-                    opacity: [1, 0.8, 1]
-                  } : {}}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-                <span className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
-                  {killSwitchActive ? 'SYSTEM ONLINE' : 'SYSTEM HALTED'}
-                </span>
-                {/* Subtle red indicator when halted */}
-                {!killSwitchActive && (
-                  <div className="px-2 py-1 bg-rose-100 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded">
-                    <span className="text-xs font-medium text-rose-700 dark:text-rose-400">HALTED</span>
-                  </div>
-                )}
-              </div>
-
-              {/* P&L - Monospace */}
-              <motion.div
-                key={dailyPnl}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100"
-              >
-                {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
-              </motion.div>
-            </div>
-
-            {/* Master Toggle */}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={cn(
-                    'flex items-center gap-2 px-4 py-2 text-sm font-bold uppercase tracking-[0.1em] rounded-lg border transition-all duration-200',
-                    killSwitchActive
-                      ? 'bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:bg-slate-800 dark:hover:bg-slate-700'
-                      : 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700'
-                  )}
-                >
-                  <Power className="w-4 h-4" />
-                  {killSwitchActive ? 'HALT' : 'RESUME'}
-                </motion.button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                <AlertDialogHeader>
-                  <AlertDialogTitle className="text-slate-900 dark:text-slate-100">
-                    {killSwitchActive ? 'Halt Trading System?' : 'Resume Trading System?'}
-                  </AlertDialogTitle>
-                  <AlertDialogDescription className="text-slate-600 dark:text-slate-400">
-                    {killSwitchActive
-                      ? 'This will immediately halt all signal processing and order placement.'
-                      : 'This will resume signal processing and order placement.'}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700">
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => handleKillSwitch(!killSwitchActive)}
-                    className={cn(
-                      killSwitchActive 
-                        ? 'bg-red-600 hover:bg-red-700 text-white'
-                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    )}
-                  >
-                    {killSwitchActive ? 'Halt System' : 'Resume System'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-
-          {/* Right - Theme toggle */}
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 overflow-y-auto bg-[#F8FAFC] dark:bg-zinc-950">
+      {/* Main Content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Header 
+          dailyPnl={dailyPnl}
+          killSwitchActive={killSwitchActive}
+          wsConnected={wsConnected}
+          onToggleSidebar={() => setSidebarOpen(true)}
+          onKillSwitch={handleKillSwitch}
+        />
+        <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-zinc-900">
           {children}
         </main>
-
-        {/* Footer */}
-        <footer className="flex h-10 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-t border-slate-200 dark:border-slate-800 px-6">
-          <span className="text-xs text-slate-600 dark:text-slate-400">
-            AI Trading Control · Phase 2 · Paper Mode
-          </span>
-          <span className="text-xs text-slate-600 dark:text-slate-400">© 2026</span>
-        </footer>
       </div>
     </div>
   )
 }
 
-function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () => void }) {
+function Sidebar({ pathname, mobileOpen, onClose }: { 
+  pathname: string; 
+  mobileOpen: boolean; 
+  onClose: () => void 
+}) {
   return (
     <>
-      {/* Logo - Clean, no active states */}
-      <div className="flex h-16 items-center gap-3 border-b border-slate-200 dark:border-slate-800 px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-600 text-white">
-          <BarChart3 className="h-5 w-5" />
+      {/* Mobile Overlay */}
+      {mobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden" 
+          onClick={onClose}
+        />
+      )}
+      
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed md:relative w-64 h-screen bg-white dark:bg-zinc-950 border-r border-slate-200 dark:border-slate-800 z-50",
+        "transform transition-transform duration-200",
+        mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      )}>
+        {/* Logo */}
+        <div className="flex h-14 items-center gap-3 px-6 border-b border-slate-200 dark:border-slate-800">
+          <div className="h-6 w-6 bg-emerald-500 rounded" />
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">
+            Trading Control
+          </span>
         </div>
-        <span className="text-sm font-bold tracking-tighter text-slate-950 dark:text-white uppercase">
-          Trading Control
-        </span>
-      </div>
 
-      {/* Navigation - All items identical, no active states */}
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {NAV.map(({ href, label, Icon }) => (
-          <Link key={href} href={href} onClick={onClose}>
-            <motion.div
-              whileHover={{ x: 4 }}
-              className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all duration-200 cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <Icon className="h-5 w-5" />
-              {label}
-            </motion.div>
-          </Link>
-        ))}
-      </nav>
+        {/* Navigation */}
+        <nav className="flex-1 p-2">
+          {NAV.map(({ href, label, Icon }) => {
+            const active = href === '/dashboard' 
+              ? pathname === '/dashboard' 
+              : pathname.startsWith(href)
+            
+            return (
+              <Link key={href} href={href} onClick={onClose}>
+                <div className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                  active
+                    ? "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white"
+                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                )}>
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </div>
+              </Link>
+            )
+          })}
+        </nav>
 
-      {/* Sidebar footer */}
-      <div className="border-t border-slate-200 dark:border-slate-800 p-4">
-        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <Activity className="h-4 w-4" />
-          Phase 2 · Paper Mode
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Activity className="w-3 h-3" />
+            Phase 2 · Paper Mode
+          </div>
         </div>
-      </div>
+      </aside>
     </>
+  )
+}
+
+function Header({ 
+  dailyPnl, 
+  killSwitchActive, 
+  wsConnected, 
+  onToggleSidebar,
+  onKillSwitch 
+}: {
+  dailyPnl: number
+  killSwitchActive: boolean
+  wsConnected: boolean
+  onToggleSidebar: () => void
+  onKillSwitch: (active: boolean) => void
+}) {
+  const pathname = usePathname()
+  
+  const pageTitle = useMemo(() => {
+    const path = typeof window !== 'undefined' ? window.location.pathname : pathname
+    if (path === '/dashboard') return 'Overview'
+    const segments = path.split('/').pop()
+    if (!segments) return 'Overview'
+    return segments.charAt(0)?.toUpperCase() + segments.slice(1)
+  }, [pathname])
+
+  return (
+    <header className="flex items-center justify-between px-6 h-14 bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800">
+      {/* Left - Page Title */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={onToggleSidebar}
+          className="md:hidden p-2 rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          {pageTitle}
+        </h1>
+      </div>
+
+      {/* Right - Controls */}
+      <div className="flex items-center gap-4">
+        {/* System Status */}
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            wsConnected ? "bg-emerald-500" : "bg-red-500"
+          )} />
+          <span className="text-sm text-slate-500">
+            {wsConnected ? 'Online' : 'Offline'}
+          </span>
+        </div>
+
+        {/* P&L */}
+        <div className="text-sm font-mono text-slate-900 dark:text-slate-100">
+          {dailyPnl ? (dailyPnl >= 0 ? '+' : '') + dailyPnl.toFixed(2) : '$0.00'}
+        </div>
+
+        {/* Kill Switch */}
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button className={cn(
+              "h-9 px-3 rounded-md text-sm font-medium transition-colors",
+              killSwitchActive
+                ? "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                : "bg-red-500 text-white hover:bg-red-600"
+            )}>
+              <Power className="w-3 h-3 mr-2" />
+              {killSwitchActive ? 'Active' : 'Halted'}
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-slate-900 dark:text-slate-100">
+                {killSwitchActive ? 'Halt Trading System?' : 'Resume Trading System?'}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-slate-600 dark:text-slate-400">
+                {killSwitchActive
+                  ? 'This will immediately halt all signal processing and order placement.'
+                  : 'This will resume signal processing and order placement.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => onKillSwitch(!killSwitchActive)}
+                className={cn(
+                  killSwitchActive 
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                )}
+              >
+                {killSwitchActive ? 'Halt' : 'Resume'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Theme Toggle */}
+        <ThemeToggle />
+      </div>
+    </header>
   )
 }
