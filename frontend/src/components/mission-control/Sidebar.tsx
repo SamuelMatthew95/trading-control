@@ -28,17 +28,17 @@ export function Sidebar() {
 
   return (
     <div className="w-[240px] flex flex-col h-screen bg-slate-950 border-r border-white/5 font-mono select-none">
-      {/* Brand Header */}
+      {/* Brand Header - Terminal Style */}
       <div className="p-6 mb-4">
         <div className="flex items-center gap-3">
           <div className="h-2 w-2 bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,1)]" />
-          <h1 className="text-[10px] font-bold tracking-[0.3em] text-slate-200 uppercase">
+          <h1 className="text-[10px] font-bold tracking-[0.3em] text-slate-200 uppercase font-mono">
             Trading Control
           </h1>
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation - Sharp Terminal Style */}
       <nav className="flex-1 px-3 space-y-0.5">
         {navigation.map((item) => {
           const isActive = router.pathname === item.href;
@@ -47,7 +47,7 @@ export function Sidebar() {
               key={item.name}
               href={item.href}
               className={cn(
-                'group flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest transition-all border-l-2',
+                'group flex items-center gap-3 px-4 py-2 text-[10px] font-mono uppercase tracking-widest transition-all border-l-2 rounded-none',
                 isActive
                   ? 'bg-indigo-500/10 border-indigo-500 text-indigo-400'
                   : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
@@ -60,42 +60,22 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* SAFETY KILL SWITCH */}
-      <div className="p-4 border-t border-white/5 bg-black/20">
+      {/* CRITICAL ACTION KILL SWITCH */}
+      <div className="p-4 border-t border-white/10 bg-black/30">
         <button 
           onClick={handleKillSwitch}
           className={cn(
-            "w-full group relative overflow-hidden px-4 py-3 transition-all border outline-none",
+            "w-full h-10 border-2 font-black uppercase tracking-widest text-[10px] font-mono transition-all rounded-none outline-none",
             isConfirming 
-              ? "bg-red-600 border-red-400 scale-[0.98] animate-pulse" 
-              : "bg-red-950/20 border-red-900/50 hover:border-red-500"
+              ? "bg-red-600 border-red-500 text-white animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]" 
+              : "bg-red-950/20 border-red-500 text-red-500 hover:bg-red-950/40 hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]"
           )}
         >
-          <div className="relative z-10 flex items-center justify-between">
-            <div className="text-left">
-              <p className={cn(
-                "text-[9px] font-bold uppercase tracking-tighter",
-                isConfirming ? "text-white" : "text-red-500/70"
-              )}>
-                {isConfirming ? "ARE YOU SURE?" : "SYSTEM"}
-              </p>
-              <p className={cn(
-                "text-[11px] font-black uppercase leading-none",
-                isConfirming ? "text-white" : "text-red-500"
-              )}>
-                {isConfirming ? "CONFIRM STOP" : "KILL SWITCH"}
-              </p>
-            </div>
-            {isConfirming ? (
-              <AlertTriangle className="w-5 h-5 text-white" />
-            ) : (
-              <Power className="w-5 h-5 text-red-500 group-hover:rotate-90 transition-transform duration-300" />
-            )}
-          </div>
+          {isConfirming ? 'CONFIRM STOP' : 'KILL SWITCH'}
         </button>
         
         <div className="mt-4 flex items-center justify-center gap-2 opacity-40">
-          <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">
+          <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold font-mono">
             PHASE 2 // PAPER_MODE
           </span>
         </div>
