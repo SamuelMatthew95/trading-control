@@ -140,23 +140,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
             </div>
 
-            {/* DIVIDER */}
-            <div className="h-4 w-px bg-gray-300 dark:bg-slate-600" />
-
-            {/* CONTROLS */}
-            <div className="flex items-center gap-2">
-              <button className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-slate-800 transition">
-                🌙
-              </button>
-
-              <button className="px-3 py-1.5 text-sm rounded-md border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 transition">
-                Kill
-              </button>
-            </div>
-
-            {/* DIVIDER */}
-            <div className="h-4 w-px bg-gray-300 dark:bg-slate-600" />
-
             {/* PRIMARY ACTION */}
             <button
               onClick={() => {
