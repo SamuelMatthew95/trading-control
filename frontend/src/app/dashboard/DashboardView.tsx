@@ -108,39 +108,27 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // OVERVIEW PAGE - Professional Trading Command Center
   if (section === 'overview') {
     return (
-      <div className="min-h-screen bg-white dark:bg-black">
-        {/* TOP BAR - COMMAND CENTER */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
+      <div className="min-h-screen bg-gray-50 dark:bg-black">
+        {/* TOP BAR - CLEAN COMMAND CENTER */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-black">
+          {/* LEFT */}
           <div className="flex items-center gap-6">
             <span className="text-gray-600 dark:text-gray-400 text-sm font-medium">
               System / Overview
             </span>
             <div className="h-4 w-px bg-gray-300 dark:bg-slate-600" />
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-gray-600 dark:text-gray-400">LIVE</span>
-            </div>
+            <span className="text-sm text-gray-600 dark:text-gray-400">LIVE</span>
             <div className="h-4 w-px bg-gray-300 dark:bg-slate-600" />
             <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
               {avgLatency}ms
             </span>
           </div>
+          
+          {/* RIGHT */}
           <div className="flex items-center gap-6">
-            {/* LIVE STATUS */}
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-gray-600 dark:text-gray-400">LIVE</span>
-            </div>
-
-            {/* DIVIDER */}
-            <div className="h-4 w-px bg-gray-300 dark:bg-slate-600" />
-
-            {/* P&L */}
             <div className="text-green-600 dark:text-green-400 font-semibold">
               {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
             </div>
-
-            {/* PRIMARY ACTION */}
             <button
               onClick={() => {
                 setKillSwitch(!killSwitchActive)
@@ -148,7 +136,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 setShowToast(true)
                 setTimeout(() => setShowToast(false), 3000)
               }}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition"
+              className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-4 py-2 rounded-lg font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition"
             >
               Start Trading
             </button>
@@ -183,80 +171,67 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               transition={{ duration: 0.5 }}
               className="col-span-8"
             >
-              <div className={cn(
-                "bg-white dark:bg-slate-900 border rounded-xl p-6 relative overflow-hidden transition-all duration-300",
-                dailyPnl >= 0 
-                  ? "border-green-200 dark:border-green-900/50 shadow-lg shadow-green-500/10" 
-                  : "border-red-200 dark:border-red-900/50 shadow-lg shadow-red-500/10"
-              )}>
-                {/* Enhanced glow effect */}
-                <div className={cn(
-                  "absolute inset-0 opacity-10 transition-all duration-500",
-                  dailyPnl >= 0 ? "bg-gradient-to-br from-green-500/20 to-emerald-600/20" : "bg-gradient-to-br from-red-500/20 to-rose-600/20"
-                )} />
-                
-                <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 font-medium uppercase tracking-wider">
-                      TOTAL P&L
+              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 font-medium uppercase tracking-wider">
+                    TOTAL P&L
+                  </p>
+                  <button
+                    onClick={() => setIsCompactMode(!isCompactMode)}
+                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                  >
+                    {isCompactMode ? 'Expand' : 'Compact'}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-4 mb-4">
+                  <motion.h1 
+                    key={dailyPnl}
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className={cn(
+                      "text-5xl font-black tracking-tight tabular-nums transition-all duration-300",
+                      isAnimating && "scale-105",
+                      dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                    )}
+                  >
+                    {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+                  </motion.h1>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+                    24h
+                  </span>
+                </div>
+
+                {/* Secondary Metrics */}
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Change</p>
+                    <div className={cn(
+                      "flex items-center justify-center gap-1 text-sm font-semibold",
+                      pnlChange > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                    )}>
+                      {pnlChange > 0 ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      {pnlChange >= 0 ? '+' : ''}{pnlChange.toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Win Rate</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                      {winRate.toFixed(1)}%
                     </p>
-                    <button
-                      onClick={() => setIsCompactMode(!isCompactMode)}
-                      className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                    >
-                      {isCompactMode ? 'Expand' : 'Compact'}
-                    </button>
                   </div>
-
-                  <div className="flex items-center gap-4 mb-4">
-                    <motion.h1 
-                      key={dailyPnl}
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className={cn(
-                        "text-5xl font-black tracking-tight tabular-nums transition-all duration-300",
-                        isAnimating && "scale-105",
-                        dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                      )}
-                    >
-                      {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-                    </motion.h1>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">
-                      24h
-                    </span>
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Positions</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                      {activePositions}
+                    </p>
                   </div>
+                </div>
 
-                  {/* Secondary Metrics */}
-                  <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div className="text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Change</p>
-                      <div className={cn(
-                        "flex items-center justify-center gap-1 text-sm font-semibold",
-                        pnlChange > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                      )}>
-                        {pnlChange > 0 ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        {pnlChange >= 0 ? '+' : ''}{pnlChange.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Win Rate</p>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {winRate.toFixed(1)}%
-                      </p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Positions</p>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {activePositions}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Mini chart placeholder */}
-                  <div className="opacity-60">
-                    <div className="h-16 bg-gray-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
-                      <TrendingUp className="w-6 h-6 text-gray-400 dark:text-gray-600" />
-                    </div>
+                {/* Mini chart placeholder */}
+                <div className="opacity-60">
+                  <div className="h-16 bg-gray-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-gray-400 dark:text-gray-600" />
                   </div>
                 </div>
               </div>
@@ -269,30 +244,24 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               transition={{ duration: 0.5, delay: 0.1 }}
               className="col-span-4"
             >
-              <div className="bg-black dark:bg-black border border-green-500/30 rounded-xl p-6 shadow-sm shadow-green-500/10">
-                <p className="text-xs text-green-400 mb-4 font-mono uppercase tracking-wider">
+              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 font-medium">
                   MARKET SENTIMENT
                 </p>
 
                 <div className="flex flex-col items-center justify-center">
-                  {/* Terminal-style gauge */}
-                  <div className="w-20 h-20 rounded-full border-2 border-green-500/50 flex items-center justify-center mb-3 relative">
-                    <div className="w-16 h-16 rounded-full bg-black border border-green-500/20 flex items-center justify-center">
-                      <span className="text-lg font-bold text-green-400 font-mono">65</span>
+                  {/* Simple gauge */}
+                  <div className="w-20 h-20 rounded-full border-2 border-gray-200 dark:border-slate-700 flex items-center justify-center mb-3">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+                      <span className="text-lg font-semibold text-gray-900 dark:text-white">65</span>
                     </div>
-                    {/* Scanning line animation */}
-                    <motion.div 
-                      className="absolute inset-0 rounded-full border-2 border-transparent border-t-green-400"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                    />
                   </div>
 
-                  <p className="text-lg font-bold text-green-400 font-mono">
-                    NEUTRAL
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Neutral
                   </p>
-                  <p className="text-xs text-green-600 mt-1 font-mono">
-                    FEAR & GREED: 65
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Fear & Greed Index
                   </p>
                 </div>
               </div>
@@ -306,29 +275,29 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             transition={{ duration: 0.5, delay: 0.2 }}
           >
             {/* MARKET STATUS - COMPACT SYSTEM PANEL */}
-            <div className="bg-black dark:bg-black border border-green-500/20 rounded-xl p-6 shadow-sm shadow-green-500/5">
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
               <div className="flex items-center justify-between">
                 {/* LEFT */}
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
                     {marketStatus ? (
-                      <Play className="w-5 h-5 text-green-400" />
+                      <Play className="w-5 h-5 text-green-600 dark:text-green-400" />
                     ) : (
-                      <Pause className="w-5 h-5 text-gray-500" />
+                      <Pause className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     )}
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-green-400 font-mono">
-                      {marketStatus ? 'MARKETS OPEN' : 'MARKETS CLOSED'}
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {marketStatus ? 'Markets Open' : 'Markets Closed'}
                     </p>
-                    <p className="text-sm text-green-600 font-mono">
-                      {marketStatus ? 'TRADING ACTIVE' : `OPENS 9:30 AM EST`}
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {marketStatus ? 'Trading Active' : `Opens 9:30 AM EST`}
                     </p>
                   </div>
                 </div>
 
                 {/* RIGHT */}
-                <div className="text-sm text-green-600 font-mono border border-green-500/20 px-3 py-1 rounded">
+                <div className="text-sm text-gray-500 dark:text-gray-400 font-medium">
                   9:30 AM – 4:00 PM EST
                 </div>
               </div>
@@ -342,7 +311,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // TRADING PAGE
   if (section === 'trading') {
     return (
-      <div className="min-h-screen bg-white dark:bg-black">
+      <div className="min-h-screen bg-gray-50 dark:bg-black">
         {/* TOP BAR */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
           <div className="flex items-center gap-4">
@@ -494,7 +463,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // AGENTS PAGE
   if (section === 'agents') {
     return (
-      <div className="min-h-screen bg-white dark:bg-black">
+      <div className="min-h-screen bg-gray-50 dark:bg-black">
         {/* TOP BAR */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
           <div className="flex items-center gap-4">
@@ -608,7 +577,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // LEARNING PAGE
   if (section === 'learning') {
     return (
-      <div className="min-h-screen bg-white dark:bg-black">
+      <div className="min-h-screen bg-gray-50 dark:bg-black">
         {/* TOP BAR */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
           <div className="flex items-center gap-4">
