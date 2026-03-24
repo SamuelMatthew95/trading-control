@@ -54,46 +54,40 @@ export default function DashboardLayout({
   useWebSocket()
 
   const pathname = usePathname()
-  const { orders, regime, wsConnected, killSwitchActive, setKillSwitch } =
-    useCodexStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { 
+    agentLogs, 
+    killSwitchActive, 
+    regime, 
+    orders, 
+    prices, 
+    positions, 
+    systemMetrics,
+    wsConnected,
+    setKillSwitch
+  } = useCodexStore()
 
-  const dailyPnl = useMemo(
-    () => orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0),
-    [orders]
-  )
+  const { dailyPnl } = useMemo(() => {
+    const realized = orders.reduce((sum, order) => sum + (order.pnl || 0), 0)
+    const unrealized = positions.reduce((sum, pos) => sum + (pos.pnl || 0), 0)
+    return realized + unrealized
+  }, [orders, positions])
 
   const regimeConfig = useMemo(() => {
     switch (regime) {
-      case 'RISK ON':
-        return {
-          bg: 'bg-emerald-500/10',
-          text: 'text-emerald-400',
-          border: 'border-emerald-500/30',
-          ring: 'ring-emerald-500/20'
-        }
-      case 'RISK OFF':
-        return {
-          bg: 'bg-rose-500/10',
-          text: 'text-rose-400',
-          border: 'border-rose-500/30',
-          ring: 'ring-rose-500/20'
-        }
+      case 'bullish':
+        return { bg: 'bg-emerald-500/10', text: 'text-emerald-600', border: 'border-emerald-500/20', ring: 'ring-emerald-500/10' }
+      case 'bearish':
+        return { bg: 'bg-rose-500/10', text: 'text-rose-600', border: 'border-rose-500/20', ring: 'ring-rose-500/10' }
       default:
-        return {
-          bg: 'bg-amber-500/10',
-          text: 'text-amber-400',
-          border: 'border-amber-500/30',
-          ring: 'ring-amber-500/20'
-        }
+        return { bg: 'bg-slate-500/10', text: 'text-slate-600', border: 'border-slate-500/20', ring: 'ring-slate-500/10' }
     }
   }, [regime])
 
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+
   const handleKillSwitch = async (activate: boolean) => {
     try {
-      const apiBase = (
-        process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-      ).replace(/\/$/, '')
       const res = await fetch(`${apiBase}/v1/dashboard/kill_switch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,51 +134,28 @@ export default function DashboardLayout({
       {/* Main Column */}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-white dark:bg-zinc-950">
 
-        {/* Header */}
+        {/* Header - Single LIVE Status Only */}
         <header className="flex h-16 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 px-6 gap-4">
 
           {/* Mobile menu button */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"
+            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <Menu className="h-5 w-5" />
           </button>
 
-          {/* Regime badge */}
+          {/* Left - Clean breadcrumb, no LIVE status */}
           <div className="flex items-center gap-4">
-            <motion.div
-              key={regime}
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] border ring-1',
-                regimeConfig.bg,
-                regimeConfig.text,
-                regimeConfig.border,
-                regimeConfig.ring
-              )}
-            >
-              <motion.span 
-                className="w-1.5 h-1.5 rounded-full bg-current"
-                animate={{
-                  scale: [1, 1.3, 1],
-                  opacity: [0.8, 1, 0.8]
-                }}
-                transition={{
-                  duration: 4, // Slow breathing pulse
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              />
-              {regime?.toUpperCase() || 'NEUTRAL'}
-            </motion.div>
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {pathname === '/dashboard' ? 'Overview' : (pathname.split('/').pop()?.charAt(0)?.toUpperCase() || '') + (pathname.split('/').pop()?.slice(1) || '')}
+            </span>
           </div>
 
-          {/* Right controls */}
+          {/* Right controls - Single LIVE status */}
           <div className="flex items-center gap-4 ml-auto">
 
-            {/* WS status */}
+            {/* Single LIVE status indicator */}
             <div className="flex items-center gap-2">
               <motion.div
                 className={cn(
@@ -197,20 +168,17 @@ export default function DashboardLayout({
                 } : {}}
                 transition={{ duration: 2, repeat: Infinity }}
               />
-              <span className="text-xs text-slate-400 hidden sm:inline font-medium">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
                 {wsConnected ? 'LIVE' : 'OFFLINE'}
               </span>
             </div>
 
-            {/* P&L */}
+            {/* P&L - Monospace font */}
             <motion.div
               key={dailyPnl}
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className={cn(
-                'text-sm font-mono font-semibold tabular-nums hidden sm:inline',
-                dailyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
-              )}
+              className="text-sm font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100"
             >
               {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
             </motion.div>
@@ -218,7 +186,7 @@ export default function DashboardLayout({
             {/* Theme toggle */}
             <ThemeToggle />
 
-            {/* Kill switch */}
+            {/* Kill Switch - High Contrast */}
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <motion.button
@@ -267,16 +235,16 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950">
           {children}
         </main>
 
         {/* Footer */}
-        <footer className="flex h-10 flex-shrink-0 items-center justify-between glass-card border-t border-slate-800/60 px-6">
-          <span className="text-xs text-slate-500">
+        <footer className="flex h-10 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-t border-slate-200 dark:border-slate-800 px-6">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
             AI Trading Control · Phase 2 · Paper Mode
           </span>
-          <span className="text-xs text-slate-500">© 2026</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400"> 2026</span>
         </footer>
       </div>
     </div>
@@ -286,17 +254,17 @@ export default function DashboardLayout({
 function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () => void }) {
   return (
     <>
-      {/* Logo */}
+      {/* Logo - High Contrast Branding */}
       <div className="flex h-16 items-center gap-3 border-b border-slate-200 dark:border-slate-800 px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-none bg-slate-600 dark:bg-slate-400 text-white">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
           <BarChart3 className="h-5 w-5" />
         </div>
-        <span className="text-sm font-black tracking-[0.2em] text-slate-900 dark:text-white uppercase font-mono">
+        <span className="text-sm font-bold tracking-tighter text-slate-950 dark:text-white uppercase">
           Trading Control
         </span>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation - Deep Indigo Active State */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {NAV.map(({ href, label, Icon }) => {
           const active =
@@ -308,13 +276,13 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
               <motion.div
                 whileHover={{ x: 4 }}
                 className={cn(
-                  'flex items-center gap-3 rounded-none px-4 py-3 text-sm font-mono font-medium transition-all duration-200 cursor-pointer border-l-4',
+                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all duration-200 cursor-pointer',
                   active
-                    ? 'bg-slate-100 dark:bg-slate-800 border-slate-500 dark:border-slate-400 text-slate-900 dark:text-white font-bold'
-                    : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-900'
+                    ? 'bg-indigo-600 text-white shadow-lg'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
                 )}
               >
-                <Icon className="h-5 w-5 flex-shrink-0" />
+                <Icon className={cn("h-5 w-5", active ? "text-white" : "text-slate-500")} />
                 {label}
               </motion.div>
             </Link>
@@ -324,7 +292,7 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
 
       {/* Sidebar footer */}
       <div className="border-t border-slate-200 dark:border-slate-800 p-4">
-        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
+        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <Activity className="h-4 w-4" />
           Phase 2 · Paper Mode
         </div>

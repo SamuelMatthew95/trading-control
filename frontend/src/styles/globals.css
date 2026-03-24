@@ -20,7 +20,26 @@
 }
 
 :root {
-  /* Dark Mode Variables (Existing) */
+  /* Trading Control Design System Variables */
+  --card-bg: 248 250% 252%; /* slate-50 */
+  --card-border: 203 100% 97%; /* slate-200 */
+  --text-primary: 15 23% 42%; /* slate-950 */
+  --text-secondary: 71 85% 92%; /* slate-600 */
+  --text-muted: 148 63% 83%; /* slate-400 */
+  --accent-indigo: 79 70% 57%; /* indigo-600 */
+  --accent-emerald: 52 91% 50%; /* emerald-500 */
+  --destructive: 0 84% 60%; /* red-600 */
+  
+  /* Dark Mode Override */
+  .dark {
+    --card-bg: 30 41% 59%; /* slate-800 */
+    --card-border: 51 100% 96%; /* slate-700 */
+    --text-primary: 248 100% 98%; /* slate-100 */
+    --text-secondary: 71 85% 92%; /* slate-400 */
+    --text-muted: 215 28% 17%; /* slate-500 */
+  }
+  
+  /* Legacy Variables (for compatibility) */
   --background: 0 0% 3.9%;
   --foreground: 210 40% 98%;
   --muted: 215 27.9% 16.9%;

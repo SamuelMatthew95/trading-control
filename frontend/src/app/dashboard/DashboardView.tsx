@@ -111,40 +111,40 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       <div className="min-h-screen bg-white dark:bg-zinc-950">
         {/* HIGH-PERFORMANCE TRADING TERMINAL HEADER */}
         <div className="h-16 bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6">
-          {/* LEFT - SYSTEM STATUS */}
+          {/* LEFT - CLEAN SYSTEM STATUS */}
           <div className="flex items-center gap-6">
-            <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
               System / Overview
             </span>
             <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
             
-            {/* LATENCY */}
-            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+            {/* LATENCY - Monospace */}
+            <span className="text-sm font-mono text-slate-600 dark:text-slate-400">
               {avgLatency}ms
             </span>
           </div>
           
           {/* RIGHT - CONTROLS */}
           <div className="flex items-center gap-4">
-            {/* P&L DISPLAY - CLEAN MONOSPACED DATA */}
+            {/* P&L DISPLAY - Monospace Data */}
             <div className="flex flex-col items-end">
               <span className={cn(
-                "text-lg font-black font-mono tabular-nums",
-                dailyPnl >= 0 ? "text-slate-900 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
+                "text-lg font-bold font-mono tabular-nums",
+                dailyPnl >= 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
               )}>
                 {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
               </span>
-              <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-[0.2em]">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
                 24h P&L
               </span>
             </div>
 
-            {/* EXPORT BUTTON - CLEAN DARK STYLE */}
-            <button className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-none">
+            {/* EXPORT BUTTON - Clean Style */}
+            <button className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl">
               Export Report
             </button>
 
-            {/* TRADING CONTROL BUTTON - CLEAN STYLE */}
+            {/* TRADING CONTROL BUTTON */}
             <button 
               onClick={() => {
                 setKillSwitch(!killSwitchActive)
@@ -152,7 +152,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 setShowToast(true)
                 setTimeout(() => setShowToast(false), 3000)
               }}
-              className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-none"
+              className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl"
             >
               {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
             </button>
@@ -166,14 +166,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               initial={{ opacity: 0, y: -50 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -50 }}
-              className="fixed top-20 right-6 z-50 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 font-mono text-sm"
+              className="fixed top-20 right-6 z-50 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 font-sans text-sm"
             >
               {toastMessage}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* MAIN GRID - 2 ROW SYSTEM */}
+        {/* MAIN GRID - Professional Layout */}
         <div className={cn(
           "p-6 space-y-6 transition-all duration-300",
           isCompactMode ? "space-y-4" : "space-y-6"
@@ -187,14 +187,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               transition={{ duration: 0.5 }}
               className="col-span-8"
             >
-              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-6 backdrop-blur-sm">
+              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 backdrop-blur-sm">
                 <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm text-slate-600 dark:text-slate-400 font-medium uppercase tracking-[0.2em] font-mono">
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em]">
                     TOTAL P&L
                   </p>
                   <button
                     onClick={() => setIsCompactMode(!isCompactMode)}
-                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors font-mono"
+                    className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
                   >
                     {isCompactMode ? 'Expand' : 'Compact'}
                   </button>
@@ -208,12 +208,12 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                     className={cn(
                       "text-5xl font-black tracking-tight tabular-nums transition-all duration-300 font-mono",
                       isAnimating && "scale-105",
-                      dailyPnl >= 0 ? "text-slate-300" : "text-slate-400"
+                      dailyPnl >= 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
                     )}
                   >
                     {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
                   </motion.h1>
-                  <span className="text-sm text-slate-500 font-medium font-mono">
+                  <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
                     24h
                   </span>
                 </div>
@@ -221,24 +221,24 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 {/* Secondary Metrics */}
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <div className="text-center">
-                    <p className="text-xs text-slate-500 uppercase tracking-[0.2em] mb-1 font-mono">Change</p>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Change</p>
                     <div className={cn(
                       "flex items-center justify-center gap-1 text-sm font-semibold font-mono",
-                      pnlChange > 0 ? "text-slate-300" : "text-slate-400"
+                      pnlChange > 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
                     )}>
                       {pnlChange > 0 ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       {pnlChange >= 0 ? '+' : ''}{pnlChange.toFixed(2)}
                     </div>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-slate-500 uppercase tracking-[0.2em] mb-1 font-mono">Win Rate</p>
-                    <p className="text-sm font-semibold text-white font-mono">
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Win Rate</p>
+                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100 font-mono">
                       {winRate.toFixed(1)}%
                     </p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-slate-500 uppercase tracking-[0.2em] mb-1 font-mono">Positions</p>
-                    <p className="text-sm font-semibold text-white font-mono">
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Positions</p>
+                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100 font-mono">
                       {activePositions}
                     </p>
                   </div>
@@ -246,37 +246,37 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
                 {/* Mini chart placeholder */}
                 <div className="opacity-60">
-                  <div className="h-16 bg-black/60 rounded-none flex items-center justify-center">
-                    <TrendingUp className="w-6 h-6 text-slate-600" />
+                  <div className="h-16 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-600">
+                    <TrendingUp className="w-6 h-6 text-slate-400 dark:text-slate-500 opacity-20" />
                   </div>
                 </div>
               </div>
             </motion.div>
 
-            {/* MARKET SENTIMENT - COMPACT, CLEAN */}
+            {/* MARKET SENTIMENT - COMPACT */}
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1 }}
               className="col-span-4"
             >
-              <div className="bg-black/40 border border-white/10 rounded-none p-6 backdrop-blur-sm">
-                <p className="text-sm text-slate-400 mb-4 font-medium uppercase tracking-[0.2em] font-mono">
+              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 backdrop-blur-sm">
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-4 uppercase tracking-[0.2em]">
                   MARKET SENTIMENT
                 </p>
 
                 <div className="flex flex-col items-center justify-center">
                   {/* Simple gauge */}
-                  <div className="w-20 h-20 rounded-none border border-white/10 flex items-center justify-center mb-3">
-                    <div className="w-16 h-16 rounded-none bg-black/60 flex items-center justify-center">
-                      <span className="text-lg font-semibold text-white font-mono">65</span>
+                  <div className="w-20 h-20 rounded-xl border border-slate-300 dark:border-slate-600 flex items-center justify-center mb-3">
+                    <div className="w-16 h-16 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                      <span className="text-lg font-semibold text-slate-950 dark:text-slate-100 font-mono">65</span>
                     </div>
                   </div>
 
-                  <p className="text-lg font-semibold text-white font-mono">
+                  <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
                     Neutral
                   </p>
-                  <p className="text-xs text-slate-500 mt-1 font-mono">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                     Fear & Greed Index
                   </p>
                 </div>
@@ -290,30 +290,30 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
           >
-            {/* MARKET STATUS - COMPACT SYSTEM PANEL */}
-            <div className="bg-black/40 border border-white/10 rounded-none p-6 backdrop-blur-sm">
+            {/* MARKET STATUS */}
+            <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 backdrop-blur-sm">
               <div className="flex items-center justify-between">
                 {/* LEFT */}
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-none bg-black/60 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
                     {marketStatus ? (
-                      <Play className="w-5 h-5 text-slate-300" />
+                      <Play className="w-5 h-5 text-slate-600 dark:text-slate-400" />
                     ) : (
                       <Pause className="w-5 h-5 text-slate-500" />
                     )}
                   </div>
                   <div>
-                    <p className="text-lg font-semibold text-white font-mono">
+                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
                       {marketStatus ? 'Markets Open' : 'Markets Closed'}
                     </p>
-                    <p className="text-sm text-slate-500 font-mono">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
                       {marketStatus ? 'Trading Active' : `Opens 9:30 AM EST`}
                     </p>
                   </div>
                 </div>
 
                 {/* RIGHT */}
-                <div className="text-sm text-slate-500 font-medium font-mono">
+                <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
                   9:30 AM – 4:00 PM EST
                 </div>
               </div>
