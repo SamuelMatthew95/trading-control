@@ -109,56 +109,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   if (section === 'overview') {
     return (
       <div className="min-h-screen bg-[#F8FAFC] dark:bg-zinc-950">
-        {/* CLEAN HEADER - No redundant status */}
-        <div className="h-16 bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6">
-          {/* LEFT - CLEAN SYSTEM STATUS */}
-          <div className="flex items-center gap-6">
-            <span className="text-sm font-medium text-slate-950 dark:text-slate-100">
-              System / Overview
-            </span>
-            <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
-            
-            {/* LATENCY - Monospace */}
-            <span className="text-sm font-mono text-slate-700 dark:text-slate-300">
-              {avgLatency}ms
-            </span>
-          </div>
-          
-          {/* RIGHT - CONTROLS */}
-          <div className="flex items-center gap-4">
-            {/* P&L DISPLAY - Monospace Data */}
-            <div className="flex flex-col items-end">
-              <span className={cn(
-                "text-lg font-bold font-mono tabular-nums",
-                dailyPnl >= 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
-              )}>
-                {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-              </span>
-              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                24h P&L
-              </span>
-            </div>
-
-            {/* EXPORT BUTTON - Clean Style */}
-            <button className="h-10 bg-white border-2 border-slate-200 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-950 transition-all hover:bg-slate-50 hover:border-slate-300 rounded-xl">
-              Export Report
-            </button>
-
-            {/* TRADING CONTROL BUTTON */}
-            <button 
-              onClick={() => {
-                setKillSwitch(!killSwitchActive)
-                setToastMessage(killSwitchActive ? 'Trading Stopped' : 'Trading Started')
-                setShowToast(true)
-                setTimeout(() => setShowToast(false), 3000)
-              }}
-              className="h-10 bg-white border-2 border-slate-200 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-950 transition-all hover:bg-slate-50 hover:border-slate-300 rounded-xl"
-            >
-              {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
-            </button>
-          </div>
-        </div>
-
         {/* Toast Notification */}
         <AnimatePresence>
           {showToast && (
@@ -187,7 +137,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               transition={{ duration: 0.5 }}
               className="col-span-8"
             >
-              <div className="bg-white border border-slate-200 rounded-xl p-6 backdrop-blur-sm">
+              <div className="bg-white border border-slate-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-sm font-medium text-slate-700 dark:text-slate-300 uppercase tracking-[0.2em]">
                     TOTAL P&L
@@ -260,7 +210,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               transition={{ duration: 0.5, delay: 0.1 }}
               className="col-span-4"
             >
-              <div className="bg-white border border-slate-200 rounded-xl p-6 backdrop-blur-sm">
+              <div className="bg-white border border-slate-200 rounded-xl p-6">
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-4 uppercase tracking-[0.2em]">
                   MARKET SENTIMENT
                 </p>
@@ -291,7 +241,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             transition={{ duration: 0.5, delay: 0.2 }}
           >
             {/* MARKET STATUS */}
-            <div className="bg-white border border-slate-200 rounded-xl p-6 backdrop-blur-sm">
+            <div className="bg-white border border-slate-200 rounded-xl p-6">
               <div className="flex items-center justify-between">
                 {/* LEFT */}
                 <div className="flex items-center gap-4">
