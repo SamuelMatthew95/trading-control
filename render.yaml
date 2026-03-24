@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: trading-control-api
+    name: trading-control
     env: python
     plan: starter
     healthCheckPath: /health
