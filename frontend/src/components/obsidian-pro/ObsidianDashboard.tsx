@@ -324,8 +324,8 @@ const KillSwitch = memo(({ killSwitchActive, onToggle }: {
           className={cn(
             "flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200",
             killSwitchActive 
-              ? "bg-rose-500/20 text-rose-400 ring-2 ring-rose-500/20 hover:bg-rose-500/30"
-              : "bg-emerald-500/20 text-emerald-400 ring-2 ring-emerald-500/20 hover:bg-emerald-500/30"
+              ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50"
+              : "bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50"
           )}
         >
           <Power className="w-4 h-4" />
@@ -351,7 +351,7 @@ const KillSwitch = memo(({ killSwitchActive, onToggle }: {
           <AlertDialogAction
             onClick={onToggle}
             className={cn(
-              killSwitchActive ? "bg-rose-600 hover:bg-rose-700" : "bg-emerald-600 hover:bg-emerald-700"
+              killSwitchActive ? "bg-red-600 text-white hover:bg-red-700" : "bg-green-600 text-white hover:bg-green-700"
             )}
           >
             {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
