@@ -2,32 +2,137 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @layer base {
-  html { font-family: 'Inter', system-ui, sans-serif; }
-  h1, h2, h3, h4, h5, h6 { font-weight: 600; letter-spacing: -0.02em; }
+  html { 
+    font-family: 'Inter', 'Geist Sans', system-ui, sans-serif; 
+  }
+  
+  h1, h2, h3, h4, h5, h6 { 
+    font-weight: 600; 
+    letter-spacing: -0.02em; 
+  }
+  
+  .font-mono {
+    font-family: 'JetBrains Mono', 'Geist Mono', 'Fira Code', monospace;
+  }
 }
 
 :root {
-  --background: 210 20% 98%;
-  --foreground: 222 47% 11%;
-  --surface: 0 0% 100%;
-  --border: 214 32% 91%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 221 83% 53%;
-  --accent-foreground: 0 0% 100%;
+  /* Trading Control Design System Variables */
+  --card-bg: 248 250% 252%; /* slate-50 */
+  --card-border: 203 100% 97%; /* slate-200 */
+  --text-primary: 15 23% 42%; /* slate-950 */
+  --text-secondary: 71 85% 92%; /* slate-600 */
+  --text-muted: 148 63% 83%; /* slate-400 */
+  --accent-indigo: 79 70% 57%; /* indigo-600 */
+  --accent-emerald: 52 91% 50%; /* emerald-500 */
+  --destructive: 0 84% 60%; /* red-600 */
+  
+  /* Dark Mode Override */
+  .dark {
+    --card-bg: 30 41% 59%; /* slate-800 */
+    --card-border: 51 100% 96%; /* slate-700 */
+    --text-primary: 248 100% 98%; /* slate-100 */
+    --text-secondary: 71 85% 92%; /* slate-400 */
+    --text-muted: 215 28% 17%; /* slate-500 */
+  }
+  
+  /* Legacy Variables (for compatibility) */
+  --background: 0 0% 3.9%;
+  --foreground: 210 40% 98%;
+  --muted: 215 27.9% 16.9%;
+  --muted-foreground: 217.9 10.6% 64.9%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --primary: 263.4 70% 50.4%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --ring: 263.4 70% 50.4%;
   --radius: 0.5rem;
+  
+  /* Trading Colors - Dark Mode */
+  --bullish: 142 76% 36%;
+  --bearish: 0 84% 60%;
+  --neutral: 263 70% 50%;
+  
+  /* Surface Colors - Dark Mode */
+  --surface: 215 28% 17%;
+  --surface-hover: 215 28% 20%;
+  --surface-active: 215 28% 25%;
+  
+  /* Glassmorphism support */
+  --glass-bg: 215 32% 12% / 0.8;     /* #0f172a with 80% opacity */
+  --glass-border: 215 32% 20% / 0.6;  /* slate-800/60 */
+  --glass-highlight: 0 0% 100% / 0.1; /* white/10 for top-light */
 }
 
-.dark {
-  --background: 222 47% 7%;
-  --foreground: 213 31% 91%;
-  --surface: 222 47% 11%;
-  --border: 216 34% 17%;
-  --muted: 223 47% 14%;
-  --muted-foreground: 215 20% 55%;
-  --accent: 221 83% 53%;
-  --accent-foreground: 0 0% 100%;
+.light {
+  /* Light Mode Variables - Soft Professional SaaS Theme */
+  --background: 210 40% 98%; /* Soft off-white #F8FAFC */
+  --foreground: 210 24% 10%; /* Deep slate #1E293B */
+  --muted: 210 40% 96%; /* Light gray #F1F5F9 */
+  --muted-foreground: 210 15% 45%; /* Medium gray #64748B */
+  --popover: 0 0% 100%; /* Pure white */
+  --popover-foreground: 210 24% 10%; /* Deep slate */
+  --card: 0 0% 100%; /* Pure white cards */
+  --card-foreground: 210 24% 10%; /* Deep slate */
+  --border: 210 40% 86%; /* Very soft border #E2E8F0 */
+  --input: 210 40% 95%; /* Light input background */
+  --primary: 263 70% 50%; /* Soft violet */
+  --primary-foreground: 0 0% 100%; /* White text on primary */
+  --secondary: 210 40% 96%; /* Light secondary background */
+  --secondary-foreground: 210 24% 10%; /* Deep slate text */
+  --accent: 210 40% 94%; /* Light accent background */
+  --accent-foreground: 210 24% 10%; /* Deep slate text */
+  --destructive: 0 84% 60%; /* Soft red */
+  --destructive-foreground: 0 0% 100%; /* White text on destructive */
+  --ring: 263 70% 50%; /* Soft violet ring */
+  --radius: 0.5rem;
+  
+  /* Trading Colors - Light Mode (Soft Professional) */
+  --bullish: 142 71% 45%; /* Darker green for contrast */
+  --bearish: 0 71% 55%; /* Darker red for contrast */
+  --neutral: 45 93% 58%; /* Soft amber */
+  
+  /* Surface Colors - Light Mode */
+  --surface: 0 0% 100%; /* Pure white surface */
+  --surface-hover: 210 40% 97%; /* Very subtle hover */
+  --surface-active: 210 40% 95%; /* Active surface */
+  
+  /* Glassmorphism support - Light Mode (Premium SaaS) */
+  --glass-bg: 0 0% 100% / 0.95;      /* Pure white with 95% opacity */
+  --glass-border: 210 40% 86% / 0.6;   /* Very soft border with 60% opacity */
+  --glass-highlight: 0 0% 100% / 0.8; /* Strong white highlight */
+  
+  /* Light Mode Shadows (Premium SaaS - Soft) */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.08);
+  --shadow-xl: 0 25px 50px -12px rgb(0 0 0 / 0.1), 0 12px 25px -4px rgb(0 0 0 / 0.08);
+  
+  /* Soft Professional Text Variables */
+  --text-primary: 210 24% 10%; /* Deep slate #1E293B - Primary metrics */
+  --text-secondary: 210 15% 45%; /* Medium gray #64748B - Labels and secondary info */
+  --text-accent: 263 70% 50%; /* Soft violet for primary actions */
+  --text-success: 142 71% 45%; /* Darker green - Bullish */
+  --text-error: 0 71% 55%; /* Darker red - Bearish */
+  --text-warning: 45 93% 58%; /* Soft amber - Neutral/Warning */
+  
+  /* Sidebar specific */
+  --sidebar-bg: 210 40% 97%; /* Light lavender/gray for sidebar */
+  --sidebar-border: 210 40% 90%; /* Sidebar border */
 }
 
 * {
@@ -41,4 +146,171 @@ body {
   font-family: inherit;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Obsidian-Pro Component Classes */
+@layer components {
+  .glass-card {
+    background: hsl(var(--glass-bg));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--glass-border));
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .glass-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--glass-highlight)), transparent);
+    z-index: 1;
+  }
+  
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300;
+  }
+  
+  .glass-card-hover:hover {
+    background: hsl(var(--surface-hover));
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  
+  .data-value {
+    @apply text-slate-200 font-mono tabular-nums;
+  }
+  
+  .data-value-large {
+    @apply text-2xl font-bold font-mono tabular-nums text-[hsl(var(--text-data-primary))];
+  }
+  
+  .section-header {
+    @apply text-[10px] font-semibold uppercase tracking-[0.2em] text-[hsl(var(--text-label-strong))];
+  }
+  
+  /* Light mode specific styles - Soft Professional SaaS */
+  .light .glass-card {
+    background: hsl(var(--glass-bg));
+    border: 1px solid hsl(var(--glass-border));
+    box-shadow: var(--shadow);
+  }
+  
+  .light .glass-card-hover:hover {
+    background: hsl(var(--surface-hover));
+    box-shadow: var(--shadow-md);
+  }
+  
+  .light .data-value {
+    color: hsl(var(--text-primary));
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  
+  .light .data-value-large {
+    font-size: 1.75rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    color: hsl(var(--text-primary));
+  }
+  
+  .light .section-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: hsl(var(--text-secondary));
+  }
+  
+  /* Soft professional trading colors for light mode */
+  .light .bullish-text { color: hsl(var(--text-success)); }
+  .light .bearish-text { color: hsl(var(--text-error)); }
+  .light .neutral-text { color: hsl(var(--text-warning)); }
+  
+  .light .bullish-bg { background-color: hsl(var(--text-success) / 0.1); }
+  .light .bearish-bg { background-color: hsl(var(--text-error) / 0.1); }
+  .light .neutral-bg { background-color: hsl(var(--text-warning) / 0.1); }
+  
+  /* Sidebar styling for light mode */
+  .light .sidebar {
+    background: hsl(var(--sidebar-bg));
+    border-right: 1px solid hsl(var(--sidebar-border));
+  }
+  
+  .bullish-text { color: hsl(var(--bullish)); }
+  .bearish-text { color: hsl(var(--bearish)); }
+  .neutral-text { color: hsl(var(--neutral)); }
+  
+  .bullish-bg { background-color: hsl(var(--bullish) / 0.1); }
+  .bearish-bg { background-color: hsl(var(--bearish) / 0.1); }
+  .neutral-bg { background-color: hsl(var(--neutral) / 0.1); }
+  
+  .pulse-dot {
+    @apply w-2 h-2 rounded-full bg-emerald-500;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  .breathing-dot {
+    @apply w-2 h-2 rounded-full;
+    animation: breathe 3s ease-in-out infinite;
+  }
+  
+  .price-flash-emerald {
+    animation: flash-emerald 0.05s ease-out; /* Fast snap for high-frequency data */
+  }
+  
+  .price-flash-rose {
+    animation: flash-rose 0.05s ease-out; /* Fast snap for high-frequency data */
+  }
+}
+
+@layer utilities {
+  :root {
+    --text-muted-foreground: hsl(var(--muted-foreground));
+    --text-accent-foreground: hsl(var(--accent-foreground));
+    --text-destructive-foreground: hsl(var(--destructive-foreground));
+    
+    /* High contrast text for accessibility */
+    --text-label: hsl(215 20% 65%); /* slate-500 with better contrast */
+    --text-label-strong: hsl(215 25% 75%); /* slate-400 for emphasis */
+    --text-data-primary: hsl(210 40% 98%); /* slate-100 for main data */
+    --text-data-secondary: hsl(210 30% 85%); /* slate-200 for secondary data */
+  }
+  
+  .text-bullish { color: hsl(var(--bullish)); }
+  .text-bearish { color: hsl(var(--bearish)); }
+  .text-neutral { color: hsl(var(--neutral)); }
+  
+  .bg-bullish { background-color: hsl(var(--bullish) / 0.1); }
+  .bg-bearish { background-color: hsl(var(--bearish) / 0.1); }
+  .bg-neutral { background-color: hsl(var(--neutral) / 0.1); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes flash-emerald {
+  0% { background-color: hsl(var(--bullish) / 0.2); }
+  50% { background-color: hsl(var(--bullish) / 0.3); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-rose {
+  0% { background-color: hsl(var(--bearish) / 0.2); }
+  50% { background-color: hsl(var(--bearish) / 0.3); }
+  100% { background-color: transparent; }
 }
