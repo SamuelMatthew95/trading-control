@@ -118,10 +118,10 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             </span>
             <div className="h-4 w-px bg-white/10" />
             
-            {/* LIVE STATUS - SHARP SQUARE LED */}
+            {/* LIVE STATUS - CLEAN SQUARE LED */}
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse rounded-none" />
-              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-500 font-black">
+              <div className="w-2 h-2 bg-slate-400 animate-pulse rounded-none" />
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300 font-black">
                 LIVE
               </span>
             </div>
@@ -135,11 +135,11 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           
           {/* RIGHT - CONTROLS */}
           <div className="flex items-center gap-4">
-            {/* P&L DISPLAY - MONOSPACED DATA */}
+            {/* P&L DISPLAY - CLEAN MONOSPACED DATA */}
             <div className="flex flex-col items-end">
               <span className={cn(
                 "text-lg font-black font-mono tabular-nums",
-                dailyPnl >= 0 ? "text-emerald-500" : "text-red-500"
+                dailyPnl >= 0 ? "text-slate-300" : "text-slate-400"
               )}>
                 {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
               </span>
@@ -148,12 +148,12 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               </span>
             </div>
 
-            {/* EXPORT BUTTON - SOPHISTICATED DARK STYLE */}
-            <button className="h-10 bg-black/40 border-2 border-emerald-500/50 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-500 transition-all hover:bg-emerald-500/10 hover:border-emerald-500 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)] rounded-none">
+            {/* EXPORT BUTTON - CLEAN DARK STYLE */}
+            <button className="h-10 bg-black/40 border-2 border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300 transition-all hover:bg-slate-800/40 hover:border-slate-500 rounded-none">
               Export Report
             </button>
 
-            {/* TRADING CONTROL BUTTON - CONSISTENT KILL SWITCH STYLE */}
+            {/* TRADING CONTROL BUTTON - CLEAN STYLE */}
             <button 
               onClick={() => {
                 setKillSwitch(!killSwitchActive)
@@ -161,7 +161,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 setShowToast(true)
                 setTimeout(() => setShowToast(false), 3000)
               }}
-              className="h-10 bg-black/40 border-2 border-slate-500/50 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400 transition-all hover:bg-slate-500/10 hover:border-slate-500 hover:shadow-[0_0_10px_rgba(100,116,139,0.2)] rounded-none"
+              className="h-10 bg-black/40 border-2 border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300 transition-all hover:bg-slate-800/40 hover:border-slate-500 rounded-none"
             >
               {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
             </button>
@@ -217,7 +217,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                     className={cn(
                       "text-5xl font-black tracking-tight tabular-nums transition-all duration-300 font-mono",
                       isAnimating && "scale-105",
-                      dailyPnl >= 0 ? "text-emerald-500" : "text-red-500"
+                      dailyPnl >= 0 ? "text-slate-300" : "text-slate-400"
                     )}
                   >
                     {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
@@ -233,7 +233,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                     <p className="text-xs text-slate-500 uppercase tracking-[0.2em] mb-1 font-mono">Change</p>
                     <div className={cn(
                       "flex items-center justify-center gap-1 text-sm font-semibold font-mono",
-                      pnlChange > 0 ? "text-emerald-500" : "text-red-500"
+                      pnlChange > 0 ? "text-slate-300" : "text-slate-400"
                     )}>
                       {pnlChange > 0 ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       {pnlChange >= 0 ? '+' : ''}{pnlChange.toFixed(2)}
@@ -306,7 +306,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-none bg-black/60 flex items-center justify-center">
                     {marketStatus ? (
-                      <Play className="w-5 h-5 text-emerald-500" />
+                      <Play className="w-5 h-5 text-slate-300" />
                     ) : (
                       <Pause className="w-5 h-5 text-slate-500" />
                     )}
