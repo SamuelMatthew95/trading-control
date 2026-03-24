@@ -5,8 +5,11 @@ echo "🚀 Production Deployment..."
 # Set Python path
 export PYTHONPATH="/opt/render/project/src:$PYTHONPATH"
 
-# Run Alembic migrations
-echo "� Running database migrations..."
+# One-time safety net, then proper migrations
+echo "🔧 Running safety check..."
+./fix-production.sh
+
+echo "🔄 Running Alembic migrations..."
 cd /opt/render/project/src
 python -m alembic upgrade head
 
