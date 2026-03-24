@@ -98,7 +98,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFC] dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
 
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
@@ -132,86 +132,109 @@ export default function DashboardLayout({
       </aside>
 
       {/* Main Column */}
-      <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-white dark:bg-zinc-950">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[#F8FAFC] dark:bg-zinc-950">
 
-        {/* Header - Single LIVE Status Only */}
-        <header className="flex h-16 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 px-6 gap-4">
+        {/* Master Controller - Unified Command Bar */}
+        <header className={cn(
+          "flex h-16 flex-shrink-0 items-center justify-between px-6 gap-4 transition-all duration-300",
+          killSwitchActive 
+            ? "bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800"
+            : "bg-red-600 border-b border-red-700"
+        )}>
 
           {/* Mobile menu button */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className={cn(
+              "md:hidden p-2 rounded-lg transition-colors",
+              killSwitchActive
+                ? "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                : "text-white/80 hover:text-white hover:bg-red-700"
+            )}
           >
             <Menu className="h-5 w-5" />
           </button>
 
-          {/* Left - Clean breadcrumb, no LIVE status */}
+          {/* Left - Clean breadcrumb */}
           <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
+            <span className={cn(
+              "text-sm font-medium",
+              killSwitchActive
+                ? "text-slate-600 dark:text-slate-400"
+                : "text-white"
+            )}>
               {pathname === '/dashboard' ? 'Overview' : (pathname.split('/').pop()?.charAt(0)?.toUpperCase() || '') + (pathname.split('/').pop()?.slice(1) || '')}
             </span>
           </div>
 
-          {/* Right controls - Single LIVE status */}
-          <div className="flex items-center gap-4 ml-auto">
+          {/* Master Controller - Center */}
+          <div className="flex items-center gap-6 mx-auto">
+            {/* System Status & P&L */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <motion.div
+                  className={cn(
+                    'w-3 h-3 rounded-full',
+                    killSwitchActive && wsConnected ? 'bg-emerald-500' : 'bg-red-500'
+                  )}
+                  animate={killSwitchActive && wsConnected ? {
+                    scale: [1, 1.2, 1],
+                    opacity: [1, 0.8, 1]
+                  } : {}}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+                <span className={cn(
+                  "text-sm font-bold font-mono",
+                  killSwitchActive
+                    ? "text-slate-900 dark:text-slate-100"
+                    : "text-white"
+                )}>
+                  {killSwitchActive ? 'SYSTEM ONLINE' : 'SYSTEM HALTED'}
+                </span>
+              </div>
 
-            {/* Single LIVE status indicator */}
-            <div className="flex items-center gap-2">
+              {/* P&L - Monospace */}
               <motion.div
+                key={dailyPnl}
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
                 className={cn(
-                  'w-2 h-2 rounded-full',
-                  wsConnected ? 'bg-emerald-500' : 'bg-rose-500'
+                  "text-sm font-bold font-mono tabular-nums",
+                  killSwitchActive
+                    ? "text-slate-900 dark:text-slate-100"
+                    : "text-white"
                 )}
-                animate={wsConnected ? {
-                  scale: [1, 1.2, 1],
-                  opacity: [1, 0.8, 1]
-                } : {}}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                {wsConnected ? 'LIVE' : 'OFFLINE'}
-              </span>
+              >
+                {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
+              </motion.div>
             </div>
 
-            {/* P&L - Monospace font */}
-            <motion.div
-              key={dailyPnl}
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="text-sm font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100"
-            >
-              {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
-            </motion.div>
-
-            {/* Theme toggle */}
-            <ThemeToggle />
-
-            {/* Kill Switch - High Contrast */}
+            {/* Master Toggle */}
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] rounded-lg border transition-all duration-200',
+                    'flex items-center gap-2 px-4 py-2 text-sm font-bold uppercase tracking-[0.1em] rounded-lg border transition-all duration-200',
                     killSwitchActive
-                      ? 'bg-slate-900 text-white dark:bg-red-600 dark:hover:bg-red-700 border-slate-300 dark:border-red-500'
-                      : 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      ? 'bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:bg-slate-800 dark:hover:bg-slate-700'
+                      : 'bg-white text-red-600 border-white/20 hover:bg-red-50'
                   )}
                 >
-                  <Power className="w-3 h-3" />
-                  {killSwitchActive ? 'ACTIVE' : 'KILL SWITCH'}
+                  <Power className="w-4 h-4" />
+                  {killSwitchActive ? 'HALT' : 'RESUME'}
                 </motion.button>
               </AlertDialogTrigger>
               <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                 <AlertDialogHeader>
                   <AlertDialogTitle className="text-slate-900 dark:text-slate-100">
-                    {killSwitchActive ? 'Deactivate Kill Switch?' : 'Activate Kill Switch?'}
+                    {killSwitchActive ? 'Halt Trading System?' : 'Resume Trading System?'}
                   </AlertDialogTitle>
                   <AlertDialogDescription className="text-slate-600 dark:text-slate-400">
                     {killSwitchActive
-                      ? 'This will resume signal processing and order placement.'
-                      : 'This will immediately halt all signal processing and order placement.'}
+                      ? 'This will immediately halt all signal processing and order placement.'
+                      : 'This will resume signal processing and order placement.'}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -222,29 +245,34 @@ export default function DashboardLayout({
                     onClick={() => handleKillSwitch(!killSwitchActive)}
                     className={cn(
                       killSwitchActive 
-                        ? 'bg-slate-600 hover:bg-slate-700 text-white dark:bg-slate-700 dark:hover:bg-slate-800'
-                        : 'bg-red-600 hover:bg-red-700 text-white'
+                        ? 'bg-red-600 hover:bg-red-700 text-white'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     )}
                   >
-                    Confirm
+                    {killSwitchActive ? 'Halt System' : 'Resume System'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </div>
+
+          {/* Right - Theme toggle */}
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+          </div>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950">
+        <main className="flex-1 overflow-y-auto bg-[#F8FAFC] dark:bg-zinc-950">
           {children}
         </main>
 
         {/* Footer */}
         <footer className="flex h-10 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-t border-slate-200 dark:border-slate-800 px-6">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
+          <span className="text-xs text-slate-600 dark:text-slate-400">
             AI Trading Control · Phase 2 · Paper Mode
           </span>
-          <span className="text-xs text-slate-500 dark:text-slate-400"> 2026</span>
+          <span className="text-xs text-slate-600 dark:text-slate-400">© 2026</span>
         </footer>
       </div>
     </div>
@@ -254,9 +282,9 @@ export default function DashboardLayout({
 function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () => void }) {
   return (
     <>
-      {/* Logo - High Contrast Branding */}
+      {/* Logo - Clean, no active states */}
       <div className="flex h-16 items-center gap-3 border-b border-slate-200 dark:border-slate-800 px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-600 text-white">
           <BarChart3 className="h-5 w-5" />
         </div>
         <span className="text-sm font-bold tracking-tighter text-slate-950 dark:text-white uppercase">
@@ -264,30 +292,19 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
         </span>
       </div>
 
-      {/* Navigation - Deep Indigo Active State */}
+      {/* Navigation - All items identical, no active states */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {NAV.map(({ href, label, Icon }) => {
-          const active =
-            href === '/dashboard'
-              ? pathname === '/dashboard'
-              : pathname.startsWith(href)
-          return (
-            <Link key={href} href={href} onClick={onClose}>
-              <motion.div
-                whileHover={{ x: 4 }}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all duration-200 cursor-pointer',
-                  active
-                    ? 'bg-indigo-600 text-white shadow-lg'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
-                )}
-              >
-                <Icon className={cn("h-5 w-5", active ? "text-white" : "text-slate-500")} />
-                {label}
-              </motion.div>
-            </Link>
-          )
-        })}
+        {NAV.map(({ href, label, Icon }) => (
+          <Link key={href} href={href} onClick={onClose}>
+            <motion.div
+              whileHover={{ x: 4 }}
+              className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all duration-200 cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Icon className="h-5 w-5" />
+              {label}
+            </motion.div>
+          </Link>
+        ))}
       </nav>
 
       {/* Sidebar footer */}
