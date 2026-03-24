@@ -114,8 +114,8 @@ export function SentimentGauge({
           {/* Gradient definition */}
           <defs>
             <linearGradient id={`gradient-${value}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor={config.gradient.includes('rose') ? '#f43f5e' : config.gradient.includes('violet') ? '#8b5cf6' : '#10b981'} />
-              <stop offset="100%" stopColor={config.gradient.includes('orange') ? '#f97316' : config.gradient.includes('purple') ? '#a855f7' : '#22c55e'} />
+              <stop offset="0%" stopColor={config.gradient.includes('rose') ? '#f43f5e' : config.gradient.includes('gray') ? '#6b7280' : '#10b981'} />
+              <stop offset="100%" stopColor={config.gradient.includes('orange') ? '#f97316' : config.gradient.includes('gray') ? '#4b5563' : '#22c55e'} />
             </linearGradient>
           </defs>
 
@@ -163,7 +163,7 @@ export function SentimentGauge({
           <span className={cn(
             'text-xs font-semibold uppercase tracking-[0.2em]',
             config.gradient.includes('rose') ? 'text-rose-400' :
-            config.gradient.includes('violet') ? 'text-violet-400' :
+            config.gradient.includes('gray') ? 'text-gray-400' :
             'text-emerald-400'
           )}>
             {config.label}

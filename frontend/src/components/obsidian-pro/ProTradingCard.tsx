@@ -68,7 +68,7 @@ export function ProTradingCard({
       {sparkle && (
         <div className="absolute inset-0 opacity-20">
           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/10 to-transparent rounded-full blur-2xl" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-violet-500/10 to-transparent rounded-full blur-xl" />
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-gray-500/10 to-transparent rounded-full blur-xl" />
         </div>
       )}
 

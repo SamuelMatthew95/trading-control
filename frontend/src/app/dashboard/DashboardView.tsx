@@ -150,7 +150,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               initial={{ opacity: 0, y: -50 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -50 }}
-              className="fixed top-20 right-6 z-50 bg-black text-green-400 px-4 py-2 rounded-lg shadow-lg border border-green-500/30 font-mono text-sm"
+              className="fixed top-20 right-6 z-50 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg border border-gray-700 font-mono text-sm"
             >
               {toastMessage}
             </motion.div>
@@ -323,7 +323,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 "w-2 h-2 rounded-full",
                 wsConnected ? "bg-green-500" : "bg-red-500"
               )} />
-              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
                 ● LIVE
               </span>
             </div>
@@ -475,7 +475,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 "w-2 h-2 rounded-full",
                 wsConnected ? "bg-green-500" : "bg-red-500"
               )} />
-              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
                 ● LIVE
               </span>
             </div>
@@ -589,7 +589,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 "w-2 h-2 rounded-full",
                 wsConnected ? "bg-green-500" : "bg-red-500"
               )} />
-              <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
                 ● LIVE
               </span>
             </div>
@@ -688,7 +688,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               "w-2 h-2 rounded-full",
               wsConnected ? "bg-green-500" : "bg-red-500"
             )} />
-            <span className="text-green-500 dark:text-green-400 text-sm font-medium">
+            <span className="text-green-600 dark:text-green-400 text-sm font-medium">
               ● LIVE
             </span>
           </div>
