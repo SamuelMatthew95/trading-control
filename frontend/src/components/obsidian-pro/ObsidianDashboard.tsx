@@ -423,16 +423,16 @@ export function ObsidianDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-slate-400">
+            <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
               <span>System</span>
-              <span className="text-slate-600">/</span>
-              <span className="bg-gray-900 text-white px-3 py-1 rounded-md font-bold">Overview</span>
+              <span className="text-gray-500 dark:text-gray-500">/</span>
+              <span className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-3 py-1 rounded-md font-bold">Overview</span>
             </div>
             <div className="flex items-center gap-2">
               <motion.div
                 className={cn(
                   "w-2 h-2 rounded-full",
-                  wsConnected ? "bg-emerald-500" : "bg-rose-500"
+                  wsConnected ? "bg-green-500" : "bg-red-500"
                 )}
                 animate={wsConnected ? {
                   scale: [1, 1.2, 1],
@@ -440,7 +440,7 @@ export function ObsidianDashboard() {
                 } : {}}
                 transition={{ duration: 2, repeat: Infinity }}
               />
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-gray-500 dark:text-gray-500">
                 {wsConnected ? 'LIVE' : 'OFFLINE'}
               </span>
             </div>

@@ -11,8 +11,10 @@ import { ThemeToggle } from '@/components/theme/ThemeToggle';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Logs', href: '/logs', icon: FileText },
-  { name: 'Performance', href: '/performance', icon: TrendingUp },
+  { name: 'Trading', href: '/dashboard/trading', icon: FileText },
+  { name: 'Agents', href: '/dashboard/agents', icon: TrendingUp },
+  { name: 'Learning', href: '/dashboard/learning', icon: Activity },
+  { name: 'System', href: '/dashboard/system', icon: Activity },
 ];
 
 interface SidebarProps {
@@ -51,8 +53,8 @@ export function Sidebar({ className }: SidebarProps) {
                 className={cn(
                   'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors h-10',
                   isActive
-                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400'
-                    : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800'
+                    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800'
                 )}
               >
                 <item.icon className="h-4 w-4" />
