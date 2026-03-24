@@ -108,27 +108,18 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // OVERVIEW PAGE - Professional Trading Command Center
   if (section === 'overview') {
     return (
-      <div className="min-h-screen bg-[#020617]">
+      <div className="min-h-screen bg-white dark:bg-zinc-950">
         {/* HIGH-PERFORMANCE TRADING TERMINAL HEADER */}
-        <div className="h-16 bg-[#020617] border-b border-white/10 flex items-center justify-between px-6">
+        <div className="h-16 bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6">
           {/* LEFT - SYSTEM STATUS */}
           <div className="flex items-center gap-6">
-            <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400">
+            <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
               System / Overview
             </span>
-            <div className="h-4 w-px bg-white/10" />
-            
-            {/* LIVE STATUS - CLEAN SQUARE LED */}
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-slate-400 animate-pulse rounded-none" />
-              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300 font-black">
-                LIVE
-              </span>
-            </div>
-            <div className="h-4 w-px bg-white/10" />
+            <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
             
             {/* LATENCY */}
-            <span className="text-[10px] font-mono text-slate-500">
+            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
               {avgLatency}ms
             </span>
           </div>
@@ -139,17 +130,17 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             <div className="flex flex-col items-end">
               <span className={cn(
                 "text-lg font-black font-mono tabular-nums",
-                dailyPnl >= 0 ? "text-slate-300" : "text-slate-400"
+                dailyPnl >= 0 ? "text-slate-900 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
               )}>
                 {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
               </span>
-              <span className="text-[9px] font-mono text-slate-500 uppercase tracking-[0.2em]">
+              <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-[0.2em]">
                 24h P&L
               </span>
             </div>
 
             {/* EXPORT BUTTON - CLEAN DARK STYLE */}
-            <button className="h-10 bg-black/40 border-2 border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300 transition-all hover:bg-slate-800/40 hover:border-slate-500 rounded-none">
+            <button className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-none">
               Export Report
             </button>
 
@@ -161,7 +152,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 setShowToast(true)
                 setTimeout(() => setShowToast(false), 3000)
               }}
-              className="h-10 bg-black/40 border-2 border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300 transition-all hover:bg-slate-800/40 hover:border-slate-500 rounded-none"
+              className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-none"
             >
               {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
             </button>
@@ -175,7 +166,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               initial={{ opacity: 0, y: -50 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -50 }}
-              className="fixed top-20 right-6 z-50 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg border border-gray-700 font-mono text-sm"
+              className="fixed top-20 right-6 z-50 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 font-mono text-sm"
             >
               {toastMessage}
             </motion.div>
@@ -196,14 +187,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               transition={{ duration: 0.5 }}
               className="col-span-8"
             >
-              <div className="bg-black/40 border border-white/10 rounded-none p-6 backdrop-blur-sm">
+              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-6 backdrop-blur-sm">
                 <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm text-slate-400 font-medium uppercase tracking-[0.2em] font-mono">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 font-medium uppercase tracking-[0.2em] font-mono">
                     TOTAL P&L
                   </p>
                   <button
                     onClick={() => setIsCompactMode(!isCompactMode)}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors font-mono"
+                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors font-mono"
                   >
                     {isCompactMode ? 'Expand' : 'Compact'}
                   </button>
