@@ -322,22 +322,25 @@ const KillSwitch = memo(({ killSwitchActive, onToggle }: {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200",
+            "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
             killSwitchActive 
-              ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50"
-              : "bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50"
+              ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/50"
+              : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
           )}
         >
-          <Power className="w-4 h-4" />
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            killSwitchActive ? "bg-red-500" : "bg-amber-500"
+          )} />
           {killSwitchActive ? 'STOP TRADING' : 'START TRADING'}
         </motion.button>
       </AlertDialogTrigger>
-      <AlertDialogContent className="glass-card">
+      <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-slate-200">
+          <AlertDialogTitle className="text-slate-900 dark:text-white">
             {killSwitchActive ? 'Stop All Trading Activity?' : 'Start Trading System?'}
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-slate-400">
+          <AlertDialogDescription className="text-slate-500 dark:text-slate-400">
             {killSwitchActive 
               ? 'This will immediately halt all trading agents and cancel any pending orders.'
               : 'This will activate all trading agents and begin market analysis.'
@@ -345,13 +348,14 @@ const KillSwitch = memo(({ killSwitchActive, onToggle }: {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel className="bg-slate-700 text-slate-200 hover:bg-slate-600">
+          <AlertDialogCancel className="bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={onToggle}
             className={cn(
-              killSwitchActive ? "bg-red-600 text-white hover:bg-red-700" : "bg-green-600 text-white hover:bg-green-700"
+              "text-white font-medium",
+              killSwitchActive ? "bg-red-600 hover:bg-red-700" : "bg-slate-900 hover:bg-slate-800"
             )}
           >
             {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
