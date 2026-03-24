@@ -135,34 +135,19 @@ export default function DashboardLayout({
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[#F8FAFC] dark:bg-zinc-950">
 
         {/* Master Controller - Unified Command Bar */}
-        <header className={cn(
-          "flex h-16 flex-shrink-0 items-center justify-between px-6 gap-4 transition-all duration-300",
-          killSwitchActive 
-            ? "bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800"
-            : "bg-red-600 border-b border-red-700"
-        )}>
+        <header className="flex h-16 flex-shrink-0 items-center justify-between bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 px-6 gap-4 transition-all duration-300">
 
           {/* Mobile menu button */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className={cn(
-              "md:hidden p-2 rounded-lg transition-colors",
-              killSwitchActive
-                ? "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-                : "text-white/80 hover:text-white hover:bg-red-700"
-            )}
+            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <Menu className="h-5 w-5" />
           </button>
 
           {/* Left - Clean breadcrumb */}
           <div className="flex items-center gap-4">
-            <span className={cn(
-              "text-sm font-medium",
-              killSwitchActive
-                ? "text-slate-600 dark:text-slate-400"
-                : "text-white"
-            )}>
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
               {pathname === '/dashboard' ? 'Overview' : (pathname.split('/').pop()?.charAt(0)?.toUpperCase() || '') + (pathname.split('/').pop()?.slice(1) || '')}
             </span>
           </div>
@@ -175,7 +160,7 @@ export default function DashboardLayout({
                 <motion.div
                   className={cn(
                     'w-3 h-3 rounded-full',
-                    killSwitchActive && wsConnected ? 'bg-emerald-500' : 'bg-red-500'
+                    killSwitchActive && wsConnected ? 'bg-emerald-500' : 'bg-rose-500'
                   )}
                   animate={killSwitchActive && wsConnected ? {
                     scale: [1, 1.2, 1],
@@ -183,14 +168,15 @@ export default function DashboardLayout({
                   } : {}}
                   transition={{ duration: 2, repeat: Infinity }}
                 />
-                <span className={cn(
-                  "text-sm font-bold font-mono",
-                  killSwitchActive
-                    ? "text-slate-900 dark:text-slate-100"
-                    : "text-white"
-                )}>
+                <span className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
                   {killSwitchActive ? 'SYSTEM ONLINE' : 'SYSTEM HALTED'}
                 </span>
+                {/* Subtle red indicator when halted */}
+                {!killSwitchActive && (
+                  <div className="px-2 py-1 bg-rose-100 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded">
+                    <span className="text-xs font-medium text-rose-700 dark:text-rose-400">HALTED</span>
+                  </div>
+                )}
               </div>
 
               {/* P&L - Monospace */}
@@ -198,12 +184,7 @@ export default function DashboardLayout({
                 key={dailyPnl}
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className={cn(
-                  "text-sm font-bold font-mono tabular-nums",
-                  killSwitchActive
-                    ? "text-slate-900 dark:text-slate-100"
-                    : "text-white"
-                )}
+                className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100"
               >
                 {dailyPnl >= 0 ? '+' : ''}${Math.abs(dailyPnl).toFixed(2)}
               </motion.div>
@@ -219,7 +200,7 @@ export default function DashboardLayout({
                     'flex items-center gap-2 px-4 py-2 text-sm font-bold uppercase tracking-[0.1em] rounded-lg border transition-all duration-200',
                     killSwitchActive
                       ? 'bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:bg-slate-800 dark:hover:bg-slate-700'
-                      : 'bg-white text-red-600 border-white/20 hover:bg-red-50'
+                      : 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700'
                   )}
                 >
                   <Power className="w-4 h-4" />
