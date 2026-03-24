@@ -15,7 +15,7 @@ export function Sidebar() {
   const router = useRouter();
 
   return (
-    <div className="w-[240px] flex flex-col h-screen bg-[#020617] border-r border-white/10 font-mono select-none">
+    <div className="w-64 flex flex-col h-screen bg-[#020617] border-r border-white/10 font-mono select-none">
       {/* Brand Header - Clean Sharp Logo */}
       <div className="p-6 mb-4">
         <div className="flex items-center gap-3">
@@ -27,7 +27,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation - Clean, consistent */}
+      {/* Navigation - Sharp edges, high contrast */}
       <nav className="flex-1 px-0 space-y-0">
         {navigation.map((item) => {
           const isActive = router.pathname === item.href;
@@ -39,10 +39,10 @@ export function Sidebar() {
                 'group flex items-center gap-4 px-6 py-4 text-[10px] uppercase tracking-[0.2em] transition-all border-l-4',
                 isActive
                   ? 'bg-white/[0.03] border-slate-400 text-white font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.02]'
+                  : 'border-transparent text-slate-300 hover:text-slate-200 hover:bg-white/[0.02]'
               )}
             >
-              <item.icon className={cn("w-4 h-4", isActive ? "text-slate-400" : "text-slate-600")} />
+              <item.icon className={cn("w-4 h-4", isActive ? "text-slate-400" : "text-slate-500")} />
               {item.name}
             </Link>
           );
