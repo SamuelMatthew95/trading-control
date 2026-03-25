@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, and_, or_
 
 from ..core.models import SystemMetrics, TradePerformance, Order, AgentLog
-from ..core.observability import log_structured
+from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
 
