@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
-from api.core.models import ErrorResponse
+from api.core.schemas import ErrorResponse
 from api.database import (
     Base,
     get_settings_info,
@@ -34,9 +34,7 @@ from api.observability import (
 )
 from api.redis_client import close_redis, get_redis
 from api.routes.analyze import router as analyze_router
-from api.routes.dashboard import router as dashboard_router
 from api.routes.dlq import router as dlq_router
-from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.monitoring import router as monitoring_router
 from api.routes.trades import router as trades_router
@@ -46,16 +44,6 @@ from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.brokers.alpaca import AlpacaBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.execution.reconciler import OrderReconciler
-from api.services.feedback import FeedbackLearningService
-from api.services.learning import (
-    AgentLearningService,
-    ICUpdater,
-    ReflectionService,
-    TradeEvaluator,
-)
-from api.services.market_ingestor import MarketIngestor
-from api.services.memory import AgentMemoryService
-from api.services.run_lifecycle import RunLifecycleService
 from api.services.signal_generator import SignalGenerator
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
@@ -94,40 +82,14 @@ def initialize_services() -> None:
             "MOCK MODE: MultiAgentOrchestrator not available - using mock trading service",
         )
 
-    learning_service = AgentLearningService()
-    memory_service = AgentMemoryService()
-    feedback_service = FeedbackLearningService()
-    run_lifecycle_service = RunLifecycleService(learning_service, memory_service, feedback_service)
     set_services(
         trading_service,
-        learning_service,
-        memory_service,
-        feedback_service,
-        run_lifecycle_service,
     )
 
     for agent in ["SIGNAL_AGENT", "RISK_AGENT", "CONSENSUS_AGENT", "SIZING_AGENT"]:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
 
-async def _retry_loop(stop_event: asyncio.Event) -> None:
-    from api.main_state import get_run_lifecycle_service
-
-    while not stop_event.is_set():
-        try:
-            await get_run_lifecycle_service().requeue_failed_scores_and_corrections()
-        except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Score retry loop failed", exc_info=True)
-        try:
-            await asyncio.wait(
-                [
-                    asyncio.create_task(asyncio.sleep(3600)),
-                    asyncio.create_task(stop_event.wait()),
-                ],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        except asyncio.CancelledError:
-            break
 
 
 async def _record_system_metric(
@@ -160,12 +122,11 @@ async def _record_system_metric(
                 },
             )
             await session.commit()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log_structured(
             "warning",
             "Unable to persist system metric",
             metric_name=metric_name,
-            exc_info=True,
         )
     await bus.publish("system_metrics", payload)
 
@@ -193,27 +154,35 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
             )
 
 
-async def monitor_consumer_lag(bus: EventBus, stop_event: asyncio.Event) -> None:
-    while not stop_event.is_set():
-        try:
-            await collect_consumer_lag_metrics(bus)
-        except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "Consumer lag monitor failed", exc_info=True)
-        try:
-            await asyncio.wait(
-                [
-                    asyncio.create_task(asyncio.sleep(30)),
-                    asyncio.create_task(stop_event.wait()),
-                ],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        except asyncio.CancelledError:
-            break
+# Event-driven monitoring state
+_consumer_lag_update = asyncio.Event()
+_llm_cost_update = asyncio.Event()
 
 
-async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
+async def on_message_processed(bus: EventBus, stream: str, lag: float) -> None:
+    """Triggered when a message is processed - updates consumer lag immediately."""
+    if lag > settings.MAX_CONSUMER_LAG_ALERT:
+        await _record_system_metric(
+            bus, f"stream_lag:{stream}", lag,
+            {"stream": stream, "alert": "high"}
+        )
+        await bus.publish(
+            "risk_alerts",
+            {
+                "type": "consumer_lag",
+                "stream": stream,
+                "lag": lag,
+                "limit": settings.MAX_CONSUMER_LAG_ALERT,
+                "message": f"Consumer lag elevated for {stream}",
+            },
+        )
+    # Signal that lag was updated
+    _consumer_lag_update.set()
+
+
+async def on_llm_cost_updated(bus: EventBus, redis_client, cost: float) -> None:
+    """Triggered when LLM cost changes - updates immediately."""
     today = date.today().isoformat()
-    cost = float(await redis_client.get(f"llm:cost:{today}") or 0.0)
     await _record_system_metric(bus, "llm_cost_usd", cost, {"date": today})
     if cost >= settings.ANTHROPIC_COST_ALERT_USD:
         await bus.publish(
@@ -225,49 +194,65 @@ async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
                 "message": "Anthropic daily cost alert threshold reached",
             },
         )
+    # Signal that cost was updated
+    _llm_cost_update.set()
+
+
+async def collect_llm_cost_metric(bus: EventBus, redis_client) -> None:
+    """Collect LLM cost metric - called by event trigger or fallback."""
+    today = date.today().isoformat()
+    cost = float(await redis_client.get(f"llm:cost:{today}") or 0.0)
+    await on_llm_cost_updated(bus, redis_client, cost)
+
+
+async def monitor_consumer_lag(bus: EventBus, stop_event: asyncio.Event) -> None:
+    """Event-driven consumer lag monitoring - no polling needed."""
+    while not stop_event.is_set():
+        try:
+            # Wait for either lag update or stop event or timeout (fallback)
+            await asyncio.wait_for(
+                _consumer_lag_update.wait(),
+                timeout=30  # Fallback check every 30s
+            )
+            _consumer_lag_update.clear()  # Reset for next update
+        except asyncio.TimeoutError:
+            # Fallback: collect current lag (in case we missed events)
+            await collect_consumer_lag_metrics(bus)
+        except Exception:  # noqa: BLE001
+            log_structured("error", "Consumer lag monitor failed")
 
 
 async def monitor_llm_cost(bus: EventBus, redis_client, stop_event: asyncio.Event) -> None:
+    """Event-driven LLM cost monitoring - no polling needed."""
     while not stop_event.is_set():
         try:
-            await collect_llm_cost_metric(bus, redis_client)
-        except Exception as exc:  # noqa: BLE001
-            log_structured("warning", "LLM cost monitor failed", exc_info=True)
-        try:
-            await asyncio.wait(
-                [
-                    asyncio.create_task(asyncio.sleep(60)),
-                    asyncio.create_task(stop_event.wait()),
-                ],
-                return_when=asyncio.FIRST_COMPLETED,
+            # Wait for either cost update or stop event or timeout (fallback)
+            await asyncio.wait_for(
+                _llm_cost_update.wait(),
+                timeout=60  # Fallback check every 60s
             )
-        except asyncio.CancelledError:
-            break
+            _llm_cost_update.clear()  # Reset for next update
+        except asyncio.TimeoutError:
+            # Fallback: collect current cost (in case we missed events)
+            await collect_llm_cost_metric(bus, redis_client)
+        except Exception:  # noqa: BLE001
+            log_structured("error", "LLM cost monitor failed")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    retry_task: asyncio.Task[None] | None = None
-    market_ingestor: MarketIngestor | None = None
     execution_engine: ExecutionEngine | None = None
     order_reconciler: OrderReconciler | None = None
     reasoning_agent: ReasoningAgent | None = None
-    trade_evaluator: TradeEvaluator | None = None
-    reflection_service: ReflectionService | None = None
-    ic_updater: ICUpdater | None = None
     signal_generator: SignalGenerator | None = None
     consumer_lag_monitor: BackgroundServiceTask | None = None
     llm_cost_monitor_service: BackgroundServiceTask | None = None
     app.state.redis_client = None
     app.state.event_bus = None
     app.state.dlq_manager = None
-    app.state.market_ingestor = None
     app.state.execution_engine = None
     app.state.order_reconciler = None
     app.state.reasoning_agent = None
-    app.state.trade_evaluator = None
-    app.state.reflection_service = None
-    app.state.ic_updater = None
     app.state.db_engine = engine
 
     # Create stop event for graceful shutdown
@@ -289,21 +274,27 @@ async def lifespan(app: FastAPI):
         try:
             import subprocess
             import sys
-            result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], 
-                                    capture_output=True, text=True, cwd="api")
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                cwd="api"
+            )
             if result.returncode != 0:
-                log_structured("warning", "alembic_migration_failed", 
-                              stderr=result.stderr, returncode=result.returncode)
+                log_structured(
+                    "warning", "alembic_migration_failed",
+                    stderr=result.stderr, returncode=result.returncode
+                )
             else:
                 log_structured("info", "alembic_migration_completed")
-        except Exception as exc:
-            log_structured("warning", "Alembic migration failed", exc_info=True)
+        except Exception:  # noqa: BLE001
+            log_structured("warning", "Alembic migration failed")
 
         try:
             redis_client = await get_redis()
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             redis_client = None
-            log_structured("warning", "Redis unavailable during startup", exc_info=True)
+            log_structured("warning", "Redis unavailable during startup")
         app.state.redis_client = redis_client
         app.state.websocket_broadcaster = get_broadcaster()
         if redis_client is not None:
@@ -321,12 +312,20 @@ async def lifespan(app: FastAPI):
             dlq_manager = DLQManager(redis_client, event_bus)
             
             # Choose broker based on config
-            if settings.BROKER_MODE == "paper" or not settings.ALPACA_API_KEY:
+            if (
+                settings.BROKER_MODE == "paper" 
+                or not settings.ALPACA_API_KEY
+            ):
                 broker = PaperBroker(redis_client)
                 log_structured("info", "paper_broker_enabled")
             else:
                 broker = AlpacaBroker()
-                log_structured("info", "alpaca_broker_enabled", paper=settings.ALPACA_PAPER, base_url=settings.ALPACA_BASE_URL)
+                log_structured(
+                    "info", 
+                    "alpaca_broker_enabled", 
+                    paper=settings.ALPACA_PAPER, 
+                    base_url=settings.ALPACA_BASE_URL
+                )
             
             app.state.event_bus = event_bus
             app.state.dlq_manager = dlq_manager
@@ -335,25 +334,9 @@ async def lifespan(app: FastAPI):
             await signal_generator.start()
             app.state.signal_generator = signal_generator
 
-            market_ingestor = MarketIngestor(event_bus)
-            await market_ingestor.start()
-            app.state.market_ingestor = market_ingestor
-
             reasoning_agent = ReasoningAgent(event_bus, dlq_manager, redis_client)
             await reasoning_agent.start()
             app.state.reasoning_agent = reasoning_agent
-
-            trade_evaluator = TradeEvaluator(event_bus, dlq_manager, redis_client)
-            await trade_evaluator.start()
-            app.state.trade_evaluator = trade_evaluator
-
-            reflection_service = ReflectionService(event_bus, redis_client)
-            await reflection_service.start()
-            app.state.reflection_service = reflection_service
-
-            ic_updater = ICUpdater(redis_client)
-            await ic_updater.start()
-            app.state.ic_updater = ic_updater
 
             consumer_lag_monitor = BackgroundServiceTask(
                 asyncio.create_task(
@@ -379,8 +362,6 @@ async def lifespan(app: FastAPI):
             app.state.order_reconciler = order_reconciler
 
         initialize_services()
-        if ENABLE_SIGNAL_SCHEDULER:
-            retry_task = asyncio.create_task(_retry_loop(stop_event))
 
         log_structured(
             "info",
@@ -397,12 +378,6 @@ async def lifespan(app: FastAPI):
             await llm_cost_monitor_service.stop()
         if consumer_lag_monitor is not None:
             await consumer_lag_monitor.stop()
-        if ic_updater is not None:
-            await ic_updater.stop()
-        if reflection_service is not None:
-            await reflection_service.stop()
-        if trade_evaluator is not None:
-            await trade_evaluator.stop()
         if reasoning_agent is not None:
             await reasoning_agent.stop()
         if execution_engine is not None:
@@ -411,12 +386,6 @@ async def lifespan(app: FastAPI):
             await order_reconciler.stop()
         if signal_generator is not None:
             await signal_generator.stop()
-        if market_ingestor is not None:
-            await market_ingestor.stop()
-        if retry_task is not None:
-            retry_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await retry_task
 
         # Stop WebSocket broadcaster
         if (
@@ -453,8 +422,6 @@ app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")
 app.include_router(trades_router, prefix="/api")
-app.include_router(dashboard_router, prefix="/api")
-app.include_router(feedback_router, prefix="/api")
 app.include_router(monitoring_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
 app.include_router(ws_router)
@@ -462,7 +429,7 @@ app.include_router(ws_router)
 
 @app.get("/")
 async def root_redirect():
-    return RedirectResponse(url="/dashboard", status_code=307)
+    return RedirectResponse(url="/api/health", status_code=307)
 
 
 @app.middleware("http")

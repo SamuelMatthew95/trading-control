@@ -6,11 +6,9 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.core.models import TradeDecision, TradeRequest
+from api.core.schemas import TradeDecision, TradeRequest, StandardResponse
 from api.database import get_async_session
 from api.main_state import (
-    get_learning_service,
-    get_run_lifecycle_service,
     get_trading_service,
 )
 from api.observability import log_structured, metrics_store
@@ -19,18 +17,10 @@ from api.utils import with_retries
 router = APIRouter(tags=["analysis"])
 
 
-class StandardResponse(BaseModel):
-    success: bool
-    data: Any = None
-    error: str = None
-
-
 @router.post("/analyze")
 async def analyze_trade(
     request: TradeRequest,
     trading_service=Depends(get_trading_service),
-    learning_service=Depends(get_learning_service),
-    run_lifecycle_service=Depends(get_run_lifecycle_service),
 ):
     try:
         if not request.symbol or not request.price:

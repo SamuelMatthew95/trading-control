@@ -13,7 +13,6 @@ import aiohttp
 from sqlalchemy import text
 
 from api.config import settings
-from api.core.models import POSTGRES_AVAILABLE
 from api.db import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -34,14 +33,10 @@ class ReasoningAgent(BaseStreamConsumer):
         self.redis = redis_client
 
     def _json_expr(self, field: str) -> str:
-        if POSTGRES_AVAILABLE:
-            return f"CAST(:{field} AS JSONB)"
-        return f":{field}"
+        return f"CAST(:{field} AS JSONB)"
 
     def _vector_expr(self) -> str:
-        if POSTGRES_AVAILABLE:
-            return "CAST(:embedding AS vector)"
-        return ":embedding"
+        return "CAST(:embedding AS vector)"
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
@@ -84,6 +79,15 @@ class ReasoningAgent(BaseStreamConsumer):
         
         await self.redis.incrby(budget_key, tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
+        
+        # 🔥 Event-driven: Trigger cost update immediately
+        # This replaces polling - cost updates happen instantly when LLM is used
+        try:
+            from api.main import on_llm_cost_updated
+            current_cost = float(await self.redis.get(f"llm:cost:{today}") or 0.0)
+            await on_llm_cost_updated(self.bus, self.redis, current_cost)
+        except Exception:
+            pass  # Don't let monitoring break processing
         
         # Cache updated budget to avoid redundant Redis calls
         updated_budget = int(await self.redis.get(budget_key) or 0)
@@ -165,9 +169,6 @@ class ReasoningAgent(BaseStreamConsumer):
     async def _search_vector_memory(
         self, embedding: list[float]
     ) -> list[dict[str, Any]]:
-        if not POSTGRES_AVAILABLE:
-            return []
-        
         vector_literal = self._vector_literal(embedding)
         query = text(f"""
 SELECT id, content, metadata_, outcome,

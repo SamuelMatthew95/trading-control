@@ -8,14 +8,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.models import (
-    Insight,
-    Run,
-    Signal,
-    TaskTypeBaseline,
-    TraceStep,
-    VectorMemoryRecord,
-)
+from api.core.models import AgentRun, VectorMemory, SystemMetrics
 from api.database import AsyncSessionLocal, init_database
 
 logger = logging.getLogger(__name__)

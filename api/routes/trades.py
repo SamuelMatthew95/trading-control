@@ -1,47 +1,47 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
 
-from api.core.models import Trade, TradeModel
-from api.database import get_async_session
+from api.core.models import TradePerformance
+from api.core.writer.safe_writer import SafeWriter
+from api.database import AsyncSessionLocal
+from api.core.schemas import StandardResponse
 
 router = APIRouter(tags=["trades"])
 
 
-class StandardResponse(BaseModel):
-    success: bool
-    data: Any = None
-    error: str = None
+async def get_safe_writer() -> SafeWriter:
+    """Get SafeWriter instance."""
+    return SafeWriter(AsyncSessionLocal)
 
 
 @router.get("/trades")
-async def get_trades() -> Dict[str, Any]:
+async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> Dict[str, Any]:
     """Get all trades with standardized response format."""
     try:
-        async with get_async_session() as session:
+        async with safe_writer.transaction() as session:
             result = await session.execute(
-                select(Trade).order_by(Trade.created_at.desc())
+                select(TradePerformance).order_by(TradePerformance.created_at.desc())
             )
             trades = result.scalars().all()
 
             trades_data = [
                 {
-                    "id": t.id,
-                    "date": t.date,
-                    "asset": t.asset,
-                    "direction": t.direction,
-                    "size": t.size,
-                    "entry": t.entry,
-                    "stop": t.stop,
-                    "target": t.target,
-                    "rr_ratio": t.rr_ratio,
-                    "exit_price": t.exit_price,
-                    "pnl": t.pnl,
-                    "outcome": t.outcome,
+                    "id": str(t.id),
+                    "symbol": t.symbol,
+                    "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                    "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                    "entry_price": float(t.entry_price),
+                    "exit_price": float(t.exit_price) if t.exit_price else None,
+                    "quantity": float(t.quantity),
+                    "pnl": float(t.pnl) if t.pnl else None,
+                    "pnl_percent": float(t.pnl_percent) if t.pnl_percent else None,
+                    "trade_type": t.trade_type,
+                    "exit_reason": t.exit_reason,
                 }
                 for t in trades
             ]
@@ -56,36 +56,34 @@ async def get_trades() -> Dict[str, Any]:
 
 
 @router.post("/trades")
-async def save_trade(trade: TradeModel) -> Dict[str, Any]:
-    """Save a new trade with standardized response format."""
+async def save_trade(
+    trade_data: Dict[str, Any], 
+    safe_writer: SafeWriter = Depends(get_safe_writer)
+) -> Dict[str, Any]:
+    """Save a new trade using SafeWriter (only write path)."""
     try:
         # Validate input data
-        if not trade.asset or not trade.direction:
+        if not trade_data.get("symbol") or not trade_data.get("trade_type"):
             raise HTTPException(
-                status_code=400, detail="Asset and direction are required"
+                status_code=400, detail="Symbol and trade_type are required"
             )
 
-        async with get_async_session() as session:
-            db_trade = Trade(
-                date=trade.date,
-                asset=trade.asset,
-                direction=trade.direction,
-                size=trade.size,
-                entry=trade.entry,
-                stop=trade.stop,
-                target=trade.target,
-                rr_ratio=trade.rr_ratio,
-                exit_price=trade.exit,
-                pnl=trade.pnl,
-                outcome=trade.outcome,
-            )
-            session.add(db_trade)
-            await session.flush()
-
+        # Generate unique message ID for exactly-once semantics
+        msg_id = str(uuid4())
+        stream = "trade_api"
+        
+        # Use SafeWriter - the ONLY write path
+        success = await safe_writer.write_trade_performance(msg_id, stream, trade_data)
+        
+        if success:
             return StandardResponse(
                 success=True,
-                data={"message": "Trade saved successfully", "id": db_trade.id},
+                data={"message": "Trade saved successfully", "msg_id": msg_id},
             ).model_dump()
+        else:
+            raise HTTPException(
+                status_code=409, detail="Trade was already processed"
+            )
     except HTTPException:
         raise
     except Exception as exc:

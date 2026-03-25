@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
-from api.core.models import AgentRun, Trade
+from api.core.models import AgentRun
 from api.database import get_async_session
 from api.main_state import get_learning_service
 
