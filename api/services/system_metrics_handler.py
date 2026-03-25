@@ -1,4 +1,17 @@
-"""System metrics handler - processes system_metrics stream."""
+"""
+System metrics handler - LEGACY CODE (OBSOLETE)
+
+⚠️  THIS CODE IS NO LONGER USED IN PRODUCTION
+===============================================
+
+This handler has been replaced by SystemMetricsConsumer.
+Keeping this file only for backward compatibility with existing tests.
+
+Active processing path:
+SystemMetricsConsumer → SafeWriter.write_system_metric
+
+This handler should NOT be used in new code.
+"""
 
 import logging
 from datetime import datetime, timezone
@@ -14,7 +27,16 @@ logger = logging.getLogger(__name__)
 async def handle_system_metric(
     msg_id: str, stream: str, data: Dict[str, Any], trace_id: str
 ) -> ProcessResult:
-    """Handle system metric messages."""
+    """
+    LEGACY: Handle system metric messages.
+    
+    ⚠️  DEPRECATED: Use SystemMetricsConsumer instead.
+    This function is kept only for test compatibility.
+    """
+    logger.warning(
+        f"LEGACY handle_system_metric called - this should be replaced by SystemMetricsConsumer. "
+        f"msg_id={msg_id}, trace_id={trace_id}"
+    )
     try:
         # Validate required fields
         if not data.get("metric_name"):
@@ -66,8 +88,26 @@ async def handle_system_metric(
         
     except Exception as e:
         logger.error(f"Error processing system metric {msg_id}: {e}")
+        
+        # ❗ Only retry true transient errors, NOT duplicates or logic bugs
+        retryable = not any(
+            keyword in str(e).lower()
+            for keyword in [
+                "duplicate",
+                "already exists", 
+                "already processed",
+                "constraint",
+                "unexpected keyword argument",
+                "integrity error",
+                "unique constraint",
+                "msg_id is required",
+                "metric_name is required",
+                "metric_value is required",
+            ]
+        )
+        
         return ProcessResult(
             success=False,
-            retryable=True,  # Retry on transient errors
+            retryable=retryable,
             message=f"Processing error: {str(e)}"
         )
