@@ -112,13 +112,18 @@ class TestSystemMetricsConsumer:
         consumer.safe_writer.write_system_metric.assert_called_once()
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
         
-        assert call_args["metric_name"] == "disk_usage"
-        assert call_args["metric_value"] == 85.2
-        assert call_args["metric_unit"] == "percent"
-        assert call_args["tags"] == {"device": "/dev/sda1"}
-        assert call_args["schema_version"] == "v2"
-        assert call_args["source"] == "system_monitor"
-        assert isinstance(call_args["timestamp"], datetime)
+        assert call_args["msg_id"] == "test-123"
+        assert call_args["stream"] == "system_metrics"
+        
+        # Check data dictionary contents
+        data_dict = call_args["data"]
+        assert data_dict["metric_name"] == "disk_usage"
+        assert data_dict["value"] == 85.2
+        assert data_dict["unit"] == "percent"
+        assert data_dict["tags"] == {"device": "/dev/sda1"}
+        assert data_dict["schema_version"] == "v2"
+        assert data_dict["source"] == "system_monitor"
+        assert isinstance(data_dict["timestamp"], str)  # ISO string
 
     @pytest.mark.asyncio
     async def test_process_handles_missing_optional_fields(self, consumer):
@@ -135,14 +140,19 @@ class TestSystemMetricsConsumer:
         consumer.safe_writer.write_system_metric.assert_called_once()
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
         
-        assert call_args["metric_name"] == "network_latency"
-        assert call_args["metric_value"] == 25.3
-        assert call_args["metric_unit"] is None
-        assert call_args["tags"] == {}
-        assert call_args["schema_version"] == "v2"
-        assert call_args["source"] == "system_monitor"
-        # Timestamp should be recent (fallback to now)
-        assert isinstance(call_args["timestamp"], datetime)
+        assert call_args["msg_id"] is not None
+        assert call_args["stream"] == "system_metrics"
+        
+        # Check data dictionary contents
+        data_dict = call_args["data"]
+        assert data_dict["metric_name"] == "network_latency"
+        assert data_dict["value"] == 25.3
+        assert data_dict["unit"] is None
+        assert data_dict["tags"] == {}
+        assert data_dict["schema_version"] == "v2"
+        assert data_dict["source"] == "system_monitor"
+        # Timestamp should be ISO string (fallback to now)
+        assert isinstance(data_dict["timestamp"], str)
 
     @pytest.mark.asyncio
     async def test_process_timestamp_fallback(self, consumer):
@@ -156,9 +166,10 @@ class TestSystemMetricsConsumer:
         
         await consumer.process(data_valid)
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
+        data_dict = call_args["data"]
         
-        expected_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        assert call_args["timestamp"] == expected_time
+        expected_time = "2024-01-01T12:00:00+00:00"
+        assert data_dict["timestamp"] == expected_time
 
     @pytest.mark.asyncio
     async def test_process_timestamp_invalid_fallback(self, consumer):
@@ -171,12 +182,15 @@ class TestSystemMetricsConsumer:
         
         await consumer.process(data_invalid)
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
+        data_dict = call_args["data"]
         
-        # Should fallback to current time
-        assert isinstance(call_args["timestamp"], datetime)
+        # Should fallback to current time as ISO string
+        assert isinstance(data_dict["timestamp"], str)
         # Should be recent (within last few seconds)
+        from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
-        assert abs((call_args["timestamp"] - now).total_seconds()) < 5
+        parsed_time = datetime.fromisoformat(data_dict["timestamp"])
+        assert abs((parsed_time - now).total_seconds()) < 5
 
     @pytest.mark.asyncio
     async def test_process_kill_switch_active(self, consumer):
