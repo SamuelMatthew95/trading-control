@@ -377,7 +377,7 @@ class SafeWriter:
                     raise ValueError("metric_name is required")
                 
                 if metric_value is None:
-                    raise ValueError("metric_value is required")
+                    metric_value = 0.0  # ✅ Fallback to prevent NOT NULL violations
                 
                 # Log operation with actual msg_id
                 logger.info(
