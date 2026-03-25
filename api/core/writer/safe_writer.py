@@ -9,6 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert, update, func
@@ -380,7 +381,7 @@ class SafeWriter:
 
                 # Use PostgreSQL UPSERT for idempotent writes
                 stmt = pg_insert(SystemMetrics).values(
-                    id=msg_id,  # ✅ critical fix: use msg_id as primary ID
+                    id=UUID(msg_id),  # ✅ Convert string to UUID for SQLAlchemy
                     metric_name=metric_name,
                     metric_value=metric_value,
                     metric_unit=metric_unit,
