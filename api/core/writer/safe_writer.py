@@ -54,9 +54,16 @@ class SafeWriter:
     
     def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
         """Log write operations with proper context."""
-        logger.info(
-            f"[WRITE_AUDIT] operation={operation} "
-            f"model={model_name} id={entity_id}"
+        if not entity_id:
+            raise ValueError("entity_id is required for audit logging")
+
+        self.logger.info(
+            "[WRITE_AUDIT]",
+            extra={
+                "operation": operation,
+                "model": model_name,
+                "id": entity_id,
+            },
         )
 
     @asynccontextmanager
@@ -108,6 +115,9 @@ class SafeWriter:
 
     async def write_order(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write order with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_order")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -188,6 +198,9 @@ class SafeWriter:
 
     async def write_execution(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write execution with atomic claim-at-end and order existence check."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_execution")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -270,6 +283,9 @@ class SafeWriter:
 
     async def write_agent_log(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write agent log with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_agent_log")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -406,6 +422,9 @@ class SafeWriter:
 
     async def write_trade_performance(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write trade performance with validation."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_trade_performance")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -479,6 +498,9 @@ class SafeWriter:
 
     async def write_vector_memory(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write vector memory with embedding validation."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_vector_memory")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -528,6 +550,9 @@ class SafeWriter:
 
     async def write_risk_alert(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write risk alert as event."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_risk_alert")
+            
         async with self.transaction() as session:
             try:
                 event_data = {
