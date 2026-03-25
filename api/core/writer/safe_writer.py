@@ -136,7 +136,7 @@ class SafeWriter:
                     quantity=data['quantity'],
                     price=data.get('price'),
                     exchange=data.get('exchange'),
-                    metadata=data.get('metadata', {})
+                    order_metadata=data.get('metadata', {})
                 )
                 
                 # Handle upsert with race condition protection
@@ -280,16 +280,32 @@ class SafeWriter:
                 # Log the operation
                 self._log_write_operation('write_agent_log', 'AgentLog', data)
 
+                # Handle timestamp with explicit fallback logging
+                timestamp_str = data.get('timestamp')
+                created_at = self.safe_parse_dt(timestamp_str)
+                
+                if created_at is None:
+                    logger.warning(
+                        "timestamp_fallback_used",
+                        extra={
+                            "stream": stream,
+                            "msg_id": msg_id,
+                            "provided_timestamp": timestamp_str,
+                            "fallback_reason": "missing_or_invalid"
+                        }
+                    )
+                    created_at = datetime.now(timezone.utc)
+
                 log_data = {
-                    'trace_id': data.get('trace_id', msg_id),
-                    'agent_id': data['agent_id'],
+                    'agent_run_id': data['agent_id'],  # Map agent_id to agent_run_id
                     'log_level': data.get('log_level', 'INFO'),
                     'message': data['message'],
                     'step_name': data.get('step_name'),
                     'step_data': data.get('step_data', {}),
-                    'created_at': (
-                        self.safe_parse_dt(data.get('timestamp')) or datetime.now(timezone.utc)
-                    )
+                    'trace_id': data.get('trace_id', msg_id),
+                    'schema_version': data.get('schema_version', 'v2'),
+                    'source': data.get('source', 'unknown'),
+                    'created_at': created_at
                 }
 
                 # DO WORK FIRST
@@ -328,9 +344,28 @@ class SafeWriter:
                 # Log the operation
                 self._log_write_operation('write_system_metric', 'SystemMetrics', data)
 
+                # Handle timestamp with explicit fallback logging
+                timestamp_str = data.get('timestamp')
+                timestamp = self.safe_parse_dt(timestamp_str)
+                
+                if timestamp is None:
+                    logger.warning(
+                        "timestamp_fallback_used",
+                        extra={
+                            "stream": stream,
+                            "msg_id": msg_id,
+                            "provided_timestamp": timestamp_str,
+                            "fallback_reason": "missing_or_invalid"
+                        }
+                    )
+                    timestamp = datetime.now(timezone.utc)
+
                 metric_data = {
                     'metric_name': data['metric_name'],
-                    'value': data['value'],
+                    'metric_value': data['value'],  # Map 'value' to 'metric_value'
+                    'metric_unit': data.get('unit'),  # Map 'unit' to 'metric_unit'
+                    'tags': data.get('tags', {}),
+                    'timestamp': timestamp,
                     'schema_version': data.get('schema_version', 'v2'),
                     'source': data.get('source', 'unknown')
                 }
@@ -367,14 +402,28 @@ class SafeWriter:
                 # Log the operation
                 self._log_write_operation('write_trade_performance', 'TradePerformance', data)
 
+                # Handle timestamps with explicit fallback logging
+                entry_time_str = data['entry_time']
+                entry_time = self.safe_parse_dt(entry_time_str)
+                
+                if entry_time is None:
+                    logger.warning(
+                        "timestamp_fallback_used",
+                        extra={
+                            "stream": stream,
+                            "msg_id": msg_id,
+                            "provided_timestamp": entry_time_str,
+                            "fallback_reason": "missing_or_invalid_entry_time"
+                        }
+                    )
+                    entry_time = datetime.now(timezone.utc)
+
                 perf_data = {
                     'strategy_id': data['strategy_id'],
                     'agent_id': data.get('agent_id'),
                     'symbol': data['symbol'],
                     'trade_id': data['trade_id'],
-                    'entry_time': (
-                        self.safe_parse_dt(data['entry_time']) or datetime.now(timezone.utc)
-                    ),
+                    'entry_time': entry_time,
                     'exit_time': self.safe_parse_dt(data.get('exit_time')),
                     'entry_price': data['entry_price'],
                     'exit_price': data.get('exit_price'),
@@ -436,11 +485,11 @@ class SafeWriter:
                     'content': data['content'],
                     'content_type': data['content_type'],
                     'embedding': data['embedding'],  # Validated to be 1536 floats
-                    'metadata': data.get('metadata', {}),
+                    'vector_metadata': data.get('metadata', {}),  # Map metadata to vector_metadata
                     'agent_id': data.get('agent_id'),
                     'strategy_id': data.get('strategy_id'),
-                    'symbol': data.get('symbol'),
-                    'relevance_score': data.get('relevance_score')
+                    'schema_version': data.get('schema_version', 'v2'),
+                    'source': data.get('source', 'unknown')
                 }
 
                 await session.execute(insert(VectorMemory).values(**vector_data))
