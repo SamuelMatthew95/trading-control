@@ -29,13 +29,24 @@ class EventBus:
         self.redis = redis_client
 
     async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str:
-        """Publish event directly to stream (no payload wrapper for V3)."""
+        """Publish event to Redis stream with proper serialization."""
+        import json
         try:
+            # Serialize all dict/list values to JSON strings
+            serialized_event = {}
+            for k, v in event.items():
+                if isinstance(v, (dict, list)):
+                    serialized_event[k] = json.dumps(v)
+                elif isinstance(v, bool):
+                    serialized_event[k] = str(v)
+                else:
+                    serialized_event[k] = v
+            
             kwargs = {}
             if maxlen:
                 kwargs["maxlen"] = maxlen
                 kwargs["approximate"] = True
-            message_id = await self.redis.xadd(stream, event, **kwargs)
+            message_id = await self.redis.xadd(stream, serialized_event, **kwargs)
             return str(message_id)
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
@@ -56,7 +67,8 @@ class EventBus:
         count: int = 10,
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Consume messages directly (no payload wrapper for V3)."""
+        """Consume messages with JSON deserialization."""
+        import json
         try:
             messages = await self.redis.xreadgroup(
                 groupname=group,
@@ -65,12 +77,26 @@ class EventBus:
                 count=count,
                 block=block_ms,
             )
-            # Direct decode for V3 (no payload wrapper)
             result = []
             for stream_name, stream_messages in messages:
                 for msg_id, fields in stream_messages:
-                    # Convert bytes to strings
-                    decoded_fields = {k.decode() if isinstance(k, bytes) else k: v.decode() if isinstance(v, bytes) else v for k, v in fields.items()}
+                    # Convert bytes to strings and deserialize JSON
+                    decoded_fields = {}
+                    for k, v in fields.items():
+                        key = k.decode() if isinstance(k, bytes) else k
+                        value = v.decode() if isinstance(v, bytes) else v
+                        # Try to deserialize JSON
+                        try:
+                            if isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
+                                decoded_fields[key] = json.loads(value)
+                            elif value == 'True':
+                                decoded_fields[key] = True
+                            elif value == 'False':
+                                decoded_fields[key] = False
+                            else:
+                                decoded_fields[key] = value
+                        except json.JSONDecodeError:
+                            decoded_fields[key] = value
                     result.append((msg_id.decode() if isinstance(msg_id, bytes) else msg_id, decoded_fields))
             return result
         except (ConnectionError, TimeoutError) as exc:
