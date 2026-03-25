@@ -299,7 +299,7 @@ class TestEventBusErrorHandling:
         mock_redis_client.xautoclaim.side_effect = ConnectionError("Connection failed")
         
         with patch('api.events.bus.log_structured') as mock_log:
-            result = await event_bus.reclaim_stale("test_stream", "group")
+            result = await event_bus.reclaim_stale("test_stream", "group", "consumer-1")
             
             assert result == []
             mock_log.assert_called_with(
@@ -314,7 +314,7 @@ class TestEventBusErrorHandling:
         mock_redis_client.xautoclaim.side_effect = Exception("Other error")
         
         with patch('api.events.bus.log_structured') as mock_log:
-            result = await event_bus.reclaim_stale("test_stream", "group")
+            result = await event_bus.reclaim_stale("test_stream", "group", "consumer-1")
             
             assert result == []
             mock_log.assert_called_with(
