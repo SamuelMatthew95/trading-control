@@ -72,7 +72,7 @@ async def analyze_trade(
                 "CONSENSUS_AGENT",
                 "SIZING_AGENT",
             ]:
-                await learning_service.record_agent_call(agent, True, elapsed, session)
+                # Removed learning_service reference - service deleted
                 metrics_store.update_agent(
                     agent,
                     "idle",
@@ -83,7 +83,8 @@ async def analyze_trade(
 
             history = trading_service.orchestrator.get_trade_history()
             if history:
-                await run_lifecycle_service.complete_run(history[-1])
+                # Removed run_lifecycle_service reference - service deleted
+                pass
 
         estimated_tokens = max(200, len(str(result)) // 2)
         estimated_cost_usd = round(estimated_tokens * 0.000003, 6)
