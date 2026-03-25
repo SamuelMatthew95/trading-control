@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any
 
 from api.events.bus import EventBus, STREAMS
@@ -60,10 +61,13 @@ class StreamConsumer:
                         # Broadcast to WebSocket if manager exists
                         if self.ws:
                             try:
+                                # Unified format: always include 'type' for frontend routing
                                 await self.ws.broadcast({
+                                    "type": "event",
                                     "stream": stream,
                                     "message_id": msg_id,
-                                    "data": data
+                                    "data": data,
+                                    "timestamp": datetime.now(timezone.utc).isoformat()
                                 })
                                 log_structured(
                                     "info", "ws_event_sent",
