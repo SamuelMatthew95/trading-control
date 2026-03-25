@@ -66,8 +66,8 @@ class SystemMetricsConsumer(BaseStreamConsumer):
                 "tags": tags,
                 "schema_version": "v2",
                 "source": "system_monitor",
-                "timestamp": timestamp.isoformat() if timestamp else None
-            }
+                "timestamp": timestamp.isoformat() if timestamp else None,
+            },
         )
 
         # Log for observability

@@ -41,10 +41,10 @@ def mock_redis():
 @pytest.fixture
 def consumer(mock_bus, mock_dlq, mock_redis):
     """Create SystemMetricsConsumer instance."""
-    with patch('api.services.system_metrics_consumer.SafeWriter') as mock_safe_writer:
+    with patch("api.services.system_metrics_consumer.SafeWriter") as mock_safe_writer:
         mock_writer_instance = AsyncMock()
         mock_safe_writer.return_value = mock_writer_instance
-        
+
         consumer = SystemMetricsConsumer(mock_bus, mock_dlq, mock_redis)
         consumer.safe_writer = mock_writer_instance
         return consumer
@@ -60,15 +60,15 @@ class TestSystemMetricsConsumer:
             "metric_name": "cpu_usage",
             "value": 75.5,
             "unit": "percent",
-            "timestamp": "2024-01-01T12:00:00Z"
+            "timestamp": "2024-01-01T12:00:00Z",
         }
-        
+
         await consumer.process(data)
-        
+
         # Verify SafeWriter was called
         consumer.safe_writer.write_system_metric.assert_called_once()
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
-        
+
         # Check that msg_id is a UUID string
         assert call_args["msg_id"] is not None
         assert isinstance(call_args["msg_id"], str)
@@ -83,15 +83,15 @@ class TestSystemMetricsConsumer:
             "msg_id": existing_msg_id,
             "metric_name": "memory_usage",
             "value": 1024,
-            "unit": "MB"
+            "unit": "MB",
         }
-        
+
         await consumer.process(data)
-        
+
         # Verify SafeWriter was called with existing msg_id
         consumer.safe_writer.write_system_metric.assert_called_once()
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
-        
+
         assert call_args["msg_id"] == existing_msg_id
 
     @pytest.mark.asyncio
@@ -103,46 +103,56 @@ class TestSystemMetricsConsumer:
             "value": 85.2,
             "unit": "percent",
             "tags": {"device": "/dev/sda1"},
-            "timestamp": "2024-01-01T12:00:00Z"
+            "timestamp": "2024-01-01T12:00:00Z",
         }
-        
+
         await consumer.process(data)
-        
+
         # Verify SafeWriter was called with correct field mapping
         consumer.safe_writer.write_system_metric.assert_called_once()
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
-        
-        assert call_args["metric_name"] == "disk_usage"
-        assert call_args["metric_value"] == 85.2
-        assert call_args["metric_unit"] == "percent"
-        assert call_args["tags"] == {"device": "/dev/sda1"}
-        assert call_args["schema_version"] == "v2"
-        assert call_args["source"] == "system_monitor"
-        assert isinstance(call_args["timestamp"], datetime)
+
+        assert call_args["msg_id"] == "test-123"
+        assert call_args["stream"] == "system_metrics"
+
+        # Check data dictionary contents
+        data_dict = call_args["data"]
+        assert data_dict["metric_name"] == "disk_usage"
+        assert data_dict["value"] == 85.2
+        assert data_dict["unit"] == "percent"
+        assert data_dict["tags"] == {"device": "/dev/sda1"}
+        assert data_dict["schema_version"] == "v2"
+        assert data_dict["source"] == "system_monitor"
+        assert isinstance(data_dict["timestamp"], str)  # ISO string
 
     @pytest.mark.asyncio
     async def test_process_handles_missing_optional_fields(self, consumer):
         """Test that missing optional fields are handled gracefully."""
         data = {
             "metric_name": "network_latency",
-            "value": 25.3
+            "value": 25.3,
             # Missing unit, tags, timestamp
         }
-        
+
         await consumer.process(data)
-        
+
         # Verify SafeWriter was called with defaults
         consumer.safe_writer.write_system_metric.assert_called_once()
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
-        
-        assert call_args["metric_name"] == "network_latency"
-        assert call_args["metric_value"] == 25.3
-        assert call_args["metric_unit"] is None
-        assert call_args["tags"] == {}
-        assert call_args["schema_version"] == "v2"
-        assert call_args["source"] == "system_monitor"
-        # Timestamp should be recent (fallback to now)
-        assert isinstance(call_args["timestamp"], datetime)
+
+        assert call_args["msg_id"] is not None
+        assert call_args["stream"] == "system_metrics"
+
+        # Check data dictionary contents
+        data_dict = call_args["data"]
+        assert data_dict["metric_name"] == "network_latency"
+        assert data_dict["value"] == 25.3
+        assert data_dict["unit"] is None
+        assert data_dict["tags"] == {}
+        assert data_dict["schema_version"] == "v2"
+        assert data_dict["source"] == "system_monitor"
+        # Timestamp should be ISO string (fallback to now)
+        assert isinstance(data_dict["timestamp"], str)
 
     @pytest.mark.asyncio
     async def test_process_timestamp_fallback(self, consumer):
@@ -151,14 +161,15 @@ class TestSystemMetricsConsumer:
         data_valid = {
             "metric_name": "cpu_temp",
             "value": 65.0,
-            "timestamp": "2024-01-01T12:00:00Z"
+            "timestamp": "2024-01-01T12:00:00Z",
         }
-        
+
         await consumer.process(data_valid)
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
-        
-        expected_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        assert call_args["timestamp"] == expected_time
+        data_dict = call_args["data"]
+
+        expected_time = "2024-01-01T12:00:00+00:00"
+        assert data_dict["timestamp"] == expected_time
 
     @pytest.mark.asyncio
     async def test_process_timestamp_invalid_fallback(self, consumer):
@@ -166,32 +177,33 @@ class TestSystemMetricsConsumer:
         data_invalid = {
             "metric_name": "cpu_temp",
             "value": 65.0,
-            "timestamp": "invalid-timestamp"
+            "timestamp": "invalid-timestamp",
         }
-        
+
         await consumer.process(data_invalid)
         call_args = consumer.safe_writer.write_system_metric.call_args[1]
-        
-        # Should fallback to current time
-        assert isinstance(call_args["timestamp"], datetime)
+        data_dict = call_args["data"]
+
+        # Should fallback to current time as ISO string
+        assert isinstance(data_dict["timestamp"], str)
         # Should be recent (within last few seconds)
+        from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc)
-        assert abs((call_args["timestamp"] - now).total_seconds()) < 5
+        parsed_time = datetime.fromisoformat(data_dict["timestamp"])
+        assert abs((parsed_time - now).total_seconds()) < 5
 
     @pytest.mark.asyncio
     async def test_process_kill_switch_active(self, consumer):
         """Test that processing stops when kill switch is active."""
         # Mock kill switch active
         consumer.redis.get.return_value = "1"
-        
-        data = {
-            "metric_name": "test_metric",
-            "value": 42.0
-        }
-        
+
+        data = {"metric_name": "test_metric", "value": 42.0}
+
         with pytest.raises(RuntimeError, match="KillSwitchActive"):
             await consumer.process(data)
-        
+
         # SafeWriter should not be called
         consumer.safe_writer.write_system_metric.assert_not_called()
 
@@ -224,14 +236,11 @@ class TestSystemMetricsConsumer:
     @pytest.mark.asyncio
     async def test_process_logging(self, consumer):
         """Test that processing is logged correctly."""
-        data = {
-            "metric_name": "test_metric",
-            "value": 42.0
-        }
-        
-        with patch.object(consumer.logger, 'info') as mock_log:
+        data = {"metric_name": "test_metric", "value": 42.0}
+
+        with patch.object(consumer.logger, "info") as mock_log:
             await consumer.process(data)
-            
+
             # Verify logging was called
             mock_log.assert_called_once()
             args, kwargs = mock_log.call_args
