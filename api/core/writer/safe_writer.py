@@ -361,6 +361,12 @@ class SafeWriter:
         timestamp: datetime,
     ) -> bool:
         """Write system metric with idempotent msg_id as primary identifier."""
+        # Validate msg_id is a proper UUID string
+        if not isinstance(msg_id, str):
+            raise ValueError("msg_id must be string UUID")
+        if not msg_id.replace('-', '').replace('_', '').isalnum():
+            raise ValueError(f"Invalid msg_id format: {msg_id}")
+            
         async with self.transaction() as session:
             try:
                 # Validate required parameters

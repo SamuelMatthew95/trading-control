@@ -80,6 +80,20 @@ async def get_system_status():
         # Stream Lag calculation
         stream_lag = await get_stream_lag()
         
+        # Sanitize lag values to prevent NaN
+        sanitized_lag = {}
+        for stream, data in stream_lag.items():
+            if isinstance(data, dict):
+                sanitized_lag[stream] = {
+                    "lag_ms": data.get("lag_ms", 0) or 0,
+                    "lag_seconds": data.get("lag_seconds", 0) or 0,
+                    "head_id": data.get("head_id", ""),
+                    "last_processed_id": data.get("last_processed_id", ""),
+                    "error": data.get("error")
+                }
+            else:
+                sanitized_lag[stream] = data
+        
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "agent_pulse": agent_pulse,
@@ -88,7 +102,7 @@ async def get_system_status():
                 "filled_orders_last_hour": filled_orders,
                 "total_orders_last_hour": pending_orders + filled_orders
             },
-            "stream_lag": stream_lag
+            "stream_lag": sanitized_lag
         }
 
 
@@ -255,9 +269,9 @@ async def get_system_metrics(
             "metrics": [
                 {
                     "metric_name": m.metric_name,
-                    "metric_value": m.metric_value,
+                    "metric_value": float(m.metric_value or 0),  # Guard against NaN/None
                     "metric_unit": m.metric_unit,
-                    "tags": m.tags,
+                    "tags": m.tags or {},  # Guard against None
                     "timestamp": m.timestamp.isoformat()
                 }
                 for m in metrics
