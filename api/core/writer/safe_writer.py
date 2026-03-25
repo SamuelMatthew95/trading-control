@@ -52,9 +52,8 @@ class SafeWriter:
                     f"{model_name}: Source field is required and cannot be empty"
                 )
     
-    def _log_write_operation(self, operation: str, model_name: str, data: Dict[str, Any]) -> None:
+    def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
         """Log write operations with proper context."""
-        entity_id = data.get('id') or data.get('msg_id') or 'unknown'
         logger.info(
             f"[WRITE_AUDIT] operation={operation} "
             f"model={model_name} id={entity_id}"
@@ -123,7 +122,7 @@ class SafeWriter:
                     raise ValueError("idempotency_key is required for order deduplication")
 
                 # Log the operation
-                self._log_write_operation('write_order', 'Order', data)
+                self._log_write_operation('write_order', 'Order', msg_id)
 
                 # STEP 1: Insert Order FIRST (business logic)
                 order = Order(
@@ -196,7 +195,7 @@ class SafeWriter:
                 self.validate_payload(data, ['strategy_id', 'symbol', 'order_id'])
 
                 # Log the operation
-                self._log_write_operation('write_execution', 'Event', data)
+                self._log_write_operation('write_execution', 'Event', msg_id)
 
                 # Insert event
                 await session.execute(
@@ -278,7 +277,7 @@ class SafeWriter:
                 self.validate_payload(data, ['agent_id', 'level', 'message'])
 
                 # Log the operation
-                self._log_write_operation('write_agent_log', 'AgentLog', data)
+                self._log_write_operation('write_agent_log', 'AgentLog', msg_id)
 
                 # Handle timestamp with explicit fallback logging
                 timestamp_str = data.get('timestamp')
@@ -357,10 +356,7 @@ class SafeWriter:
                 if metric_value is None:
                     raise ValueError("metric_value is required")
                 
-                # TEMP DEBUG: Trace msg_id flow
-                logger.info("DEBUG_WRITE", extra={"msg_id": msg_id, "caller": "SafeWriter"})
-                
-                # Log the operation with actual msg_id
+                # Log operation with actual msg_id
                 logger.info(
                     "[WRITE_AUDIT] operation=write_system_metric model=SystemMetrics id=%s",
                     msg_id,
@@ -419,7 +415,7 @@ class SafeWriter:
                 )
 
                 # Log the operation
-                self._log_write_operation('write_trade_performance', 'TradePerformance', data)
+                self._log_write_operation('write_trade_performance', 'TradePerformance', msg_id)
 
                 # Handle timestamps with explicit fallback logging
                 entry_time_str = data['entry_time']
@@ -498,7 +494,7 @@ class SafeWriter:
                     raise ValueError("embedding must be numeric")
 
                 # Log the operation
-                self._log_write_operation('write_vector_memory', 'VectorMemory', data)
+                self._log_write_operation('write_vector_memory', 'VectorMemory', msg_id)
 
                 vector_data = {
                     'content': data['content'],
