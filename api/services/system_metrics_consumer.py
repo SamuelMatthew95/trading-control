@@ -35,14 +35,15 @@ class SystemMetricsConsumer(BaseStreamConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         """
-        Process a system metric message safely, generating a unique msg_id if missing.
-        Ensures exactly-once writes with SafeWriter.
+        Process a system metric message safely.
+        Ensures exactly-once writes with SafeWriter and proper msg_id validation.
         """
-        # Kill switch
-        if await self.redis.get("kill_switch:active") == "1":
+        # Kill switch - fix Redis bytes comparison
+        value = await self.redis.get("kill_switch:active")
+        if value and value.decode() == "1":
             raise RuntimeError("KillSwitchActive")
-        # Use Redis msg_id if available, else generate UUID
-        msg_id = data.get("msg_id") or str(uuid.uuid4())
+        # ✅ Use centralized msg_id extraction
+        msg_id = self.extract_msg_id(data)
 
         # Parse timestamp, fallback to UTC now
         timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(

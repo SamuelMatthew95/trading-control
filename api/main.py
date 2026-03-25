@@ -39,6 +39,7 @@ from api.routes.health import router as health_router
 from api.routes.monitoring import router as monitoring_router
 from api.routes.trades import router as trades_router
 from api.routes.ws import router as ws_router
+from api.routes.dashboard_v2 import router as dashboard_router
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.brokers.alpaca import AlpacaBroker
@@ -103,7 +104,10 @@ async def _record_system_metric(
     labels: dict[str, Any] | None = None,
 ) -> None:
     labels = labels or {}
+    # Generate msg_id ONCE at producer layer
+    msg_id = str(uuid.uuid4())
     payload = {
+        "msg_id": msg_id,  # ✅ CRITICAL: Add msg_id at producer layer
         "type": "system_metric",
         "metric_name": metric_name,
         "value": value,
@@ -118,7 +122,7 @@ async def _record_system_metric(
                     "VALUES (:id, :metric_name, :value, CAST(:labels AS JSONB), :timestamp)"
                 ),
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": msg_id,
                     "metric_name": metric_name,
                     "value": value,
                     "labels": json.dumps(labels, default=str),
@@ -126,12 +130,16 @@ async def _record_system_metric(
                 },
             )
             await session.commit()
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        # Only log ERROR if DB insert actually fails
         log_structured(
-            "warning",
-            "Unable to persist system metric",
+            "error",
+            "System metric database write failed",
             metric_name=metric_name,
+            error=str(e),
+            msg_id=msg_id
         )
+        # Still publish to stream - let consumer handle it
     await bus.publish("system_metrics", payload)
 
 
@@ -144,11 +152,12 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
             "length": int(info.get("length", 0)),
             "groups": int(info.get("groups", 0)),
         }
-        await _record_system_metric(bus, f"stream_lag:{stream}", lag, labels)
+        await _record_system_metric(bus, "stream_lag", lag, {"stream": stream})
         if lag > settings.MAX_CONSUMER_LAG_ALERT:
             await bus.publish(
                 "risk_alerts",
                 {
+                    "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
                     "type": "consumer_lag",
                     "stream": stream,
                     "lag": lag,
@@ -167,12 +176,13 @@ async def on_message_processed(bus: EventBus, stream: str, lag: float) -> None:
     """Triggered when a message is processed - updates consumer lag immediately."""
     if lag > settings.MAX_CONSUMER_LAG_ALERT:
         await _record_system_metric(
-            bus, f"stream_lag:{stream}", lag,
+            bus, "stream_lag", lag,
             {"stream": stream, "alert": "high"}
         )
         await bus.publish(
             "risk_alerts",
             {
+                "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
                 "type": "consumer_lag",
                 "stream": stream,
                 "lag": lag,
@@ -192,6 +202,7 @@ async def on_llm_cost_updated(bus: EventBus, redis_client, cost: float) -> None:
         await bus.publish(
             "risk_alerts",
             {
+                "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
                 "type": "llm_cost",
                 "cost": cost,
                 "limit": settings.ANTHROPIC_COST_ALERT_USD,
@@ -465,6 +476,7 @@ app.include_router(analyze_router, prefix="/api")
 app.include_router(trades_router, prefix="/api")
 app.include_router(monitoring_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
 app.include_router(ws_router)
 
 

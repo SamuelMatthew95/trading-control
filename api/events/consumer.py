@@ -72,6 +72,21 @@ class BaseStreamConsumer(ABC):
     async def process(self, data: dict[str, Any]) -> None:
         raise NotImplementedError
 
+    def extract_msg_id(self, data: dict[str, Any]) -> str:
+        """Extract and validate msg_id from event data. Centralized enforcement."""
+        msg_id = data.get("msg_id")
+        if not msg_id:
+            log_structured(
+                "error",
+                "🚨 MISSING msg_id - Producer Bug",
+                extra={
+                    "stream": self.stream,
+                    "data_keys": list(data.keys()),
+                },
+            )
+            raise RuntimeError(f"Missing msg_id in {self.stream}")
+        return msg_id
+
     async def _run_once(self) -> None:
         """Run a single iteration of the consumer loop for testing."""
         try:
@@ -198,6 +213,10 @@ class BaseStreamConsumer(ABC):
 
     async def _handle_message(self, msg_id: str, data: dict[str, Any]) -> None:
         """Handle a single message with comprehensive error handling."""
+        # Hard guard: enforce msg_id at ingestion boundary
+        if "msg_id" not in data:
+            raise RuntimeError(f"Invalid event: missing msg_id in {self.stream}")
+        
         send_to_dlq = False
         try:
             await self.process(data)
