@@ -330,12 +330,9 @@ class SafeWriter:
 
                 metric_data = {
                     'metric_name': data['metric_name'],
-                    'metric_value': data['value'],
-                    'metric_unit': data.get('unit'),
-                    'labels': data.get('labels', {}),
-                    'created_at': (
-                        self.safe_parse_dt(data.get('timestamp')) or datetime.now(timezone.utc)
-                    )
+                    'value': data['value'],
+                    'schema_version': data.get('schema_version', 'v2'),
+                    'source': data.get('source', 'unknown')
                 }
 
                 await session.execute(insert(SystemMetrics).values(**metric_data))

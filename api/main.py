@@ -45,6 +45,10 @@ from api.services.execution.brokers.alpaca import AlpacaBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.execution.reconciler import OrderReconciler
 from api.services.signal_generator import SignalGenerator
+from api.services.system_metrics_consumer import SystemMetricsConsumer
+from api.services.simple_consumers import (
+    ExecutionsConsumer, RiskAlertsConsumer, LearningEventsConsumer, AgentLogsConsumer
+)
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
 
@@ -245,6 +249,11 @@ async def lifespan(app: FastAPI):
     order_reconciler: OrderReconciler | None = None
     reasoning_agent: ReasoningAgent | None = None
     signal_generator: SignalGenerator | None = None
+    system_metrics_consumer: SystemMetricsConsumer | None = None
+    executions_consumer: ExecutionsConsumer | None = None
+    risk_alerts_consumer: RiskAlertsConsumer | None = None
+    learning_events_consumer: LearningEventsConsumer | None = None
+    agent_logs_consumer: AgentLogsConsumer | None = None
     consumer_lag_monitor: BackgroundServiceTask | None = None
     llm_cost_monitor_service: BackgroundServiceTask | None = None
     app.state.redis_client = None
@@ -338,6 +347,28 @@ async def lifespan(app: FastAPI):
             await reasoning_agent.start()
             app.state.reasoning_agent = reasoning_agent
 
+            # Start system metrics consumer to clear backlog
+            system_metrics_consumer = SystemMetricsConsumer(event_bus, dlq_manager, redis_client)
+            await system_metrics_consumer.start()
+            app.state.system_metrics_consumer = system_metrics_consumer
+
+            # Start simple consumers for all remaining streams
+            executions_consumer = ExecutionsConsumer(event_bus, dlq_manager, redis_client)
+            await executions_consumer.start()
+            app.state.executions_consumer = executions_consumer
+
+            risk_alerts_consumer = RiskAlertsConsumer(event_bus, dlq_manager, redis_client)
+            await risk_alerts_consumer.start()
+            app.state.risk_alerts_consumer = risk_alerts_consumer
+
+            learning_events_consumer = LearningEventsConsumer(event_bus, dlq_manager, redis_client)
+            await learning_events_consumer.start()
+            app.state.learning_events_consumer = learning_events_consumer
+
+            agent_logs_consumer = AgentLogsConsumer(event_bus, dlq_manager, redis_client)
+            await agent_logs_consumer.start()
+            app.state.agent_logs_consumer = agent_logs_consumer
+
             consumer_lag_monitor = BackgroundServiceTask(
                 asyncio.create_task(
                     monitor_consumer_lag(event_bus, stop_event),
@@ -380,6 +411,16 @@ async def lifespan(app: FastAPI):
             await consumer_lag_monitor.stop()
         if reasoning_agent is not None:
             await reasoning_agent.stop()
+        if system_metrics_consumer is not None:
+            await system_metrics_consumer.stop()
+        if executions_consumer is not None:
+            await executions_consumer.stop()
+        if risk_alerts_consumer is not None:
+            await risk_alerts_consumer.stop()
+        if learning_events_consumer is not None:
+            await learning_events_consumer.stop()
+        if agent_logs_consumer is not None:
+            await agent_logs_consumer.stop()
         if execution_engine is not None:
             await execution_engine.stop()
         if order_reconciler is not None:
