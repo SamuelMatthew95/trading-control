@@ -1,6 +1,7 @@
 """System metrics handler - processes system_metrics stream."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from api.core.schemas import ProcessResult
@@ -33,15 +34,27 @@ async def handle_system_metric(
         # Write to database using SafeWriter
         safe_writer = SafeWriter(AsyncSessionLocal)
         
-        # Transform data to match SafeWriter expectations
-        metric_data = {
-            "schema_version": "v2",
-            "source": "system_monitor",
-            "metric_name": data["metric_name"],
-            "value": data["value"]
-        }
+        # Handle timestamp with fallback
+        timestamp_str = data.get("timestamp")
+        if timestamp_str:
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                timestamp = datetime.now(timezone.utc)
+        else:
+            timestamp = datetime.now(timezone.utc)
         
-        await safe_writer.write_system_metric(msg_id, stream, metric_data)
+        # Use new signature with explicit parameters
+        await safe_writer.write_system_metric(
+            msg_id=msg_id,
+            metric_name=data["metric_name"],
+            metric_value=float(data["value"]),
+            metric_unit=data.get("unit"),
+            tags=data.get("tags", {}),
+            schema_version="v2",
+            source="system_monitor",
+            timestamp=timestamp,
+        )
         
         logger.debug(f"Processed system metric: {data['metric_name']} = {data['value']}")
         

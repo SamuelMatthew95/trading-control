@@ -347,9 +347,15 @@ class SafeWriter:
         """Write system metric with idempotent msg_id as primary identifier."""
         async with self.transaction() as session:
             try:
-                # Validate required msg_id
+                # Validate required parameters
                 if not msg_id:
                     raise ValueError("msg_id is required for idempotent writes")
+                
+                if not metric_name:
+                    raise ValueError("metric_name is required")
+                
+                if metric_value is None:
+                    raise ValueError("metric_value is required")
                 
                 # Log the operation with actual msg_id
                 logger.info(
