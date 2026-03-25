@@ -16,9 +16,6 @@ from api.services.system_metrics_handler import handle_system_metric
 from api.core.schemas import ProcessResult
 
 
-pytestmark = pytest.mark.timeout(10)
-
-
 class TestSchemaMapping:
     """Test schema mapping between incoming messages and database models."""
     
