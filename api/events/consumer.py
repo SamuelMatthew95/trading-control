@@ -58,6 +58,30 @@ class BaseStreamConsumer(ABC):
     async def process(self, data: dict[str, Any]) -> None:
         raise NotImplementedError
 
+    async def _run_once(self) -> None:
+        """Run a single iteration of the consumer loop for testing."""
+        try:
+            # Claim pending messages (PEL recovery)
+            reclaimed = await self._safe_reclaim_stale()
+            for msg_id, data in reclaimed:
+                if not self._running:
+                    break
+                await self._handle_message(msg_id, data)
+        except Exception as exc:
+            log_structured("warning", "Redis reclaim failed, skipping", exc_info=True)
+
+        # Try to consume new messages
+        try:
+            messages = await self.bus.consume(
+                self.stream, self.group, self.consumer, count=10, block_ms=0  # No blocking for tests
+            )
+            for msg_id, data in messages:
+                if not self._running:
+                    break
+                await self._handle_message(msg_id, data)
+        except Exception as exc:
+            log_structured("warning", "Consumer iteration failed", stream=self.stream, exc_info=True)
+
     async def _run(self) -> None:
         try:
             reclaimed = await self._safe_reclaim_stale()
@@ -86,9 +110,11 @@ class BaseStreamConsumer(ABC):
                     stream=self.stream,
                     exc_info=True,
                 )
-                # Brief backoff before retry
+                # Exponential backoff with max 10 seconds
+                backoff = min(getattr(self, '_backoff', 1) * 2, 10)
+                setattr(self, '_backoff', backoff)
                 try:
-                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=1.0)
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=backoff)
                 except asyncio.TimeoutError:
                     continue
                 break
