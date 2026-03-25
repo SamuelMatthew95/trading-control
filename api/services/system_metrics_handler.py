@@ -38,10 +38,7 @@ async def handle_system_metric(
             "schema_version": "v2",
             "source": "system_monitor",
             "metric_name": data["metric_name"],
-            "value": data["value"],
-            "unit": data.get("metric_unit"),
-            "labels": data.get("labels", {}),
-            "timestamp": data.get("timestamp")
+            "value": data["value"]
         }
         
         await safe_writer.write_system_metric(msg_id, stream, metric_data)
