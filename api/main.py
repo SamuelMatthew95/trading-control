@@ -40,6 +40,7 @@ from api.routes.monitoring import router as monitoring_router
 from api.routes.trades import router as trades_router
 from api.routes.ws import router as ws_router
 from api.routes.dashboard_v2 import router as dashboard_router
+from api.redis_inspector import router as debug_redis_router
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.brokers.alpaca import AlpacaBroker
@@ -380,6 +381,10 @@ async def lifespan(app: FastAPI):
             await agent_logs_consumer.start()
             app.state.agent_logs_consumer = agent_logs_consumer
 
+            # Start background stream consumer for WebSocket broadcasting
+            from api.services.stream_consumer import start_stream_consumer
+            await start_stream_consumer(event_bus, app.state.websocket_broadcaster)
+
             consumer_lag_monitor = BackgroundServiceTask(
                 asyncio.create_task(
                     monitor_consumer_lag(event_bus, stop_event),
@@ -439,6 +444,10 @@ async def lifespan(app: FastAPI):
         if signal_generator is not None:
             await signal_generator.stop()
 
+        # Stop stream consumer
+        from api.services.stream_consumer import stop_stream_consumer
+        await stop_stream_consumer()
+
         # Stop WebSocket broadcaster
         if (
             hasattr(app.state, "websocket_broadcaster")
@@ -477,6 +486,7 @@ app.include_router(trades_router, prefix="/api")
 app.include_router(monitoring_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
+app.include_router(debug_redis_router, prefix="/api")
 app.include_router(ws_router)
 
 

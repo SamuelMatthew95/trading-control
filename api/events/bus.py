@@ -24,17 +24,28 @@ DEFAULT_GROUP = "workers"
 
 
 def _serialize(value: Any) -> str:
-    """Serialize Python value to Redis-compatible string.
+    """Strict Redis-safe serialization (Valkey 8 safe).
     
-    Redis 6-7 compatible: only strings, bytes, ints, floats allowed in XADD.
-    Handles: dict -> JSON, list -> JSON, bool -> "true"/"false",
-    other -> str()
+    Redis Streams (XADD) ONLY accepts: str, bytes, int, float
+    NOT dict, NOT list, NOT None
+    
+    Handles:
+    - None -> ""
+    - str/int/float -> str(value)
+    - dict/list/bool/anything else -> JSON
     """
-    if isinstance(value, (dict, list)):
+    if value is None:
+        return ""
+    
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    
+    # EVERYTHING else -> JSON (dicts, lists, booleans, objects)
+    try:
         return json.dumps(value)
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
+    except (TypeError, ValueError):
+        # Fallback: force to string
+        return str(value)
 
 
 def _deserialize(value: str) -> Any:
@@ -88,16 +99,38 @@ class EventBus:
         
         All values serialized to strings for Redis 6-7 XADD compatibility.
         """
+        # Serialize all values to strings with defensive fallback
+        serialized_event = {}
+        for k, v in event.items():
+            try:
+                serialized_event[k] = _serialize(v)
+            except Exception:
+                # NEVER allow raw values through
+                serialized_event[k] = str(v)
+        
+        # EXTRA SAFETY: catch any unserialized dicts (bugs early)
+        for k, v in serialized_event.items():
+            if isinstance(v, dict):
+                error_msg = f"UNSERIALIZED FIELD: {k}={v}"
+                log_structured("error", error_msg, stream=stream, event_keys=list(event.keys()))
+                raise ValueError(error_msg)
+        
         try:
-            # Serialize all values to strings
-            serialized_event = {k: _serialize(v) for k, v in event.items()}
-            
             kwargs = {}
             if maxlen:
                 kwargs["maxlen"] = maxlen
                 kwargs["approximate"] = True
                 
             message_id = await self.redis.xadd(stream, serialized_event, **kwargs)
+            
+            # Log successful publish
+            log_structured(
+                "info", "event_published", 
+                stream=stream, 
+                message_id=str(message_id),
+                keys=list(serialized_event.keys())
+            )
+            
             return str(message_id)
             
         except (ConnectionError, TimeoutError):
@@ -145,6 +178,16 @@ class EventBus:
                     
                     result.append((decoded_id, decoded_fields))
                     
+            # Log successful consumption
+            if result:
+                log_structured(
+                    "info", "event_consumed",
+                    stream=stream,
+                    group=group,
+                    consumer=consumer,
+                    count=len(result)
+                )
+            
             return result
             
         except (ConnectionError, TimeoutError):
@@ -256,7 +299,19 @@ class EventBus:
             result = await self.redis.xautoclaim(
                 stream, group, consumer, min_idle_ms, start_id="0-0"
             )
-            return self._decode_autoclaim(result)
+            decoded = self._decode_autoclaim(result)
+            
+            # Log successful reclaim
+            if decoded:
+                log_structured(
+                    "info", "events_reclaimed",
+                    stream=stream,
+                    group=group,
+                    consumer=consumer,
+                    count=len(decoded)
+                )
+            
+            return decoded
             
         except (ConnectionError, TimeoutError):
             log_structured(
