@@ -29,13 +29,13 @@ class EventBus:
         self.redis = redis_client
 
     async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str:
-        payload = {"payload": json.dumps(event, default=str)}
+        """Publish event directly to stream (no payload wrapper for V3)."""
         try:
             kwargs = {}
             if maxlen:
                 kwargs["maxlen"] = maxlen
                 kwargs["approximate"] = True
-            message_id = await self.redis.xadd(stream, payload, **kwargs)
+            message_id = await self.redis.xadd(stream, event, **kwargs)
             return str(message_id)
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
@@ -56,6 +56,7 @@ class EventBus:
         count: int = 10,
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
+        """Consume messages directly (no payload wrapper for V3)."""
         try:
             messages = await self.redis.xreadgroup(
                 groupname=group,
@@ -64,7 +65,14 @@ class EventBus:
                 count=count,
                 block=block_ms,
             )
-            return self._decode_message_batch(messages)
+            # Direct decode for V3 (no payload wrapper)
+            result = []
+            for stream_name, stream_messages in messages:
+                for msg_id, fields in stream_messages:
+                    # Convert bytes to strings
+                    decoded_fields = {k.decode() if isinstance(k, bytes) else k: v.decode() if isinstance(v, bytes) else v for k, v in fields.items()}
+                    result.append((msg_id.decode() if isinstance(msg_id, bytes) else msg_id, decoded_fields))
+            return result
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
                 "warning", "Redis connection error during consume", stream=stream, exc_info=True
@@ -91,6 +99,26 @@ class EventBus:
                 "warning", "Redis acknowledge failed", stream=stream, exc_info=True
             )
             return 0
+
+    async def create_stream(self, stream: str) -> None:
+        """Create a stream if it doesn't exist."""
+        try:
+            await self.redis.xadd(stream, {"_init": "1"}, maxlen=1)
+            # Remove the init message
+            messages = await self.redis.xrange(stream)
+            if messages:
+                await self.redis.xdel(stream, messages[0][0])
+        except Exception as e:
+            # Stream might already exist
+            pass
+
+    async def create_consumer_group(self, stream: str, group: str) -> None:
+        """Create consumer group if it doesn't exist."""
+        try:
+            await self.redis.xgroup_create(stream, group, id="0", mkstream=True)
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
 
     async def create_groups(self) -> None:
         for stream in STREAMS:

@@ -30,17 +30,17 @@ class SafeWriter:
     def __init__(self, session_factory):
         self.session_factory = session_factory
     
-    def _validate_schema_v2(self, data: Dict[str, Any], model_name: str) -> None:
-        """Strict V2 schema validation - centralized enforcement."""
+    def _validate_schema_v3(self, data: Dict[str, Any], model_name: str) -> None:
+        """Strict V3 schema validation - centralized enforcement."""
         # All models must have schema_version
         if 'schema_version' not in data:
             raise ValueError(
                 f"{model_name}: Missing required field 'schema_version'"
             )
         
-        if data['schema_version'] != 'v2':
+        if data['schema_version'] != 'v3':
             raise ValueError(
-                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v2'"
+                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v3'"
             )
         
         # Source field validation for models that have it
@@ -52,6 +52,12 @@ class SafeWriter:
                 raise ValueError(
                     f"{model_name}: Source field is required and cannot be empty"
                 )
+        
+        # Trace ID validation for v3
+        if 'trace_id' not in data or not data['trace_id']:
+            raise ValueError(
+                f"{model_name}: trace_id field is required for v3 events"
+            )
     
     def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
         """Log write operations with proper context."""
@@ -121,8 +127,8 @@ class SafeWriter:
             
         async with self.transaction() as session:
             try:
-                # Strict V2 schema validation
-                self._validate_schema_v2(data, 'Order')
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'Order')
                 self.validate_payload(
                     data, ['strategy_id', 'symbol', 'side', 'order_type', 'quantity'], 'write_order'
                 )
@@ -204,8 +210,8 @@ class SafeWriter:
             
         async with self.transaction() as session:
             try:
-                # Strict V2 schema validation
-                self._validate_schema_v2(data, 'Event')
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'Event')
                 self.validate_payload(data, ['strategy_id', 'symbol', 'order_id'])
 
                 # Log the operation
@@ -289,8 +295,8 @@ class SafeWriter:
             
         async with self.transaction() as session:
             try:
-                # Strict V2 schema validation
-                self._validate_schema_v2(data, 'AgentLog')
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'AgentLog')
                 self.validate_payload(data, ['agent_id', 'level', 'message'])
 
                 # Log the operation
@@ -434,8 +440,8 @@ class SafeWriter:
             
         async with self.transaction() as session:
             try:
-                # Strict V2 schema validation
-                self._validate_schema_v2(data, 'TradePerformance')
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'TradePerformance')
                 self.validate_payload(
                     data, ['strategy_id', 'symbol', 'trade_id', 'entry_price', 'quantity']
                 )
@@ -510,8 +516,8 @@ class SafeWriter:
             
         async with self.transaction() as session:
             try:
-                # Strict V2 schema validation
-                self._validate_schema_v2(data, 'VectorMemory')
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'VectorMemory')
                 self.validate_payload(data, ['content', 'content_type', 'embedding'])
 
                 # 🔥 CRITICAL: Validate embedding size and type
@@ -586,4 +592,222 @@ class SafeWriter:
 
             except Exception as e:
                 logger.error("write_risk_alert_error", extra={"msg_id": msg_id, "error": str(e)})
+                raise
+
+    async def write_agent_grade(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+        """Write agent grade with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_agent_grade")
+            
+        async with self.transaction() as session:
+            try:
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'AgentGrades')
+                self.validate_payload(data, ['agent_id', 'agent_run_id', 'grade_type', 'score'])
+
+                # Log the operation
+                self._log_write_operation('write_agent_grade', 'AgentGrades', msg_id)
+
+                grade_data = {
+                    'agent_id': data['agent_id'],
+                    'agent_run_id': data['agent_run_id'],
+                    'grade_type': data['grade_type'],
+                    'score': data['score'],
+                    'metrics': data.get('metrics', {}),
+                    'feedback': data.get('feedback'),
+                    'schema_version': data.get('schema_version', 'v3'),
+                    'source': data.get('source', 'unknown')
+                }
+
+                await session.execute(insert(AgentGrades).values(**grade_data))
+                await session.flush()
+
+                # CLAIM LAST with RETURNING
+                if not await self._claim_message(session, msg_id, stream):
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
+                
+                logger.info(
+                    "write_agent_grade_success",
+                    extra={"msg_id": msg_id, "agent_id": data['agent_id'], "grade_type": data['grade_type']}
+                )
+                return True
+
+            except Exception as e:
+                logger.error("write_agent_grade_error", extra={"msg_id": msg_id, "error": str(e)})
+                raise
+
+    async def write_ic_weight(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+        """Write IC weight with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_ic_weight")
+            
+        async with self.transaction() as session:
+            try:
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'ICWeight')
+                self.validate_payload(data, ['factor_name', 'ic_value', 'weight'])
+
+                # Log the operation
+                self._log_write_operation('write_ic_weight', 'ICWeight', msg_id)
+
+                # Insert as event for now (can be extended to dedicated table later)
+                event_data = {
+                    'event_type': 'ic.weight_updated',
+                    'entity_type': 'factor',
+                    'entity_id': data.get('factor_id'),
+                    'data': data
+                }
+
+                await session.execute(insert(Event).values(**event_data))
+                await session.flush()
+
+                # CLAIM LAST with RETURNING
+                if not await self._claim_message(session, msg_id, stream):
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
+                
+                logger.info(
+                    "write_ic_weight_success",
+                    extra={"msg_id": msg_id, "factor_name": data.get('factor_name')}
+                )
+                return True
+
+            except Exception as e:
+                logger.error("write_ic_weight_error", extra={"msg_id": msg_id, "error": str(e)})
+                raise
+
+    async def write_reflection_output(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+        """Write reflection output with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_reflection_output")
+            
+        async with self.transaction() as session:
+            try:
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'ReflectionOutput')
+                self.validate_payload(data, ['agent_id', 'reflection_type', 'insights'])
+
+                # Log the operation
+                self._log_write_operation('write_reflection_output', 'ReflectionOutput', msg_id)
+
+                # Insert as vector memory for semantic search
+                vector_data = {
+                    'content': data.get('insights', ''),
+                    'content_type': 'reflection',
+                    'embedding': data.get('embedding', [0.0] * 1536),  # Placeholder embedding
+                    'vector_metadata': {
+                        'reflection_type': data.get('reflection_type'),
+                        'agent_id': data.get('agent_id'),
+                        'trace_id': data.get('trace_id'),
+                        'schema_version': data.get('schema_version', 'v3'),
+                        'source': data.get('source', 'reflection_agent')
+                    },
+                    'agent_id': data.get('agent_id'),
+                    'strategy_id': data.get('strategy_id'),
+                    'schema_version': data.get('schema_version', 'v3'),
+                    'source': data.get('source', 'reflection_agent')
+                }
+
+                await session.execute(insert(VectorMemory).values(**vector_data))
+                await session.flush()
+
+                # CLAIM LAST with RETURNING
+                if not await self._claim_message(session, msg_id, stream):
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
+                
+                logger.info(
+                    "write_reflection_output_success",
+                    extra={"msg_id": msg_id, "agent_id": data.get('agent_id')}
+                )
+                return True
+
+            except Exception as e:
+                logger.error("write_reflection_output_error", extra={"msg_id": msg_id, "error": str(e)})
+                raise
+
+    async def write_strategy_proposal(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+        """Write strategy proposal with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_strategy_proposal")
+            
+        async with self.transaction() as session:
+            try:
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'StrategyProposal')
+                self.validate_payload(data, ['proposal_type', 'content'])
+
+                # Log the operation
+                self._log_write_operation('write_strategy_proposal', 'StrategyProposal', msg_id)
+
+                # Insert as event for now (can be extended to dedicated table later)
+                event_data = {
+                    'event_type': 'strategy.proposed',
+                    'entity_type': 'strategy',
+                    'entity_id': data.get('strategy_id'),
+                    'data': data
+                }
+
+                await session.execute(insert(Event).values(**event_data))
+                await session.flush()
+
+                # CLAIM LAST with RETURNING
+                if not await self._claim_message(session, msg_id, stream):
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
+                
+                logger.info(
+                    "write_strategy_proposal_success",
+                    extra={"msg_id": msg_id, "proposal_type": data.get('proposal_type')}
+                )
+                return True
+
+            except Exception as e:
+                logger.error("write_strategy_proposal_error", extra={"msg_id": msg_id, "error": str(e)})
+                raise
+
+    async def write_notification(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+        """Write notification with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_notification")
+            
+        async with self.transaction() as session:
+            try:
+                # Strict V3 schema validation
+                self._validate_schema_v3(data, 'Notification')
+                self.validate_payload(data, ['notification_type', 'message'])
+
+                # Log the operation
+                self._log_write_operation('write_notification', 'Notification', msg_id)
+
+                # Insert as event for now (can be extended to dedicated table later)
+                event_data = {
+                    'event_type': 'notification.created',
+                    'entity_type': 'notification',
+                    'entity_id': data.get('notification_id'),
+                    'data': data
+                }
+
+                await session.execute(insert(Event).values(**event_data))
+                await session.flush()
+
+                # CLAIM LAST with RETURNING
+                if not await self._claim_message(session, msg_id, stream):
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
+                
+                logger.info(
+                    "write_notification_success",
+                    extra={"msg_id": msg_id, "notification_type": data.get('notification_type')}
+                )
+                return True
+
+            except Exception as e:
+                logger.error("write_notification_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
