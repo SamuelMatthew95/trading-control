@@ -8,7 +8,7 @@ def test_modular_api_structure_exists():
         Path("api/routes/trades.py"),
         Path("api/routes/performance.py"),
         Path("api/services/trading.py"),
-        Path("api/core/models.py"),
+        Path("api/core/models/__init__.py"),  # Updated to use models package
     ]
     assert all(path.exists() for path in expected)
 
