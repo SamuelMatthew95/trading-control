@@ -24,17 +24,28 @@ DEFAULT_GROUP = "workers"
 
 
 def _serialize(value: Any) -> str:
-    """Serialize Python value to Redis-compatible string.
+    """Strict Redis-safe serialization (Valkey 8 safe).
     
-    Redis 6-7 compatible: only strings, bytes, ints, floats allowed in XADD.
-    Handles: dict -> JSON, list -> JSON, bool -> "true"/"false",
-    other -> str()
+    Redis Streams (XADD) ONLY accepts: str, bytes, int, float
+    NOT dict, NOT list, NOT None
+    
+    Handles:
+    - None -> ""
+    - str/int/float -> str(value)
+    - dict/list/bool/anything else -> JSON
     """
-    if isinstance(value, (dict, list)):
+    if value is None:
+        return ""
+    
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    
+    # EVERYTHING else -> JSON (dicts, lists, booleans, objects)
+    try:
         return json.dumps(value)
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
+    except (TypeError, ValueError):
+        # Fallback: force to string
+        return str(value)
 
 
 def _deserialize(value: str) -> Any:
@@ -89,8 +100,19 @@ class EventBus:
         All values serialized to strings for Redis 6-7 XADD compatibility.
         """
         try:
-            # Serialize all values to strings
-            serialized_event = {k: _serialize(v) for k, v in event.items()}
+            # Serialize all values to strings with defensive fallback
+            serialized_event = {}
+            for k, v in event.items():
+                try:
+                    serialized_event[k] = _serialize(v)
+                except Exception:
+                    # NEVER allow raw values through
+                    serialized_event[k] = str(v)
+            
+            # EXTRA SAFETY: catch any unserialized dicts (bugs early)
+            for k, v in serialized_event.items():
+                if isinstance(v, dict):
+                    raise ValueError(f"UNSERIALIZED FIELD: {k} -> {v}")
             
             kwargs = {}
             if maxlen:
