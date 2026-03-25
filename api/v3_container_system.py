@@ -48,7 +48,7 @@ class ContainerV3System:
 
     async def wait_for_dependencies(self, timeout: int = 60) -> bool:
         """Wait for Redis and PostgreSQL to be ready."""
-        print("[DEPS] ⏳ Waiting for dependencies...")
+        print("Waiting for dependencies...")
 
         # Wait for Redis
         redis_ready = False
@@ -57,28 +57,28 @@ class ContainerV3System:
                 redis = await get_redis()
                 await redis.ping()
                 redis_ready = True
-                print("[DEPS] ✅ Redis is ready")
+                print("Redis is ready")
                 await close_redis()
                 break
             except Exception as e:
                 if i == timeout - 1:
-                    print(f"[DEPS] ❌ Redis not ready after {timeout}s: {e}")
+                    print(f"Redis not ready after {timeout}s: {e}")
                     return False
                 await asyncio.sleep(1)
 
-        # Wait for PostgreSQL (via database connection test)
-        from api.db import AsyncSessionFactory
+        # Wait for PostgreSQL
         db_ready = False
         for i in range(timeout):
             try:
+                from api.db import AsyncSessionFactory
                 async with AsyncSessionFactory() as session:
                     await session.execute("SELECT 1")
                 db_ready = True
-                print("[DEPS] ✅ PostgreSQL is ready")
+                print("PostgreSQL is ready")
                 break
             except Exception as e:
                 if i == timeout - 1:
-                    print(f"[DEPS] ❌ PostgreSQL not ready after {timeout}s: {e}")
+                    print(f"PostgreSQL not ready after {timeout}s: {e}")
                     return False
                 await asyncio.sleep(1)
 
@@ -87,102 +87,97 @@ class ContainerV3System:
     async def start(self) -> None:
         """Start the V3 system with container optimizations."""
         try:
-            print("=" * 80)
-            print("🚀 V3 CONTAINER SYSTEM STARTING")
-            print("=" * 80)
-            print("✅ Container-ready signal handling")
-            print("✅ No sleep polling - immediate response")
-            print("✅ Dependency waits - Redis/Postgres ready")
-            print("✅ Graceful shutdown - SIGTERM → SIGKILL")
-            print("=" * 80)
+            print("=" * 60)
+            print("V3 CONTAINER SYSTEM STARTING")
+            print("=" * 60)
 
             # Wait for dependencies
             if not await self.wait_for_dependencies():
                 raise RuntimeError("Dependencies not ready")
 
             # Initialize Redis
-            print("[SYSTEM] Connecting to Redis...")
+            print("Connecting to Redis...")
             self.redis = await get_redis()
-            print("[SYSTEM] ✅ Redis connected")
+            print("Redis connected")
 
             # Initialize EventBus and DLQ
-            print("[SYSTEM] Initializing EventBus and DLQ...")
+            print("Initializing EventBus and DLQ...")
             self.bus = EventBus(self.redis)
             self.dlq = DLQManager(self.redis)
-            print("[SYSTEM] ✅ EventBus and DLQ initialized")
+            print("EventBus and DLQ initialized")
 
             # Start ALL agents
-            print("[SYSTEM] Starting V3 agents...")
+            print("Starting V3 agents...")
             self.agents = await start_fixed_v3_system(self.bus, self.dlq, self.redis)
             self.running = True
 
             # Start Market Ingestor for automatic market data
-            print("[SYSTEM] Starting market ingestor...")
+            print("Starting market ingestor...")
             self.market_ingestor = MarketIngestor(self.bus)
             await self.market_ingestor.start()
-            print("[SYSTEM] ✅ Market ingestor started - sending data every 10 seconds")
+            print("Market ingestor started - sending data every 10 seconds")
 
-            print(f"[SYSTEM] ✅ Started {len(self.agents)} agents + market ingestor")
-            print("\n[SYSTEM] 🔄 Active Pipeline:")
-            print("  market_ticks → SignalGenerator → signals")
-            print("  signals → ReasoningAgent → orders")
-            print("  orders → ExecutionAgent → executions")
-            print("  executions → TradePerformanceAgent → trade_performance")
-            print("  trade_performance → GradeAgent → agent_grades")
-            print("  trade_performance → ReflectionAgent → reflection_outputs")
-            print("  reflection_outputs → StrategyProposerAgent → proposals")
-            print("  trade_performance → HistoryAgent → historical_insights")
-            print("  ALL streams → NotificationAgent → notifications")
+            print(f"Started {len(self.agents)} agents + market ingestor")
+            print("\nActive Pipeline:")
+            print("  market_ticks -> SignalGenerator -> signals")
+            print("  signals -> ReasoningAgent -> orders")
+            print("  orders -> ExecutionAgent -> executions")
+            print("  executions -> TradePerformanceAgent -> trade_performance")
+            print("  trade_performance -> GradeAgent -> agent_grades")
+            print("  trade_performance -> ReflectionAgent -> reflection_outputs")
+            print("  reflection_outputs -> StrategyProposerAgent -> proposals")
+            print("  trade_performance -> HistoryAgent -> historical_insights")
+            print("  ALL streams -> NotificationAgent -> notifications")
 
-            print("\n[SYSTEM] 🎯 Container system is LIVE!")
-            print("[SYSTEM] 📊 Market data: Automatic every 10 seconds")
-            print("[SYSTEM] 📝 Manual events: redis-cli XADD market_ticks '{...}'")
-            print("[SYSTEM] ⏹️  Waiting for shutdown signal (SIGTERM/SIGKILL)...")
+            print("\nSystem is LIVE")
+            print("Market data: Automatic every 10 seconds")
+            print("Manual events: redis-cli XADD market_ticks '{...}'")
+            print("Waiting for shutdown signal (SIGTERM/SIGKILL)...")
 
         except Exception as e:
-            print(f"[SYSTEM] ❌ Startup failed: {e}")
+            print(f"Startup failed: {e}")
             log_structured("error", "container_system_startup_failed", error=str(e))
             raise
 
     async def stop(self) -> None:
         """Stop system with graceful shutdown for containers."""
-        print("\n[SYSTEM] 🛑 Shutting down container system...")
+        print("\nShutting down V3 system...")
 
         self.running = False
         self.shutdown_event.set()
 
         # Stop web server first
         if self.web_server:
-            print("[SYSTEM] Stopping web server...")
+            print("Stopping web server...")
             self.web_server.should_exit = True
-            await asyncio.sleep(0.5)  # Quick shutdown for containers
-            print("[SYSTEM] ✅ Web server stopped")
+            await asyncio.sleep(0.5)
+            print("Web server stopped")
 
         # Stop market ingestor
         if self.market_ingestor:
-            print("[SYSTEM] Stopping market ingestor...")
+            print("Stopping market ingestor...")
             await self.market_ingestor.stop()
-            print("[SYSTEM] ✅ Market ingestor stopped")
+            print("Market ingestor stopped")
 
         # Stop all agents with timeout
         if self.agents:
-            print(f"[SYSTEM] Stopping {len(self.agents)} agents...")
+            print(f"Stopping {len(self.agents)} agents...")
             try:
                 await asyncio.wait_for(
                     stop_fixed_v3_system(self.agents),
-                    timeout=10.0  # Container timeout
+                    timeout=10.0
                 )
-                print("[SYSTEM] ✅ All agents stopped")
+                print("All agents stopped")
             except asyncio.TimeoutError:
-                print("[SYSTEM] ⚠️  Agent stop timeout (container shutdown)")
+                print("Agent stop timeout - forcing shutdown")
                 self.agents.clear()
 
         # Close Redis connection
         if self.redis:
             await close_redis()
-            print("[SYSTEM] ✅ Redis connection closed")
+            print("Redis connection closed")
 
-        print("[SYSTEM] ✅ Container system shutdown complete")
+        print("V3 system shutdown complete")
 
     async def run_with_signal_handling(self):
         """Run system with proper asyncio signal handling."""
@@ -225,18 +220,18 @@ async def main():
         await system.run_with_signal_handling()
     except Exception as e:
         log_structured("error", "container_system_error", error=str(e))
-        print(f"\n[SYSTEM] ❌ Fatal error: {e}")
+        print(f"\nFatal error: {e}")
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    print("🚀 STARTING V3 CONTAINER SYSTEM")
-    print("=" * 80)
-    print("✅ Container-ready for Render/Kubernetes")
-    print("✅ Proper signal handling")
-    print("✅ No sleep polling")
-    print("✅ Dependency waits")
-    print("✅ Graceful shutdown")
-    print("=" * 80)
-
+    print("STARTING V3 CONTAINER SYSTEM")
+    print("=" * 60)
+    print("Container-ready for Render/Kubernetes")
+    print("Proper signal handling")
+    print("No sleep polling")
+    print("Dependency waits")
+    print("Graceful shutdown")
+    print("=" * 60)
+    
     asyncio.run(main())
