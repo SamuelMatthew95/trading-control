@@ -1,4 +1,4 @@
-"""Redis stream event bus primitives."""
+"""Redis stream event bus primitives with robust serialization."""
 
 from __future__ import annotations
 
@@ -24,39 +24,82 @@ STREAMS = (
 DEFAULT_GROUP = "workers"
 
 
+def _serialize(value: Any) -> str:
+    """Serialize Python value to Redis-compatible string.
+    
+    Handles: dict -> JSON, list -> JSON, bool -> "true"/"false",
+    other -> str()
+    """
+    if isinstance(value, (dict, list)):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _deserialize(value: str) -> Any:
+    """Deserialize Redis string to Python value.
+    
+    Handles: "true"/"false" -> bool, JSON strings -> Python objects,
+    other -> str
+    """
+    if not isinstance(value, str):
+        return value
+    
+    # Handle booleans
+    lower = value.lower()
+    if lower == "true":
+        return True
+    if lower == "false":
+        return False
+    
+    # Try JSON deserialization
+    if value.startswith(("{", "[", "\"")):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    
+    return value
+
+
+def _decode_bytes(value: Any) -> str:
+    """Decode bytes to string if needed."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
+
+
 class EventBus:
+    """Redis Streams event bus with proper serialization."""
+    
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str:
-        """Publish event to Redis stream with proper serialization."""
-        import json
+    async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str | None:
+        """Publish event to Redis stream with proper serialization.
+        
+        All values are serialized to strings for Redis compatibility.
+        """
         try:
-            # Serialize all dict/list values to JSON strings
-            serialized_event = {}
-            for k, v in event.items():
-                if isinstance(v, (dict, list)):
-                    serialized_event[k] = json.dumps(v)
-                elif isinstance(v, bool):
-                    serialized_event[k] = str(v)
-                else:
-                    serialized_event[k] = v
+            # Serialize all values to strings
+            serialized_event = {k: _serialize(v) for k, v in event.items()}
             
             kwargs = {}
             if maxlen:
                 kwargs["maxlen"] = maxlen
                 kwargs["approximate"] = True
+                
             message_id = await self.redis.xadd(stream, serialized_event, **kwargs)
             return str(message_id)
-        except (ConnectionError, TimeoutError) as exc:
+            
+        except (ConnectionError, TimeoutError):
             log_structured(
                 "warning", "Redis connection error during publish", stream=stream, exc_info=True
             )
             return None
-        except Exception as exc:
-            log_structured(
-                "warning", "Redis publish failed", stream=stream, exc_info=True
-            )
+        except Exception:
+            log_structured("warning", "Redis publish failed", stream=stream, exc_info=True)
             return None
 
     async def consume(
@@ -67,8 +110,10 @@ class EventBus:
         count: int = 10,
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Consume messages with JSON deserialization."""
-        import json
+        """Consume messages from Redis stream with deserialization.
+        
+        Returns list of (message_id, message_data) tuples.
+        """
         try:
             messages = await self.redis.xreadgroup(
                 groupname=group,
@@ -77,65 +122,59 @@ class EventBus:
                 count=count,
                 block=block_ms,
             )
+            
             result = []
             for stream_name, stream_messages in messages:
                 for msg_id, fields in stream_messages:
-                    # Convert bytes to strings and deserialize JSON
+                    # Decode message ID
+                    decoded_id = _decode_bytes(msg_id)
+                    
+                    # Decode and deserialize all fields
                     decoded_fields = {}
                     for k, v in fields.items():
-                        key = k.decode() if isinstance(k, bytes) else k
-                        value = v.decode() if isinstance(v, bytes) else v
-                        # Try to deserialize JSON
-                        try:
-                            if isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
-                                decoded_fields[key] = json.loads(value)
-                            elif value == 'True':
-                                decoded_fields[key] = True
-                            elif value == 'False':
-                                decoded_fields[key] = False
-                            else:
-                                decoded_fields[key] = value
-                        except json.JSONDecodeError:
-                            decoded_fields[key] = value
-                    result.append((msg_id.decode() if isinstance(msg_id, bytes) else msg_id, decoded_fields))
+                        key = _decode_bytes(k)
+                        value_str = _decode_bytes(v)
+                        decoded_fields[key] = _deserialize(value_str)
+                    
+                    result.append((decoded_id, decoded_fields))
+                    
             return result
-        except (ConnectionError, TimeoutError) as exc:
+            
+        except (ConnectionError, TimeoutError):
             log_structured(
                 "warning", "Redis connection error during consume", stream=stream, exc_info=True
             )
             return []
-        except Exception as exc:
-            log_structured(
-                "warning", "Redis consume failed", stream=stream, exc_info=True
-            )
+        except Exception:
+            log_structured("warning", "Redis consume failed", stream=stream, exc_info=True)
             return []
 
     async def acknowledge(self, stream: str, group: str, *ids: str) -> int:
+        """Acknowledge messages as processed."""
         if not ids:
             return 0
         try:
             return int(await self.redis.xack(stream, group, *ids))
-        except (ConnectionError, TimeoutError) as exc:
+        except (ConnectionError, TimeoutError):
             log_structured(
                 "warning", "Redis connection error during acknowledge", stream=stream, exc_info=True
             )
             return 0
-        except Exception as exc:
-            log_structured(
-                "warning", "Redis acknowledge failed", stream=stream, exc_info=True
-            )
+        except Exception:
+            log_structured("warning", "Redis acknowledge failed", stream=stream, exc_info=True)
             return 0
 
     async def create_stream(self, stream: str) -> None:
         """Create a stream if it doesn't exist."""
         try:
-            await self.redis.xadd(stream, {"_init": "1"}, maxlen=1)
-            # Remove the init message
-            messages = await self.redis.xrange(stream)
-            if messages:
-                await self.redis.xdel(stream, messages[0][0])
-        except Exception as e:
-            # Stream might already exist
+            # Use xgroup_create with mkstream which creates stream if missing
+            await self.redis.xgroup_create(stream, "temp_init_group", id="0", mkstream=True)
+            # Clean up the temp group
+            await self.redis.xgroup_destroy(stream, "temp_init_group")
+        except ResponseError:
+            # Stream already exists, that's fine
+            pass
+        except Exception:
             pass
 
     async def create_consumer_group(self, stream: str, group: str) -> None:
@@ -147,6 +186,7 @@ class EventBus:
                 raise
 
     async def create_groups(self) -> None:
+        """Create all predefined streams and consumer groups."""
         for stream in STREAMS:
             try:
                 await self.redis.xgroup_create(
@@ -157,77 +197,133 @@ class EventBus:
                     raise
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
+        """Get stream statistics: length, lag, group count."""
         info: dict[str, dict[str, int]] = {}
         for stream in STREAMS:
-            length = int(await self.redis.xlen(stream))
             try:
-                groups = await self.redis.xinfo_groups(stream)
-            except ResponseError:
-                groups = []
-            lag = 0
-            for g in groups:
-                lag = max(
-                    lag,
-                    int(
-                        g.get("lag")
-                        or g.get("pending")
+                length = int(await self.redis.xlen(stream))
+                
+                try:
+                    groups = await self.redis.xinfo_groups(stream)
+                except ResponseError:
+                    groups = []
+                    
+                # Calculate lag - use 'lag' field if available, otherwise 'pending'
+                lag = 0
+                for g in groups:
+                    # Try 'lag' first (Redis 7+), then fall back to 'pending'
+                    group_lag = (
+                        g.get("lag") 
                         or g.get(b"lag")
-                        or g.get(b"pending")
+                        or g.get("pending") 
+                        or g.get(b"pending") 
                         or 0
-                    ),
-                )
-            info[stream] = {"lag": lag, "length": length, "groups": len(groups)}
+                    )
+                    lag = max(lag, int(group_lag))
+                    
+                info[stream] = {
+                    "length": length,
+                    "lag": lag,
+                    "groups": len(groups),
+                }
+            except Exception:
+                # If stream doesn't exist or other error
+                info[stream] = {"length": 0, "lag": 0, "groups": 0}
+                
         return info
 
     async def reclaim_stale(
-        self, stream: str, group: str, min_idle_ms: int = 60000
+        self, stream: str, group: str, consumer: str, min_idle_ms: int = 60000
     ) -> list[tuple[str, dict[str, Any]]]:
+        """Reclaim stale messages from other consumers in the group.
+        
+        Uses XAUTOCLAIM to claim messages that have been idle for min_idle_ms.
+        
+        Args:
+            stream: Redis stream name
+            group: Consumer group name
+            consumer: Name of consumer to claim messages for
+            min_idle_ms: Minimum idle time in milliseconds (default: 60000 = 60s)
+            
+        Returns:
+            List of (message_id, message_data) tuples for claimed messages
+        """
         try:
-            result = self.redis.xautoclaim(
-                stream, group, DEFAULT_GROUP, min_idle_ms, start_id="0-0"
+            result = await self.redis.xautoclaim(
+                stream, group, consumer, min_idle_ms, start_id="0-0"
             )
-            # Handle both sync and async Redis clients
-            if asyncio.iscoroutine(result):
-                reclaimed = await result
-            else:
-                reclaimed = result
-            return self._decode_autoclaim(reclaimed)
-        except (ConnectionError, TimeoutError) as exc:
+            return self._decode_autoclaim(result)
+            
+        except (ConnectionError, TimeoutError):
             log_structured(
-                "warning", "Redis connection error during reclaim_stale", stream=stream, group=group, exc_info=True
+                "warning", "Redis connection error during reclaim_stale",
+                stream=stream, group=group, exc_info=True
             )
             return []
-        except ResponseError as exc:
+        except ResponseError:
             log_structured(
-                "warning", "Redis response error during reclaim_stale", stream=stream, group=group, exc_info=True
+                "warning", "Redis response error during reclaim_stale",
+                stream=stream, group=group, exc_info=True
             )
             return []
-        except Exception as exc:
+        except Exception:
             log_structured(
-                "error", "Unexpected error during reclaim_stale", stream=stream, group=group, exc_info=True
+                "error", "Unexpected error during reclaim_stale",
+                stream=stream, group=group, exc_info=True
             )
             return []
 
     def _decode_autoclaim(self, reclaimed: Any) -> list[tuple[str, dict[str, Any]]]:
+        """Decode XAUTOCLAIM result to list of (id, data) tuples."""
+        if not reclaimed:
+            return []
+            
         if isinstance(reclaimed, tuple):
-            _, messages, *_ = reclaimed
+            # Newer Redis versions return (next_id, messages)
+            _, messages = reclaimed[:2]
         else:
-            messages = reclaimed[1] if reclaimed else []
+            # Older versions may return different structure
+            messages = reclaimed[1] if len(reclaimed) > 1 else []
+            
         return self._decode_entries(messages)
 
-    def _decode_message_batch(self, messages: Any) -> list[tuple[str, dict[str, Any]]]:
-        decoded: list[tuple[str, dict[str, Any]]] = []
-        for _, entries in messages:
-            decoded.extend(self._decode_entries(entries))
-        return decoded
-
     def _decode_entries(self, entries: Any) -> list[tuple[str, dict[str, Any]]]:
+        """Decode raw Redis entries to Python objects.
+        
+        Handles all fields in the message, not just "payload".
+        """
         decoded: list[tuple[str, dict[str, Any]]] = []
-        for msg_id, fields in entries:
-            payload_raw = fields.get("payload") or fields.get(b"payload") or "{}"
-            if isinstance(payload_raw, bytes):
-                payload_raw = payload_raw.decode("utf-8")
-            decoded.append((str(msg_id), json.loads(payload_raw)))
+        
+        if not entries:
+            return decoded
+            
+        for entry in entries:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+                
+            msg_id = str(entry[0])
+            fields_data = entry[1]
+            
+            # Handle different field formats
+            if isinstance(fields_data, dict):
+                fields_dict = fields_data
+            elif isinstance(fields_data, (list, tuple)) and len(fields_data) % 2 == 0:
+                # Convert [k1, v1, k2, v2, ...] to dict
+                fields_dict = {}
+                for i in range(0, len(fields_data), 2):
+                    fields_dict[fields_data[i]] = fields_data[i + 1]
+            else:
+                fields_dict = {}
+            
+            # Decode all fields
+            decoded_fields = {}
+            for k, v in fields_dict.items():
+                key = _decode_bytes(k)
+                value_str = _decode_bytes(v)
+                decoded_fields[key] = _deserialize(value_str)
+            
+            decoded.append((msg_id, decoded_fields))
+            
         return decoded
 
 
@@ -245,9 +341,13 @@ def main() -> None:
         try:
             redis_client = await get_redis()
             await create_redis_groups(redis_client)
-            print("✅ Redis streams and groups initialized successfully")
+            print("Redis streams and groups initialized successfully")
         except Exception as exc:
-            print(f"❌ Failed to initialize Redis streams and groups: {exc}")
+            print(f"Failed to initialize Redis streams and groups: {exc}")
             raise
     
     asyncio.run(_init())
+
+
+if __name__ == "__main__":
+    main()

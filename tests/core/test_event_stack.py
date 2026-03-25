@@ -116,8 +116,9 @@ async def test_event_bus_publish_consume_and_reclaim_decodes_payloads():
             {b"payload": json.dumps({"reclaimed": True}).encode("utf-8")},
         )
     ]
-    reclaimed = await bus.reclaim_stale("signals", DEFAULT_GROUP)
-    assert reclaimed == [("b'2-0'", {"reclaimed": True})]
+    reclaimed = await bus.reclaim_stale("signals", DEFAULT_GROUP, "worker-1")
+    # New behavior: all fields are deserialized, including 'payload'
+    assert reclaimed == [("b'2-0'", {"payload": {"reclaimed": True}})]
 
 
 @pytest.mark.asyncio
