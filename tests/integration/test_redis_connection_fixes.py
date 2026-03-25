@@ -148,14 +148,12 @@ class TestWebSocketBroadcaster:
         await broadcaster.start(mock_redis_client)
         
         assert broadcaster._running is True
-        assert broadcaster._redis_listener_task is not None
-        assert broadcaster._broadcast_task is not None
+        assert broadcaster._broadcast_task is not None  # ✅ Now uses dashboard broadcast loop
         
         await broadcaster.stop()
         
         assert broadcaster._running is False
-        assert broadcaster._redis_listener_task is None
-        assert broadcaster._broadcast_task is None
+        assert broadcaster._broadcast_task is None  # ✅ Only dashboard task exists now
 
     @pytest.mark.asyncio
     async def test_add_remove_connections(self, broadcaster):
