@@ -44,6 +44,9 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         # Use Redis msg_id if available, else generate UUID
         msg_id = data.get("msg_id") or str(uuid.uuid4())
 
+        # TEMP DEBUG: Trace msg_id flow
+        self.logger.info("DEBUG_CONSUMER", extra={"msg_id": msg_id, "caller": "Consumer"})
+
         # Parse timestamp, fallback to UTC now
         timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(
             timezone.utc

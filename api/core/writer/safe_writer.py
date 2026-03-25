@@ -357,6 +357,9 @@ class SafeWriter:
                 if metric_value is None:
                     raise ValueError("metric_value is required")
                 
+                # TEMP DEBUG: Trace msg_id flow
+                logger.info("DEBUG_WRITE", extra={"msg_id": msg_id, "caller": "SafeWriter"})
+                
                 # Log the operation with actual msg_id
                 logger.info(
                     "[WRITE_AUDIT] operation=write_system_metric model=SystemMetrics id=%s",
