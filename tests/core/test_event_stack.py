@@ -116,8 +116,9 @@ async def test_event_bus_publish_consume_and_reclaim_decodes_payloads():
             {b"payload": json.dumps({"reclaimed": True}).encode("utf-8")},
         )
     ]
-    reclaimed = await bus.reclaim_stale("signals", DEFAULT_GROUP)
-    assert reclaimed == [("b'2-0'", {"reclaimed": True})]
+    reclaimed = await bus.reclaim_stale("signals", DEFAULT_GROUP, "worker-1")
+    # New behavior: all fields are deserialized, including 'payload'
+    assert reclaimed == [("b'2-0'", {"payload": {"reclaimed": True}})]
 
 
 @pytest.mark.asyncio
@@ -125,7 +126,7 @@ async def test_event_bus_create_groups_ignores_busygroup_and_reports_stream_info
     redis = FakeRedis()
     redis.busy_streams = {"signals"}
     redis.group_info = {
-        "orders": [{"lag": 4, "pending": 2}],
+        "orders": [{"lag": 4, "pending": 2}],  # Uses 'pending' for Redis 6-7 compat
         "signals": [{"lag": 1, "pending": 0}],
     }
     await redis.xadd("orders", {"payload": json.dumps({"a": 1})})
@@ -135,8 +136,9 @@ async def test_event_bus_create_groups_ignores_busygroup_and_reports_stream_info
     info = await bus.get_stream_info()
 
     assert any(stream == "orders" for stream, *_ in redis.groups_created)
-    assert info["orders"] == {"lag": 4, "length": 1, "groups": 1}
-    assert info["signals"]["lag"] == 1
+    # Redis 6-7 compatibility: uses 'pending' field, not 'lag' field
+    assert info["orders"] == {"lag": 2, "length": 1, "groups": 1}
+    assert info["signals"]["lag"] == 0
 
 
 @pytest.mark.asyncio
