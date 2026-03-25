@@ -59,6 +59,19 @@ class SafeWriter:
                 f"{model_name}: trace_id field is required for v3 events"
             )
     
+    def _validate_schema_v2(self, data: Dict[str, Any], model_name: str) -> None:
+        """V2 schema validation for backward compatibility."""
+        # All models must have schema_version
+        if 'schema_version' not in data:
+            raise ValueError(
+                f"{model_name}: Missing required field 'schema_version'"
+            )
+        
+        if data['schema_version'] != 'v2':
+            raise ValueError(
+                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v2'"
+            )
+    
     def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
         """Log write operations with proper context."""
         if not entity_id:
