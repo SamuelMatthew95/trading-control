@@ -14,7 +14,8 @@ router = APIRouter(tags=["ws"])
 @router.websocket("/ws/dashboard")
 async def dashboard_ws(websocket: WebSocket) -> None:
     await websocket.accept()
-    log_structured("info", "ws_client_connected", client=str(websocket.client))
+    client_info = getattr(websocket, "client", None)
+    log_structured("info", "ws_client_connected", client=str(client_info))
 
     # Get the global broadcaster
     broadcaster = getattr(websocket.app.state, "websocket_broadcaster", None)
@@ -25,7 +26,8 @@ async def dashboard_ws(websocket: WebSocket) -> None:
 
     # Add this connection to the broadcaster
     await broadcaster.add_connection(websocket)
-    log_structured("info", "ws_client_added_to_broadcaster", client=str(websocket.client))
+    client_info = getattr(websocket, "client", None)
+    log_structured("info", "ws_client_added_to_broadcaster", client=str(client_info))
 
     try:
         # Keep the WebSocket alive and handle client messages
@@ -47,10 +49,12 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                 break
 
     except WebSocketDisconnect:
-        log_structured("info", "ws_client_disconnected", client=str(websocket.client))
+        client_info = getattr(websocket, "client", None)
+        log_structured("info", "ws_client_disconnected", client=str(client_info))
     except Exception as exc:
         log_structured("error", "ws_handler_error", exc_info=True)
     finally:
         # Always remove the connection from broadcaster
         await broadcaster.remove_connection(websocket)
-        log_structured("info", "ws_cleanup_completed", client=str(websocket.client))
+        client_info = getattr(websocket, "client", None)
+        log_structured("info", "ws_cleanup_completed", client=str(client_info))
