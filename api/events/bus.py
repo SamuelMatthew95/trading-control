@@ -122,6 +122,15 @@ class EventBus:
                 kwargs["approximate"] = True
                 
             message_id = await self.redis.xadd(stream, serialized_event, **kwargs)
+            
+            # Log successful publish
+            log_structured(
+                "info", "event_published", 
+                stream=stream, 
+                message_id=str(message_id),
+                keys=list(serialized_event.keys())
+            )
+            
             return str(message_id)
             
         except (ConnectionError, TimeoutError):
@@ -169,6 +178,16 @@ class EventBus:
                     
                     result.append((decoded_id, decoded_fields))
                     
+            # Log successful consumption
+            if result:
+                log_structured(
+                    "info", "event_consumed",
+                    stream=stream,
+                    group=group,
+                    consumer=consumer,
+                    count=len(result)
+                )
+            
             return result
             
         except (ConnectionError, TimeoutError):
@@ -280,7 +299,19 @@ class EventBus:
             result = await self.redis.xautoclaim(
                 stream, group, consumer, min_idle_ms, start_id="0-0"
             )
-            return self._decode_autoclaim(result)
+            decoded = self._decode_autoclaim(result)
+            
+            # Log successful reclaim
+            if decoded:
+                log_structured(
+                    "info", "events_reclaimed",
+                    stream=stream,
+                    group=group,
+                    consumer=consumer,
+                    count=len(decoded)
+                )
+            
+            return decoded
             
         except (ConnectionError, TimeoutError):
             log_structured(
