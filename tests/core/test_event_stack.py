@@ -152,7 +152,7 @@ async def test_dlq_manager_replays_and_clears_records():
     replayed = await dlq.replay("1-0")
     assert replayed is True
     assert redis.hashes.get("dlq:signals", {}) == {}
-    assert redis.streams["signals"][0][1]["payload"] == json.dumps({"hello": "world"})
+    assert redis.streams["signals"][0][1]["hello"] == "world"
 
 
 @pytest.mark.asyncio
@@ -162,14 +162,14 @@ async def test_base_stream_consumer_acks_success_and_dlqs_after_retries():
     dlq = DLQManager(redis, bus)
 
     ok_consumer = DummyConsumer(bus, dlq, should_fail=False)
-    await ok_consumer._handle_message("1-0", {"msg_id": "test-123", "ok": True})
-    assert ok_consumer.processed == [{"msg_id": "test-123", "ok": True}]
+    await ok_consumer._handle_message("1-0", {"msg_id": "test-123", "ok": True, "schema_version": "v3"})
+    assert ok_consumer.processed == [{"msg_id": "test-123", "ok": True, "schema_version": "v3"}]
     assert redis.acks[-1] == ("signals", DEFAULT_GROUP, ("1-0",))
 
     failing = DummyConsumer(bus, dlq, should_fail=True)
-    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1})
-    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1})
-    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1})
+    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"})
+    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"})
+    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"})
 
     dlq_entry = json.loads(redis.hashes["dlq:signals"]["2-0"])
     assert dlq_entry["error"] == "boom"

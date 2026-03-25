@@ -217,6 +217,31 @@ class BaseStreamConsumer(ABC):
         if "msg_id" not in data:
             raise RuntimeError(f"Invalid event: missing msg_id in {self.stream}")
         
+        # V3 Schema Validation - Reject old versions
+        schema_version = data.get("schema_version")
+        if schema_version != "v3":
+            # Send old schema messages to DLQ immediately
+            await self.dlq.push(
+                self.stream, 
+                msg_id, 
+                data, 
+                error=f"Invalid schema version: {schema_version}",
+                retries=0
+            )
+            await self.bus.acknowledge(self.stream, self.group, msg_id)
+            
+            # MANDATORY: Print exact warning message as specified
+            print(f"[{self.consumer}] Skipped old version {msg_id}")
+            
+            log_structured(
+                "warning", 
+                "Old schema message sent to DLQ", 
+                stream=self.stream, 
+                message_id=msg_id,
+                schema_version=schema_version
+            )
+            return
+        
         send_to_dlq = False
         try:
             await self.process(data)
@@ -225,7 +250,8 @@ class BaseStreamConsumer(ABC):
                 "debug", 
                 "Message processed and acknowledged", 
                 stream=self.stream, 
-                message_id=msg_id
+                message_id=msg_id,
+                trace_id=data.get("trace_id")
             )
         except Exception as exc:  # noqa: BLE001
             try:
@@ -240,14 +266,16 @@ class BaseStreamConsumer(ABC):
                         "Message sent to DLQ", 
                         stream=self.stream, 
                         message_id=msg_id, 
-                        retries=retries
+                        retries=retries,
+                        trace_id=data.get("trace_id")
                     )
                 else:
                     log_structured(
                         "warning", 
                         "Message processing failed, will retry", 
                         stream=self.stream, 
-                        message_id=msg_id
+                        message_id=msg_id,
+                        trace_id=data.get("trace_id")
                     )
             except (ConnectionError, TimeoutError) as redis_exc:
                 log_structured(
@@ -273,4 +301,5 @@ class BaseStreamConsumer(ABC):
                     message_id=msg_id,
                     exc_info=True,
                     dlq_sent=send_to_dlq,
+                    trace_id=data.get("trace_id")
                 )

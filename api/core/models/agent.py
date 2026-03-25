@@ -53,7 +53,7 @@ class AgentRun(Base):
         Index('idx_agent_runs_agent_created', 'agent_id', 'created_at'),
         Index('idx_agent_runs_trace', 'trace_id'),
         Index('idx_agent_runs_schema_version', 'schema_version'),
-        CheckConstraint('schema_version = \'v2\'', name='check_agent_runs_schema_v2'),
+        CheckConstraint('schema_version = \'v3\'', name='check_agent_runs_schema_v3'),
     )
 
 
@@ -76,7 +76,7 @@ class AgentLog(Base):
         Index('idx_agent_logs_run_created', 'agent_run_id', 'created_at'),
         Index('idx_agent_logs_trace', 'trace_id'),
         Index('idx_agent_logs_schema_version', 'schema_version'),
-        CheckConstraint('schema_version = \'v2\'', name='check_agent_logs_schema_v2'),
+        CheckConstraint('schema_version = \'v3\'', name='check_agent_logs_schema_v3'),
     )
 
 
@@ -98,5 +98,5 @@ class AgentGrades(Base):
         Index('idx_agent_grades_agent_type', 'agent_id', 'grade_type'),
         Index('idx_agent_grades_run', 'agent_run_id'),
         Index('idx_agent_grades_schema_version', 'schema_version'),
-        CheckConstraint('schema_version = \'v2\'', name='check_agent_grades_schema_v2'),
+        CheckConstraint('schema_version = \'v3\'', name='check_agent_grades_schema_v3'),
     )

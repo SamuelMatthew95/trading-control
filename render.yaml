@@ -1,0 +1,49 @@
+services:
+  # Type: web (HTTP server)
+  - type: web
+    name: trading-control
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python api/v3_container_system.py
+    healthCheckPath: /health
+    autoDeploy: true
+    dependsOn:
+      - trading-control-db
+      - trading-control-redis
+    restartPolicy:
+      type: always
+    
+    # Environment variables
+    envVars:
+      - key: PYTHONPATH
+        value: /app
+      - key: REDIS_URL
+        fromService:
+          name: trading-control-redis
+          type: ps
+      - key: DATABASE_URL
+        fromService:
+          name: trading-control-db
+          type: ps
+
+  # PostgreSQL
+  - type: ps
+    name: trading-control-db
+    plan: starter
+    databaseName: trading_control
+    user: trading
+
+  # Redis
+  - type: redis
+    name: trading-control-redis
+    plan: starter
+
+# Optional: simple health check
+healthChecks:
+  - type: livenessProbe
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
