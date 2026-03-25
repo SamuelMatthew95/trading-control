@@ -110,8 +110,9 @@ class BaseStreamConsumer(ABC):
                     stream=self.stream,
                     exc_info=True,
                 )
-                # Exponential backoff with max 10 seconds
-                backoff = min(getattr(self, '_backoff', 1) * 2, 10)
+                # Exponential backoff with max 10 seconds (deterministic)
+                current_backoff = getattr(self, '_backoff', 1)
+                backoff = min(current_backoff * 2, 10)
                 setattr(self, '_backoff', backoff)
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=backoff)
