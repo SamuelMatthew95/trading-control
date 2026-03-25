@@ -255,32 +255,45 @@ class TestConsumerIntegration:
     
     @pytest.mark.asyncio
     async def test_system_metrics_consumer_handler(self):
-        """Test system_metrics_handler maps data correctly for SafeWriter."""
-        from api.services.system_metrics_handler import handle_system_metric
+        """Test SystemMetricsConsumer maps data correctly for SafeWriter."""
+        from api.services.system_metrics_consumer import SystemMetricsConsumer
+        from unittest.mock import Mock
         
-        msg_id = "handler-test-123"
-        stream = "system_metrics"
-        data = {
+        # Mock dependencies
+        bus = Mock()
+        dlq = Mock()
+        redis_client = Mock()
+        redis_client.get.return_value = None  # Kill switch off
+        
+        # Create consumer
+        consumer = SystemMetricsConsumer(bus, dlq, redis_client)
+        
+        # Test data
+        test_data = {
+            "msg_id": "consumer-test-123",
             "metric_name": "test_metric",
             "value": 42.0,
-            "unit": "percent"
+            "unit": "percent",
+            "tags": {"host": "server1"},
+            "timestamp": "2024-01-01T00:00:00Z"
         }
         
-        with patch('api.services.system_metrics_handler.SafeWriter') as mock_writer_class:
+        with patch('api.services.system_metrics_consumer.SafeWriter') as mock_writer_class:
             mock_writer = AsyncMock()
             mock_writer_class.return_value = mock_writer
             mock_writer.write_system_metric.return_value = True
             
-            result = await handle_system_metric(msg_id, stream, data, "trace-123")
+            # Process the message
+            await consumer.process(test_data)
             
-            assert result.success is True
-            assert "Processed metric: test_metric" in result.message
+            # Verify SafeWriter was called with correct signature
+            mock_writer.write_system_metric.assert_called_once()
+            call_kwargs = mock_writer.write_system_metric.call_args[1]
             
-            # Verify the data passed to SafeWriter is correctly mapped
-            call_args = mock_writer.write_system_metric.call_args[0]
-            passed_msg_id, passed_stream, passed_data = call_args
-            
-            assert passed_msg_id == msg_id
-            assert passed_stream == stream
-            assert passed_data['metric_name'] == "test_metric"
-            assert passed_data['value'] == 42.0  # Handler keeps 'value' for SafeWriter to map
+            assert call_kwargs['msg_id'] == "consumer-test-123"
+            assert call_kwargs['metric_name'] == "test_metric"
+            assert call_kwargs['metric_value'] == 42.0
+            assert call_kwargs['metric_unit'] == "percent"
+            assert call_kwargs['tags'] == {"host": "server1"}
+            assert call_kwargs['schema_version'] == "v2"
+            assert call_kwargs['source'] == "system_monitor"
