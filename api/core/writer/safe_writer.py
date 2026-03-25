@@ -280,6 +280,22 @@ class SafeWriter:
                 # Log the operation
                 self._log_write_operation('write_agent_log', 'AgentLog', data)
 
+                # Handle timestamp with explicit fallback logging
+                timestamp_str = data.get('timestamp')
+                created_at = self.safe_parse_dt(timestamp_str)
+                
+                if created_at is None:
+                    logger.warning(
+                        "timestamp_fallback_used",
+                        extra={
+                            "stream": stream,
+                            "msg_id": msg_id,
+                            "provided_timestamp": timestamp_str,
+                            "fallback_reason": "missing_or_invalid"
+                        }
+                    )
+                    created_at = datetime.now(timezone.utc)
+
                 log_data = {
                     'agent_run_id': data['agent_id'],  # Map agent_id to agent_run_id
                     'log_level': data.get('log_level', 'INFO'),
@@ -289,9 +305,7 @@ class SafeWriter:
                     'trace_id': data.get('trace_id', msg_id),
                     'schema_version': data.get('schema_version', 'v2'),
                     'source': data.get('source', 'unknown'),
-                    'created_at': (
-                        self.safe_parse_dt(data.get('timestamp')) or datetime.now(timezone.utc)
-                    )
+                    'created_at': created_at
                 }
 
                 # DO WORK FIRST
@@ -330,14 +344,28 @@ class SafeWriter:
                 # Log the operation
                 self._log_write_operation('write_system_metric', 'SystemMetrics', data)
 
+                # Handle timestamp with explicit fallback logging
+                timestamp_str = data.get('timestamp')
+                timestamp = self.safe_parse_dt(timestamp_str)
+                
+                if timestamp is None:
+                    logger.warning(
+                        "timestamp_fallback_used",
+                        extra={
+                            "stream": stream,
+                            "msg_id": msg_id,
+                            "provided_timestamp": timestamp_str,
+                            "fallback_reason": "missing_or_invalid"
+                        }
+                    )
+                    timestamp = datetime.now(timezone.utc)
+
                 metric_data = {
                     'metric_name': data['metric_name'],
                     'metric_value': data['value'],  # Map 'value' to 'metric_value'
                     'metric_unit': data.get('unit'),  # Map 'unit' to 'metric_unit'
                     'tags': data.get('tags', {}),
-                    'timestamp': (
-                        self.safe_parse_dt(data.get('timestamp')) or datetime.now(timezone.utc)
-                    ),
+                    'timestamp': timestamp,
                     'schema_version': data.get('schema_version', 'v2'),
                     'source': data.get('source', 'unknown')
                 }
@@ -374,14 +402,28 @@ class SafeWriter:
                 # Log the operation
                 self._log_write_operation('write_trade_performance', 'TradePerformance', data)
 
+                # Handle timestamps with explicit fallback logging
+                entry_time_str = data['entry_time']
+                entry_time = self.safe_parse_dt(entry_time_str)
+                
+                if entry_time is None:
+                    logger.warning(
+                        "timestamp_fallback_used",
+                        extra={
+                            "stream": stream,
+                            "msg_id": msg_id,
+                            "provided_timestamp": entry_time_str,
+                            "fallback_reason": "missing_or_invalid_entry_time"
+                        }
+                    )
+                    entry_time = datetime.now(timezone.utc)
+
                 perf_data = {
                     'strategy_id': data['strategy_id'],
                     'agent_id': data.get('agent_id'),
                     'symbol': data['symbol'],
                     'trade_id': data['trade_id'],
-                    'entry_time': (
-                        self.safe_parse_dt(data['entry_time']) or datetime.now(timezone.utc)
-                    ),
+                    'entry_time': entry_time,
                     'exit_time': self.safe_parse_dt(data.get('exit_time')),
                     'entry_price': data['entry_price'],
                     'exit_price': data.get('exit_price'),
