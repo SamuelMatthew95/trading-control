@@ -69,6 +69,22 @@ class WebSocketBroadcaster:
             "info", "WebSocket connection removed", total_connections=len(self._connections)
         )
 
+    async def broadcast(self, data: dict[str, Any]) -> None:
+        """Broadcast data to all connected WebSockets."""
+        if not self._connections:
+            return
+        
+        disconnected = []
+        for websocket in self._connections:
+            try:
+                await websocket.send_json(data)
+            except Exception:
+                disconnected.append(websocket)
+        
+        # Remove disconnected WebSockets
+        for ws in disconnected:
+            await self.remove_connection(ws)
+
     async def _dashboard_broadcast_loop(self) -> None:
         """Broadcast dashboard snapshots to all connected WebSockets."""
         while self._running:
