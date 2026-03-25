@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..models import (
     Event, Order, Position, AgentLog, SystemMetrics, TradePerformance,
-    VectorMemory, ProcessedEvent
+    VectorMemory, ProcessedEvent, AgentGrades
 )
 
 logger = logging.getLogger(__name__)
