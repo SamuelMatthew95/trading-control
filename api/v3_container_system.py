@@ -19,6 +19,7 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.redis_client import get_redis, close_redis
 from api.v3_fixed_system import start_fixed_v3_system, stop_fixed_v3_system
+from api.services.market_ingestor import MarketIngestor
 from api.observability import log_structured
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ class ContainerV3System:
         self.dlq: DLQManager = None
         self.redis: 'Redis' = None
         self.agents = []
+        self.market_ingestor: MarketIngestor = None
         self.running = False
         self.shutdown_event = asyncio.Event()
         self.web_server = None
@@ -114,7 +116,13 @@ class ContainerV3System:
             self.agents = await start_fixed_v3_system(self.bus, self.dlq, self.redis)
             self.running = True
 
-            print(f"[SYSTEM] ✅ Started {len(self.agents)} agents")
+            # Start Market Ingestor for automatic market data
+            print("[SYSTEM] Starting market ingestor...")
+            self.market_ingestor = MarketIngestor(self.bus)
+            await self.market_ingestor.start()
+            print("[SYSTEM] ✅ Market ingestor started - sending data every 10 seconds")
+
+            print(f"[SYSTEM] ✅ Started {len(self.agents)} agents + market ingestor")
             print("\n[SYSTEM] 🔄 Active Pipeline:")
             print("  market_ticks → SignalGenerator → signals")
             print("  signals → ReasoningAgent → orders")
@@ -127,6 +135,8 @@ class ContainerV3System:
             print("  ALL streams → NotificationAgent → notifications")
 
             print("\n[SYSTEM] 🎯 Container system is LIVE!")
+            print("[SYSTEM] 📊 Market data: Automatic every 10 seconds")
+            print("[SYSTEM] 📝 Manual events: redis-cli XADD market_ticks '{...}'")
             print("[SYSTEM] ⏹️  Waiting for shutdown signal (SIGTERM/SIGKILL)...")
 
         except Exception as e:
@@ -147,6 +157,12 @@ class ContainerV3System:
             self.web_server.should_exit = True
             await asyncio.sleep(0.5)  # Quick shutdown for containers
             print("[SYSTEM] ✅ Web server stopped")
+
+        # Stop market ingestor
+        if self.market_ingestor:
+            print("[SYSTEM] Stopping market ingestor...")
+            await self.market_ingestor.stop()
+            print("[SYSTEM] ✅ Market ingestor stopped")
 
         # Stop all agents with timeout
         if self.agents:
