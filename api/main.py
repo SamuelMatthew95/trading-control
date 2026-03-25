@@ -118,13 +118,13 @@ async def _record_system_metric(
         async with AsyncSessionFactory() as session:
             await session.execute(
                 text(
-                    "INSERT INTO system_metrics (id, metric_name, value, labels, timestamp) "
-                    "VALUES (:id, :metric_name, :value, CAST(:labels AS JSONB), :timestamp)"
+                    "INSERT INTO system_metrics (id, metric_name, metric_value, labels, timestamp) "
+                    "VALUES (:id, :metric_name, :metric_value, CAST(:labels AS JSONB), :timestamp)"
                 ),
                 {
                     "id": msg_id,
                     "metric_name": metric_name,
-                    "value": value,
+                    "metric_value": value,  # ✅ Fix column name
                     "labels": json.dumps(labels, default=str),
                     "timestamp": datetime.now(timezone.utc).replace(tzinfo=None),
                 },
