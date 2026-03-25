@@ -99,21 +99,23 @@ class EventBus:
         
         All values serialized to strings for Redis 6-7 XADD compatibility.
         """
+        # Serialize all values to strings with defensive fallback
+        serialized_event = {}
+        for k, v in event.items():
+            try:
+                serialized_event[k] = _serialize(v)
+            except Exception:
+                # NEVER allow raw values through
+                serialized_event[k] = str(v)
+        
+        # EXTRA SAFETY: catch any unserialized dicts (bugs early)
+        for k, v in serialized_event.items():
+            if isinstance(v, dict):
+                error_msg = f"UNSERIALIZED FIELD: {k}={v}"
+                log_structured("error", error_msg, stream=stream, event_keys=list(event.keys()))
+                raise ValueError(error_msg)
+        
         try:
-            # Serialize all values to strings with defensive fallback
-            serialized_event = {}
-            for k, v in event.items():
-                try:
-                    serialized_event[k] = _serialize(v)
-                except Exception:
-                    # NEVER allow raw values through
-                    serialized_event[k] = str(v)
-            
-            # EXTRA SAFETY: catch any unserialized dicts (bugs early)
-            for k, v in serialized_event.items():
-                if isinstance(v, dict):
-                    raise ValueError(f"UNSERIALIZED FIELD: {k} -> {v}")
-            
             kwargs = {}
             if maxlen:
                 kwargs["maxlen"] = maxlen
