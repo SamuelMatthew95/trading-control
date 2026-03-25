@@ -47,7 +47,7 @@ class ContainerV3System:
     async def wait_for_dependencies(self, timeout: int = 60) -> bool:
         """Wait for Redis and PostgreSQL to be ready."""
         print("[DEPS] ⏳ Waiting for dependencies...")
-        
+
         # Wait for Redis
         redis_ready = False
         for i in range(timeout):
@@ -63,7 +63,7 @@ class ContainerV3System:
                     print(f"[DEPS] ❌ Redis not ready after {timeout}s: {e}")
                     return False
                 await asyncio.sleep(1)
-        
+
         # Wait for PostgreSQL (via database connection test)
         from api.db import AsyncSessionFactory
         db_ready = False
@@ -79,7 +79,7 @@ class ContainerV3System:
                     print(f"[DEPS] ❌ PostgreSQL not ready after {timeout}s: {e}")
                     return False
                 await asyncio.sleep(1)
-        
+
         return redis_ready and db_ready
 
     async def start(self) -> None:
@@ -172,19 +172,19 @@ class ContainerV3System:
         """Run system with proper asyncio signal handling."""
         # Setup asyncio signal handlers (container-safe)
         loop = asyncio.get_running_loop()
-        
+
         # Handle SIGTERM (container shutdown)
         loop.add_signal_handler(signal.SIGTERM, self._handle_sigterm)
-        
+
         # Handle SIGINT (Ctrl+C)
         loop.add_signal_handler(signal.SIGINT, self._handle_sigint)
 
         try:
             await self.start()
-            
+
             # NO SLEEP - immediate event-driven wait
             await self.shutdown_event.wait()
-            
+
         except asyncio.CancelledError:
             print("[SYSTEM] System cancelled")
         finally:
@@ -204,7 +204,7 @@ class ContainerV3System:
 async def main():
     """Main entry point for container deployment."""
     system = ContainerV3System()
-    
+
     try:
         await system.run_with_signal_handling()
     except Exception as e:
@@ -222,5 +222,5 @@ if __name__ == "__main__":
     print("✅ Dependency waits")
     print("✅ Graceful shutdown")
     print("=" * 80)
-    
+
     asyncio.run(main())
