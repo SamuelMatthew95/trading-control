@@ -6,11 +6,9 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.core.models import TradeDecision, TradeRequest
+from api.core.schemas import TradeDecision, TradeRequest, StandardResponse
 from api.database import get_async_session
 from api.main_state import (
-    get_learning_service,
-    get_run_lifecycle_service,
     get_trading_service,
 )
 from api.observability import log_structured, metrics_store
@@ -19,18 +17,10 @@ from api.utils import with_retries
 router = APIRouter(tags=["analysis"])
 
 
-class StandardResponse(BaseModel):
-    success: bool
-    data: Any = None
-    error: str = None
-
-
 @router.post("/analyze")
 async def analyze_trade(
     request: TradeRequest,
     trading_service=Depends(get_trading_service),
-    learning_service=Depends(get_learning_service),
-    run_lifecycle_service=Depends(get_run_lifecycle_service),
 ):
     try:
         if not request.symbol or not request.price:
@@ -82,7 +72,7 @@ async def analyze_trade(
                 "CONSENSUS_AGENT",
                 "SIZING_AGENT",
             ]:
-                await learning_service.record_agent_call(agent, True, elapsed, session)
+                # Removed learning_service reference - service deleted
                 metrics_store.update_agent(
                     agent,
                     "idle",
@@ -93,7 +83,8 @@ async def analyze_trade(
 
             history = trading_service.orchestrator.get_trade_history()
             if history:
-                await run_lifecycle_service.complete_run(history[-1])
+                # Removed run_lifecycle_service reference - service deleted
+                pass
 
         estimated_tokens = max(200, len(str(result)) // 2)
         estimated_cost_usd = round(estimated_tokens * 0.000003, 6)

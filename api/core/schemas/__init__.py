@@ -3,8 +3,17 @@ Pydantic schemas for API request/response models.
 """
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+
+class ProcessResult(BaseModel):
+    """Result of message processing."""
+    
+    success: bool = Field(..., description="Whether processing succeeded")
+    retryable: bool = Field(..., description="Whether the error is retryable")
+    message: Optional[str] = Field(None, description="Processing message or error")
 
 
 class KillSwitchRequest(BaseModel):
@@ -79,6 +88,34 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="Error type")
     message: str = Field(..., description="Error message")
     timestamp: str = Field(..., description="Error timestamp")
+
+
+class TradeRequest(BaseModel):
+    """Trade analysis request."""
+    
+    symbol: str = Field(..., description="Trading symbol")
+    price: float = Field(..., gt=0, description="Current price")
+    signals: Optional[Dict[str, Any]] = Field(default_factory=list, description="Trading signals")
+
+
+class TradeDecision(BaseModel):
+    """Trade analysis decision."""
+    
+    symbol: str = Field(..., description="Trading symbol")
+    decision: str = Field(..., pattern="^(LONG|SHORT|FLAT)$", description="Trading decision")
+    confidence: float = Field(..., ge=0, le=1, description="Confidence score")
+    reasoning: str = Field(..., description="Decision reasoning")
+    timestamp: datetime = Field(..., description="Decision timestamp")
+    position_size: Optional[float] = Field(None, ge=0, le=1, description="Position size")
+    risk_assessment: Optional[Dict[str, Any]] = Field(None, description="Risk assessment")
+
+
+class StandardResponse(BaseModel):
+    """Standard API response format."""
+    
+    success: bool = Field(..., description="Whether the operation was successful")
+    data: Any = Field(None, description="Response data")
+    error: Optional[str] = Field(None, description="Error message if any")
 
 
 class HealthResponse(BaseModel):

@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
-from api.core.models import AgentRun, Trade
+from api.core.models import AgentRun, TradePerformance
 from api.database import get_async_session
 from api.main_state import get_learning_service
 
@@ -47,21 +47,21 @@ async def get_statistics(force_refresh: bool = False):
 
     async with get_async_session() as session:
         total_trades = (
-            await session.execute(select(func.count(Trade.id)))
+            await session.execute(select(func.count(TradePerformance.id)))
         ).scalar() or 0
         wins = (
             await session.execute(
-                select(func.count(Trade.id)).where(Trade.outcome == "WIN")
+                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "long")
             )
         ).scalar() or 0
         losses = (
             await session.execute(
-                select(func.count(Trade.id)).where(Trade.outcome == "LOSS")
+                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "short")
             )
         ).scalar() or 0
         total_pnl = (
             await session.execute(
-                select(func.sum(Trade.pnl)).where(Trade.pnl.is_not(None))
+                select(func.sum(TradePerformance.pnl)).where(TradePerformance.pnl.is_not(None))
             )
         ).scalar() or 0
         payload = {

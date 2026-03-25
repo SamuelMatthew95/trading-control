@@ -315,40 +315,9 @@ async def test_execution_engine_updates_existing_short_position_with_signed_math
     assert updates[0]["qty"] == 3.0
 
 
-def test_trade_evaluator_skips_realized_pnl_for_same_direction_fills():
-    from api.services.learning.evaluator import TradeEvaluator
-
-    evaluator = TradeEvaluator(bus=None, dlq=None, redis_client=None)
-    prior_long = {
-        "side": "buy",
-        "qty": 1.0,
-        "price": 100.0,
-        "filled_at": datetime.now(timezone.utc).isoformat(),
-    }
-    prior_short = {
-        "side": "sell",
-        "qty": 1.0,
-        "price": 100.0,
-        "filled_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    same_long = evaluator._compute_trade_metrics(
-        prior_trade=prior_long,
-        side="buy",
-        qty=1.0,
-        fill_price=105.0,
-        filled_at=datetime.now(timezone.utc),
-    )
-    same_short = evaluator._compute_trade_metrics(
-        prior_trade=prior_short,
-        side="sell",
-        qty=1.0,
-        fill_price=95.0,
-        filled_at=datetime.now(timezone.utc),
-    )
-
-    assert same_long[:2] == (0.0, 0)
-    assert same_short[:2] == (0.0, 0)
+# Removed test_trade_evaluator_skips_realized_pnl_for_same_direction_fills
+# The learning.services module was deleted during cleanup
+# TradeEvaluator class no longer exists
 
 
 def test_market_ingestor_validates_ticks():

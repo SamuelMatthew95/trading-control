@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from api.core.models import HealthResponse
+from api.core.schemas import HealthResponse
 from api.database import test_database_connection
 from api.observability import metrics_store
 
