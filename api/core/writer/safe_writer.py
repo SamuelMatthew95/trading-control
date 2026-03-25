@@ -9,6 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert, update, func
@@ -52,12 +53,18 @@ class SafeWriter:
                     f"{model_name}: Source field is required and cannot be empty"
                 )
     
-    def _log_write_operation(self, operation: str, model_name: str, data: Dict[str, Any]) -> None:
+    def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
         """Log write operations with proper context."""
-        entity_id = data.get('id') or data.get('msg_id') or 'unknown'
-        logger.info(
-            f"[WRITE_AUDIT] operation={operation} "
-            f"model={model_name} id={entity_id}"
+        if not entity_id:
+            raise ValueError("entity_id is required for audit logging")
+
+        self.logger.info(
+            "[WRITE_AUDIT]",
+            extra={
+                "operation": operation,
+                "model": model_name,
+                "id": entity_id,
+            },
         )
 
     @asynccontextmanager
@@ -109,6 +116,9 @@ class SafeWriter:
 
     async def write_order(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write order with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_order")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -123,7 +133,7 @@ class SafeWriter:
                     raise ValueError("idempotency_key is required for order deduplication")
 
                 # Log the operation
-                self._log_write_operation('write_order', 'Order', data)
+                self._log_write_operation('write_order', 'Order', msg_id)
 
                 # STEP 1: Insert Order FIRST (business logic)
                 order = Order(
@@ -189,6 +199,9 @@ class SafeWriter:
 
     async def write_execution(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write execution with atomic claim-at-end and order existence check."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_execution")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -196,7 +209,7 @@ class SafeWriter:
                 self.validate_payload(data, ['strategy_id', 'symbol', 'order_id'])
 
                 # Log the operation
-                self._log_write_operation('write_execution', 'Event', data)
+                self._log_write_operation('write_execution', 'Event', msg_id)
 
                 # Insert event
                 await session.execute(
@@ -271,6 +284,9 @@ class SafeWriter:
 
     async def write_agent_log(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write agent log with atomic claim-at-end pattern."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_agent_log")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -278,7 +294,7 @@ class SafeWriter:
                 self.validate_payload(data, ['agent_id', 'level', 'message'])
 
                 # Log the operation
-                self._log_write_operation('write_agent_log', 'AgentLog', data)
+                self._log_write_operation('write_agent_log', 'AgentLog', msg_id)
 
                 # Handle timestamp with explicit fallback logging
                 timestamp_str = data.get('timestamp')
@@ -333,55 +349,71 @@ class SafeWriter:
                 logger.error(f"[WRITE_ERROR] msg={msg_id} stream={stream} err={e}")
                 raise
 
-    async def write_system_metric(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
-        """Write system metric with validation."""
+    async def write_system_metric(
+        self,
+        msg_id: str,
+        metric_name: str,
+        metric_value: float,
+        metric_unit: str | None,
+        tags: dict,
+        schema_version: str,
+        source: str,
+        timestamp: datetime,
+    ) -> bool:
+        """Write system metric with idempotent msg_id as primary identifier."""
         async with self.transaction() as session:
             try:
-                # Strict V2 schema validation
-                self._validate_schema_v2(data, 'SystemMetrics')
-                self.validate_payload(data, ['metric_name', 'value'])
-
-                # Log the operation
-                self._log_write_operation('write_system_metric', 'SystemMetrics', data)
-
-                # Handle timestamp with explicit fallback logging
-                timestamp_str = data.get('timestamp')
-                timestamp = self.safe_parse_dt(timestamp_str)
+                # Validate required parameters
+                if not msg_id:
+                    raise ValueError("msg_id is required for idempotent writes")
                 
-                if timestamp is None:
-                    logger.warning(
-                        "timestamp_fallback_used",
-                        extra={
-                            "stream": stream,
-                            "msg_id": msg_id,
-                            "provided_timestamp": timestamp_str,
-                            "fallback_reason": "missing_or_invalid"
-                        }
+                if not metric_name:
+                    raise ValueError("metric_name is required")
+                
+                if metric_value is None:
+                    raise ValueError("metric_value is required")
+                
+                # Log operation with actual msg_id
+                logger.info(
+                    "[WRITE_AUDIT] operation=write_system_metric model=SystemMetrics id=%s",
+                    msg_id,
+                )
+
+                # Use PostgreSQL UPSERT for idempotent writes
+                stmt = pg_insert(SystemMetrics).values(
+                    id=UUID(msg_id),  # ✅ Convert string to UUID for SQLAlchemy
+                    metric_name=metric_name,
+                    metric_value=metric_value,
+                    metric_unit=metric_unit,
+                    tags=tags,
+                    schema_version=schema_version,
+                    source=source,
+                    timestamp=timestamp,
+                )
+                
+                # Enforce idempotency - ignore duplicates
+                stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+                
+                result = await session.execute(stmt)
+                
+                # Check if insert was successful (not a duplicate)
+                if result.rowcount == 0:
+                    logger.info(
+                        "write_system_metric_duplicate",
+                        extra={"msg_id": msg_id, "metric_name": metric_name}
                     )
-                    timestamp = datetime.now(timezone.utc)
-
-                metric_data = {
-                    'metric_name': data['metric_name'],
-                    'metric_value': data['value'],  # Map 'value' to 'metric_value'
-                    'metric_unit': data.get('unit'),  # Map 'unit' to 'metric_unit'
-                    'tags': data.get('tags', {}),
-                    'timestamp': timestamp,
-                    'schema_version': data.get('schema_version', 'v2'),
-                    'source': data.get('source', 'unknown')
-                }
-
-                await session.execute(insert(SystemMetrics).values(**metric_data))
+                
                 await session.flush()
 
                 # CLAIM LAST with RETURNING
-                if not await self._claim_message(session, msg_id, stream):
+                if not await self._claim_message(session, msg_id, "system_metrics"):
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
                 
                 logger.info(
                     "write_system_metric_success",
-                    extra={"msg_id": msg_id, "metric": data['metric_name']}
+                    extra={"msg_id": msg_id, "metric": metric_name}
                 )
                 return True
 
@@ -391,6 +423,9 @@ class SafeWriter:
 
     async def write_trade_performance(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write trade performance with validation."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_trade_performance")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -400,7 +435,7 @@ class SafeWriter:
                 )
 
                 # Log the operation
-                self._log_write_operation('write_trade_performance', 'TradePerformance', data)
+                self._log_write_operation('write_trade_performance', 'TradePerformance', msg_id)
 
                 # Handle timestamps with explicit fallback logging
                 entry_time_str = data['entry_time']
@@ -464,6 +499,9 @@ class SafeWriter:
 
     async def write_vector_memory(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write vector memory with embedding validation."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_vector_memory")
+            
         async with self.transaction() as session:
             try:
                 # Strict V2 schema validation
@@ -479,7 +517,7 @@ class SafeWriter:
                     raise ValueError("embedding must be numeric")
 
                 # Log the operation
-                self._log_write_operation('write_vector_memory', 'VectorMemory', data)
+                self._log_write_operation('write_vector_memory', 'VectorMemory', msg_id)
 
                 vector_data = {
                     'content': data['content'],
@@ -513,6 +551,9 @@ class SafeWriter:
 
     async def write_risk_alert(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
         """Write risk alert as event."""
+        if not msg_id:
+            raise ValueError("msg_id is required for write_risk_alert")
+            
         async with self.transaction() as session:
             try:
                 event_data = {

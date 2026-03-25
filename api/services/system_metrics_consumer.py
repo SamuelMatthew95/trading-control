@@ -58,16 +58,13 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         # Write to database via SafeWriter
         await self.safe_writer.write_system_metric(
             msg_id=msg_id,
-            stream="system_metrics",
-            data={
-                "metric_name": metric_name,
-                "value": metric_value,
-                "unit": metric_unit,
-                "tags": tags,
-                "schema_version": "v2",
-                "source": "system_monitor",
-                "timestamp": timestamp.isoformat() if timestamp else None,
-            },
+            metric_name=metric_name,
+            metric_value=metric_value,
+            metric_unit=metric_unit,
+            tags=tags,
+            schema_version="v2",
+            source="system_monitor",
+            timestamp=timestamp,
         )
 
         # Log for observability
