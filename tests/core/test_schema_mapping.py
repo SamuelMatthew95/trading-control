@@ -278,7 +278,7 @@ class TestConsumerIntegration:
             "timestamp": "2024-01-01T00:00:00Z"
         }
         
-        with patch.object(SystemMetricsConsumer, 'safe_writer') as mock_writer:
+        with patch.object(consumer, 'safe_writer') as mock_writer:
             mock_writer.write_system_metric = AsyncMock(return_value=True)
             
             # Process the message
