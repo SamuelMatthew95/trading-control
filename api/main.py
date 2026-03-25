@@ -45,6 +45,7 @@ from api.services.execution.brokers.alpaca import AlpacaBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.execution.reconciler import OrderReconciler
 from api.services.signal_generator import SignalGenerator
+from api.services.system_metrics_consumer import SystemMetricsConsumer
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
 
@@ -245,6 +246,7 @@ async def lifespan(app: FastAPI):
     order_reconciler: OrderReconciler | None = None
     reasoning_agent: ReasoningAgent | None = None
     signal_generator: SignalGenerator | None = None
+    system_metrics_consumer: SystemMetricsConsumer | None = None
     consumer_lag_monitor: BackgroundServiceTask | None = None
     llm_cost_monitor_service: BackgroundServiceTask | None = None
     app.state.redis_client = None
@@ -338,6 +340,11 @@ async def lifespan(app: FastAPI):
             await reasoning_agent.start()
             app.state.reasoning_agent = reasoning_agent
 
+            # Start system metrics consumer to clear backlog
+            system_metrics_consumer = SystemMetricsConsumer(event_bus, dlq_manager, redis_client)
+            await system_metrics_consumer.start()
+            app.state.system_metrics_consumer = system_metrics_consumer
+
             consumer_lag_monitor = BackgroundServiceTask(
                 asyncio.create_task(
                     monitor_consumer_lag(event_bus, stop_event),
@@ -380,6 +387,8 @@ async def lifespan(app: FastAPI):
             await consumer_lag_monitor.stop()
         if reasoning_agent is not None:
             await reasoning_agent.stop()
+        if system_metrics_consumer is not None:
+            await system_metrics_consumer.stop()
         if execution_engine is not None:
             await execution_engine.stop()
         if order_reconciler is not None:
