@@ -434,7 +434,3 @@ class TestSchemaValidation:
             safe_writer.validate_payload(data, ['metric_name', 'value'])
 
 
-if __name__ == "__main__":
-    import sys
-    import pytest
-    sys.exit(pytest.main([__file__, "-v"]))
