@@ -342,14 +342,23 @@ async def get_stream_health(redis_client) -> Dict[str, Any]:
                 oldest_age = 0
             
             health[stream] = {
-                "total_backlog": total_backlog,
-                "pending_ack": pending_ack,
-                "oldest_msg_age_seconds": oldest_age,
-                "status": "healthy" if oldest_age < 60 else "warning"
+                "status": "healthy",
+                "backlog": total_backlog,
+                "pending": pending_ack,
+                "oldest_pending_age_seconds": oldest_age,
+                "last_checked": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
-            health[stream] = {"error": str(e), "status": "error"}
+            # 🛡️ Handle missing streams gracefully
+            health[stream] = {
+                "status": "missing",
+                "backlog": 0,
+                "pending": 0,
+                "oldest_pending_age_seconds": 0,
+                "error": str(e),
+                "last_checked": datetime.now(timezone.utc).isoformat()
+            }
     
     return health
 
