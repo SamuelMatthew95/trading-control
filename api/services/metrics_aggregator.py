@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, and_, or_
 
 from ..core.models import SystemMetrics, TradePerformance, Order, AgentLog
+from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +153,7 @@ class MetricsAggregator:
             today = datetime.now(timezone.utc).date()
             today_pnl_query = select(
                 func.coalesce(func.sum(TradePerformance.pnl), 0)
-            ).where(
-                func.date(TradePerformance.entry_time) == today
-            )
+            ).where(TradePerformance.created_at >= today)
             result = await self.session.execute(today_pnl_query)
             today_pnl = float(result.scalar() or 0)
             
@@ -178,17 +177,24 @@ class MetricsAggregator:
                 "total_trades": total_trades,
                 "winning_trades": winning_trades,
                 "win_rate_percent": win_rate,
+                "status": "healthy" if total_trades > 0 else "no_trades",
                 "last_update": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
-            logger.error(f"Error computing PnL metrics: {e}")
+            # 🛡️ Handle missing trade_performance table gracefully
+            log_structured(
+                "warning",
+                "Trade performance table unavailable - using fallback",
+                error=str(e)
+            )
             return {
-                "total_pnl": 0,
-                "today_pnl": 0,
+                "total_pnl": 0.0,
+                "today_pnl": 0.0,
                 "total_trades": 0,
                 "winning_trades": 0,
-                "win_rate_percent": 0,
+                "win_rate_percent": 0.0,
+                "status": "table_missing",
                 "error": str(e),
                 "last_update": datetime.now(timezone.utc).isoformat()
             }
