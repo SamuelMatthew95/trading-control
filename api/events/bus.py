@@ -1,8 +1,7 @@
-"""Redis stream event bus primitives with robust serialization."""
+"""Redis stream event bus primitives for Valkey 8.1.4 / Redis 6-7 compatibility."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
@@ -27,6 +26,7 @@ DEFAULT_GROUP = "workers"
 def _serialize(value: Any) -> str:
     """Serialize Python value to Redis-compatible string.
     
+    Redis 6-7 compatible: only strings, bytes, ints, floats allowed in XADD.
     Handles: dict -> JSON, list -> JSON, bool -> "true"/"false",
     other -> str()
     """
@@ -53,7 +53,7 @@ def _deserialize(value: str) -> Any:
     if lower == "false":
         return False
     
-    # Try JSON deserialization
+    # Try JSON deserialization (for dicts and lists)
     if value.startswith(("{", "[", "\"")):
         try:
             return json.loads(value)
@@ -71,15 +71,22 @@ def _decode_bytes(value: Any) -> str:
 
 
 class EventBus:
-    """Redis Streams event bus with proper serialization."""
+    """Redis Streams event bus for Valkey 8.1.4 / Redis 6-7 compatibility.
+    
+    Uses only Redis 6-7 era APIs:
+    - XADD, XREADGROUP, XACK
+    - XINFO STREAM, XINFO GROUPS (only 'pending' field)
+    - XGROUP CREATE with mkstream
+    - XAUTOCLAIM (Redis 6.2+)
+    """
     
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
     async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str | None:
-        """Publish event to Redis stream with proper serialization.
+        """Publish event to Redis stream.
         
-        All values are serialized to strings for Redis compatibility.
+        All values serialized to strings for Redis 6-7 XADD compatibility.
         """
         try:
             # Serialize all values to strings
@@ -110,7 +117,7 @@ class EventBus:
         count: int = 10,
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Consume messages from Redis stream with deserialization.
+        """Consume messages from Redis stream using XREADGROUP.
         
         Returns list of (message_id, message_data) tuples.
         """
@@ -150,7 +157,7 @@ class EventBus:
             return []
 
     async def acknowledge(self, stream: str, group: str, *ids: str) -> int:
-        """Acknowledge messages as processed."""
+        """Acknowledge messages as processed using XACK."""
         if not ids:
             return 0
         try:
@@ -165,7 +172,7 @@ class EventBus:
             return 0
 
     async def create_stream(self, stream: str) -> None:
-        """Create a stream if it doesn't exist."""
+        """Create a stream if it doesn't exist using mkstream."""
         try:
             # Use xgroup_create with mkstream which creates stream if missing
             await self.redis.xgroup_create(stream, "temp_init_group", id="0", mkstream=True)
@@ -178,7 +185,7 @@ class EventBus:
             pass
 
     async def create_consumer_group(self, stream: str, group: str) -> None:
-        """Create consumer group if it doesn't exist."""
+        """Create consumer group if it doesn't exist using mkstream."""
         try:
             await self.redis.xgroup_create(stream, group, id="0", mkstream=True)
         except ResponseError as exc:
@@ -197,7 +204,10 @@ class EventBus:
                     raise
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
-        """Get stream statistics: length, lag, group count."""
+        """Get stream statistics using XINFO GROUPS (Redis 6-7 compatible).
+        
+        Uses only 'pending' field (Redis 6-7 compatible), not 'lag' (Redis 7+).
+        """
         info: dict[str, dict[str, int]] = {}
         for stream in STREAMS:
             try:
@@ -208,18 +218,12 @@ class EventBus:
                 except ResponseError:
                     groups = []
                     
-                # Calculate lag - use 'lag' field if available, otherwise 'pending'
+                # Calculate lag from 'pending' field only (Redis 6-7 compatible)
+                # Note: 'lag' field is Redis 7+, we use 'pending' for compatibility
                 lag = 0
                 for g in groups:
-                    # Try 'lag' first (Redis 7+), then fall back to 'pending'
-                    group_lag = (
-                        g.get("lag") 
-                        or g.get(b"lag")
-                        or g.get("pending") 
-                        or g.get(b"pending") 
-                        or 0
-                    )
-                    lag = max(lag, int(group_lag))
+                    pending = g.get("pending") or g.get(b"pending") or 0
+                    lag = max(lag, int(pending))
                     
                 info[stream] = {
                     "length": length,
@@ -235,14 +239,14 @@ class EventBus:
     async def reclaim_stale(
         self, stream: str, group: str, consumer: str, min_idle_ms: int = 60000
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Reclaim stale messages from other consumers in the group.
+        """Reclaim stale messages using XAUTOCLAIM (Redis 6.2+).
         
-        Uses XAUTOCLAIM to claim messages that have been idle for min_idle_ms.
+        XAUTOCLAIM is available in Redis 6.2+ and Valkey 8.1.4.
         
         Args:
             stream: Redis stream name
             group: Consumer group name
-            consumer: Name of consumer to claim messages for
+            consumer: Name of consumer to claim messages for (required)
             min_idle_ms: Minimum idle time in milliseconds (default: 60000 = 60s)
             
         Returns:
@@ -274,15 +278,18 @@ class EventBus:
             return []
 
     def _decode_autoclaim(self, reclaimed: Any) -> list[tuple[str, dict[str, Any]]]:
-        """Decode XAUTOCLAIM result to list of (id, data) tuples."""
+        """Decode XAUTOCLAIM result to list of (id, data) tuples.
+        
+        Handles both tuple format (Redis 7+) and list format (Redis 6.2).
+        """
         if not reclaimed:
             return []
             
         if isinstance(reclaimed, tuple):
-            # Newer Redis versions return (next_id, messages)
+            # Newer Redis versions return (next_id, messages, deleted_messages)
             _, messages = reclaimed[:2]
         else:
-            # Older versions may return different structure
+            # Older versions may return list format
             messages = reclaimed[1] if len(reclaimed) > 1 else []
             
         return self._decode_entries(messages)
@@ -290,7 +297,8 @@ class EventBus:
     def _decode_entries(self, entries: Any) -> list[tuple[str, dict[str, Any]]]:
         """Decode raw Redis entries to Python objects.
         
-        Handles all fields in the message, not just "payload".
+        Handles all fields in the message with proper deserialization.
+        Compatible with Redis 6-7 XREADGROUP and XAUTOCLAIM output formats.
         """
         decoded: list[tuple[str, dict[str, Any]]] = []
         
@@ -304,18 +312,18 @@ class EventBus:
             msg_id = str(entry[0])
             fields_data = entry[1]
             
-            # Handle different field formats
+            # Handle different field formats from Redis
             if isinstance(fields_data, dict):
                 fields_dict = fields_data
             elif isinstance(fields_data, (list, tuple)) and len(fields_data) % 2 == 0:
-                # Convert [k1, v1, k2, v2, ...] to dict
+                # Convert [k1, v1, k2, v2, ...] to dict (Redis 6 format)
                 fields_dict = {}
                 for i in range(0, len(fields_data), 2):
                     fields_dict[fields_data[i]] = fields_data[i + 1]
             else:
                 fields_dict = {}
             
-            # Decode all fields
+            # Decode and deserialize all fields
             decoded_fields = {}
             for k, v in fields_dict.items():
                 key = _decode_bytes(k)
