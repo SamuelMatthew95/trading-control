@@ -5,7 +5,7 @@ import { useCodexStore } from '@/stores/useCodexStore'
 
 // Type definitions for production-grade safety
 type WebSocketMessage = {
-  type: 'dashboard_update' | 'system_metric' | 'event'
+  type: 'dashboard_update' | 'system_metric' | 'event' | 'agent_event'
   schema_version: string
   timestamp: string
   data: any
@@ -139,10 +139,59 @@ class WebSocketManager {
         if (payload.type === 'dashboard_update' && payload.data) {
           console.log('Dashboard update received:', payload.data)
           store.hydrateDashboard(payload.data)
+          
+          // Process agent events from dashboard data
+          if (payload.data.agent_logs) {
+            payload.data.agent_logs.forEach((agentLog: any) => {
+              // Normalize agent log data
+              const normalizedLog = {
+                agent_name: agentLog.agent_name || agentLog.agent || 'Unknown',
+                event_type: agentLog.event_type || agentLog.action || agentLog.type || 'processed',
+                timestamp: agentLog.timestamp || agentLog.created_at || new Date().toISOString(),
+                symbol: agentLog.symbol,
+                action: agentLog.action,
+                latency_ms: agentLog.latency_ms,
+                primary_edge: agentLog.primary_edge
+              }
+              store.addAgentLog(normalizedLog)
+            })
+          }
+          
+          // Process system metrics from dashboard data
+          if (payload.data.system_metrics) {
+            payload.data.system_metrics.forEach((metric: any) => {
+              store.addSystemMetric(metric)
+            })
+          }
+          
         } else if (payload.type === 'system_metric' && payload.data) {
           store.addSystemMetric(payload.data)
+        } else if (payload.type === 'agent_event' && payload.data) {
+          // Handle individual agent events
+          const normalizedLog = {
+            agent_name: payload.data.agent_name || payload.data.agent || 'Unknown',
+            event_type: payload.data.event_type || payload.data.action || payload.data.type || 'processed',
+            timestamp: payload.data.timestamp || payload.data.created_at || new Date().toISOString(),
+            symbol: payload.data.symbol,
+            action: payload.data.action,
+            latency_ms: payload.data.latency_ms,
+            primary_edge: payload.data.primary_edge
+          }
+          store.addAgentLog(normalizedLog)
+          console.log('Agent event processed:', normalizedLog.agent_name)
         } else if (payload.type === 'event' && payload.data) {
-          console.log('Event received:', payload.stream, payload.data)
+          console.log('Generic event received:', payload.stream, payload.data)
+          // Try to process as agent event if it has agent info
+          if (payload.data.agent_name || payload.data.agent) {
+            const normalizedLog = {
+              agent_name: payload.data.agent_name || payload.data.agent || 'Unknown',
+              event_type: payload.data.event_type || payload.data.action || payload.data.type || 'processed',
+              timestamp: payload.data.timestamp || payload.data.created_at || new Date().toISOString(),
+              stream: payload.stream,
+              ...payload.data
+            }
+            store.addAgentLog(normalizedLog)
+          }
         }
         
       } catch (error) {
