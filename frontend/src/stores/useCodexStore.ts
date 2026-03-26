@@ -12,6 +12,8 @@ type CodexState = {
   riskAlerts: any[]
   learningEvents: any[]
   systemMetrics: any[]
+  dashboardData: any
+  isLoading: boolean
   regime: string
   killSwitchActive: boolean
   wsConnected: boolean
@@ -23,6 +25,8 @@ type CodexState = {
   addRiskAlert: (alert: any) => void
   addLearningEvent: (event: any) => void
   addSystemMetric: (metric: any) => void
+  setDashboardData: (data: any) => void
+  setLoading: (loading: boolean) => void
   setRegime: (regime: string) => void
   setKillSwitch: (active: boolean) => void
   setWsConnected: (connected: boolean) => void
@@ -31,6 +35,7 @@ type CodexState = {
 export const useCodexStore = create<CodexState>((set) => ({
   prices: {}, orders: [], positions: [], signals: [],
   agentLogs: [], riskAlerts: [], learningEvents: [], systemMetrics: [],
+  dashboardData: null, isLoading: true,
   regime: 'neutral', killSwitchActive: false, wsConnected: false,
   updatePrice: (symbol, price, change) => set((state) => ({ prices: { ...state.prices, [symbol]: { price, change } } })),
   addSignal: (signal) => set((state) => ({ signals: [signal, ...state.signals].slice(0, 50) })),
@@ -40,6 +45,8 @@ export const useCodexStore = create<CodexState>((set) => ({
   addRiskAlert: (alert) => set((state) => ({ riskAlerts: [alert, ...state.riskAlerts].slice(0, 50) })),
   addLearningEvent: (event) => set((state) => ({ learningEvents: [event, ...state.learningEvents].slice(0, 50) })),
   addSystemMetric: (metric) => set((state) => ({ systemMetrics: [metric, ...state.systemMetrics].slice(0, 100) })),
+  setDashboardData: (data) => set({ dashboardData: data }),
+  setLoading: (isLoading) => set({ isLoading }),
   setRegime: (regime) => set({ regime }),
   setKillSwitch: (killSwitchActive) => set({ killSwitchActive }),
   setWsConnected: (wsConnected) => set({ wsConnected }),

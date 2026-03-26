@@ -55,6 +55,8 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     prices, 
     positions, 
     systemMetrics,
+    dashboardData,
+    isLoading,
     wsConnected,
     setKillSwitch,
     addSystemMetric
@@ -761,7 +763,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 </tr>
               </thead>
               <tbody>
-                {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 ? (
+                {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 && isLoading ? (
                   <tr>
                     <td colSpan={3} className="px-4 py-8 text-center text-sm text-gray-600 dark:text-gray-400">
                       Waiting for stream data...

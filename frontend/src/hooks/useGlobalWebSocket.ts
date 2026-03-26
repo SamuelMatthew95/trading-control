@@ -37,8 +37,19 @@ function connectWebSocket() {
         // Dispatch to all components via custom event
         window.dispatchEvent(new CustomEvent('ws-message', { detail: payload }))
         
+        // Get store methods for this message handling
+        const { setDashboardData, setLoading } = useCodexStore.getState()
+        
         // Update store based on message type
         if (payload.type === 'dashboard_update' && payload.data) {
+          console.log('Dashboard update received:', payload.data)
+          
+          // Explicit state transition: set loading to false only when valid data arrives
+          setLoading(false)
+          
+          // Key mapping: target payload.data directly for clean object
+          setDashboardData(payload.data)
+          
           const data = payload.data
           
           // Update system metrics if present
@@ -105,7 +116,7 @@ function connectWebSocket() {
 }
 
 export function useGlobalWebSocket() {
-  const { setWsConnected } = useCodexStore()
+  const { setWsConnected, setDashboardData, setLoading } = useCodexStore()
   const initializedRef = useRef(false)
 
   useEffect(() => {
@@ -125,7 +136,7 @@ export function useGlobalWebSocket() {
       window.removeEventListener('ws-connected', handleConnected)
       window.removeEventListener('ws-disconnected', handleDisconnected)
     }
-  }, [setWsConnected])
+  }, [setWsConnected, setDashboardData, setLoading])
 
   return {
     socket: globalSocket,
