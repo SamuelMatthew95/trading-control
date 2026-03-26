@@ -98,10 +98,7 @@ class EventBus:
     async def publish(self, stream: str, event: dict[str, Any], maxlen: int | None = None) -> str:
         """Publish event to Redis stream with schema version."""
         # Bug fix: always include schema_version so consumer never sends to DLQ
-        # Use v2 for analytics tables, v3 for agent tables
-        analytics_streams = {"trade_performance", "vector_memory", "system_metrics"}
-        schema_version = "v2" if stream in analytics_streams else "v3"
-        event.setdefault("schema_version", schema_version)
+        event.setdefault("schema_version", "v3")
         event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
         
         # Serialize all values to strings with defensive fallback
