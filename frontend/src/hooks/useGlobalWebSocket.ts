@@ -13,83 +13,131 @@ type WebSocketMessage = {
   message_id?: string
 }
 
-type CustomEventDetail = {
-  detail: WebSocketMessage
+// Connection states for robust management
+enum ConnectionState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting', 
+  CONNECTED = 'connected',
+  RECONNECTING = 'reconnecting',
+  ERROR = 'error'
 }
 
-// WebSocket client wrapper - production grade singleton
-let globalSocket: WebSocket | null = null
-let globalRetryCount = 0
-let isConnecting = false
-const MAX_RETRIES = 5
-const BASE_DELAY = 2000
-const MAX_DELAY = 30000
+// Bulletproof WebSocket Singleton Manager
+class WebSocketManager {
+  private static instance: WebSocketManager | null = null
+  private socket: WebSocket | null = null
+  private connectionState: ConnectionState = ConnectionState.DISCONNECTED
+  private retryCount: number = 0
+  private reconnectTimer: NodeJS.Timeout | null = null
+  private connectionTimeout: NodeJS.Timeout | null = null
+  private readonly MAX_RETRIES = 5
+  private readonly BASE_DELAY = 2000
+  private readonly MAX_DELAY = 30000
+  private readonly CONNECTION_TIMEOUT = 10000
+  private readonly RETRY_RESET_DELAY = 60000 // Reset retry count after 1 minute of connection
 
-function getWsUrl(): string {
-  if (typeof window === 'undefined') return ''
-  const base = process.env.NEXT_PUBLIC_WS_URL || window.location.origin
-  return `${base.replace(/\/$/, '')}/ws/dashboard`
-}
-
-// Exponential backoff with jitter
-function getRetryDelay(attempt: number): number {
-  const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_DELAY)
-  // Add jitter to prevent thundering herd
-  return delay + Math.random() * 1000
-}
-
-// Production-grade connection with cleanup
-function connectWebSocket(): void {
-  // SSR safety
-  if (typeof window === 'undefined' || isConnecting) return
-  
-  if (globalSocket?.readyState === WebSocket.OPEN) {
-    return
+  private constructor() {
+    // Private constructor for singleton
   }
 
-  isConnecting = true
-  
-  try {
-    // Cleanup any existing handlers to prevent ghosts
-    if (globalSocket) {
-      globalSocket.onopen = null
-      globalSocket.onmessage = null
-      globalSocket.onclose = null
-      globalSocket.onerror = null
+  static getInstance(): WebSocketManager {
+    if (!WebSocketManager.instance) {
+      WebSocketManager.instance = new WebSocketManager()
     }
-    
-    globalSocket = new WebSocket(getWsUrl())
-    
-    globalSocket.onopen = () => {
-      console.log('WebSocket connected')
-      globalRetryCount = 0
-      isConnecting = false
-      
-      // Get fresh store state to avoid stale closures
+    return WebSocketManager.instance
+  }
+
+  private getWsUrl(): string {
+    if (typeof window === 'undefined') return ''
+    const base = process.env.NEXT_PUBLIC_WS_URL || window.location.origin
+    return `${base.replace(/\/$/, '')}/ws/dashboard`
+  }
+
+  private getRetryDelay(attempt: number): number {
+    const delay = Math.min(this.BASE_DELAY * Math.pow(2, attempt), this.MAX_DELAY)
+    // Add jitter to prevent thundering herd
+    return delay + Math.random() * 1000
+  }
+
+  private updateStoreState(): void {
+    try {
       const store = useCodexStore.getState()
-      store.setWsConnected(true)
+      store.setWsConnected(this.connectionState === ConnectionState.CONNECTED)
+    } catch (error) {
+      // Store might not be available during SSR
+      console.warn('Could not update store state:', error)
+    }
+  }
+
+  private cleanupSocket(): void {
+    if (this.socket) {
+      // Remove all listeners to prevent ghosts
+      this.socket.onopen = null
+      this.socket.onmessage = null
+      this.socket.onclose = null
+      this.socket.onerror = null
       
-      window.dispatchEvent(new CustomEvent('ws-connected'))
+      // Close if not already closed
+      if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
+        this.socket.close(1000, 'Cleanup')
+      }
+      
+      this.socket = null
     }
 
-    globalSocket.onmessage = (event) => {
+    // Clear timers
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    
+    if (this.connectionTimeout) {
+      clearTimeout(this.connectionTimeout)
+      this.connectionTimeout = null
+    }
+  }
+
+  private setupSocket(): void {
+    if (!this.socket) return
+
+    this.socket.onopen = () => {
+      console.log('WebSocket connected')
+      this.connectionState = ConnectionState.CONNECTED
+      this.retryCount = 0 // Reset retry count on successful connection
+      
+      // Clear connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout)
+        this.connectionTimeout = null
+      }
+
+      this.updateStoreState()
+      window.dispatchEvent(new CustomEvent('ws-connected'))
+      
+      // Reset retry count after successful connection
+      setTimeout(() => {
+        if (this.connectionState === ConnectionState.CONNECTED) {
+          this.retryCount = 0
+        }
+      }, this.RETRY_RESET_DELAY)
+    }
+
+    this.socket.onmessage = (event) => {
       try {
         // Explicit error boundary for JSON parsing
         const payload: WebSocketMessage = JSON.parse(event.data)
         console.log('WebSocket message received:', payload)
         
-        // Dispatch with strict typing
-        window.dispatchEvent(new CustomEvent('ws-message', {
-          detail: payload
-        } as CustomEventDetail))
+        // Dispatch with proper typing
+        window.dispatchEvent(new CustomEvent('ws-message', { 
+          detail: payload 
+        }))
         
-        // CRITICAL: Get fresh store state on every message to prevent stale closures
+        // Get fresh store state to prevent stale closures
         const store = useCodexStore.getState()
         
         if (payload.type === 'dashboard_update' && payload.data) {
           console.log('Dashboard update received:', payload.data)
-          
-          // Single bulk update to prevent re-render thrashing
           store.hydrateDashboard(payload.data)
         } else if (payload.type === 'system_metric' && payload.data) {
           store.addSystemMetric(payload.data)
@@ -103,35 +151,110 @@ function connectWebSocket(): void {
       }
     }
 
-    globalSocket.onclose = (event) => {
+    this.socket.onclose = (event) => {
       console.log('WebSocket disconnected:', event.code, event.reason)
-      globalSocket = null
-      isConnecting = false
       
-      // Update store state
-      useCodexStore.getState().setWsConnected(false)
+      const wasConnected = this.connectionState === ConnectionState.CONNECTED
+      this.connectionState = ConnectionState.DISCONNECTED
+      
+      this.cleanupSocket()
+      this.updateStoreState()
       
       window.dispatchEvent(new CustomEvent('ws-disconnected'))
-      
-      // Improved reconnection resilience
-      if (globalRetryCount < MAX_RETRIES && !event.wasClean) {
-        globalRetryCount++
-        const delay = getRetryDelay(globalRetryCount)
-        console.log(`Reconnecting in ${delay}ms (attempt ${globalRetryCount})`)
-        setTimeout(connectWebSocket, delay)
+
+      // Reconnection logic with improved conditions
+      if (wasConnected && this.retryCount < this.MAX_RETRIES) {
+        this.connectionState = ConnectionState.RECONNECTING
+        this.retryCount++
+        
+        const delay = this.getRetryDelay(this.retryCount)
+        console.log(`Reconnecting in ${delay}ms (attempt ${this.retryCount}/${this.MAX_RETRIES})`)
+        
+        this.reconnectTimer = setTimeout(() => {
+          this.connect()
+        }, delay)
+      } else if (this.retryCount >= this.MAX_RETRIES) {
+        this.connectionState = ConnectionState.ERROR
+        console.error('Max reconnection attempts reached')
       }
     }
 
-    globalSocket.onerror = (error) => {
+    this.socket.onerror = (error) => {
       console.error('WebSocket error:', error)
-      isConnecting = false
-      useCodexStore.getState().setWsConnected(false)
+      
+      if (this.connectionState === ConnectionState.CONNECTING) {
+        this.connectionState = ConnectionState.ERROR
+        this.updateStoreState()
+      }
     }
-    
-  } catch (error) {
-    console.error('Failed to connect WebSocket:', error)
-    isConnecting = false
-    useCodexStore.getState().setWsConnected(false)
+  }
+
+  public connect(): void {
+    // SSR safety
+    if (typeof window === 'undefined') return
+
+    // Prevent duplicate connections
+    if (this.connectionState === ConnectionState.CONNECTING || 
+        this.connectionState === ConnectionState.CONNECTED ||
+        this.connectionState === ConnectionState.RECONNECTING) {
+      return
+    }
+
+    // Cleanup any existing socket
+    this.cleanupSocket()
+
+    try {
+      this.connectionState = ConnectionState.CONNECTING
+      const url = this.getWsUrl()
+      
+      console.log('Connecting to WebSocket:', url)
+      this.socket = new WebSocket(url)
+
+      // Set connection timeout
+      this.connectionTimeout = setTimeout(() => {
+        if (this.connectionState === ConnectionState.CONNECTING) {
+          console.error('WebSocket connection timeout')
+          this.cleanupSocket()
+          this.connectionState = ConnectionState.ERROR
+          this.updateStoreState()
+        }
+      }, this.CONNECTION_TIMEOUT)
+
+      this.setupSocket()
+      this.updateStoreState()
+
+    } catch (error) {
+      console.error('Failed to create WebSocket:', error)
+      this.connectionState = ConnectionState.ERROR
+      this.updateStoreState()
+    }
+  }
+
+  public disconnect(): void {
+    console.log('Manual WebSocket disconnect requested')
+    this.cleanupSocket()
+    this.connectionState = ConnectionState.DISCONNECTED
+    this.retryCount = 0
+    this.updateStoreState()
+  }
+
+  public reconnect(): void {
+    console.log('Manual reconnection requested')
+    this.retryCount = 0 // Reset retry count for manual reconnection
+    this.connect()
+  }
+
+  public getConnectionState(): ConnectionState {
+    return this.connectionState
+  }
+
+  public isConnected(): boolean {
+    return this.connectionState === ConnectionState.CONNECTED && 
+           this.socket?.readyState === WebSocket.OPEN
+  }
+
+  public getSocket(): WebSocket | null {
+    return this.socket
   }
 }
 
@@ -152,7 +275,14 @@ export function useGlobalWebSocket() {
     // SSR safety + prevent multiple initializations
     if (!initializedRef.current && typeof window !== 'undefined') {
       initializedRef.current = true
-      connectWebSocket()
+      
+      // Get singleton manager instance
+      const manager = WebSocketManager.getInstance()
+      
+      // Connect if not already connected
+      if (!manager.isConnected()) {
+        manager.connect()
+      }
       
       // Setup event listeners with proper cleanup
       const handleConnected = () => setWsConnected(true)
@@ -176,10 +306,12 @@ export function useGlobalWebSocket() {
   }, [cleanup])
 
   return {
-    socket: globalSocket,
+    socket: WebSocketManager.getInstance().getSocket(),
     // IMPORTANT: Use reactive state from store, not calculated value
     // This ensures UI re-renders when connection state changes
     isConnected: wsConnected,
-    reconnect: () => connectWebSocket()
+    connectionState: WebSocketManager.getInstance().getConnectionState(),
+    reconnect: () => WebSocketManager.getInstance().reconnect(),
+    disconnect: () => WebSocketManager.getInstance().disconnect()
   }
 }
