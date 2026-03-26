@@ -1,462 +1,324 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 
-// Type definitions for production-grade safety
+// --- Types ---
 type WebSocketMessage = {
-  type: 'dashboard_update' | 'system_metric' | 'event' | 'agent_event'
-  schema_version: string
-  timestamp: string
-  data: any
+  type: string
+  schema_version?: string
+  timestamp?: string
+  data?: any
   stream?: string
   message_id?: string
 }
 
-// Connection states for robust management
-enum ConnectionState {
+export enum ConnectionState {
   DISCONNECTED = 'disconnected',
-  CONNECTING = 'connecting', 
+  CONNECTING = 'connecting',
   CONNECTED = 'connected',
   RECONNECTING = 'reconnecting',
-  ERROR = 'error'
+  ERROR = 'error',
 }
 
-// Bulletproof WebSocket Singleton Manager
+type Listener = (event: CustomEvent) => void
+
+// --- WebSocketManager Singleton ---
 class WebSocketManager {
-  private static instance: WebSocketManager | null = null
-  private socket: WebSocket | null = null
-  private connectionState: ConnectionState = ConnectionState.DISCONNECTED
-  private retryCount: number = 0
-  private reconnectTimer: NodeJS.Timeout | null = null
-  private connectionTimeout: NodeJS.Timeout | null = null
-  private readonly MAX_RETRIES = 5
+  private static _instance: WebSocketManager | null = null
+  private _socket: WebSocket | null = null
+  private _state: ConnectionState = ConnectionState.DISCONNECTED
+  private _retry: number = 0
+  private _reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private _connTimeout: ReturnType<typeof setTimeout> | null = null
+  private readonly MAX_RETRIES = 8
   private readonly BASE_DELAY = 2000
   private readonly MAX_DELAY = 30000
-  private readonly CONNECTION_TIMEOUT = 10000
-  private readonly RETRY_RESET_DELAY = 60000 // Reset retry count after 1 minute of connection
+  private readonly CONN_TIMEOUT = 10000
+  private readonly RETRY_RESET_DELAY = 60000
+  private _lastConnectAt: number = 0
 
-  private constructor() {
-    // Private constructor for singleton
+  // Event listeners: eventName -> Set<Listener>
+  private _listeners: Map<string, Set<Listener>> = new Map()
+  private _storeUpdate: (() => void) | null = null
+
+  private constructor() {}
+  static get instance() {
+    if (!this._instance) this._instance = new WebSocketManager()
+    return this._instance
   }
 
-  static getInstance(): WebSocketManager {
-    if (!WebSocketManager.instance) {
-      WebSocketManager.instance = new WebSocketManager()
+  // --- Event Listener System ---
+  addEventListener(event: string, listener: Listener) {
+    if (!this._listeners.has(event)) this._listeners.set(event, new Set())
+    const set = this._listeners.get(event)!
+    set.add(listener)
+    window.addEventListener(event, listener as EventListener)
+  }
+  removeEventListener(event: string, listener: Listener) {
+    const set = this._listeners.get(event)
+    if (set) {
+      set.delete(listener)
+      window.removeEventListener(event, listener as EventListener)
+      if (set.size === 0) this._listeners.delete(event)
     }
-    return WebSocketManager.instance
   }
-
-  private getWsUrl(): string {
-    if (typeof window === 'undefined') return ''
-    const base = process.env.NEXT_PUBLIC_WS_URL || window.location.origin
-    return `${base.replace(/\/$/, '')}/ws/dashboard`
+  removeAllEventListeners() {
+    for (const [event, set] of Array.from(this._listeners.entries())) {
+      for (const l of Array.from(set)) window.removeEventListener(event, l as EventListener)
+    }
+    this._listeners.clear()
   }
-
-  private getRetryDelay(attempt: number): number {
-    const delay = Math.min(this.BASE_DELAY * Math.pow(2, attempt), this.MAX_DELAY)
-    // Add jitter to prevent thundering herd
-    return delay + Math.random() * 1000
-  }
-
-  private updateStoreState(): void {
+  dispatch(event: string, detail?: any) {
     try {
-      const store = useCodexStore.getState()
-      store.setWsConnected(this.connectionState === ConnectionState.CONNECTED)
-    } catch (error) {
-      // Store might not be available during SSR
-      console.warn('Could not update store state:', error)
-    }
+      window.dispatchEvent(new CustomEvent(event, { detail }))
+    } catch {}
   }
 
-  private cleanupSocket(): void {
-    if (this.socket) {
-      // Remove all listeners to prevent ghosts BEFORE closing
-      this.socket.onopen = null
-      this.socket.onmessage = null
-      this.socket.onclose = null
-      this.socket.onerror = null
-      
-      // Close if not already closed
-      if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
-        try {
-          this.socket.close(1000, 'Cleanup')
-        } catch (error) {
-          console.warn('Error closing WebSocket during cleanup:', error)
-        }
-      }
-      
-      this.socket = null
-    }
-
-    // Clear all timers to prevent memory leaks
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    
-    if (this.connectionTimeout) {
-      clearTimeout(this.connectionTimeout)
-      this.connectionTimeout = null
-    }
+  // --- Public API ---
+  get state() { return this._state }
+  get socket() { return this._socket }
+  isConnected() {
+    return this._state === ConnectionState.CONNECTED && this._socket?.readyState === WebSocket.OPEN
   }
-
-  private normalizeAgentEvent(rawEvent: any): any | null {
-    try {
-      if (!rawEvent || typeof rawEvent !== 'object') {
-        return null
-      }
-
-      return {
-        agent_name: rawEvent.agent_name || rawEvent.agent || 'Unknown',
-        event_type: this.normalizeEventType(rawEvent.event_type || rawEvent.action || rawEvent.type || 'processed'),
-        timestamp: rawEvent.timestamp || rawEvent.created_at || new Date().toISOString(),
-        symbol: rawEvent.symbol,
-        action: rawEvent.action,
-        latency_ms: Number(rawEvent.latency_ms) || 0,
-        primary_edge: rawEvent.primary_edge,
-        // Preserve other useful fields
-        ...(rawEvent.stream && { stream: rawEvent.stream }),
-        ...(rawEvent.message_id && { message_id: rawEvent.message_id }),
-        ...(rawEvent.data && { data: rawEvent.data })
-      }
-    } catch (error) {
-      console.warn('Error normalizing agent event:', error, rawEvent)
-      return null
-    }
-  }
-
-  private normalizeSystemMetric(rawMetric: any): any | null {
-    try {
-      if (!rawMetric || typeof rawMetric !== 'object') {
-        return null
-      }
-
-      return {
-        metric_name: rawMetric.metric_name || rawMetric.name || 'unknown',
-        value: Number(rawMetric.value) || 0,
-        timestamp: rawMetric.timestamp || rawMetric.created_at || new Date().toISOString(),
-        labels: rawMetric.labels || {},
-        // Preserve other useful fields
-        ...(rawMetric.unit && { unit: rawMetric.unit }),
-        ...(rawMetric.tags && { tags: rawMetric.tags })
-      }
-    } catch (error) {
-      console.warn('Error normalizing system metric:', error, rawMetric)
-      return null
-    }
-  }
-
-  private normalizeEventType(eventType: string): string {
-    if (!eventType || typeof eventType !== 'string') {
-      return 'unknown'
-    }
-
-    // Standardize event types to prevent duplicates
-    const eventTypeMap: Record<string, string> = {
-      'buy': 'signal',
-      'sell': 'signal', 
-      'purchase': 'signal',
-      'trade': 'signal',
-      'order': 'signal',
-      'execution': 'order',
-      'execute': 'order',
-      'fill': 'order',
-      'market_tick': 'tick',
-      'price_update': 'tick',
-      'quote': 'tick',
-      'analysis': 'analysis',
-      'reasoning': 'analysis',
-      'grading': 'grade',
-      'assessment': 'grade',
-      'learning': 'learning',
-      'training': 'learning',
-      'reflection': 'reflection',
-      'review': 'reflection',
-      'notification': 'notification',
-      'alert': 'notification',
-      'message': 'notification'
-    }
-    
-    const normalized = eventTypeMap[eventType.toLowerCase()]
-    return normalized || eventType.toLowerCase()
-  }
-
-  private setupSocket(): void {
-    if (!this.socket) return
-
-    this.socket.onopen = () => {
-      console.log('WebSocket connected')
-      this.connectionState = ConnectionState.CONNECTED
-      this.retryCount = 0 // Reset retry count on successful connection
-      
-      // Clear connection timeout
-      if (this.connectionTimeout) {
-        clearTimeout(this.connectionTimeout)
-        this.connectionTimeout = null
-      }
-
-      this.updateStoreState()
-      window.dispatchEvent(new CustomEvent('ws-connected'))
-      
-      // Reset retry count after successful connection
-      setTimeout(() => {
-        if (this.connectionState === ConnectionState.CONNECTED) {
-          this.retryCount = 0
-        }
-      }, this.RETRY_RESET_DELAY)
-    }
-
-    this.socket.onmessage = (event) => {
-      try {
-        // Explicit error boundary for JSON parsing
-        const payload: WebSocketMessage = JSON.parse(event.data)
-        console.log('WebSocket message received:', payload)
-        
-        // Dispatch with proper typing
-        window.dispatchEvent(new CustomEvent('ws-message', { 
-          detail: payload 
-        }))
-        
-        // Get fresh store state to prevent stale closures
-        const store = useCodexStore.getState()
-        
-        if (payload.type === 'dashboard_update' && payload.data) {
-          console.log('Dashboard update received:', payload.data)
-          store.hydrateDashboard(payload.data)
-          
-          // Process agent events from dashboard data
-          if (payload.data.agent_logs) {
-            payload.data.agent_logs.forEach((agentLog: any) => {
-              const normalizedLog = this.normalizeAgentEvent(agentLog)
-              if (normalizedLog) {
-                store.addAgentLog(normalizedLog)
-              }
-            })
-          }
-          
-          // Process system metrics from dashboard data
-          if (payload.data.system_metrics) {
-            payload.data.system_metrics.forEach((metric: any) => {
-              const normalizedMetric = this.normalizeSystemMetric(metric)
-              if (normalizedMetric) {
-                store.addSystemMetric(normalizedMetric)
-              }
-            })
-          }
-          
-        } else if (payload.type === 'system_metric' && payload.data) {
-          const normalizedMetric = this.normalizeSystemMetric(payload.data)
-          if (normalizedMetric) {
-            store.addSystemMetric(normalizedMetric)
-          }
-        } else if (payload.type === 'agent_event' && payload.data) {
-          // Handle individual agent events
-          const normalizedLog = this.normalizeAgentEvent(payload.data)
-          if (normalizedLog) {
-            store.addAgentLog(normalizedLog)
-            console.log('Agent event processed:', normalizedLog.agent_name)
-          }
-        } else if (payload.type === 'event' && payload.data) {
-          console.log('Generic event received:', payload.stream, payload.data)
-          // Try to process as agent event if it has agent info
-          if (payload.data.agent_name || payload.data.agent) {
-            const normalizedLog = this.normalizeAgentEvent(payload.data)
-            if (normalizedLog) {
-              store.addAgentLog(normalizedLog)
-            }
-          }
-        }
-        
-      } catch (error) {
-        console.error('WebSocket message parsing error:', error)
-        // Continue processing other messages even if one fails
-      }
-    }
-
-    this.socket.onclose = (event) => {
-      console.log('WebSocket disconnected:', event.code, event.reason)
-      
-      const wasConnected = this.connectionState === ConnectionState.CONNECTED
-      this.connectionState = ConnectionState.DISCONNECTED
-      
-      this.cleanupSocket()
-      this.updateStoreState()
-      
-      window.dispatchEvent(new CustomEvent('ws-disconnected'))
-
-      // Reconnection logic with improved conditions
-      if (wasConnected && this.retryCount < this.MAX_RETRIES) {
-        this.connectionState = ConnectionState.RECONNECTING
-        this.retryCount++
-        
-        const delay = this.getRetryDelay(this.retryCount)
-        console.log(`Reconnecting in ${delay}ms (attempt ${this.retryCount}/${this.MAX_RETRIES})`)
-        
-        this.reconnectTimer = setTimeout(() => {
-          this.connect()
-        }, delay)
-      } else if (this.retryCount >= this.MAX_RETRIES) {
-        this.connectionState = ConnectionState.ERROR
-        console.error('Max reconnection attempts reached')
-      }
-    }
-
-    this.socket.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      
-      if (this.connectionState === ConnectionState.CONNECTING) {
-        this.connectionState = ConnectionState.ERROR
-        this.updateStoreState()
-      }
-    }
-  }
-
-  public connect(): void {
-    // SSR safety
+  connect() {
     if (typeof window === 'undefined') return
-
-    // Prevent duplicate connections
-    if (this.connectionState === ConnectionState.CONNECTING || 
-        this.connectionState === ConnectionState.CONNECTED ||
-        this.connectionState === ConnectionState.RECONNECTING) {
-      console.log('Connection already in progress, skipping duplicate connect')
+    if (
+      this._state === ConnectionState.CONNECTING ||
+      this._state === ConnectionState.CONNECTED ||
+      this._state === ConnectionState.RECONNECTING
+    ) return
+    this._cleanupSocket()
+    this._state = ConnectionState.CONNECTING
+    this._updateStoreState()
+    const url = this._getWsUrl()
+    if (!url) {
+      this._state = ConnectionState.ERROR
+      this._updateStoreState()
       return
     }
-
-    // Cleanup any existing socket BEFORE creating new one
-    this.cleanupSocket()
-
     try {
-      this.connectionState = ConnectionState.CONNECTING
-      const url = this.getWsUrl()
-      
-      console.log('Connecting to WebSocket:', url)
-      this.socket = new WebSocket(url)
-
-      // Set connection timeout
-      this.connectionTimeout = setTimeout(() => {
-        if (this.connectionState === ConnectionState.CONNECTING) {
-          console.error('WebSocket connection timeout')
-          this.cleanupSocket()
-          this.connectionState = ConnectionState.ERROR
-          this.updateStoreState()
+      this._socket = new WebSocket(url)
+      this._lastConnectAt = Date.now()
+      this._setupSocketHandlers()
+      this._connTimeout = setTimeout(() => {
+        if (this._state === ConnectionState.CONNECTING) {
+          this._state = ConnectionState.ERROR
+          this._cleanupSocket()
+          this._updateStoreState()
         }
-      }, this.CONNECTION_TIMEOUT)
+      }, this.CONN_TIMEOUT)
+    } catch {
+      this._state = ConnectionState.ERROR
+      this._updateStoreState()
+    }
+  }
+  disconnect() {
+    this._cleanupSocket()
+    this.removeAllEventListeners()
+    this._state = ConnectionState.DISCONNECTED
+    this._retry = 0
+    this._updateStoreState()
+  }
+  reconnect() {
+    this._retry = 0
+    this.connect()
+  }
+  setStoreUpdate(fn: (() => void) | null) {
+    this._storeUpdate = fn
+  }
 
-      this.setupSocket()
-      this.updateStoreState()
-
-    } catch (error) {
-      console.error('Failed to create WebSocket:', error)
-      this.connectionState = ConnectionState.ERROR
-      this.updateStoreState()
+  // --- Private methods ---
+  private _getWsUrl(): string {
+    if (typeof window === 'undefined') return ''
+    let base = process.env.NEXT_PUBLIC_WS_URL || window.location.origin
+    base = base.replace(/\/$/, '')
+    return `${base}/ws/dashboard`
+  }
+  private _getRetryDelay(attempt: number): number {
+    const d = Math.min(this.BASE_DELAY * Math.pow(2, attempt), this.MAX_DELAY)
+    return Math.floor(d + Math.random() * 1000)
+  }
+  private _cleanupSocket() {
+    if (this._socket) {
+      this._socket.onopen = null
+      this._socket.onmessage = null
+      this._socket.onerror = null
+      this._socket.onclose = null
+      if (
+        this._socket.readyState === WebSocket.OPEN ||
+        this._socket.readyState === WebSocket.CONNECTING
+      ) {
+        try { this._socket.close(1000, 'Cleanup') } catch {}
+      }
+    }
+    this._socket = null
+    if (this._reconnectTimer) clearTimeout(this._reconnectTimer)
+    this._reconnectTimer = null
+    if (this._connTimeout) clearTimeout(this._connTimeout)
+    this._connTimeout = null
+  }
+  private _updateStoreState() {
+    if (this._storeUpdate) {
+      try { this._storeUpdate() } catch {}
+    }
+  }
+  private _setupSocketHandlers() {
+    if (!this._socket) return
+    this._socket.onopen = () => {
+      this._state = ConnectionState.CONNECTED
+      this._retry = 0
+      if (this._connTimeout) clearTimeout(this._connTimeout)
+      this._connTimeout = null
+      this._updateStoreState()
+      this.dispatch('ws-connected')
+      setTimeout(() => {
+        if (this._state === ConnectionState.CONNECTED) this._retry = 0
+      }, this.RETRY_RESET_DELAY)
+    }
+    this._socket.onmessage = (event) => {
+      let msg: WebSocketMessage | null = null
+      try { msg = JSON.parse(event.data) } catch {}
+      if (!msg) return
+      this.dispatch('ws-message', msg)
+      // Store logic
+      const store = useCodexStore.getState()
+      if (msg.type === 'dashboard_update' && msg.data) {
+        try { store.hydrateDashboard(msg.data) } catch {}
+        if (Array.isArray(msg.data.agent_logs)) {
+          for (const log of msg.data.agent_logs) {
+            const norm = this._normalizeAgentEvent(log)
+            if (norm) store.addAgentLog(norm)
+          }
+        }
+        if (Array.isArray(msg.data.system_metrics)) {
+          for (const metric of msg.data.system_metrics) {
+            const norm = this._normalizeSystemMetric(metric)
+            if (norm) store.addSystemMetric(norm)
+          }
+        }
+      } else if (msg.type === 'system_metric' && msg.data) {
+        const norm = this._normalizeSystemMetric(msg.data)
+        if (norm) store.addSystemMetric(norm)
+      } else if (msg.type === 'agent_event' && msg.data) {
+        const norm = this._normalizeAgentEvent(msg.data)
+        if (norm) store.addAgentLog(norm)
+      } else if (msg.type === 'event' && msg.data && (msg.data.agent_name || msg.data.agent)) {
+        const norm = this._normalizeAgentEvent(msg.data)
+        if (norm) store.addAgentLog(norm)
+      }
+    }
+    this._socket.onclose = (_event) => {
+      const wasConnected = this._state === ConnectionState.CONNECTED
+      this._state = ConnectionState.DISCONNECTED
+      this._cleanupSocket()
+      this._updateStoreState()
+      this.dispatch('ws-disconnected')
+      // Reconnect with exponential backoff + jitter
+      if (wasConnected && this._retry < this.MAX_RETRIES) {
+        this._state = ConnectionState.RECONNECTING
+        this._retry++
+        const delay = this._getRetryDelay(this._retry)
+        this._reconnectTimer = setTimeout(() => this.connect(), delay)
+      } else if (this._retry >= this.MAX_RETRIES) {
+        this._state = ConnectionState.ERROR
+        this._updateStoreState()
+      }
+    }
+    this._socket.onerror = () => {
+      if (this._state === ConnectionState.CONNECTING) {
+        this._state = ConnectionState.ERROR
+        this._updateStoreState()
+      }
     }
   }
 
-  public disconnect(): void {
-    console.log('Manual WebSocket disconnect requested')
-    this.cleanupSocket()
-    this.connectionState = ConnectionState.DISCONNECTED
-    this.retryCount = 0
-    this.updateStoreState()
+  // --- Normalization ---
+  private _normalizeAgentEvent(raw: any): any | null {
+    if (!raw || typeof raw !== 'object') return null
+    return {
+      agent_name: raw.agent_name || raw.agent || 'Unknown',
+      event_type: this._normalizeEventType(raw.event_type || raw.action || raw.type || 'processed'),
+      timestamp: raw.timestamp || raw.created_at || new Date().toISOString(),
+      symbol: raw.symbol,
+      action: raw.action,
+      latency_ms: Number(raw.latency_ms) || 0,
+      primary_edge: raw.primary_edge,
+      ...(raw.stream && { stream: raw.stream }),
+      ...(raw.message_id && { message_id: raw.message_id }),
+      ...(raw.data && { data: raw.data }),
+    }
   }
-
-  public reconnect(): void {
-    console.log('Manual reconnection requested')
-    this.retryCount = 0 // Reset retry count for manual reconnection
-    this.connect()
+  private _normalizeSystemMetric(raw: any): any | null {
+    if (!raw || typeof raw !== 'object') return null
+    return {
+      metric_name: raw.metric_name || raw.name || 'unknown',
+      value: Number(raw.value) || 0,
+      timestamp: raw.timestamp || raw.created_at || new Date().toISOString(),
+      labels: raw.labels || {},
+      ...(raw.unit && { unit: raw.unit }),
+      ...(raw.tags && { tags: raw.tags }),
+    }
   }
-
-  public getConnectionState(): ConnectionState {
-    return this.connectionState
-  }
-
-  public isConnected(): boolean {
-    return this.connectionState === ConnectionState.CONNECTED && 
-           this.socket?.readyState === WebSocket.OPEN
-  }
-
-  public getSocket(): WebSocket | null {
-    return this.socket
-  }
-
-  // Static methods for easy access
-  public static connect(): void {
-    WebSocketManager.getInstance().connect()
-  }
-
-  public static disconnect(): void {
-    WebSocketManager.getInstance().disconnect()
-  }
-
-  public static reconnect(): void {
-    WebSocketManager.getInstance().reconnect()
-  }
-
-  public static isConnected(): boolean {
-    return WebSocketManager.getInstance().isConnected()
-  }
-
-  public static getConnectionState(): ConnectionState {
-    return WebSocketManager.getInstance().getConnectionState()
+  private _normalizeEventType(val: string): string {
+    if (!val || typeof val !== 'string') return 'unknown'
+    const map: Record<string, string> = {
+      buy: 'signal', sell: 'signal', purchase: 'signal', trade: 'signal', order: 'signal',
+      execution: 'order', execute: 'order', fill: 'order',
+      market_tick: 'tick', price_update: 'tick', quote: 'tick',
+      analysis: 'analysis', reasoning: 'analysis',
+      grading: 'grade', assessment: 'grade',
+      learning: 'learning', training: 'learning',
+      reflection: 'reflection', review: 'reflection',
+      notification: 'notification', alert: 'notification', message: 'notification'
+    }
+    return map[val.toLowerCase()] || val.toLowerCase()
   }
 }
 
-// Production-grade hook with proper cleanup
+// --- Hook ---
 export function useGlobalWebSocket() {
-  const { setWsConnected, wsConnected } = useCodexStore()
-  const initializedRef = useRef(false)
-  const cleanupRef = useRef<(() => void) | null>(null)
+  const setWsConnected = useCodexStore((state) => state.setWsConnected)
+  const wsConnected = useCodexStore((state) => state.wsConnected)
+  const manager = WebSocketManager.instance
+  const initialized = useRef(false)
 
-  const cleanup = useCallback(() => {
-    if (cleanupRef.current) {
-      cleanupRef.current()
-      cleanupRef.current = null
-    }
-  }, [])
+  // Provide store update fn to manager for reactive state
+  useEffect(() => {
+    manager.setStoreUpdate(() => setWsConnected(manager.isConnected()))
+    return () => { manager.setStoreUpdate(null) }
+    // eslint-disable-next-line
+  }, [setWsConnected])
 
   useEffect(() => {
-    // SSR safety + prevent multiple initializations
-    if (!initializedRef.current && typeof window !== 'undefined') {
-      initializedRef.current = true
-      
-      // Get singleton manager instance
-      const manager = WebSocketManager.getInstance()
-      
-      // Connect if not already connected
-      if (!manager.isConnected()) {
-        manager.connect()
-      }
-      
-      // Setup event listeners with proper cleanup
-      const handleConnected = () => setWsConnected(true)
-      const handleDisconnected = () => setWsConnected(false)
-      
-      window.addEventListener('ws-connected', handleConnected)
-      window.addEventListener('ws-disconnected', handleDisconnected)
-      
-      cleanupRef.current = () => {
-        window.removeEventListener('ws-connected', handleConnected)
-        window.removeEventListener('ws-disconnected', handleDisconnected)
-      }
+    if (initialized.current) return
+    initialized.current = true
+    if (typeof window === 'undefined') return
+    // Connect if not connected
+    if (!manager.isConnected()) manager.connect()
+    // Event listeners for UI reactivity (store is primary, but also for redundancy)
+    const onConnect = () => setWsConnected(true)
+    const onDisconnect = () => setWsConnected(false)
+    manager.addEventListener('ws-connected', onConnect)
+    manager.addEventListener('ws-disconnected', onDisconnect)
+    return () => {
+      manager.removeEventListener('ws-connected', onConnect)
+      manager.removeEventListener('ws-disconnected', onDisconnect)
     }
+    // eslint-disable-next-line
+  }, [setWsConnected])
 
-    return cleanup
-  }, [setWsConnected, cleanup])
-
-  // Cleanup on unmount
   useEffect(() => {
-    return cleanup
-  }, [cleanup])
+    return () => {
+      manager.removeAllEventListeners()
+    }
+  }, [manager])
 
   return {
-    socket: WebSocketManager.getInstance().getSocket(),
-    // IMPORTANT: Use reactive state from store, not calculated value
-    // This ensures UI re-renders when connection state changes
+    socket: manager.socket,
     isConnected: wsConnected,
-    connectionState: WebSocketManager.getInstance().getConnectionState(),
-    reconnect: () => WebSocketManager.getInstance().reconnect(),
-    disconnect: () => WebSocketManager.getInstance().disconnect()
+    connectionState: manager.state,
+    reconnect: () => manager.reconnect(),
+    disconnect: () => manager.disconnect(),
   }
 }
