@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import ANY
 
 import pytest
 from redis.exceptions import ResponseError
-from pytest import ANY
 
 from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
 from api.events.consumer import BaseStreamConsumer
