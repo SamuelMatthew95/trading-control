@@ -137,7 +137,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     }
   }, [safeDailyPnl, previousPnl])
 
-  const avgLatency = useMemo(() => {
     const latencies = agentLogs.map(l => l.latency_ms || 0).filter(l => l > 0)
     return latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0
   }, [agentLogs])
@@ -167,9 +166,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   }, [systemMetrics, addSystemMetric])
 
   const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
-
-  // Market status (simplified - in real app this would check actual market hours)
-  const marketStatus = currentHour >= marketHours.open && currentHour <= marketHours.close
 
   // OVERVIEW PAGE - Professional Trading Command Center
   if (section === 'overview') {
