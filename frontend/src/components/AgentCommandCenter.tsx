@@ -216,100 +216,100 @@ export function AgentCommandCenter() {
   }
 
   return (
-    <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-6">
+    <div className="bg-[#0c0c0e] backdrop-blur-sm border border-[#27272a] rounded-xl p-6">
+      {/* HIGH-PERFORMANCE HEADER */}
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-white font-['Inter']">
+        <h3 className="text-xl font-bold text-white font-['Inter'] tracking-tight">
           8-Agent Status Matrix
         </h3>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-[#10b981] rounded-full animate-pulse" />
-          <span className="text-sm font-medium text-gray-400 font-['Inter']">
-            Real-time Status
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-[#10b981] rounded-full animate-pulse" />
+            <span className="text-xs font-medium text-[#10b981] font-['Inter']">LIVE</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-yellow-500 rounded-full" />
+            <span className="text-xs font-medium text-yellow-500 font-['Inter']">CHALLENGER</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-gray-500 rounded-full" />
+            <span className="text-xs font-medium text-gray-500 font-['Inter']">RETIRED</span>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* HIGH-DENSITY GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {agents.map((agent) => {
           const Icon = agent.icon
           return (
             <div
               key={agent.id}
-              className={cn(
-                "relative border rounded-lg p-4 transition-all duration-200 hover:border-[#27272a]",
-                getTierColor(agent.tier)
-              )}
+              className="relative bg-[#18181b] border border-[#27272a] rounded-lg p-4 transition-all duration-200 hover:border-[#10b981]/50"
             >
-              {/* Heartbeat LED */}
+              {/* PULSE LED - TOP RIGHT */}
               <div className="absolute top-2 right-2">
                 <div className={cn(
                   "w-2 h-2 rounded-full transition-all duration-300",
-                  agent.heartbeat ? "bg-[#10b981] animate-pulse" : "bg-gray-500"
+                  agent.heartbeat 
+                    ? agent.tier === 'active' ? "bg-[#10b981] animate-pulse" :
+                      agent.tier === 'challenger' ? "bg-yellow-500 animate-pulse" :
+                      "bg-gray-500"
+                    : "bg-gray-500"
                 )} />
               </div>
 
-              {/* Agent Header */}
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-[#09090b] flex items-center justify-center">
-                  <Icon className="w-4 h-4 text-gray-400" />
+              {/* AGENT HEADER */}
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-[#09090b] flex items-center justify-center">
+                  <Icon className={cn(
+                    "w-5 h-5",
+                    agent.tier === 'active' ? "text-[#10b981]" :
+                    agent.tier === 'challenger' ? "text-yellow-500" :
+                    "text-gray-500"
+                  )} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-white truncate font-['Inter']">
+                  <h4 className="text-sm font-bold text-white font-['Inter']">
                     {agent.name}
-                  </p>
-                  <p className="text-xs text-gray-500 capitalize font-['Inter']">
+                  </h4>
+                  <p className="text-xs text-gray-400 capitalize font-['Inter']">
                     {agent.tier}
                   </p>
                 </div>
               </div>
 
-              {/* Metrics Grid */}
-              <div className="space-y-1">
+              {/* VALUE-LABEL PAIRS */}
+              <div className="space-y-2">
                 {Object.entries(agent.metrics).slice(0, 4).map(([key, value]) => (
                   <div key={key} className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500 truncate font-['Inter']">
+                    <span className="text-xs text-gray-400 font-['Inter'] min-w-[80px]">
                       {key}
                     </span>
-                    <span className="text-xs font-mono text-gray-300 font-['JetBrains_Mono']">
-                      {String(value)}
+                    <span className="text-xs font-mono text-gray-300 font-['JetBrains_Mono'] text-right">
+                      {sanitizeValue(value)}
                     </span>
                   </div>
                 ))}
               </div>
 
-              {/* Status Bar */}
+              {/* STATUS BAR */}
               <div className="mt-3 pt-3 border-t border-[#27272a]">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500 font-['Inter']">
+                  <span className="text-xs text-gray-500 font-['Inter'] uppercase tracking-wider">
                     {agent.status}
                   </span>
                   <div className={cn(
                     "w-1.5 h-1.5 rounded-full",
-                    getStatusColor(agent.status)
+                    agent.status === 'active' ? "bg-[#10b981]" :
+                    agent.status === 'idle' ? "bg-yellow-500" :
+                    "bg-gray-500"
                   )} />
                 </div>
               </div>
             </div>
           )
         })}
-      </div>
-
-      {/* Legend */}
-      <div className="mt-6 pt-4 border-t border-[#27272a]">
-        <div className="flex items-center justify-center gap-6 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-[#10b981] rounded-full" />
-            <span className="text-gray-400 font-['Inter']">Active</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full" />
-            <span className="text-gray-400 font-['Inter']">Challenger</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-gray-500 rounded-full" />
-            <span className="text-gray-400 font-['Inter']">Retired</span>
-          </div>
-        </div>
       </div>
     </div>
   )
