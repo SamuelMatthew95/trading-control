@@ -32,15 +32,21 @@ import { MobileNavigation } from '@/components/MobileNavigation'
 import { useCodexStore } from '@/stores/useCodexStore'
 
 // HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
-function formatUSD(value?: number | null | undefined): string {
+const formatUSD = (value?: number | null): string => {
   return value != null && isFinite(value) ? `$${value.toFixed(2)}` : "$0.00";
-}
+};
 
 function sanitizeValue(value: any): string {
-  if (value === undefined || value === null || value === 'undefined') {
-    return '--' // Em dash for undefined values
+  if (value === undefined || value === null || value === '') {
+    return '--';
   }
-  return String(value)
+  if (typeof value === 'number' && Number.isNaN(value)) {
+    return '--';
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'True' : 'False';
+  }
+  return String(value);
 }
 
 export function DashboardView({ section }: { section: 'overview' | 'trading' | 'agents' | 'learning' | 'system' }) {

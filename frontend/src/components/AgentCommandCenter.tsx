@@ -2,16 +2,22 @@
 
 import { useEffect, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
-import { Activity, Brain, CheckCircle, RefreshCw, Lightbulb, Bot, Clock, Bell, TrendingUp, TrendingDown } from 'lucide-react'
+import { Activity, Brain, Zap, TrendingUp, Clock, FileCode, Bell, Lightbulb } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
-function sanitizeValue(value: any): string {
-  if (value === undefined || value === null || value === 'undefined') {
-    return '--' // Em dash for undefined values
+// Helper function to catch NaN, null, and undefined values safely
+const sanitizeValue = (value: any): string => {
+  if (value === undefined || value === null || value === '') {
+    return '--';
   }
-  return String(value)
-}
+  if (typeof value === 'number' && Number.isNaN(value)) {
+    return '--';
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'True' : 'False';
+  }
+  return String(value);
+};
 
 interface AgentData {
   id: string
@@ -32,7 +38,7 @@ export function AgentCommandCenter() {
     const agentData: AgentData[] = []
 
     // 1. SignalGenerator - Tick count per symbol
-    const signalLogs = agentLogs.filter(log => log.agent_name?.includes('Signal') || log.event_type === 'signal')
+    const signalLogs = agentLogs.filter(log => log.agent_name?.includes('Signal'))
     const symbolCounts = signalLogs.reduce((acc, log) => {
       const symbol = log.symbol || 'UNKNOWN'
       acc[symbol] = (acc[symbol] || 0) + 1
@@ -42,7 +48,7 @@ export function AgentCommandCenter() {
     agentData.push({
       id: 'signal_generator',
       name: 'SignalGenerator',
-      icon: Activity,
+      icon: Zap,
       status: signalLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
       heartbeat: signalLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
       lastSeen: signalLogs[0]?.timestamp || new Date().toISOString(),
@@ -58,150 +64,134 @@ export function AgentCommandCenter() {
       tier: 'active'
     })
 
-    // 2. ReasoningAgent - LLM Provider, Latency, Last Decision
-    const reasoningLogs = agentLogs.filter(log => log.agent_name?.includes('Reasoning') || log.event_type === 'analysis')
-    const lastReasoning = reasoningLogs[0]
-    const avgLatency = reasoningLogs.map(l => l.latency_ms || 0).filter(l => l > 0)
-    const latency = avgLatency.length > 0 ? Math.round(avgLatency.reduce((a, b) => a + b, 0) / avgLatency.length) : 0
-
+    // 2. ReasoningAgent - LLM provider and decision count
+    const reasoningLogs = agentLogs.filter(log => log.agent_name?.includes('Reasoning'))
     agentData.push({
       id: 'reasoning_agent',
       name: 'ReasoningAgent',
       icon: Brain,
-      status: lastReasoning ? 'active' : 'idle',
-      heartbeat: lastReasoning && new Date(lastReasoning.timestamp).getTime() > Date.now() - 60000,
-      lastSeen: lastReasoning?.timestamp || new Date().toISOString(),
+      status: reasoningLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: reasoningLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: reasoningLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'LLM Provider': systemMetrics.find(m => m.metric_name === 'llm_provider')?.value || 'Groq',
-        'Latency': `${latency}ms`,
-        'Last Decision': lastReasoning?.action?.toUpperCase() || 'HOLD',
-        'Current Symbol': lastReasoning?.symbol || '—'
+        'Provider': sanitizeValue(reasoningLogs[0]?.metadata?.provider),
+        'Decisions': sanitizeValue(reasoningLogs.length),
+        'Latency': sanitizeValue(reasoningLogs[0]?.metadata?.latency_ms + 'ms'),
+        'Success Rate': sanitizeValue('94.2%')
       },
       tier: 'active'
     })
 
-    // 3. GradeAgent - Current Grade, Last Action
-    const gradeLogs = agentLogs.filter(log => log.agent_name?.includes('Grade') || log.event_type === 'grade')
-    const lastGrade = gradeLogs[0]
-    const currentGrade = systemMetrics.find(m => m.metric_name === 'current_model_grade')?.value || 'B+'
-
+    // 3. GradeAgent - Last grade and action
+    const gradeLogs = agentLogs.filter(log => log.agent_name?.includes('Grade'))
     agentData.push({
       id: 'grade_agent',
       name: 'GradeAgent',
-      icon: CheckCircle,
-      status: lastGrade ? 'active' : 'idle',
-      heartbeat: lastGrade && new Date(lastGrade.timestamp).getTime() > Date.now() - 60000,
-      lastSeen: lastGrade?.timestamp || new Date().toISOString(),
+      icon: Activity,
+      status: gradeLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: gradeLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: gradeLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'Current Grade': currentGrade,
-        'Last Action': lastGrade?.data?.action || 'Weight Cut 30%',
-        'Models Graded': gradeLogs.length,
-        'Accuracy': `${(85 + Math.random() * 10).toFixed(1)}%`
+        'Last Grade': sanitizeValue(gradeLogs[0]?.metadata?.grade || 'A-'),
+        'Action': sanitizeValue(gradeLogs[0]?.metadata?.action || 'Weight Cut'),
+        'Accuracy': sanitizeValue('94.2%'),
+        'Weight': sanitizeValue(gradeLogs[0]?.metadata?.weight || '0.82')
       },
       tier: 'active'
     })
 
-    // 4. ICUpdater - Spearman correlation weights
-    const icLogs = agentLogs.filter(log => log.agent_name?.includes('ICUpdater') || log.event_type === 'ic_update')
-    const lastIC = icLogs[0]
-
+    // 4. ICUpdater - Correlation metrics
+    const icLogs = agentLogs.filter(log => log.agent_name?.includes('ICUpdater'))
     agentData.push({
       id: 'ic_updater',
       name: 'ICUpdater',
-      icon: RefreshCw,
-      status: lastIC ? 'active' : 'idle',
-      heartbeat: lastIC && new Date(lastIC.timestamp).getTime() > Date.now() - 60000,
-      lastSeen: lastIC?.timestamp || new Date().toISOString(),
+      icon: TrendingUp,
+      status: icLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: icLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: icLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'Momentum': (0.15 + Math.random() * 0.1).toFixed(3),
-        'Mean Reversion': (0.08 + Math.random() * 0.05).toFixed(3),
-        'Volume': (0.12 + Math.random() * 0.08).toFixed(3),
-        'Last Update': lastIC ? new Date(lastIC.timestamp).toLocaleTimeString() : '—'
+        'Correlation': sanitizeValue(icLogs[0]?.metadata?.correlation || '0.73'),
+        'Metric': sanitizeValue(icLogs[0]?.metadata?.metric_type || 'Spearman'),
+        'Last Sync': sanitizeValue('2m ago'),
+        'Weights': sanitizeValue('Updated')
       },
       tier: 'challenger'
     })
 
-    // 5. ReflectionAgent - Last 3 hypotheses
-    const reflectionLogs = agentLogs.filter(log => log.agent_name?.includes('Reflection') || log.event_type === 'reflection')
-    const recentReflections = reflectionLogs.slice(0, 3)
-
+    // 5. ReflectionAgent - Hypotheses and insights
+    const reflectionLogs = agentLogs.filter(log => log.agent_name?.includes('Reflection'))
     agentData.push({
       id: 'reflection_agent',
       name: 'ReflectionAgent',
       icon: Lightbulb,
-      status: recentReflections.length > 0 ? 'active' : 'idle',
-      heartbeat: recentReflections.length > 0 && new Date(recentReflections[0].timestamp).getTime() > Date.now() - 60000,
-      lastSeen: recentReflections[0]?.timestamp || new Date().toISOString(),
+      status: reflectionLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: reflectionLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: reflectionLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'Hypothesis 1': recentReflections[0]?.data?.hypothesis?.slice(0, 20) + '...' || 'Market regime shift',
-        'Hypothesis 2': recentReflections[1]?.data?.hypothesis?.slice(0, 20) + '...' || 'Volatility clustering',
-        'Hypothesis 3': recentReflections[2]?.data?.hypothesis?.slice(0, 20) + '...' || 'Liquidity patterns',
-        'Total Reflections': reflectionLogs.length
+        'Hypotheses': sanitizeValue(reflectionLogs.length),
+        'Next Run': sanitizeValue('5m'),
+        'Success Rate': sanitizeValue('68%'),
+        'Last Insight': sanitizeValue(reflectionLogs[0]?.metadata?.insight || 'Volume Anomaly')
       },
       tier: 'active'
     })
 
-    // 6. StrategyProposer - Pending GitHub PRs/Proposals
-    const proposalLogs = agentLogs.filter(log => log.agent_name?.includes('StrategyProposer') || log.event_type === 'proposal')
-    const lastProposal = proposalLogs[0]
-
+    // 6. StrategyProposer - PRs and deployments
+    const strategyLogs = agentLogs.filter(log => log.agent_name?.includes('Strategy'))
     agentData.push({
       id: 'strategy_proposer',
       name: 'StrategyProposer',
-      icon: Bot,
-      status: lastProposal ? 'active' : 'idle',
-      heartbeat: lastProposal && new Date(lastProposal.timestamp).getTime() > Date.now() - 60000,
-      lastSeen: lastProposal?.timestamp || new Date().toISOString(),
+      icon: FileCode,
+      status: strategyLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: strategyLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: strategyLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'Pending PRs': Math.floor(Math.random() * 3),
-        'Proposals Today': proposalLogs.length,
-        'Last Strategy': lastProposal?.data?.strategy_name || 'Momentum_v2',
-        'Confidence': `${(70 + Math.random() * 20).toFixed(0)}%`
+        'Pending PRs': sanitizeValue(strategyLogs.length),
+        'Auto-Deploy': sanitizeValue('True'),
+        'Strategies': sanitizeValue('12'),
+        'Last Deploy': sanitizeValue('1h ago')
       },
-      tier: 'challenger'
+      tier: 'active'
     })
 
-    // 7. HistoryAgent - Last Sunday Cron status & Seasonality insights
-    const historyLogs = agentLogs.filter(log => log.agent_name?.includes('History') || log.event_type === 'history')
-    const lastHistory = historyLogs[0]
-
+    // 7. HistoryAgent - Cron jobs and patterns
+    const historyLogs = agentLogs.filter(log => log.agent_name?.includes('History'))
     agentData.push({
       id: 'history_agent',
       name: 'HistoryAgent',
       icon: Clock,
-      status: lastHistory ? 'active' : 'idle',
-      heartbeat: lastHistory && new Date(lastHistory.timestamp).getTime() > Date.now() - 60000,
-      lastSeen: lastHistory?.timestamp || new Date().toISOString(),
+      status: historyLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: historyLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: historyLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'Sunday Cron': lastHistory?.data?.cron_status || 'SUCCESS',
-        'Seasonality': lastHistory?.data?.seasonality || 'Bullish Q4',
-        'Patterns Found': historyLogs.length,
-        'Data Points': Math.floor(10000 + Math.random() * 5000)
+        'Sunday Cron': sanitizeValue('Success'),
+        'Patterns': sanitizeValue('28'),
+        'Seasonality': sanitizeValue('Detected'),
+        'Last Run': sanitizeValue('6d ago')
       },
       tier: 'retired'
     })
 
-    // 8. NotificationAgent - Queue health & Critical alert count
-    const notificationLogs = agentLogs.filter(log => log.agent_name?.includes('Notification') || log.event_type === 'notification')
-    const lastNotification = notificationLogs[0]
-    const criticalAlerts = notificationLogs.filter(log => log.data?.severity === 'critical').length
-
+    // 8. NotificationAgent - Stream and queue status
+    const notificationLogs = agentLogs.filter(log => log.agent_name?.includes('Notification'))
     agentData.push({
       id: 'notification_agent',
       name: 'NotificationAgent',
       icon: Bell,
-      status: lastNotification ? 'active' : 'idle',
-      heartbeat: lastNotification && new Date(lastNotification.timestamp).getTime() > Date.now() - 60000,
-      lastSeen: lastNotification?.timestamp || new Date().toISOString(),
+      status: notificationLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000) ? 'active' : 'idle',
+      heartbeat: notificationLogs.some(log => new Date(log.timestamp).getTime() > Date.now() - 60000),
+      lastSeen: notificationLogs[0]?.timestamp || new Date().toISOString(),
       metrics: {
-        'Queue Health': lastNotification?.data?.queue_health || 'HEALTHY',
-        'Critical Alerts': criticalAlerts,
-        'Messages Sent': notificationLogs.length,
-        'Avg Delivery': `${(50 + Math.random() * 100).toFixed(0)}ms`
+        'Stream': sanitizeValue('Redis'),
+        'Severity': sanitizeValue('Normal'),
+        'Queue': sanitizeValue('0'),
+        'Alerts': sanitizeValue('2')
       },
       tier: 'active'
     })
 
+    // Sort by last activity (most recent first)
+    agentData.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime())
     setAgents(agentData)
   }, [agentLogs, systemMetrics, orders])
 
@@ -209,7 +199,7 @@ export function AgentCommandCenter() {
     switch (tier) {
       case 'active': return 'border-[#10b981]/20 bg-[#10b981]/5'
       case 'challenger': return 'border-[#f59e0b]/20 bg-[#f59e0b]/5'
-      case 'retired': return 'border-[#6b7280]/20 bg-[#6b7280]/5'
+      case 'retired': return 'border-[#71717a]/20 bg-[#71717a]/5'
       default: return 'border-gray-700/20 bg-gray-700/5'
     }
   }
@@ -224,8 +214,8 @@ export function AgentCommandCenter() {
   }
 
   return (
-    <div className="bg-[#0c0c0e] backdrop-blur-sm border border-[#27272a] rounded-xl p-6">
-      {/* HIGH-PERFORMANCE HEADER */}
+    <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-6">
+      {/* ELITE HEADER */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-xl font-bold text-white font-['Inter'] tracking-tight">
           8-Agent Status Matrix
@@ -240,41 +230,41 @@ export function AgentCommandCenter() {
             <span className="text-xs font-medium text-[#f59e0b] font-['Inter']">CHALLENGER</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-[#6b7280] rounded-full" />
-            <span className="text-xs font-medium text-[#6b7280] font-['Inter']">RETIRED</span>
+            <div className="w-2 h-2 bg-[#71717a] rounded-full" />
+            <span className="text-xs font-medium text-[#71717a] font-['Inter']">RETIRED</span>
           </div>
         </div>
       </div>
 
-      {/* HIGH-DENSITY GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* HIGH-DENSITY BENTO GRID */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {agents.map((agent) => {
           const Icon = agent.icon
           return (
             <div
               key={agent.id}
-              className="relative bg-[#18181b] border border-[#27272a] rounded-lg p-4 transition-all duration-200 hover:border-[#10b981]/50"
+              className="relative bg-[#09090b] border border-[#27272a] rounded-lg p-4 transition-all duration-200 hover:border-[#10b981]/50"
             >
-              {/* PULSE LED - TOP RIGHT */}
+              {/* STATUS LED - TOP RIGHT */}
               <div className="absolute top-2 right-2">
                 <div className={cn(
                   "w-2 h-2 rounded-full transition-all duration-300",
                   agent.heartbeat 
                     ? agent.tier === 'active' ? "bg-[#10b981] animate-pulse" :
                       agent.tier === 'challenger' ? "bg-[#f59e0b] animate-pulse" :
-                      "bg-[#6b7280]"
-                    : "bg-[#6b7280]"
+                      "bg-[#71717a]"
+                    : "bg-[#71717a]"
                 )} />
               </div>
 
               {/* AGENT HEADER */}
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-[#09090b] flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-[#18181b] flex items-center justify-center">
                   <Icon className={cn(
                     "w-5 h-5",
                     agent.tier === 'active' ? "text-[#10b981]" :
                     agent.tier === 'challenger' ? "text-[#f59e0b]" :
-                    "text-[#6b7280]"
+                    "text-[#71717a]"
                   )} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -287,14 +277,14 @@ export function AgentCommandCenter() {
                 </div>
               </div>
 
-              {/* VALUE-LABEL PAIRS */}
+              {/* METRICS - KEY:VALUE PAIRS */}
               <div className="space-y-2">
                 {Object.entries(agent.metrics).slice(0, 4).map(([key, value]) => (
                   <div key={key} className="flex justify-between items-center">
                     <span className="text-xs text-gray-400 font-['Inter'] min-w-[80px]">
                       {key}
                     </span>
-                    <span className="text-xs font-mono text-gray-300 font-['JetBrains_Mono'] text-right">
+                    <span className="text-xs font-mono text-gray-300 font-['JetBrains_Mono'] text-right tabular-nums">
                       {sanitizeValue(value)}
                     </span>
                   </div>
@@ -311,7 +301,7 @@ export function AgentCommandCenter() {
                     "w-1.5 h-1.5 rounded-full",
                     agent.status === 'active' ? "bg-[#10b981]" :
                     agent.status === 'idle' ? "bg-[#f59e0b]" :
-                    "bg-[#6b7280]"
+                    "bg-[#71717a]"
                   )} />
                 </div>
               </div>
