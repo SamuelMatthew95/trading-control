@@ -717,7 +717,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     )
   }
 
-  // SYSTEM PAGE
+  // SYSTEM PAGE - Clean Agent Dashboard
   return (
     <div className="min-h-screen bg-white dark:bg-black">
       {/* TOP BAR */}
@@ -750,68 +750,180 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       </div>
 
       <div className="p-6 space-y-8">
-        {/* Stream Health */}
-        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Stream Health</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-slate-700">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Stream</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Lag</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0 && isLoading ? (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-sm text-gray-600 dark:text-gray-400">
-                      Waiting for stream data...
-                    </td>
-                  </tr>
-                ) : (
-                  systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).map((m, i) => {
-                    const lag = Number(m.value || 0)
-                    const getLagColor = (lag: number) => {
-                      if (lag < 100) return { text: 'text-green-600 dark:text-green-400', bg: 'bg-green-500', label: 'Excellent' }
-                      if (lag < 1000) return { text: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-500', label: 'Good' }
-                      return { text: 'text-red-600 dark:text-red-400', bg: 'bg-red-500', label: 'Critical' }
-                    }
-                    const lagStatus = getLagColor(lag)
-                    
-                    return (
-                      <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
-                        <td className="px-4 py-3 font-mono text-sm text-gray-900 dark:text-white">{m.metric_name?.replace('stream_lag:', '')}</td>
-                        <td className={cn("px-4 py-3 font-mono text-sm font-semibold", lagStatus.text)}>{lag}ms</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className={cn("w-2 h-2 rounded-full", lagStatus.bg)} />
-                            <span className={cn("text-xs font-medium", lagStatus.text)}>{lagStatus.label}</span>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
+        {/* STREAM COUNTS - High Level Overview */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-4 uppercase tracking-wider">
+            Streams (last 5 min)
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { name: 'market_ticks', count: 3452, color: 'bg-emerald-500 text-white' },
+              { name: 'signals', count: 1234, color: 'bg-blue-500 text-white' },
+              { name: 'orders', count: 345, color: 'bg-purple-500 text-white' },
+              { name: 'executions', count: 78, color: 'bg-orange-500 text-white' },
+            ].map((stream, i) => (
+              <div key={i} className={cn("rounded-xl p-4 text-center", stream.color)}>
+                <div className="text-2xl font-bold">{stream.count.toLocaleString()}</div>
+                <div className="text-xs opacity-90">{stream.name}</div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* System Status */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Dead Letter Queue</h3>
-            <div className="text-center py-8">
-              <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-3" />
-              <p className="text-sm text-green-600 dark:text-green-400 font-medium">No failed events</p>
-            </div>
+        {/* AGENTS GRID */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-4 uppercase tracking-wider">
+            Agents
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {[
+              {
+                name: 'SignalGenerator',
+                status: 'active',
+                events: { signals: 120 },
+                lastTime: '12:34:12',
+                tier: 'Active'
+              },
+              {
+                name: 'ReasoningAgent',
+                status: 'idle',
+                events: { orders: 23 },
+                lastTime: '12:34:10',
+                tier: 'Active'
+              },
+              {
+                name: 'GradeAgent',
+                status: 'active',
+                events: { grades: 45 },
+                lastTime: '12:34:15',
+                tier: 'Challenger'
+              },
+              {
+                name: 'ICUpdater',
+                status: 'active',
+                events: { ic: 78 },
+                lastTime: '12:34:08',
+                tier: 'Active'
+              },
+              {
+                name: 'ReflectionAgent',
+                status: 'offline',
+                events: { refl: 0 },
+                lastTime: '12:33:50',
+                tier: 'Retired'
+              },
+              {
+                name: 'StrategyProposer',
+                status: 'idle',
+                events: { props: 12 },
+                lastTime: '12:34:05',
+                tier: 'Challenger'
+              },
+              {
+                name: 'HistoryAgent',
+                status: 'active',
+                events: { hist: 3 },
+                lastTime: '12:34:11',
+                tier: 'Active'
+              },
+              {
+                name: 'NotificationAgent',
+                status: 'idle',
+                events: { notif: 23 },
+                lastTime: '12:34:09',
+                tier: 'Active'
+              },
+            ].map((agent, i) => {
+              const getStatusIndicator = (status: string) => {
+                switch (status) {
+                  case 'active': return '🟢 Active'
+                  case 'idle': return '🟡 Idle'
+                  case 'offline': return '🔴 Offline'
+                  default: return '⚪ Unknown'
+                }
+              }
+
+              const getStatusColor = (status: string) => {
+                switch (status) {
+                  case 'active': return 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800'
+                  case 'idle': return 'border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-800'
+                  case 'offline': return 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800'
+                  default: return 'border-gray-200 bg-gray-50 dark:bg-gray-950/20 dark:border-gray-800'
+                }
+              }
+
+              const getTierColor = (tier: string) => {
+                switch (tier) {
+                  case 'Active': return 'text-green-600 dark:text-green-400'
+                  case 'Challenger': return 'text-blue-600 dark:text-blue-400'
+                  case 'Retired': return 'text-gray-600 dark:text-gray-400'
+                  default: return 'text-gray-600 dark:text-gray-400'
+                }
+              }
+
+              const eventEntries = Object.entries(agent.events)
+              const hasEvents = eventEntries.length > 0
+              const totalEvents = eventEntries.reduce((sum, [_, count]) => sum + count, 0)
+
+              return (
+                <div key={i} className={cn(
+                  "border rounded-xl p-4 transition-all duration-200 hover:shadow-md",
+                  getStatusColor(agent.status)
+                )}>
+                  {/* Agent Name */}
+                  <div className="font-semibold text-gray-900 dark:text-white mb-2">
+                    {agent.name}
+                  </div>
+
+                  {/* Status Indicator */}
+                  <div className="text-sm font-medium mb-3">
+                    {getStatusIndicator(agent.status)}
+                  </div>
+
+                  {/* Event Counts */}
+                  {hasEvents ? (
+                    <div className="space-y-1 mb-3">
+                      {eventEntries.map(([eventType, count]) => (
+                        <div key={eventType} className="text-sm text-gray-600 dark:text-gray-400">
+                          {eventType.charAt(0).toUpperCase() + eventType.slice(1)}: {count} / 5m
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500 dark:text-gray-500 mb-3">
+                      No events
+                    </div>
+                  )}
+
+                  {/* Last Time */}
+                  <div className="text-xs text-gray-500 dark:text-gray-500 mb-2">
+                    Last: {agent.lastTime}
+                  </div>
+
+                  {/* Tier */}
+                  <div className={cn("text-xs font-semibold uppercase tracking-wider", getTierColor(agent.tier))}>
+                    {agent.tier}
+                  </div>
+                </div>
+              )
+            })}
           </div>
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">System Uptime</h3>
-            <div className="text-center py-8">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">99.9%</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Last 30 days</p>
+        </div>
+
+        {/* LEGEND */}
+        <div className="border-t border-gray-200 dark:border-slate-800 pt-4">
+          <div className="flex flex-wrap gap-6 text-xs text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-2">
+              <span>🟢</span>
+              <span>Active (processing)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>🟡</span>
+              <span>Idle (connected but not processing)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>🔴</span>
+              <span>Offline (no data in last 10-20 sec)</span>
             </div>
           </div>
         </div>
