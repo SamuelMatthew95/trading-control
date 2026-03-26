@@ -1,10 +1,7 @@
-import '../styles/globals.css'
-import type { Metadata } from 'next'
+'use client'
 
-export const metadata: Metadata = {
-  title: 'Trading Control Dashboard',
-  description: 'Real-time trading system dashboard with WebSocket updates',
-}
+import { useEffect, useRef } from 'react'
+import { useCodexStore } from '@/stores/useCodexStore'
 
 // WebSocket client wrapper - initializes once for the whole app
 let globalSocket: WebSocket | null = null
@@ -23,17 +20,61 @@ function connectWebSocket() {
 
   try {
     globalSocket = new WebSocket(getWsUrl())
+    
     globalSocket.onopen = () => {
       console.log('WebSocket connected')
       globalRetryCount = 0
+      useCodexStore.getState().setWsConnected(true)
       // Trigger connection state update for all components
       window.dispatchEvent(new CustomEvent('ws-connected'))
     }
 
     globalSocket.onmessage = (event) => {
-      const payload = JSON.parse(event.data)
-      // Dispatch to all components via custom event
-      window.dispatchEvent(new CustomEvent('ws-message', { detail: payload }))
+      try {
+        const payload = JSON.parse(event.data)
+        console.log('WebSocket message received:', payload)
+        
+        // Dispatch to all components via custom event
+        window.dispatchEvent(new CustomEvent('ws-message', { detail: payload }))
+        
+        // Update store based on message type
+        if (payload.type === 'dashboard_update' && payload.data) {
+          const data = payload.data
+          
+          // Update system metrics if present
+          if (data.system_metrics) {
+            data.system_metrics.forEach((metric: any) => {
+              useCodexStore.getState().addSystemMetric(metric)
+            })
+          }
+          
+          // Update other data types as needed
+          if (data.orders) {
+            data.orders.forEach((order: any) => {
+              useCodexStore.getState().updateOrder(order)
+            })
+          }
+          
+          if (data.agent_logs) {
+            data.agent_logs.forEach((log: any) => {
+              useCodexStore.getState().addAgentLog(log)
+            })
+          }
+        }
+        
+        // Handle individual event types
+        if (payload.type === 'system_metric' && payload.data) {
+          useCodexStore.getState().addSystemMetric(payload.data)
+        }
+        
+        if (payload.type === 'event' && payload.data) {
+          // Handle other event types as needed
+          console.log('Event received:', payload.stream, payload.data)
+        }
+        
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error)
+      }
     }
 
     globalSocket.onclose = () => {
@@ -41,6 +82,9 @@ function connectWebSocket() {
       globalSocket = null
       // Trigger disconnection event
       window.dispatchEvent(new CustomEvent('ws-disconnected'))
+      
+      // Update store connection state
+      useCodexStore.getState().setWsConnected(false)
       
       // Retry logic
       if (globalRetryCount < MAX_RETRIES) {
@@ -51,18 +95,38 @@ function connectWebSocket() {
 
     globalSocket.onerror = (error) => {
       console.error('WebSocket error:', error)
+      useCodexStore.getState().setWsConnected(false)
     }
+    
   } catch (error) {
     console.error('Failed to connect WebSocket:', error)
+    useCodexStore.getState().setWsConnected(false)
   }
 }
 
-// Initialize WebSocket connection immediately
-if (typeof window !== 'undefined') {
-  connectWebSocket()
-}
-
 export function useGlobalWebSocket() {
+  const { setWsConnected } = useCodexStore()
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    if (!initializedRef.current && typeof window !== 'undefined') {
+      initializedRef.current = true
+      connectWebSocket()
+    }
+
+    // Listen for connection state events
+    const handleConnected = () => setWsConnected(true)
+    const handleDisconnected = () => setWsConnected(false)
+
+    window.addEventListener('ws-connected', handleConnected)
+    window.addEventListener('ws-disconnected', handleDisconnected)
+
+    return () => {
+      window.removeEventListener('ws-connected', handleConnected)
+      window.removeEventListener('ws-disconnected', handleDisconnected)
+    }
+  }, [setWsConnected])
+
   return {
     socket: globalSocket,
     isConnected: globalSocket?.readyState === WebSocket.OPEN,
