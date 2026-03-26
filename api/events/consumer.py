@@ -13,7 +13,7 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 
-ACCEPTED_SCHEMA_VERSIONS = {"1", "legacy", "v1", None, ""}
+ACCEPTED_SCHEMA_VERSIONS = {"v2", "v3", "legacy", "v1", None, ""}
 
 
 class BaseStreamConsumer(ABC):
