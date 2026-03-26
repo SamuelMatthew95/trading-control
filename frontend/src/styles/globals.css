@@ -18,6 +18,44 @@
     font-family: 'JetBrains Mono', 'Geist Mono', 'Fira Code', monospace;
   }
 
+  /* FORCED DARK THEME - NO EXCEPTIONS */
+  html, body {
+    background-color: #09090b !important;
+    color: #f1f5f9 !important;
+  }
+
+  /* Override any light mode classes */
+  .light, .bg-white, .bg-gray-50, .bg-slate-50 {
+    background-color: #09090b !important;
+    color: #f1f5f9 !important;
+  }
+
+  /* Force dark text on all elements */
+  .text-gray-900, .text-slate-900, .text-gray-800, .text-slate-800 {
+    color: #f1f5f9 !important;
+  }
+
+  /* Force dark backgrounds */
+  .bg-white, .bg-gray-100, .bg-slate-100, .bg-gray-50, .bg-slate-50 {
+    background-color: #09090b !important;
+  }
+
+  /* Force card backgrounds */
+  .bg-white, .bg-slate-50, .bg-gray-50 {
+    background-color: #18181b !important;
+    border-color: #27272a !important;
+  }
+
+  /* Force borders */
+  .border-gray-200, .border-slate-200, .border-gray-100, .border-slate-100 {
+    border-color: #27272a !important;
+  }
+
+  /* Force hover states */
+  .hover\:bg-gray-100:hover, .hover\:bg-slate-100:hover {
+    background-color: #27272a !important;
+  }
+
   /* Mobile-first responsive typography */
   @media (max-width: 640px) {
     html {

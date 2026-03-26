@@ -83,7 +83,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   const [previousPnl, setPreviousPnl] = useState(0)
   const [isAnimating, setIsAnimating] = useState(false)
 
-  // Calculate metrics with enhanced data validation - NO NaN
+  // Calculate metrics with enhanced data validation - NEVER SHOW NaN
   const dailyPnl = useMemo(() => {
     if (!orders || orders.length === 0) return 0
     const validOrders = orders.filter(o => 
@@ -98,10 +98,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   // Check if data is loading for skeleton
   const isLoadingBalance = !orders || orders.length === 0
   const hasValidData = !isLoadingBalance && !isNaN(dailyPnl) && isFinite(dailyPnl)
-
+  
   // Calculate secondary metrics
   const pnlChange = dailyPnl - previousPnl
   const pnlChangePercent = previousPnl !== 0 ? (pnlChange / Math.abs(previousPnl)) * 100 : 0
+  
+  // Sanitized P&L value - never NaN
+  const safeDailyPnl = hasValidData ? dailyPnl : 0
+  const safePnlChange = hasValidData ? pnlChange : 0
   const winRate = useMemo(() => {
     const validOrders = orders.filter(o => o && typeof o.pnl === 'number' && !isNaN(Number(o.pnl)))
     return validOrders.length > 0 ? (validOrders.filter(o => Number(o.pnl) > 0).length / validOrders.length) * 100 : 0
@@ -163,19 +167,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       <div className="min-h-screen bg-[#09090b]">
         {/* STRICT DARK MODE HEADER */}
         <div className="bg-[#09090b] border-b border-[#27272a] h-20 flex items-center justify-between px-6">
-          {/* LEFT - SYSTEM STATUS */}
-          <div className="flex items-center gap-6">
-            <span className="text-sm font-medium text-gray-400 font-['Inter']">
-              System / Overview
-            </span>
-            <div className="h-4 w-px bg-[#27272a]" />
-            
-            {/* LATENCY - JetBrains Mono */}
-            <span className="text-sm font-mono text-gray-400 font-['JetBrains_Mono']">
-              {avgLatency}ms
-            </span>
-          </div>
-          
           {/* RIGHT - P&L WITH SKELETON */}
           <div className="flex items-center gap-4">
             {/* P&L DISPLAY - JetBrains Mono Data */}
@@ -184,10 +175,11 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 <div className="w-24 h-6 bg-[#18181b] rounded animate-pulse" />
               ) : (
                 <span className={cn(
-                  "text-xl font-bold font-mono tabular-nums font-['JetBrains_Mono']",
-                  dailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
+                  "text-xl font-bold font-mono tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
+                  isAnimating && "scale-105",
+                  safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
                 )}>
-                  {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+                  {safeDailyPnl >= 0 ? '+' : ''}${safeDailyPnl.toFixed(2)}
                 </span>
               )}
               <span className="text-xs font-medium text-gray-500 font-['Inter']">
@@ -259,41 +251,43 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               </div>
             </div>
 
-            <div className="flex items-center gap-6 mb-4">
+            <div className="flex items-center justify-center gap-6 mb-4">
               <motion.h1 
-                key={dailyPnl}
+                key={safeDailyPnl}
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 className={cn(
-                  "text-4xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
+                  "text-4xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono'] text-center",
                   isAnimating && "scale-105",
-                  dailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
+                  safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
                 )}
               >
-                {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+                {safeDailyPnl >= 0 ? '+' : ''}${safeDailyPnl.toFixed(2)}
               </motion.h1>
-              
-              <div className="flex flex-col gap-1">
+            </div>
+
+            <div className="flex items-center justify-center gap-8">
+              <div className="flex flex-col gap-1 items-center">
                 <div className="flex items-center gap-2">
-                  {pnlChange > 0 ? <ChevronUp className="w-4 h-4 text-[#10b981]" /> : <ChevronDown className="w-4 h-4 text-[#ef4444]" />}
+                  {safePnlChange > 0 ? <ChevronUp className="w-4 h-4 text-[#10b981]" /> : <ChevronDown className="w-4 h-4 text-[#ef4444]" />}
                   <span className={cn(
                     "text-sm font-semibold font-mono font-['JetBrains_Mono']",
-                    pnlChange > 0 ? "text-[#10b981]" : "text-[#ef4444]"
+                    safePnlChange > 0 ? "text-[#10b981]" : "text-[#ef4444]"
                   )}>
-                    {pnlChange >= 0 ? '+' : ''}{pnlChange.toFixed(2)}
+                    {safePnlChange >= 0 ? '+' : ''}{safePnlChange.toFixed(2)}
                   </span>
                 </div>
                 <span className="text-xs text-gray-500 font-['Inter']">24h Change</span>
               </div>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1 items-center">
                 <span className="text-sm font-semibold text-gray-300 font-['JetBrains_Mono']">
                   {winRate.toFixed(1)}%
                 </span>
                 <span className="text-xs text-gray-500 font-['Inter']">Win Rate</span>
               </div>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1 items-center">
                 <span className="text-sm font-semibold text-gray-300 font-['JetBrains_Mono']">
                   {activePositions}
                 </span>
@@ -391,12 +385,9 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   if (section === 'trading') {
     return (
       <div className="min-h-screen bg-[#09090b]">
-        {/* TOP BAR */}
+        {/* TOP BAR - NO BREADCRUMB */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-[#27272a] bg-[#09090b]">
           <div className="flex items-center gap-4">
-            <span className="text-gray-400 text-sm font-['Inter']">
-              System / Trading
-            </span>
             <div className="flex items-center gap-2">
               <div className={cn(
                 "w-2 h-2 rounded-full",
@@ -410,9 +401,9 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           <div className="flex items-center gap-6">
             <span className={cn(
               "font-semibold text-lg font-['JetBrains_Mono']",
-              dailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
+              safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
             )}>
-              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
+              {safeDailyPnl >= 0 ? '+' : ''}${safeDailyPnl.toFixed(2)}
             </span>
             <button className="bg-[#18181b] border border-[#27272a] px-4 py-2 text-sm font-semibold uppercase tracking-wider text-gray-300 hover:bg-[#27272a] rounded-lg font-['Inter'] min-h-[44px] min-w-[44px]">
               Export Report
@@ -521,12 +512,9 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   if (section === 'agents') {
     return (
       <div className="min-h-screen bg-[#09090b]">
-        {/* TOP BAR */}
+        {/* TOP BAR - NO BREADCRUMB */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-[#27272a] bg-[#09090b]">
           <div className="flex items-center gap-4">
-            <span className="text-gray-400 text-sm font-['Inter']">
-              System / Agents
-            </span>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-[#10b981] rounded-full animate-pulse" />
               <span className="text-[#10b981] text-sm font-medium font-['Inter']">

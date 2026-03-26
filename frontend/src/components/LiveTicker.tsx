@@ -49,29 +49,29 @@ export function LiveTicker() {
   return (
     <div className="bg-[#09090b] border-b border-[#27272a] overflow-hidden">
       <div className="flex items-center h-14">
-        {/* Scrolling ticker - responsive */}
-        <div className="flex items-center animate-scroll whitespace-nowrap min-w-0">
+        {/* Scrolling ticker - responsive with proper spacing */}
+        <div className="flex items-center gap-4 animate-scroll whitespace-nowrap min-w-0 px-4">
           {tickerData.map((item, index) => (
             <div 
               key={item.symbol} 
-              className="flex items-center px-4 sm:px-6 border-r border-[#27272a] last:border-r-0 flex-shrink-0"
+              className="flex items-center gap-4 flex-shrink-0 border-r border-[#27272a] pr-4 last:border-r-0"
             >
               {/* Symbol */}
-              <span className="text-sm sm:text-base font-bold text-white mr-3 sm:mr-4 min-w-[3rem] font-['Inter']">
+              <span className="text-sm sm:text-base font-bold text-white min-w-[3rem] font-['Inter']">
                 {item.symbol}
               </span>
               
               {/* Price */}
-              <span className="text-sm sm:text-base font-mono text-gray-300 mr-3 sm:mr-4 min-w-[5rem] text-right font-['JetBrains_Mono']">
+              <span className="text-sm sm:text-base font-mono text-gray-300 min-w-[5rem] text-right font-['JetBrains_Mono']">
                 ${item.price.toFixed(2)}
               </span>
               
               {/* 24h Delta */}
-              <div className="flex items-center mr-3 sm:mr-4">
+              <div className="flex items-center gap-2">
                 {item.changePercent >= 0 ? (
-                  <TrendingUp className="w-4 h-4 text-[#10b981] mr-1" />
+                  <TrendingUp className="w-4 h-4 text-[#10b981]" />
                 ) : (
-                  <TrendingDown className="w-4 h-4 text-[#ef4444] mr-1" />
+                  <TrendingDown className="w-4 h-4 text-[#ef4444]" />
                 )}
                 <span className={cn(
                   "text-xs sm:text-sm font-mono font-['JetBrains_Mono']",
@@ -82,13 +82,13 @@ export function LiveTicker() {
               </div>
 
               {/* Agent Bias */}
-              <div className="flex items-center">
-                <span className="text-xs text-gray-500 mr-1 font-['Inter']">Bias:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-['Inter']">Bias:</span>
                 <span className={cn(
-                  "text-xs font-bold px-2 py-1 rounded font-['Inter']",
-                  item.agentBias === 'long' ? "bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30" :
-                  item.agentBias === 'short' ? "bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/30" :
-                  "bg-gray-500/20 text-gray-400 border border-gray-500/30"
+                  "text-xs font-bold px-3 py-1 rounded font-['Inter'] border",
+                  item.agentBias === 'long' ? "bg-[#10b981]/20 text-[#10b981] border-[#10b981]/30" :
+                  item.agentBias === 'short' ? "bg-[#ef4444]/20 text-[#ef4444] border-[#ef4444]/30" :
+                  "bg-gray-500/20 text-gray-400 border-gray-500/30"
                 )}>
                   {item.agentBias.toUpperCase()}
                 </span>
@@ -100,24 +100,24 @@ export function LiveTicker() {
           {tickerData.map((item, index) => (
             <div 
               key={`${item.symbol}-duplicate`} 
-              className="flex items-center px-4 sm:px-6 border-r border-[#27272a] last:border-r-0 flex-shrink-0"
+              className="flex items-center gap-4 flex-shrink-0 border-r border-[#27272a] pr-4 last:border-r-0"
             >
               {/* Symbol */}
-              <span className="text-sm sm:text-base font-bold text-white mr-3 sm:mr-4 min-w-[3rem] font-['Inter']">
+              <span className="text-sm sm:text-base font-bold text-white min-w-[3rem] font-['Inter']">
                 {item.symbol}
               </span>
               
               {/* Price */}
-              <span className="text-sm sm:text-base font-mono text-gray-300 mr-3 sm:mr-4 min-w-[5rem] text-right font-['JetBrains_Mono']">
+              <span className="text-sm sm:text-base font-mono text-gray-300 min-w-[5rem] text-right font-['JetBrains_Mono']">
                 ${item.price.toFixed(2)}
               </span>
               
               {/* 24h Delta */}
-              <div className="flex items-center mr-3 sm:mr-4">
+              <div className="flex items-center gap-2">
                 {item.changePercent >= 0 ? (
-                  <TrendingUp className="w-4 h-4 text-[#10b981] mr-1" />
+                  <TrendingUp className="w-4 h-4 text-[#10b981]" />
                 ) : (
-                  <TrendingDown className="w-4 h-4 text-[#ef4444] mr-1" />
+                  <TrendingDown className="w-4 h-4 text-[#ef4444]" />
                 )}
                 <span className={cn(
                   "text-xs sm:text-sm font-mono font-['JetBrains_Mono']",
@@ -128,13 +128,13 @@ export function LiveTicker() {
               </div>
 
               {/* Agent Bias */}
-              <div className="flex items-center">
-                <span className="text-xs text-gray-500 mr-1 font-['Inter']">Bias:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-['Inter']">Bias:</span>
                 <span className={cn(
-                  "text-xs font-bold px-2 py-1 rounded font-['Inter']",
-                  item.agentBias === 'long' ? "bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30" :
-                  item.agentBias === 'short' ? "bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/30" :
-                  "bg-gray-500/20 text-gray-400 border border-gray-500/30"
+                  "text-xs font-bold px-3 py-1 rounded font-['Inter'] border",
+                  item.agentBias === 'long' ? "bg-[#10b981]/20 text-[#10b981] border-[#10b981]/30" :
+                  item.agentBias === 'short' ? "bg-[#ef4444]/20 text-[#ef4444] border-[#ef4444]/30" :
+                  "bg-gray-500/20 text-gray-400 border-gray-500/30"
                 )}>
                   {item.agentBias.toUpperCase()}
                 </span>
