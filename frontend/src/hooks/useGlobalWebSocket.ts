@@ -71,7 +71,7 @@ class WebSocketManager {
 
   private cleanupSocket(): void {
     if (this.socket) {
-      // Remove all listeners to prevent ghosts
+      // Remove all listeners to prevent ghosts BEFORE closing
       this.socket.onopen = null
       this.socket.onmessage = null
       this.socket.onclose = null
@@ -79,13 +79,17 @@ class WebSocketManager {
       
       // Close if not already closed
       if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
-        this.socket.close(1000, 'Cleanup')
+        try {
+          this.socket.close(1000, 'Cleanup')
+        } catch (error) {
+          console.warn('Error closing WebSocket during cleanup:', error)
+        }
       }
       
       this.socket = null
     }
 
-    // Clear timers
+    // Clear all timers to prevent memory leaks
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -95,6 +99,87 @@ class WebSocketManager {
       clearTimeout(this.connectionTimeout)
       this.connectionTimeout = null
     }
+  }
+
+  private normalizeAgentEvent(rawEvent: any): any | null {
+    try {
+      if (!rawEvent || typeof rawEvent !== 'object') {
+        return null
+      }
+
+      return {
+        agent_name: rawEvent.agent_name || rawEvent.agent || 'Unknown',
+        event_type: this.normalizeEventType(rawEvent.event_type || rawEvent.action || rawEvent.type || 'processed'),
+        timestamp: rawEvent.timestamp || rawEvent.created_at || new Date().toISOString(),
+        symbol: rawEvent.symbol,
+        action: rawEvent.action,
+        latency_ms: Number(rawEvent.latency_ms) || 0,
+        primary_edge: rawEvent.primary_edge,
+        // Preserve other useful fields
+        ...(rawEvent.stream && { stream: rawEvent.stream }),
+        ...(rawEvent.message_id && { message_id: rawEvent.message_id }),
+        ...(rawEvent.data && { data: rawEvent.data })
+      }
+    } catch (error) {
+      console.warn('Error normalizing agent event:', error, rawEvent)
+      return null
+    }
+  }
+
+  private normalizeSystemMetric(rawMetric: any): any | null {
+    try {
+      if (!rawMetric || typeof rawMetric !== 'object') {
+        return null
+      }
+
+      return {
+        metric_name: rawMetric.metric_name || rawMetric.name || 'unknown',
+        value: Number(rawMetric.value) || 0,
+        timestamp: rawMetric.timestamp || rawMetric.created_at || new Date().toISOString(),
+        labels: rawMetric.labels || {},
+        // Preserve other useful fields
+        ...(rawMetric.unit && { unit: rawMetric.unit }),
+        ...(rawMetric.tags && { tags: rawMetric.tags })
+      }
+    } catch (error) {
+      console.warn('Error normalizing system metric:', error, rawMetric)
+      return null
+    }
+  }
+
+  private normalizeEventType(eventType: string): string {
+    if (!eventType || typeof eventType !== 'string') {
+      return 'unknown'
+    }
+
+    // Standardize event types to prevent duplicates
+    const eventTypeMap: Record<string, string> = {
+      'buy': 'signal',
+      'sell': 'signal', 
+      'purchase': 'signal',
+      'trade': 'signal',
+      'order': 'signal',
+      'execution': 'order',
+      'execute': 'order',
+      'fill': 'order',
+      'market_tick': 'tick',
+      'price_update': 'tick',
+      'quote': 'tick',
+      'analysis': 'analysis',
+      'reasoning': 'analysis',
+      'grading': 'grade',
+      'assessment': 'grade',
+      'learning': 'learning',
+      'training': 'learning',
+      'reflection': 'reflection',
+      'review': 'reflection',
+      'notification': 'notification',
+      'alert': 'notification',
+      'message': 'notification'
+    }
+    
+    const normalized = eventTypeMap[eventType.toLowerCase()]
+    return normalized || eventType.toLowerCase()
   }
 
   private setupSocket(): void {
@@ -143,54 +228,43 @@ class WebSocketManager {
           // Process agent events from dashboard data
           if (payload.data.agent_logs) {
             payload.data.agent_logs.forEach((agentLog: any) => {
-              // Normalize agent log data
-              const normalizedLog = {
-                agent_name: agentLog.agent_name || agentLog.agent || 'Unknown',
-                event_type: agentLog.event_type || agentLog.action || agentLog.type || 'processed',
-                timestamp: agentLog.timestamp || agentLog.created_at || new Date().toISOString(),
-                symbol: agentLog.symbol,
-                action: agentLog.action,
-                latency_ms: agentLog.latency_ms,
-                primary_edge: agentLog.primary_edge
+              const normalizedLog = this.normalizeAgentEvent(agentLog)
+              if (normalizedLog) {
+                store.addAgentLog(normalizedLog)
               }
-              store.addAgentLog(normalizedLog)
             })
           }
           
           // Process system metrics from dashboard data
           if (payload.data.system_metrics) {
             payload.data.system_metrics.forEach((metric: any) => {
-              store.addSystemMetric(metric)
+              const normalizedMetric = this.normalizeSystemMetric(metric)
+              if (normalizedMetric) {
+                store.addSystemMetric(normalizedMetric)
+              }
             })
           }
           
         } else if (payload.type === 'system_metric' && payload.data) {
-          store.addSystemMetric(payload.data)
+          const normalizedMetric = this.normalizeSystemMetric(payload.data)
+          if (normalizedMetric) {
+            store.addSystemMetric(normalizedMetric)
+          }
         } else if (payload.type === 'agent_event' && payload.data) {
           // Handle individual agent events
-          const normalizedLog = {
-            agent_name: payload.data.agent_name || payload.data.agent || 'Unknown',
-            event_type: payload.data.event_type || payload.data.action || payload.data.type || 'processed',
-            timestamp: payload.data.timestamp || payload.data.created_at || new Date().toISOString(),
-            symbol: payload.data.symbol,
-            action: payload.data.action,
-            latency_ms: payload.data.latency_ms,
-            primary_edge: payload.data.primary_edge
+          const normalizedLog = this.normalizeAgentEvent(payload.data)
+          if (normalizedLog) {
+            store.addAgentLog(normalizedLog)
+            console.log('Agent event processed:', normalizedLog.agent_name)
           }
-          store.addAgentLog(normalizedLog)
-          console.log('Agent event processed:', normalizedLog.agent_name)
         } else if (payload.type === 'event' && payload.data) {
           console.log('Generic event received:', payload.stream, payload.data)
           // Try to process as agent event if it has agent info
           if (payload.data.agent_name || payload.data.agent) {
-            const normalizedLog = {
-              agent_name: payload.data.agent_name || payload.data.agent || 'Unknown',
-              event_type: payload.data.event_type || payload.data.action || payload.data.type || 'processed',
-              timestamp: payload.data.timestamp || payload.data.created_at || new Date().toISOString(),
-              stream: payload.stream,
-              ...payload.data
+            const normalizedLog = this.normalizeAgentEvent(payload.data)
+            if (normalizedLog) {
+              store.addAgentLog(normalizedLog)
             }
-            store.addAgentLog(normalizedLog)
           }
         }
         
@@ -246,10 +320,11 @@ class WebSocketManager {
     if (this.connectionState === ConnectionState.CONNECTING || 
         this.connectionState === ConnectionState.CONNECTED ||
         this.connectionState === ConnectionState.RECONNECTING) {
+      console.log('Connection already in progress, skipping duplicate connect')
       return
     }
 
-    // Cleanup any existing socket
+    // Cleanup any existing socket BEFORE creating new one
     this.cleanupSocket()
 
     try {
@@ -304,6 +379,27 @@ class WebSocketManager {
 
   public getSocket(): WebSocket | null {
     return this.socket
+  }
+
+  // Static methods for easy access
+  public static connect(): void {
+    WebSocketManager.getInstance().connect()
+  }
+
+  public static disconnect(): void {
+    WebSocketManager.getInstance().disconnect()
+  }
+
+  public static reconnect(): void {
+    WebSocketManager.getInstance().reconnect()
+  }
+
+  public static isConnected(): boolean {
+    return WebSocketManager.getInstance().isConnected()
+  }
+
+  public static getConnectionState(): ConnectionState {
+    return WebSocketManager.getInstance().getConnectionState()
   }
 }
 
