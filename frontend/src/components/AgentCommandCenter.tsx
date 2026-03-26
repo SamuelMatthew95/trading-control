@@ -5,6 +5,14 @@ import { useCodexStore } from '@/stores/useCodexStore'
 import { Activity, Brain, CheckCircle, RefreshCw, Lightbulb, Bot, Clock, Bell, TrendingUp, TrendingDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+// HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
+function sanitizeValue(value: any): string {
+  if (value === undefined || value === null || value === 'undefined') {
+    return '--' // Em dash for undefined values
+  }
+  return String(value)
+}
+
 interface AgentData {
   id: string
   name: string
