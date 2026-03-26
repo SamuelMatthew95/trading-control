@@ -181,10 +181,16 @@ class WebSocketManager {
       try { msg = JSON.parse(event.data) } catch {}
       if (!msg) return
       this.dispatch('ws-message', msg)
-      // Store logic
+      // Store logic with safe data normalization
       const store = useCodexStore.getState()
       if (msg.type === 'dashboard_update' && msg.data) {
-        try { store.hydrateDashboard(msg.data) } catch {}
+        try {
+          // Normalize data safely before passing to store
+          const normalizedData = this._normalizeDashboardData(msg.data)
+          store.hydrateDashboard(normalizedData)
+        } catch (error) {
+          console.error('Error hydrating dashboard:', error)
+        }
         if (Array.isArray(msg.data.agent_logs)) {
           for (const log of msg.data.agent_logs) {
             const norm = this._normalizeAgentEvent(log)
@@ -234,6 +240,61 @@ class WebSocketManager {
   }
 
   // --- Normalization ---
+  private _normalizeDashboardData(data: any): any {
+    if (!data || typeof data !== 'object') return data
+    
+    const normalized = { ...data }
+    
+    // Normalize orders - handle both object and array formats
+    if (normalized.orders && typeof normalized.orders === 'object' && !Array.isArray(normalized.orders)) {
+      // Convert orders object to array format expected by store
+      // Extract actual order arrays from the object
+      const ordersArray: any[] = []
+      
+      // Look for common order array keys
+      const orderKeys = ['orders_last_hour', 'recent_orders', 'active_orders', 'pending_orders']
+      for (const key of orderKeys) {
+        const orderArray = normalized.orders[key]
+        if (Array.isArray(orderArray)) {
+          ordersArray.push(...orderArray)
+        }
+      }
+      
+      // If no arrays found, convert object values to array
+      if (ordersArray.length === 0) {
+        const objectValues = Object.values(normalized.orders) as any[]
+        ordersArray.push(...objectValues.filter((item: any) => 
+          typeof item === 'object' && item !== null && !(item as any).timestamp // exclude metadata
+        ))
+      }
+      
+      normalized.orders = ordersArray
+    } else if (!normalized.orders) {
+      normalized.orders = []
+    }
+    
+    // Normalize other array fields safely
+    const arrayFields = ['agent_logs', 'system_metrics', 'signals', 'positions', 'risk_alerts', 'learning_events']
+    for (const field of arrayFields) {
+      if (normalized[field] && !Array.isArray(normalized[field])) {
+        if (typeof normalized[field] === 'object') {
+          // Convert object to array of values
+          const objectValues = Object.values(normalized[field]) as any[]
+          normalized[field] = objectValues.filter((item: any) => 
+            typeof item === 'object' && item !== null
+          )
+        } else {
+          // Set to empty array if not convertible
+          normalized[field] = []
+        }
+      } else if (!normalized[field]) {
+        normalized[field] = []
+      }
+    }
+    
+    return normalized
+  }
+
   private _normalizeAgentEvent(raw: any): any | null {
     if (!raw || typeof raw !== 'object') return null
     return {
