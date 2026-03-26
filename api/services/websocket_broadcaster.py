@@ -74,6 +74,10 @@ class WebSocketBroadcaster:
         if not self._connections:
             return
         
+        # Ensure schema_version is present
+        if "schema_version" not in data:
+            data = {**data, "schema_version": "1"}
+        
         disconnected = []
         for websocket in self._connections:
             try:
@@ -100,6 +104,7 @@ class WebSocketBroadcaster:
                     try:
                         await websocket.send_json({
                             "type": "dashboard_update",
+                            "schema_version": "1",
                             "timestamp": snapshot["timestamp"],
                             "data": snapshot
                         })

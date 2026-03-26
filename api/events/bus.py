@@ -240,11 +240,45 @@ class EventBus:
         for stream in STREAMS:
             try:
                 await self.redis.xgroup_create(
-                    stream, DEFAULT_GROUP, id="0", mkstream=True
+                    stream, DEFAULT_GROUP, id="$", mkstream=True
                 )
             except ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     raise
+                # Group already exists - check if it needs fast-forwarding
+                await self._maybe_fastforward_group(stream)
+
+    async def _maybe_fastforward_group(self, stream: str) -> None:
+        """If group's last-delivered-id is far behind, fast-forward to prevent replay."""
+        try:
+            groups = await self.redis.xinfo_groups(stream)
+            stream_info = await self.redis.xinfo_stream(stream)
+            last_entry = stream_info.get("last-generated-id") or stream_info.get(b"last-generated-id")
+            if not last_entry:
+                return
+
+            for group in groups:
+                name = group.get("name") or group.get(b"name")
+                if isinstance(name, bytes):
+                    name = name.decode()
+                if name != DEFAULT_GROUP:
+                    continue
+
+                pending = int(group.get("pending") or group.get(b"pending") or 0)
+                last_delivered = group.get("last-delivered-id") or group.get(b"last-delivered-id")
+                if isinstance(last_delivered, bytes):
+                    last_delivered = last_delivered.decode()
+
+                # If there are no pending messages and we're at the beginning, fast-forward
+                if pending == 0 and last_delivered in ("0", "0-0", "0-1"):
+                    await self.redis.xgroup_setid(stream, DEFAULT_GROUP, "$")
+                    log_structured(
+                        "info", "consumer_group_fastforwarded", 
+                        stream=stream, 
+                        group=DEFAULT_GROUP
+                    )
+        except Exception as exc:
+            log_structured("warning", "fastforward_check_failed", stream=stream, error=str(exc))
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
         """Get stream statistics using XINFO GROUPS (Redis 6-7 compatible).

@@ -89,6 +89,7 @@ class StreamConsumer:
                                 # Unified format: always include 'type' for frontend routing
                                 await self.ws.broadcast({
                                     "type": msg_type,
+                                    "schema_version": "1",
                                     "stream": stream,
                                     "message_id": msg_id,
                                     "data": data or {},
