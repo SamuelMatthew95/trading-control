@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import ANY
 
 import pytest
 from redis.exceptions import ResponseError
@@ -108,7 +109,15 @@ async def test_event_bus_publish_consume_and_reclaim_decodes_payloads():
     assert msg_id == "1-0"
 
     messages = await bus.consume("signals", DEFAULT_GROUP, "worker-1")
-    assert messages == [("1-0", {"foo": "bar"})]
+    # Should include schema_version and timestamp now
+    expected_payload = {"foo": "bar", "schema_version": "v3", "timestamp": ANY}
+    actual_payload = messages[0][1]
+    # Remove timestamp for comparison since it's dynamic
+    actual_payload_copy = actual_payload.copy()
+    actual_payload_copy.pop("timestamp", None)
+    expected_payload_copy = expected_payload.copy()
+    expected_payload_copy.pop("timestamp", None)
+    assert actual_payload_copy == expected_payload_copy
 
     redis.autoclaim_messages = [
         (

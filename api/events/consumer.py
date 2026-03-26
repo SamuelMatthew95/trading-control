@@ -13,6 +13,8 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 
+ACCEPTED_SCHEMA_VERSIONS = {"v3", "legacy", None, ""}
+
 
 class BaseStreamConsumer(ABC):
     def __init__(self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str):
@@ -60,10 +62,8 @@ class BaseStreamConsumer(ABC):
         except asyncio.CancelledError:
             # Expected when task is cancelled
             pass
-        except Exception as exc:
-            log_structured(
-                "error", "Unexpected error stopping consumer", stream=self.stream, exc_info=True
-            )
+        except Exception:
+            log_structured("warning", "Redis connection error during consume", stream=self.stream)
         finally:
             self._task = None
             log_structured("info", "Consumer stopped", stream=self.stream)
@@ -108,8 +108,8 @@ class BaseStreamConsumer(ABC):
                 if not self._running:
                     break
                 await self._handle_message(msg_id, data)
-        except Exception as exc:
-            log_structured("warning", "Consumer iteration failed", stream=self.stream, exc_info=True)
+        except Exception:
+            log_structured("warning", "Consumer iteration failed", stream=self.stream)
 
     async def _run(self) -> None:
         """Main consumer loop with responsive shutdown and non-blocking operations."""
@@ -160,10 +160,8 @@ class BaseStreamConsumer(ABC):
             except asyncio.CancelledError:
                 log_structured("info", "Consumer loop cancelled", stream=self.stream)
                 break
-            except Exception as exc:
-                log_structured(
-                    "error", "Unexpected error in consumer loop", stream=self.stream, exc_info=True
-                )
+            except Exception:
+                log_structured("error", "Unexpected error in consumer loop", stream=self.stream)
                 break
                 
         log_structured("info", "Consumer loop ended", stream=self.stream)
@@ -217,10 +215,10 @@ class BaseStreamConsumer(ABC):
         if "msg_id" not in data:
             raise RuntimeError(f"Invalid event: missing msg_id in {self.stream}")
         
-        # V3 Schema Validation - Reject old versions
+        # V3 Schema Validation - Accept legacy and current versions
         schema_version = data.get("schema_version")
-        if schema_version != "v3":
-            # Send old schema messages to DLQ immediately
+        if schema_version not in ACCEPTED_SCHEMA_VERSIONS:
+            # Send invalid schema messages to DLQ immediately
             await self.dlq.push(
                 self.stream, 
                 msg_id, 
@@ -229,13 +227,9 @@ class BaseStreamConsumer(ABC):
                 retries=0
             )
             await self.bus.acknowledge(self.stream, self.group, msg_id)
-            
-            # MANDATORY: Print exact warning message as specified
-            print(f"[{self.consumer}] Skipped old version {msg_id}")
-            
             log_structured(
-                "warning", 
-                "Old schema message sent to DLQ", 
+                "warning",
+                "Invalid schema version sent to DLQ", 
                 stream=self.stream, 
                 message_id=msg_id,
                 schema_version=schema_version

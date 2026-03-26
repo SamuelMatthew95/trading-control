@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any, Set
 
 from fastapi import WebSocket
@@ -73,14 +72,17 @@ class WebSocketBroadcaster:
         """Broadcast data to all connected WebSockets."""
         if not self._connections:
             return
-        
+
+        # Ensure schema_version is present
+        if "schema_version" not in data:
+            data = {**data, "schema_version": "v3"}
+
         disconnected = []
         for websocket in self._connections:
             try:
                 await websocket.send_json(data)
             except Exception:
                 disconnected.append(websocket)
-        
         # Remove disconnected WebSockets
         for ws in disconnected:
             await self.remove_connection(ws)
@@ -100,6 +102,7 @@ class WebSocketBroadcaster:
                     try:
                         await websocket.send_json({
                             "type": "dashboard_update",
+                            "schema_version": "v3",
                             "timestamp": snapshot["timestamp"],
                             "data": snapshot
                         })
@@ -116,7 +119,7 @@ class WebSocketBroadcaster:
                 # Wait before next update (2 seconds)
                 await asyncio.sleep(2.0)
 
-            except Exception as exc:
+            except Exception:
                 log_structured("error", "Dashboard broadcast loop error", exc_info=True)
                 await asyncio.sleep(5.0)  # Wait longer on error
 

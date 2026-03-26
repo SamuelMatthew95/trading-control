@@ -3,7 +3,6 @@
 import asyncio
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Any
 
 from api.events.bus import EventBus, STREAMS
 from api.observability import log_structured
@@ -80,9 +79,16 @@ class StreamConsumer:
                         # Broadcast to WebSocket if manager exists
                         if self.ws and hasattr(self.ws, "broadcast"):
                             try:
+                                # Determine message type based on stream
+                                if stream == "system_metrics":
+                                    msg_type = "system_metric"
+                                else:
+                                    msg_type = "event"
+                                
                                 # Unified format: always include 'type' for frontend routing
                                 await self.ws.broadcast({
-                                    "type": "event",
+                                    "type": msg_type,
+                                    "schema_version": "v3",
                                     "stream": stream,
                                     "message_id": msg_id,
                                     "data": data or {},
@@ -92,7 +98,8 @@ class StreamConsumer:
                                 log_structured(
                                     "info", "ws_event_sent",
                                     stream=stream,
-                                    message_id=msg_id
+                                    message_id=msg_id,
+                                    msg_type=msg_type
                                 )
                             except Exception as e:
                                 log_structured(
