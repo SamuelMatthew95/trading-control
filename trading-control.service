@@ -1,0 +1,26 @@
+[Unit]
+Description=Trading Control V3 System - Complete Event-Driven Trading Platform
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=your-username  # Change to your system username
+WorkingDirectory=/Users/matthew/Desktop/trading-control-python/api
+Environment=PYTHONPATH=/Users/matthew/Desktop/trading-control-python
+Environment=PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/homebrew/bin/python3 start_complete_system.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/Users/matthew/Desktop/trading-control-python
+
+[Install]
+WantedBy=multi-user.target
