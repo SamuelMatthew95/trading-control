@@ -1,142 +1,179 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 
-// WebSocket client wrapper - initializes once for the whole app
+// Type definitions for production-grade safety
+type WebSocketMessage = {
+  type: 'dashboard_update' | 'system_metric' | 'event'
+  schema_version: string
+  timestamp: string
+  data: any
+  stream?: string
+  message_id?: string
+}
+
+type CustomEventDetail = {
+  detail: WebSocketMessage
+}
+
+// WebSocket client wrapper - production grade singleton
 let globalSocket: WebSocket | null = null
 let globalRetryCount = 0
+let isConnecting = false
 const MAX_RETRIES = 5
+const BASE_DELAY = 2000
+const MAX_DELAY = 30000
 
-function getWsUrl() {
-  const base = process.env.NEXT_PUBLIC_WS_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
+function getWsUrl(): string {
+  if (typeof window === 'undefined') return ''
+  const base = process.env.NEXT_PUBLIC_WS_URL || window.location.origin
   return `${base.replace(/\/$/, '')}/ws/dashboard`
 }
 
-function connectWebSocket() {
+// Exponential backoff with jitter
+function getRetryDelay(attempt: number): number {
+  const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_DELAY)
+  // Add jitter to prevent thundering herd
+  return delay + Math.random() * 1000
+}
+
+// Production-grade connection with cleanup
+function connectWebSocket(): void {
+  // SSR safety
+  if (typeof window === 'undefined' || isConnecting) return
+  
   if (globalSocket?.readyState === WebSocket.OPEN) {
-    return globalSocket
+    return
   }
 
+  isConnecting = true
+  
   try {
+    // Cleanup any existing handlers to prevent ghosts
+    if (globalSocket) {
+      globalSocket.onopen = null
+      globalSocket.onmessage = null
+      globalSocket.onclose = null
+      globalSocket.onerror = null
+    }
+    
     globalSocket = new WebSocket(getWsUrl())
     
     globalSocket.onopen = () => {
       console.log('WebSocket connected')
       globalRetryCount = 0
-      useCodexStore.getState().setWsConnected(true)
-      // Trigger connection state update for all components
+      isConnecting = false
+      
+      // Get fresh store state to avoid stale closures
+      const store = useCodexStore.getState()
+      store.setWsConnected(true)
+      
       window.dispatchEvent(new CustomEvent('ws-connected'))
     }
 
     globalSocket.onmessage = (event) => {
       try {
-        const payload = JSON.parse(event.data)
+        // Explicit error boundary for JSON parsing
+        const payload: WebSocketMessage = JSON.parse(event.data)
         console.log('WebSocket message received:', payload)
         
-        // Dispatch to all components via custom event
-        window.dispatchEvent(new CustomEvent('ws-message', { detail: payload }))
+        // Dispatch with strict typing
+        window.dispatchEvent(new CustomEvent('ws-message', {
+          detail: payload
+        } as CustomEventDetail))
         
-        // Get store methods for this message handling
-        const { setDashboardData, setLoading } = useCodexStore.getState()
+        // CRITICAL: Get fresh store state on every message to prevent stale closures
+        const store = useCodexStore.getState()
         
-        // Update store based on message type
         if (payload.type === 'dashboard_update' && payload.data) {
           console.log('Dashboard update received:', payload.data)
           
-          // Explicit state transition: set loading to false only when valid data arrives
-          setLoading(false)
-          
-          // Key mapping: target payload.data directly for clean object
-          setDashboardData(payload.data)
-          
-          const data = payload.data
-          
-          // Update system metrics if present
-          if (data.system_metrics) {
-            data.system_metrics.forEach((metric: any) => {
-              useCodexStore.getState().addSystemMetric(metric)
-            })
-          }
-          
-          // Update other data types as needed
-          if (data.orders) {
-            data.orders.forEach((order: any) => {
-              useCodexStore.getState().updateOrder(order)
-            })
-          }
-          
-          if (data.agent_logs) {
-            data.agent_logs.forEach((log: any) => {
-              useCodexStore.getState().addAgentLog(log)
-            })
-          }
-        }
-        
-        // Handle individual event types
-        if (payload.type === 'system_metric' && payload.data) {
-          useCodexStore.getState().addSystemMetric(payload.data)
-        }
-        
-        if (payload.type === 'event' && payload.data) {
-          // Handle other event types as needed
+          // Single bulk update to prevent re-render thrashing
+          store.hydrateDashboard(payload.data)
+        } else if (payload.type === 'system_metric' && payload.data) {
+          store.addSystemMetric(payload.data)
+        } else if (payload.type === 'event' && payload.data) {
           console.log('Event received:', payload.stream, payload.data)
         }
         
       } catch (error) {
-        console.error('Error parsing WebSocket message:', error)
+        console.error('WebSocket message parsing error:', error)
+        // Continue processing other messages even if one fails
       }
     }
 
-    globalSocket.onclose = () => {
-      console.log('WebSocket disconnected')
+    globalSocket.onclose = (event) => {
+      console.log('WebSocket disconnected:', event.code, event.reason)
       globalSocket = null
-      // Trigger disconnection event
-      window.dispatchEvent(new CustomEvent('ws-disconnected'))
+      isConnecting = false
       
-      // Update store connection state
+      // Update store state
       useCodexStore.getState().setWsConnected(false)
       
-      // Retry logic
-      if (globalRetryCount < MAX_RETRIES) {
+      window.dispatchEvent(new CustomEvent('ws-disconnected'))
+      
+      // Improved reconnection resilience
+      if (globalRetryCount < MAX_RETRIES && !event.wasClean) {
         globalRetryCount++
-        setTimeout(connectWebSocket, 2000 * globalRetryCount)
+        const delay = getRetryDelay(globalRetryCount)
+        console.log(`Reconnecting in ${delay}ms (attempt ${globalRetryCount})`)
+        setTimeout(connectWebSocket, delay)
       }
     }
 
     globalSocket.onerror = (error) => {
       console.error('WebSocket error:', error)
+      isConnecting = false
       useCodexStore.getState().setWsConnected(false)
     }
     
   } catch (error) {
     console.error('Failed to connect WebSocket:', error)
+    isConnecting = false
     useCodexStore.getState().setWsConnected(false)
   }
 }
 
+// Production-grade hook with proper cleanup
 export function useGlobalWebSocket() {
-  const { setWsConnected, setDashboardData, setLoading } = useCodexStore()
+  const { setWsConnected } = useCodexStore()
   const initializedRef = useRef(false)
+  const cleanupRef = useRef<(() => void) | null>(null)
+
+  const cleanup = useCallback(() => {
+    if (cleanupRef.current) {
+      cleanupRef.current()
+      cleanupRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
+    // SSR safety + prevent multiple initializations
     if (!initializedRef.current && typeof window !== 'undefined') {
       initializedRef.current = true
       connectWebSocket()
+      
+      // Setup event listeners with proper cleanup
+      const handleConnected = () => setWsConnected(true)
+      const handleDisconnected = () => setWsConnected(false)
+      
+      window.addEventListener('ws-connected', handleConnected)
+      window.addEventListener('ws-disconnected', handleDisconnected)
+      
+      cleanupRef.current = () => {
+        window.removeEventListener('ws-connected', handleConnected)
+        window.removeEventListener('ws-disconnected', handleDisconnected)
+      }
     }
 
-    // Listen for connection state events
-    const handleConnected = () => setWsConnected(true)
-    const handleDisconnected = () => setWsConnected(false)
+    return cleanup
+  }, [setWsConnected, cleanup])
 
-    window.addEventListener('ws-connected', handleConnected)
-    window.addEventListener('ws-disconnected', handleDisconnected)
-
-    return () => {
-      window.removeEventListener('ws-connected', handleConnected)
-      window.removeEventListener('ws-disconnected', handleDisconnected)
-    }
-  }, [setWsConnected, setDashboardData, setLoading])
+  // Cleanup on unmount
+  useEffect(() => {
+    return cleanup
+  }, [cleanup])
 
   return {
     socket: globalSocket,
