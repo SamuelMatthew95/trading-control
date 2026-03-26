@@ -95,7 +95,7 @@ class EventBus:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any]) -> str:
+    async def publish(self, stream: str, event: dict[str, Any], maxlen: int | None = None) -> str:
         """Publish event to Redis stream with schema version."""
         # Bug fix: always include schema_version so consumer never sends to DLQ
         # Use v2 for analytics tables, v3 for agent tables
