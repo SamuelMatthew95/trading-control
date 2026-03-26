@@ -62,10 +62,8 @@ class BaseStreamConsumer(ABC):
         except asyncio.CancelledError:
             # Expected when task is cancelled
             pass
-        except Exception as exc:
-            log_structured(
-                "error", "Unexpected error stopping consumer", stream=self.stream, exc_info=True
-            )
+        except Exception:
+            log_structured("warning", "Redis connection error during consume", stream=self.stream)
         finally:
             self._task = None
             log_structured("info", "Consumer stopped", stream=self.stream)
@@ -110,8 +108,8 @@ class BaseStreamConsumer(ABC):
                 if not self._running:
                     break
                 await self._handle_message(msg_id, data)
-        except Exception as exc:
-            log_structured("warning", "Consumer iteration failed", stream=self.stream, exc_info=True)
+        except Exception:
+            log_structured("warning", "Consumer iteration failed", stream=self.stream)
 
     async def _run(self) -> None:
         """Main consumer loop with responsive shutdown and non-blocking operations."""
@@ -162,10 +160,8 @@ class BaseStreamConsumer(ABC):
             except asyncio.CancelledError:
                 log_structured("info", "Consumer loop cancelled", stream=self.stream)
                 break
-            except Exception as exc:
-                log_structured(
-                    "error", "Unexpected error in consumer loop", stream=self.stream, exc_info=True
-                )
+            except Exception:
+                log_structured("error", "Unexpected error in consumer loop", stream=self.stream)
                 break
                 
         log_structured("info", "Consumer loop ended", stream=self.stream)

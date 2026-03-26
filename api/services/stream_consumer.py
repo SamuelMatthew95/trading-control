@@ -3,7 +3,6 @@
 import asyncio
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Any
 
 from api.events.bus import EventBus, STREAMS
 from api.observability import log_structured
