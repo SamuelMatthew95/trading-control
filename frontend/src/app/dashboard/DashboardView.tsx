@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ObsidianDashboard } from '@/components/obsidian-pro/ObsidianDashboard'
-import {
+import { 
   AlertTriangle, 
   Activity, 
   TrendingUp, 
@@ -16,7 +16,11 @@ import {
   Bell,
   ChevronUp,
   ChevronDown,
-  Power
+  Power,
+  Play,
+  Pause,
+  BookOpen,
+  Settings2
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -29,7 +33,6 @@ import { AgentCommandCenter } from '@/components/AgentCommandCenter'
 import { AgentThoughtStream } from '@/components/AgentThoughtStream'
 import { EquityCurve } from '@/components/EquityCurve'
 import { MobileNavigation } from '@/components/MobileNavigation'
-import { useCodexStore } from '@/stores/useCodexStore'
 
 // HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
 const formatUSD = (value?: number | null): string => {
@@ -166,9 +169,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
 
   // Market status (simplified - in real app this would check actual market hours)
-  const currentTime = new Date()
-  const marketHours = { open: 9.5, close: 16 } // 9:30 AM - 4:00 PM EST
-  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60
   const marketStatus = currentHour >= marketHours.open && currentHour <= marketHours.close
 
   // OVERVIEW PAGE - Professional Trading Command Center
