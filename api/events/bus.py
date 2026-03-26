@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -282,7 +283,7 @@ class EventBus:
                         group=DEFAULT_GROUP
                     )
         except Exception as exc:
-            log_structured("warning", "fastforward_check_failed", stream=stream, error=str(exc))
+            log_structured("warning", "fastforward_check_failed", stream=stream, exc_info=True)
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
         """Get stream statistics using XINFO GROUPS (Redis 6-7 compatible).

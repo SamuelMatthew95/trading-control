@@ -60,6 +60,6 @@ async def stop_fixed_v3_system(agents: dict[str, Any]) -> None:
             await agent.stop()
             log_structured("info", f"Agent {name} stopped")
         except Exception as exc:
-            log_structured("warning", f"Failed to stop agent {name}", error=str(exc))
+            log_structured("warning", f"Failed to stop agent {name}", exc_info=True)
     
     log_structured("info", "V3 system stopped")
