@@ -137,7 +137,7 @@ function connectWebSocket(): void {
 
 // Production-grade hook with proper cleanup
 export function useGlobalWebSocket() {
-  const { setWsConnected } = useCodexStore()
+  const { setWsConnected, wsConnected } = useCodexStore()
   const initializedRef = useRef(false)
   const cleanupRef = useRef<(() => void) | null>(null)
 
@@ -177,7 +177,9 @@ export function useGlobalWebSocket() {
 
   return {
     socket: globalSocket,
-    isConnected: globalSocket?.readyState === WebSocket.OPEN,
+    // IMPORTANT: Use reactive state from store, not calculated value
+    // This ensures UI re-renders when connection state changes
+    isConnected: wsConnected,
     reconnect: () => connectWebSocket()
   }
 }
