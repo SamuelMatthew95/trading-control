@@ -51,6 +51,18 @@ import { TrendingDown, ChevronUp, ChevronDown } from 'lucide-react'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
 
+// HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
+function formatUSD(value?: number | null | undefined): string {
+  return value != null && isFinite(value) ? `$${value.toFixed(2)}` : '$0.00'
+}
+
+function sanitizeValue(value: any): string {
+  if (value === undefined || value === null || value === 'undefined') {
+    return '—' // Em dash for undefined values
+  }
+  return String(value)
+}
+
 export function DashboardView({ section }: { section: 'overview' | 'trading' | 'agents' | 'learning' | 'system' }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [currentSection, setCurrentSection] = useState(section)
@@ -60,18 +72,23 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     // In a real app, this would update the URL or state
   }
   const { 
-    agentLogs, 
+    agentLogs = [], 
     killSwitchActive, 
-    learningEvents, 
-    orders, 
-    prices, 
-    positions, 
-    systemMetrics,
-    dashboardData,
-    isLoading,
-    wsConnected,
+    learningEvents = [], 
+    orders = [], 
+    prices = {}, 
+    positions = [], 
+    systemMetrics = [],
+    dashboardData = null, 
+    isLoading = true,
+    regime = 'neutral', 
+    killSwitchActive: ks = false,
+    wsConnected = false,
     setKillSwitch,
-    addSystemMetric
+    setRegime,
+    setWsConnected,
+    hydrateDashboard,
+    bulkUpdate
   } = useCodexStore()
 
   const [selected, setSelected] = useState('BTC/USD')
@@ -95,17 +112,27 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     return validOrders.reduce((sum, o) => sum + Number(o.pnl), 0)
   }, [orders])
 
+  // Calculate system metrics with data sanitization
+  const avgLatency = useMemo(() => {
+    if (!systemMetrics || systemMetrics.length === 0) return 0
+    const latencyMetrics = systemMetrics.filter(m => 
+      m && 
+      m.metric_name === 'latency' && 
+      typeof m.value === 'number' && 
+      !isNaN(Number(m.value))
+    )
+    return latencyMetrics.length > 0 
+      ? (latencyMetrics.reduce((sum, m) => sum + Number(m.value), 0) / latencyMetrics.length).toFixed(0)
+      : '0'
+  }, [systemMetrics])
+
   // Check if data is loading for skeleton
   const isLoadingBalance = !orders || orders.length === 0
   const hasValidData = !isLoadingBalance && !isNaN(dailyPnl) && isFinite(dailyPnl)
   
-  // Calculate secondary metrics
-  const pnlChange = dailyPnl - previousPnl
-  const pnlChangePercent = previousPnl !== 0 ? (pnlChange / Math.abs(previousPnl)) * 100 : 0
-  
   // Sanitized P&L value - never NaN
   const safeDailyPnl = hasValidData ? dailyPnl : 0
-  const safePnlChange = hasValidData ? pnlChange : 0
+  const safePnlChange = hasValidData ? (safeDailyPnl - previousPnl) : 0
   const winRate = useMemo(() => {
     const validOrders = orders.filter(o => o && typeof o.pnl === 'number' && !isNaN(Number(o.pnl)))
     return validOrders.length > 0 ? (validOrders.filter(o => Number(o.pnl) > 0).length / validOrders.length) * 100 : 0
@@ -114,15 +141,12 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
   // Animate P&L changes
   useEffect(() => {
-    if (dailyPnl !== previousPnl) {
+    if (safeDailyPnl !== previousPnl) {
       setIsAnimating(true)
-      const timer = setTimeout(() => {
-        setPreviousPnl(dailyPnl)
-        setIsAnimating(false)
-      }, 300)
-      return () => clearTimeout(timer)
+      setPreviousPnl(safeDailyPnl)
+      setTimeout(() => setIsAnimating(false), 300)
     }
-  }, [dailyPnl, previousPnl])
+  }, [safeDailyPnl, previousPnl])
 
   const avgLatency = useMemo(() => {
     const latencies = agentLogs.map(l => l.latency_ms || 0).filter(l => l > 0)
@@ -179,7 +203,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                   isAnimating && "scale-105",
                   safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
                 )}>
-                  {safeDailyPnl >= 0 ? '+' : ''}${safeDailyPnl.toFixed(2)}
+                  {formatUSD(safeDailyPnl)}
                 </span>
               )}
               <span className="text-xs font-medium text-gray-500 font-['Inter']">
@@ -262,7 +286,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                   safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
                 )}
               >
-                {safeDailyPnl >= 0 ? '+' : ''}${safeDailyPnl.toFixed(2)}
+                {safeDailyPnl >= 0 ? '+' : ''}{formatUSD(safeDailyPnl)}
               </motion.h1>
             </div>
 
@@ -274,21 +298,21 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                     "text-sm font-semibold font-mono font-['JetBrains_Mono']",
                     safePnlChange > 0 ? "text-[#10b981]" : "text-[#ef4444]"
                   )}>
-                    {safePnlChange >= 0 ? '+' : ''}{safePnlChange.toFixed(2)}
+                    {safePnlChange >= 0 ? '+' : ''}{formatUSD(safePnlChange)}
                   </span>
                 </div>
                 <span className="text-xs text-gray-500 font-['Inter']">24h Change</span>
               </div>
 
               <div className="flex flex-col gap-1 items-center">
-                <span className="text-sm font-semibold text-gray-300 font-['JetBrains_Mono']">
+                <span className="text-sm font-semibold text-gray-300 font-mono font-['JetBrains_Mono']">
                   {winRate.toFixed(1)}%
                 </span>
                 <span className="text-xs text-gray-500 font-['Inter']">Win Rate</span>
               </div>
 
               <div className="flex flex-col gap-1 items-center">
-                <span className="text-sm font-semibold text-gray-300 font-['JetBrains_Mono']">
+                <span className="text-sm font-semibold text-gray-300 font-mono font-['JetBrains_Mono']">
                   {activePositions}
                 </span>
                 <span className="text-xs text-gray-500 font-['Inter']">Positions</span>
@@ -403,7 +427,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               "font-semibold text-lg font-['JetBrains_Mono']",
               safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
             )}>
-              {safeDailyPnl >= 0 ? '+' : ''}${safeDailyPnl.toFixed(2)}
+              {formatUSD(safeDailyPnl)}
             </span>
             <button className="bg-[#18181b] border border-[#27272a] px-4 py-2 text-sm font-semibold uppercase tracking-wider text-gray-300 hover:bg-[#27272a] rounded-lg font-['Inter'] min-h-[44px] min-w-[44px]">
               Export Report
@@ -508,11 +532,11 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     )
   }
 
-  // AGENTS PAGE - 8-AGENT HIGH-DENSITY MONITOR
+  // AGENTS PAGE - HIGH-PERFORMANCE 8-AGENT MONITOR
   if (section === 'agents') {
     return (
       <div className="min-h-screen bg-[#09090b]">
-        {/* TOP BAR - NO BREADCRUMB */}
+        {/* TOP BAR - CLEAN DARK */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-[#27272a] bg-[#09090b]">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
