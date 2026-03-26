@@ -200,8 +200,8 @@ export function AgentCommandCenter() {
   const getTierColor = (tier: string) => {
     switch (tier) {
       case 'active': return 'border-[#10b981]/20 bg-[#10b981]/5'
-      case 'challenger': return 'border-yellow-500/20 bg-yellow-500/5'
-      case 'retired': return 'border-gray-500/20 bg-gray-500/5'
+      case 'challenger': return 'border-[#f59e0b]/20 bg-[#f59e0b]/5'
+      case 'retired': return 'border-[#6b7280]/20 bg-[#6b7280]/5'
       default: return 'border-gray-700/20 bg-gray-700/5'
     }
   }
@@ -209,7 +209,7 @@ export function AgentCommandCenter() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-[#10b981]'
-      case 'idle': return 'bg-yellow-500'
+      case 'idle': return 'bg-[#f59e0b]'
       case 'error': return 'bg-[#ef4444]'
       default: return 'bg-gray-500'
     }
@@ -228,12 +228,12 @@ export function AgentCommandCenter() {
             <span className="text-xs font-medium text-[#10b981] font-['Inter']">LIVE</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full" />
-            <span className="text-xs font-medium text-yellow-500 font-['Inter']">CHALLENGER</span>
+            <div className="w-2 h-2 bg-[#f59e0b] rounded-full animate-pulse" />
+            <span className="text-xs font-medium text-[#f59e0b] font-['Inter']">CHALLENGER</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-gray-500 rounded-full" />
-            <span className="text-xs font-medium text-gray-500 font-['Inter']">RETIRED</span>
+            <div className="w-2 h-2 bg-[#6b7280] rounded-full" />
+            <span className="text-xs font-medium text-[#6b7280] font-['Inter']">RETIRED</span>
           </div>
         </div>
       </div>
@@ -253,9 +253,9 @@ export function AgentCommandCenter() {
                   "w-2 h-2 rounded-full transition-all duration-300",
                   agent.heartbeat 
                     ? agent.tier === 'active' ? "bg-[#10b981] animate-pulse" :
-                      agent.tier === 'challenger' ? "bg-yellow-500 animate-pulse" :
-                      "bg-gray-500"
-                    : "bg-gray-500"
+                      agent.tier === 'challenger' ? "bg-[#f59e0b] animate-pulse" :
+                      "bg-[#6b7280]"
+                    : "bg-[#6b7280]"
                 )} />
               </div>
 
@@ -265,8 +265,8 @@ export function AgentCommandCenter() {
                   <Icon className={cn(
                     "w-5 h-5",
                     agent.tier === 'active' ? "text-[#10b981]" :
-                    agent.tier === 'challenger' ? "text-yellow-500" :
-                    "text-gray-500"
+                    agent.tier === 'challenger' ? "text-[#f59e0b]" :
+                    "text-[#6b7280]"
                   )} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -302,8 +302,8 @@ export function AgentCommandCenter() {
                   <div className={cn(
                     "w-1.5 h-1.5 rounded-full",
                     agent.status === 'active' ? "bg-[#10b981]" :
-                    agent.status === 'idle' ? "bg-yellow-500" :
-                    "bg-gray-500"
+                    agent.status === 'idle' ? "bg-[#f59e0b]" :
+                    "bg-[#6b7280]"
                   )} />
                 </div>
               </div>

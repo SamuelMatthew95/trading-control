@@ -1,76 +1,55 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ObsidianDashboard } from '@/components/obsidian-pro/ObsidianDashboard'
 import {
-  TrendingUp,
-  BarChart3,
-  Layers,
+  AlertTriangle, 
+  Activity, 
+  TrendingUp, 
+  TrendingDown,
   Zap,
-  CheckCircle2,
-  AlertTriangle,
-  X,
-  Bot,
-  RotateCcw,
-  Trash2,
-  CandlestickChart,
-  BookOpen,
-  Settings2,
-  Activity,
+  Brain,
+  Award,
   Clock,
-  Power,
-  Play,
-  Pause
+  FileCode,
+  Bell,
+  ChevronUp,
+  ChevronDown,
+  Power
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
+import { motion, AnimatePresence } from 'framer-motion'
 import { LiveTicker } from '@/components/LiveTicker'
 import { AgentCommandCenter } from '@/components/AgentCommandCenter'
 import { AgentThoughtStream } from '@/components/AgentThoughtStream'
 import { EquityCurve } from '@/components/EquityCurve'
 import { MobileNavigation } from '@/components/MobileNavigation'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
-import { motion, AnimatePresence } from 'framer-motion'
-import { TrendingDown, ChevronUp, ChevronDown } from 'lucide-react'
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
+import { useCodexStore } from '@/stores/useCodexStore'
 
 // HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
 function formatUSD(value?: number | null | undefined): string {
-  return value != null && isFinite(value) ? `$${value.toFixed(2)}` : '$0.00'
+  return value != null && isFinite(value) ? `$${value.toFixed(2)}` : "$0.00";
 }
 
 function sanitizeValue(value: any): string {
   if (value === undefined || value === null || value === 'undefined') {
-    return '—' // Em dash for undefined values
+    return '--' // Em dash for undefined values
   }
   return String(value)
 }
 
 export function DashboardView({ section }: { section: 'overview' | 'trading' | 'agents' | 'learning' | 'system' }) {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [currentSection, setCurrentSection] = useState(section)
-
   const handleSectionChange = (newSection: 'overview' | 'trading' | 'agents' | 'learning' | 'system') => {
     setCurrentSection(newSection)
-    // In a real app, this would update the URL or state
   }
+
+  // SAFE DATA EXTRACTION WITH DEFAULTS
   const { 
     agentLogs = [], 
     killSwitchActive, 
@@ -82,23 +61,14 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     dashboardData = null, 
     isLoading = true,
     regime = 'neutral', 
-    killSwitchActive: ks = false,
     wsConnected = false,
-    setKillSwitch,
-    setRegime,
-    setWsConnected,
-    hydrateDashboard,
-    bulkUpdate
+    setKillSwitch
   } = useCodexStore()
 
   const [selected, setSelected] = useState('BTC/USD')
   const [selectedTf, setSelectedTf] = useState('5m')
   const [dlqItems, setDlqItems] = useState<any[]>([])
   const [isCompactMode, setIsCompactMode] = useState(false)
-  const [showToast, setShowToast] = useState(false)
-  const [toastMessage, setToastMessage] = useState('')
-  const [previousPnl, setPreviousPnl] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
 
   // Calculate metrics with enhanced data validation - NEVER SHOW NaN
   const dailyPnl = useMemo(() => {
@@ -132,14 +102,24 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
   
   // Sanitized P&L value - never NaN
   const safeDailyPnl = hasValidData ? dailyPnl : 0
-  const safePnlChange = hasValidData ? (safeDailyPnl - previousPnl) : 0
+  const safePnlChange = hasValidData ? (safeDailyPnl - 0) : 0
   const winRate = useMemo(() => {
     const validOrders = orders.filter(o => o && typeof o.pnl === 'number' && !isNaN(Number(o.pnl)))
     return validOrders.length > 0 ? (validOrders.filter(o => Number(o.pnl) > 0).length / validOrders.length) * 100 : 0
   }, [orders])
   const activePositions = orders.filter(o => o.side === 'long' || o.side === 'short').length
 
-  // Animate P&L changes
+  // MARKET HOURS
+  const currentTime = new Date()
+  const marketHours = { open: 9.5, close: 16 } // 9:30 AM - 4:00 PM EST
+  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60
+  const marketStatus = currentHour >= marketHours.open && currentHour <= marketHours.close
+
+  // P&L ANIMATION
+  const [previousPnl, setPreviousPnl] = useState(0)
+  const [isAnimating, setIsAnimating] = useState(false)
+  const [showToast, setShowToast] = useState(false)
+  const [toastMessage, setToastMessage] = useState('')
   useEffect(() => {
     if (safeDailyPnl !== previousPnl) {
       setIsAnimating(true)
