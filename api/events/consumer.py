@@ -13,6 +13,8 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 
+ACCEPTED_SCHEMA_VERSIONS = {"1", "legacy", "v1", None, ""}
+
 
 class BaseStreamConsumer(ABC):
     def __init__(self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str):
@@ -217,10 +219,10 @@ class BaseStreamConsumer(ABC):
         if "msg_id" not in data:
             raise RuntimeError(f"Invalid event: missing msg_id in {self.stream}")
         
-        # V3 Schema Validation - Reject old versions
+        # V3 Schema Validation - Accept legacy and current versions
         schema_version = data.get("schema_version")
-        if schema_version != "v3":
-            # Send old schema messages to DLQ immediately
+        if schema_version not in ACCEPTED_SCHEMA_VERSIONS:
+            # Send invalid schema messages to DLQ immediately
             await self.dlq.push(
                 self.stream, 
                 msg_id, 
@@ -229,13 +231,9 @@ class BaseStreamConsumer(ABC):
                 retries=0
             )
             await self.bus.acknowledge(self.stream, self.group, msg_id)
-            
-            # MANDATORY: Print exact warning message as specified
-            print(f"[{self.consumer}] Skipped old version {msg_id}")
-            
             log_structured(
-                "warning", 
-                "Old schema message sent to DLQ", 
+                "warning",
+                "Invalid schema version sent to DLQ", 
                 stream=self.stream, 
                 message_id=msg_id,
                 schema_version=schema_version

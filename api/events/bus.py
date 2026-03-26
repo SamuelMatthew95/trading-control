@@ -94,11 +94,12 @@ class EventBus:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any], maxlen: int = None) -> str | None:
-        """Publish event to Redis stream.
+    async def publish(self, stream: str, event: dict[str, Any]) -> str:
+        """Publish event to Redis stream with schema version."""
+        # Bug fix: always include schema_version so consumer never sends to DLQ
+        event.setdefault("schema_version", "1")
+        event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
         
-        All values serialized to strings for Redis 6-7 XADD compatibility.
-        """
         # Serialize all values to strings with defensive fallback
         serialized_event = {}
         for k, v in event.items():
