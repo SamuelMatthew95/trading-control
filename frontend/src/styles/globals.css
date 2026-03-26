@@ -17,6 +17,52 @@
   .font-mono {
     font-family: 'JetBrains Mono', 'Geist Mono', 'Fira Code', monospace;
   }
+
+  /* Mobile-first responsive typography */
+  @media (max-width: 640px) {
+    html {
+      font-size: 14px; /* Ensure minimum 12px effective size */
+    }
+    
+    /* Ensure no text smaller than 12px on mobile */
+    * {
+      font-size: max(12px, inherit) !important;
+    }
+    
+    /* Override specific small text elements */
+    .text-xs {
+      font-size: 12px !important;
+    }
+    
+    /* Mobile layout adjustments */
+    .container {
+      padding-left: 1rem !important;
+      padding-right: 1rem !important;
+    }
+    
+    /* Full width cards on mobile */
+    .mobile-full-width {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    
+    /* Stack layouts on mobile */
+    .mobile-stack {
+      flex-direction: column !important;
+    }
+    
+    /* Hide horizontal scroll on mobile */
+    .mobile-no-overflow {
+      overflow-x: hidden !important;
+    }
+  }
+
+  /* Tablet adjustments */
+  @media (min-width: 641px) and (max-width: 1024px) {
+    .tablet-stack {
+      flex-direction: column !important;
+    }
+  }
 }
 
 :root {
@@ -27,8 +73,12 @@
   --text-secondary: 71 85% 92%; /* slate-600 */
   --text-muted: 148 63% 83%; /* slate-400 */
   --accent-indigo: 79 70% 57%; /* indigo-600 */
-  --accent-emerald: 52 91% 50%; /* emerald-500 */
-  --destructive: 0 84% 60%; /* red-600 */
+  
+  /* STRICT COLOR SCHEME - Success Green #10B981, Danger Red #EF4444 */
+  --success: 142 71% 45%; /* #10B981 - Success Green */
+  --danger: 0 84% 60%; /* #EF4444 - Danger Red */
+  --accent-emerald: var(--success); /* Override to use strict success */
+  --destructive: var(--danger); /* Override to use strict danger */
   
   /* Dark Mode Override */
   .dark {
@@ -56,15 +106,13 @@
   --secondary-foreground: 210 40% 98%;
   --accent: 217.2 32.6% 17.5%;
   --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
   --ring: 263.4 70% 50.4%;
   --radius: 0.5rem;
   
-  /* Trading Colors - Dark Mode */
-  --bullish: 142 76% 36%;
-  --bearish: 0 84% 60%;
-  --neutral: 263 70% 50%;
+  /* Trading Colors - Using Strict Color Scheme */
+  --bullish: var(--success); /* #10B981 - Success Green */
+  --bearish: var(--danger); /* #EF4444 - Danger Red */
+  --neutral: 263 70% 50%; /* Keep neutral for inactive states */
   
   /* Surface Colors - Dark Mode */
   --surface: 215 28% 17%;
@@ -95,14 +143,14 @@
   --secondary-foreground: 210 24% 10%; /* Deep slate text */
   --accent: 210 40% 94%; /* Light accent background */
   --accent-foreground: 210 24% 10%; /* Deep slate text */
-  --destructive: 0 84% 60%; /* Soft red */
+  --destructive: var(--danger); /* Use strict danger red */
   --destructive-foreground: 0 0% 100%; /* White text on destructive */
   --ring: 263 70% 50%; /* Soft violet ring */
   --radius: 0.5rem;
   
-  /* Trading Colors - Light Mode (Soft Professional) */
-  --bullish: 142 71% 45%; /* Darker green for contrast */
-  --bearish: 0 71% 55%; /* Darker red for contrast */
+  /* Trading Colors - Light Mode (Strict Color Scheme) */
+  --bullish: var(--success); /* #10B981 - Success Green */
+  --bearish: var(--danger); /* #EF4444 - Danger Red */
   --neutral: 45 93% 58%; /* Soft amber */
   
   /* Surface Colors - Light Mode */
@@ -126,8 +174,8 @@
   --text-primary: 210 24% 10%; /* Deep slate #1E293B - Primary metrics */
   --text-secondary: 210 15% 45%; /* Medium gray #64748B - Labels and secondary info */
   --text-accent: 263 70% 50%; /* Soft violet for primary actions */
-  --text-success: 142 71% 45%; /* Darker green - Bullish */
-  --text-error: 0 71% 55%; /* Darker red - Bearish */
+  --text-success: var(--success); /* #10B981 - Success Green */
+  --text-error: var(--danger); /* #EF4444 - Danger Red */
   --text-warning: 45 93% 58%; /* Soft amber - Neutral/Warning */
   
   /* Sidebar specific */
