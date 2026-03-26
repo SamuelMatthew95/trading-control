@@ -5,13 +5,14 @@ FastAPI dependency injection for typed service access.
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
+from redis.asyncio import Redis
 
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.execution.reconciler import OrderReconciler
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.market_ingestor import MarketIngestor
-from api.redis_client import Redis
+from api.redis_client import get_redis
 from api.db import get_db
 
 
@@ -55,7 +56,7 @@ def get_market_ingestor(request: Request) -> MarketIngestor:
     return obj
 
 
-def get_redis_client(request: Request) -> Redis:
+def get_redis(request: Request) -> Redis:
     """Get Redis client from app state."""
     obj = getattr(request.app.state, "redis", None)
     if obj is None:
@@ -69,7 +70,7 @@ DLQManagerDep = Annotated[DLQManager, Depends(get_dlq_manager)]
 ReconcilerDep = Annotated[OrderReconciler, Depends(get_reconciler)]
 ReasoningAgentDep = Annotated[ReasoningAgent, Depends(get_reasoning_agent)]
 MarketIngestorDep = Annotated[MarketIngestor, Depends(get_market_ingestor)]
-RedisDep = Annotated[Redis, Depends(get_redis_client)]
+RedisDep = Annotated[Redis, Depends(get_redis)]
 
 # Re-export existing dependencies
 from api.db import get_db
