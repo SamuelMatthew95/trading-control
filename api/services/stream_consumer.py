@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any
 
 from api.events.bus import EventBus, STREAMS
@@ -40,31 +41,54 @@ class StreamConsumer:
         """Main consumer loop - reads from all streams and broadcasts."""
         log_structured("info", "stream_consumer_loop_started")
         
+        log_structured(
+            "info",
+            "stream_consumer_config",
+            streams=STREAMS,
+            consumer="dashboard",
+            group="workers"
+        )
+        
         while self.running:
             try:
                 for stream in STREAMS:
                     if not self.running:
                         break
                     
-                    # Consume messages
-                    messages = await self.bus.consume(
-                        stream,
-                        group="workers",
-                        consumer="dashboard",
-                        count=10,
-                        block_ms=100  # Short block to check all streams frequently
-                    )
+                    # Consume messages with safety guard
+                    try:
+                        messages = await self.bus.consume(
+                            stream,
+                            group="workers",
+                            consumer="dashboard",
+                            count=10,
+                            block_ms=100
+                        )
+                    except Exception as consume_err:
+                        log_structured(
+                            "error",
+                            "redis_consume_failed",
+                            stream=stream,
+                            error=str(consume_err)
+                        )
+                        continue
                     
                     # Process and acknowledge messages
                     for msg_id, data in messages:
+                        broadcast_success = False
+                        
                         # Broadcast to WebSocket if manager exists
-                        if self.ws:
+                        if self.ws and hasattr(self.ws, "broadcast"):
                             try:
+                                # Unified format: always include 'type' for frontend routing
                                 await self.ws.broadcast({
+                                    "type": "event",
                                     "stream": stream,
                                     "message_id": msg_id,
-                                    "data": data
+                                    "data": data or {},
+                                    "timestamp": datetime.now(timezone.utc).isoformat()
                                 })
+                                broadcast_success = True
                                 log_structured(
                                     "info", "ws_event_sent",
                                     stream=stream,
@@ -76,8 +100,26 @@ class StreamConsumer:
                                     stream=stream, error=str(e)
                                 )
                         
-                        # Acknowledge message
-                        await self.bus.acknowledge(stream, "workers", msg_id)
+                        # Only ACK if broadcast was successful
+                        if broadcast_success:
+                            try:
+                                await self.bus.acknowledge(stream, "workers", msg_id)
+                            except Exception as ack_err:
+                                log_structured(
+                                    "error",
+                                    "ack_failed",
+                                    stream=stream,
+                                    message_id=msg_id,
+                                    error=str(ack_err)
+                                )
+                    
+                    if messages:
+                        log_structured(
+                            "info",
+                            "stream_batch_processed",
+                            stream=stream,
+                            batch_size=len(messages)
+                        )
                 
                 # Small sleep to prevent tight loop
                 await asyncio.sleep(0.1)
