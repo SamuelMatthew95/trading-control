@@ -76,7 +76,7 @@ class CompleteV3SystemManager:
             raise
 
     async def _initialize_runtime_dependencies(self) -> None:
-        self.redis = get_redis()
+        self.redis = await get_redis()
         await self.redis.ping()
         log_structured("info", "v3_redis_connected")
         self.bus = EventBus(self.redis)
