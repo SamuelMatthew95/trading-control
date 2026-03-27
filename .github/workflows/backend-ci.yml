@@ -5,15 +5,21 @@ on:
     branches:
       - main
     paths:
+      - "api/**"
       - "backend/**"
       - ".github/workflows/backend-ci.yml"
+      - "requirements*.txt"
+      - "pyproject.toml"
   pull_request:
     branches:
       - main
       - develop
     paths:
+      - "api/**"
       - "backend/**"
       - ".github/workflows/backend-ci.yml"
+      - "requirements*.txt"
+      - "pyproject.toml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
