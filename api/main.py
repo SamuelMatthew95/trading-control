@@ -124,11 +124,11 @@ def _run_startup_migrations(database_url_value: str) -> None:
         log_structured("info", "alembic_migration_starting")
         command.upgrade(config, "head")
         log_structured("info", "alembic_migration_completed")
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log_structured(
             "error",
             "alembic_migration_failed",
-            error=str(exc),
+            exc_info=True,
             traceback=traceback.format_exc(),
         )
         raise
