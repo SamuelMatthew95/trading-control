@@ -1,6 +1,4 @@
 'use client'
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { useEffect, useRef } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 
@@ -9,6 +7,7 @@ type WebSocketMessage = {
   type: string
   schema_version?: string
   timestamp?: string
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: any
   stream?: string
   message_id?: string
@@ -70,6 +69,7 @@ class WebSocketManager {
     }
     this._listeners.clear()
   }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
   dispatch(event: string, detail?: any) {
     try {
       window.dispatchEvent(new CustomEvent(event, { detail }))
@@ -241,6 +241,7 @@ class WebSocketManager {
   }
 
   // --- Normalization ---
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _normalizeDashboardData(data: any): any {
     if (!data || typeof data !== 'object') return data
     
@@ -250,6 +251,7 @@ class WebSocketManager {
     if (normalized.orders && typeof normalized.orders === 'object' && !Array.isArray(normalized.orders)) {
       // Convert orders object to array format expected by store
       // Extract actual order arrays from the object
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ordersArray: any[] = []
       
       // Look for common order array keys
@@ -263,8 +265,11 @@ class WebSocketManager {
       
       // If no arrays found, convert object values to array
       if (ordersArray.length === 0) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
         const objectValues = Object.values(normalized.orders) as any[]
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
         ordersArray.push(...objectValues.filter((item: any) => 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
           typeof item === 'object' && item !== null && !(item as any).timestamp // exclude metadata
         ))
       }
@@ -280,7 +285,9 @@ class WebSocketManager {
       if (normalized[field] && !Array.isArray(normalized[field])) {
         if (typeof normalized[field] === 'object') {
           // Convert object to array of values
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
           const objectValues = Object.values(normalized[field]) as any[]
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
           normalized[field] = objectValues.filter((item: any) => 
             typeof item === 'object' && item !== null
           )
@@ -296,6 +303,7 @@ class WebSocketManager {
     return normalized
   }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _normalizeAgentEvent(raw: any): any | null {
     if (!raw || typeof raw !== 'object') return null
     return {
@@ -311,6 +319,7 @@ class WebSocketManager {
       ...(raw.data && { data: raw.data }),
     }
   }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _normalizeSystemMetric(raw: any): any | null {
     if (!raw || typeof raw !== 'object') return null
     return {

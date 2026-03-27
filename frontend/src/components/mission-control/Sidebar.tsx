@@ -41,7 +41,7 @@ export function Sidebar() {
       <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
         <button 
           className="w-full bg-slate-900 text-white dark:bg-red-600 border-2 border-slate-300 dark:border-red-500 hover:bg-slate-800 dark:hover:bg-red-700 px-4 py-4 transition-all rounded-lg"
-          onClick={() => console.warn("TERMINATE ALL")}
+          onClick={() => { if (process.env.NODE_ENV !== 'production') console.warn('TERMINATE ALL') }}
         >
           <div className="flex items-center justify-between">
             <div className="text-left">

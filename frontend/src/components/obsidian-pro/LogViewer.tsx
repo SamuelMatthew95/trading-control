@@ -77,7 +77,7 @@ export function LogViewer({
 
   const clearLogs = () => {
     // This would typically be handled by a parent component
-    console.warn('Clear logs requested')
+    if (process.env.NODE_ENV !== 'production') console.warn('Clear logs requested')
   }
 
   return (

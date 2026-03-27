@@ -7,7 +7,8 @@ import { useHealthCheck } from '@/hooks/useHealthCheck';
 import { AlertCircle } from 'lucide-react';
 
 export default function ExecutiveDashboard() {
-  const prevDataRef = useRef<unknown>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prevDataRef = useRef<any>(null);
   const [connectionIssue, setConnectionIssue] = useState(false);
   const { data: healthData, isLoading: healthLoading, error, refetch } = useHealthCheck();
 

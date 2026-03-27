@@ -14,12 +14,18 @@ import {
   Zap,
 } from 'lucide-react'
 
-const sanitizeValue = (value: unknown): string => {
+const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
   if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
   if (typeof value === 'boolean') return value ? 'True' : 'False';
   return String(value);
 };
+
+const toSanitizeInput = (value: unknown): string | number | boolean | null | undefined => {
+  if (value === null || value === undefined) return value
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  return String(value)
+}
 
 const formatUSD = (value?: number | null): string => {
   if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
@@ -330,10 +336,10 @@ export function DashboardView({ section }: { section: Section }) {
                     return (
                       <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(log?.agent_name || log?.agent) === '--' ? 'N/A' : sanitizeValue(log?.agent_name || log?.agent)}</p>
+                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
                         </div>
-                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{sanitizeValue(log?.message || log?.summary || log?.primary_edge) === '--' ? 'N/A' : sanitizeValue(log?.message || log?.summary || log?.primary_edge)}</p>
+                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge))}</p>
                       </div>
                     )
                   })}
@@ -375,7 +381,7 @@ export function DashboardView({ section }: { section: Section }) {
                               {side === '--' ? 'N/A' : side}
                             </span>
                           </td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.qty)}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
                           <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>

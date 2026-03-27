@@ -5,10 +5,13 @@ import { Header } from '@/components/layout/Header';
 import { AlertCircle } from 'lucide-react';
 
 export default function PerformancePage() {
-  const [pnl, setPnl] = useState<Record<string, unknown> | null>(null);
-  const [summary, setSummary] = useState<{ items: Record<string, unknown>[] }>({ items: [] });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [pnl, setPnl] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [summary, setSummary] = useState<any>({ items: [] });
   const [error, setError] = useState<Error | null>(null);
-  const [, setIsLoading] = useState(true);
+  const [_isLoading, setIsLoading] = useState(true);
+  void _isLoading;
 
   const load = async () => {
     try {
@@ -97,7 +100,8 @@ export default function PerformancePage() {
                 </thead>
                 <tbody>
                   {(summary.items || []).length > 0 ? (
-                    (summary.items || []).map((r: Record<string, unknown>) => (
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (summary.items || []).map((r: any) => (
                       <tr key={r.task_slug} className="border-b border-border/50">
                         <td className="py-3 text-foreground">{r.task_type}</td>
                         <td className="py-3 text-foreground">{r.runs_7d}</td>

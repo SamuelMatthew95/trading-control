@@ -86,7 +86,8 @@ const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
 PnLHero.displayName = 'PnLHero'
 
 const SentimentEngine = memo(() => {
-  const [sentiment] = useState(65) // 0 = Fear, 50 = Neutral, 100 = Greed
+  const [sentiment, _setSentiment] = useState(65) // 0 = Fear, 50 = Neutral, 100 = Greed
+  void _setSentiment
   
   return (
     <motion.div
