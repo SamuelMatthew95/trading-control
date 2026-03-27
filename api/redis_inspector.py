@@ -21,8 +21,8 @@ async def get_event_bus() -> EventBus:
     try:
         redis = await get_redis()
         return EventBus(redis)
-    except Exception as exc:
-        log_structured("warning", "debug_redis_unavailable", error=str(exc))
+    except Exception:
+        log_structured("warning", "debug_redis_unavailable", exc_info=True)
         raise HTTPException(status_code=503, detail="Redis unavailable for debug endpoints")
 
 
