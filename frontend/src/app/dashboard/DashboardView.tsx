@@ -166,21 +166,26 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         <div className="bg-[#09090b] border-b border-[#27272a] h-20 flex items-center justify-between px-6">
           {/* RIGHT - P&L WITH SKELETON */}
           <div className="flex items-center gap-4">
-            {/* P&L DISPLAY - JetBrains Mono Data */}
+            {/* P&L DISPLAY - PRODUCTION READABLE */}
             <div className="flex flex-col items-end">
               {isLoadingBalance || !hasValidData ? (
-                <div className="w-24 h-6 bg-[#18181b] rounded animate-pulse" />
+                <div className="w-32 h-8 bg-[#1f2937] rounded animate-pulse" />
               ) : (
-                <span className={cn(
-                  "text-xl font-bold font-mono tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
-                  isAnimating && "scale-105",
-                  safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
-                )}>
+                <motion.span 
+                  key={safeDailyPnl}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className={cn(
+                    "text-3xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
+                    isAnimating && "scale-105",
+                    safeDailyPnl >= 0 ? "text-emerald-400" : "text-red-400"
+                  )}
+                >
                   {formatUSD(safeDailyPnl)}
-                </span>
+                </motion.span>
               )}
-              <span className="text-xs font-medium text-gray-500 font-['Inter']">
-                24h P&L
+              <span className="text-sm font-semibold text-gray-400 font-['Inter'] uppercase tracking-wide">
+                Daily P&L
               </span>
             </div>
 
@@ -248,47 +253,47 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               </div>
             </div>
 
-            <div className="flex items-center justify-center gap-6 mb-4">
+            <div className="flex items-center justify-center gap-6 mb-6">
               <motion.h1 
                 key={safeDailyPnl}
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 className={cn(
-                  "text-4xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono'] text-center",
+                  "text-5xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono'] text-center",
                   isAnimating && "scale-105",
-                  safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
+                  safeDailyPnl >= 0 ? "text-emerald-400" : "text-red-400"
                 )}
               >
                 {safeDailyPnl >= 0 ? '+' : ''}{formatUSD(safeDailyPnl)}
               </motion.h1>
             </div>
 
-            <div className="flex items-center justify-center gap-8">
-              <div className="flex flex-col gap-1 items-center">
+            <div className="flex items-center justify-center gap-10">
+              <div className="flex flex-col gap-2 items-center">
                 <div className="flex items-center gap-2">
-                  {safePnlChange > 0 ? <ChevronUp className="w-4 h-4 text-[#10b981]" /> : <ChevronDown className="w-4 h-4 text-[#ef4444]" />}
+                  {safePnlChange > 0 ? <ChevronUp className="w-5 h-5 text-emerald-400" /> : <ChevronDown className="w-5 h-5 text-red-400" />}
                   <span className={cn(
-                    "text-sm font-semibold font-mono font-['JetBrains_Mono']",
-                    safePnlChange > 0 ? "text-[#10b981]" : "text-[#ef4444]"
+                    "text-lg font-bold font-mono font-['JetBrains_Mono'] tabular-nums",
+                    safePnlChange > 0 ? "text-emerald-400" : "text-red-400"
                   )}>
                     {safePnlChange >= 0 ? '+' : ''}{formatUSD(safePnlChange)}
                   </span>
                 </div>
-                <span className="text-xs text-gray-500 font-['Inter']">24h Change</span>
+                <span className="text-sm font-semibold text-gray-300 font-['Inter'] uppercase tracking-wider">24h Change</span>
               </div>
 
-              <div className="flex flex-col gap-1 items-center">
-                <span className="text-sm font-semibold text-gray-300 font-mono font-['JetBrains_Mono']">
+              <div className="flex flex-col gap-2 items-center">
+                <span className="text-lg font-bold text-gray-200 font-mono font-['JetBrains_Mono'] tabular-nums">
                   {winRate.toFixed(1)}%
                 </span>
-                <span className="text-xs text-gray-500 font-['Inter']">Win Rate</span>
+                <span className="text-sm font-semibold text-gray-300 font-['Inter'] uppercase tracking-wider">Win Rate</span>
               </div>
 
-              <div className="flex flex-col gap-1 items-center">
-                <span className="text-sm font-semibold text-gray-300 font-mono font-['JetBrains_Mono']">
+              <div className="flex flex-col gap-2 items-center">
+                <span className="text-lg font-bold text-gray-200 font-mono font-['JetBrains_Mono'] tabular-nums">
                   {activePositions}
                 </span>
-                <span className="text-xs text-gray-500 font-['Inter']">Positions</span>
+                <span className="text-sm font-semibold text-gray-300 font-['Inter'] uppercase tracking-wider">Positions</span>
               </div>
             </div>
 
@@ -306,40 +311,40 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             <div className={cn(
               "border rounded-xl p-6 backdrop-blur-sm transition-all duration-300",
               killSwitchActive 
-                ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
-                : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                ? "bg-red-950/30 border-red-800/50"
+                : "bg-[#18181b] border-[#27272a]"
             )}>
               <div className="flex items-center justify-between">
                 {/* LEFT */}
                 <div className="flex items-center gap-4">
                   <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300",
+                    "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300",
                     killSwitchActive 
-                      ? "bg-red-100 dark:bg-red-900/50"
-                      : "bg-slate-100 dark:bg-slate-800"
+                      ? "bg-red-900/50 border border-red-800"
+                      : "bg-[#09090b] border border-[#27272a]"
                   )}>
                     {killSwitchActive ? (
-                      <Pause className="w-5 h-5 text-red-600 dark:text-red-400" />
+                      <Pause className="w-6 h-6 text-red-400" />
                     ) : marketStatus ? (
-                      <Play className="w-5 h-5 text-green-600 dark:text-green-400" />
+                      <Play className="w-6 h-6 text-emerald-400" />
                     ) : (
-                      <Pause className="w-5 h-5 text-slate-500" />
+                      <Pause className="w-6 h-6 text-gray-400" />
                     )}
                   </div>
                   <div>
                     <p className={cn(
-                      "text-lg font-semibold transition-all duration-300",
+                      "text-xl font-bold transition-all duration-300 font-['Inter']",
                       killSwitchActive 
-                        ? "text-red-900 dark:text-red-100"
-                        : "text-slate-950 dark:text-slate-100"
+                        ? "text-red-300"
+                        : "text-white"
                     )}>
                       {killSwitchActive ? '⚠️ TRADING HALTED' : marketStatus ? '🚀 Systems Active' : '⏸️ Markets Closed'}
                     </p>
                     <p className={cn(
-                      "text-sm transition-all duration-300",
+                      "text-base font-medium transition-all duration-300 font-['Inter']",
                       killSwitchActive 
-                        ? "text-red-700 dark:text-red-300"
-                        : "text-slate-600 dark:text-slate-400"
+                        ? "text-red-400"
+                        : "text-gray-300"
                     )}>
                       {killSwitchActive 
                         ? 'Manual stop engaged - All trading paused'
@@ -354,18 +359,18 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 {/* RIGHT */}
                 <div className="text-right">
                   <div className={cn(
-                    "text-sm font-medium transition-all duration-300",
+                    "text-lg font-semibold transition-all duration-300 font-['Inter']",
                     killSwitchActive 
-                      ? "text-red-700 dark:text-red-300"
-                      : "text-slate-600 dark:text-slate-400"
+                      ? "text-red-400"
+                      : "text-gray-300"
                   )}>
                     Market Hours
                   </div>
                   <div className={cn(
-                    "text-xs font-mono transition-all duration-300",
+                    "text-base font-mono transition-all duration-300 font-['JetBrains_Mono'] tabular-nums",
                     killSwitchActive 
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-slate-500 dark:text-slate-500"
+                      ? "text-red-500"
+                      : "text-gray-400"
                   )}>
                     9:30 AM – 4:00 PM EST
                   </div>
