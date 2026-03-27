@@ -1,7 +1,7 @@
 """Fix UUID defaults and missing columns for agent_runs
 
 Revision ID: b2850e0a1b2
-Revises: c3840f86fff1
+Revises: 0001_initial
 Create Date: 2026-03-22 19:17:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'b2850e0a1b2'
-down_revision = 'c3840f86fff1'
+down_revision = '0001_initial'
 branch_labels = None
 depends_on = None
 
