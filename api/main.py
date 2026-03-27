@@ -108,7 +108,7 @@ async def _record_system_metric(
     # Generate msg_id ONCE at producer layer
     msg_id = str(uuid.uuid4())
     payload = {
-        "msg_id": msg_id,  # ✅ CRITICAL: Add msg_id at producer layer
+        "msg_id": msg_id,  # CRITICAL: Add msg_id at producer layer
         "type": "system_metric",
         "metric_name": metric_name,
         "value": value,
@@ -125,7 +125,7 @@ async def _record_system_metric(
                 {
                     "id": msg_id,
                     "metric_name": metric_name,
-                    "metric_value": value,  # ✅ Fix column name
+                    "metric_value": value,  # Fix column name
                     "labels": json.dumps(labels, default=str),
                     "timestamp": datetime.now(timezone.utc).replace(tzinfo=None),
                 },
@@ -158,7 +158,7 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
             await bus.publish(
                 "risk_alerts",
                 {
-                    "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
+                    "msg_id": str(uuid.uuid4()),  # Add msg_id at producer layer
                     "type": "consumer_lag",
                     "stream": stream,
                     "lag": lag,
@@ -183,7 +183,7 @@ async def on_message_processed(bus: EventBus, stream: str, lag: float) -> None:
         await bus.publish(
             "risk_alerts",
             {
-                "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
+                "msg_id": str(uuid.uuid4()),  # Add msg_id at producer layer
                 "type": "consumer_lag",
                 "stream": stream,
                 "lag": lag,
@@ -203,7 +203,7 @@ async def on_llm_cost_updated(bus: EventBus, redis_client, cost: float) -> None:
         await bus.publish(
             "risk_alerts",
             {
-                "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
+                "msg_id": str(uuid.uuid4()),  # Add msg_id at producer layer
                 "type": "llm_cost",
                 "cost": cost,
                 "limit": settings.ANTHROPIC_COST_ALERT_USD,

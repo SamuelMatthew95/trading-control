@@ -1,25 +1,23 @@
-"""Async SQLAlchemy session management primitives for FastAPI."""
+"""Compatibility DB module that re-exports the canonical async database runtime.
+
+This module keeps the historical ``api.db`` import path stable while delegating
+all session and engine configuration to ``api.database``.
+"""
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.config import get_database_url
+from api.database import AsyncSessionLocal, async_engine
 
-engine = create_async_engine(
-    get_database_url(),
-    pool_pre_ping=True,
-    pool_size=3,
-    max_overflow=2,
-    pool_recycle=300,
-)
-AsyncSessionFactory = async_sessionmaker(
-    engine, expire_on_commit=False, class_=AsyncSession
-)
+# Backwards-compatible aliases expected throughout the codebase.
+engine = async_engine
+AsyncSessionFactory = AsyncSessionLocal
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a request-scoped async SQLAlchemy session."""
     async with AsyncSessionFactory() as session:
         yield session

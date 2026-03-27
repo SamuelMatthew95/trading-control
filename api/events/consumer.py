@@ -78,7 +78,7 @@ class BaseStreamConsumer(ABC):
         if not msg_id:
             log_structured(
                 "error",
-                "🚨 MISSING msg_id - Producer Bug",
+                "Missing msg_id in producer payload",
                 extra={
                     "stream": self.stream,
                     "data_keys": list(data.keys()),

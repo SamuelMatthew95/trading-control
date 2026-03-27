@@ -42,7 +42,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         value = await self.redis.get("kill_switch:active")
         if value and value.decode() == "1":
             raise RuntimeError("KillSwitchActive")
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         # Parse timestamp, fallback to UTC now
