@@ -175,21 +175,21 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     <div className="h-10 border-b bg-slate-900 border-slate-800">
       <div className="max-w-7xl mx-auto px-4 h-full flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <h1 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-white">
+          <h1 className="text-sm font-bold uppercase tracking-wider text-white font-sans">
             Trading Console
           </h1>
           <div className="flex items-center gap-2">
             <div className={cn("w-2 h-2 rounded-full animate-pulse", wsConnected ? "bg-emerald-500" : "bg-slate-400")} />
-            <span className={cn("text-xs font-semibold uppercase tracking-wider font-['Inter']", wsConnected ? "text-emerald-500" : "text-slate-400")}>
+            <span className={cn("text-xs font-semibold uppercase tracking-wider font-sans", wsConnected ? "text-emerald-500" : "text-slate-400")}>
               {wsConnected ? 'LIVE' : 'OFFLINE'}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-6">
-          <motion.div key={safeDailyPnl} className="text-xl font-black tabular-nums font-['JetBrains_Mono'] text-emerald-500">
+          <motion.div key={safeDailyPnl} className="text-xl font-black tabular-nums font-mono text-emerald-500">
             {formatUSD(safeDailyPnl)}
           </motion.div>
-          <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">
+          <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">
             Daily P&L
           </span>
         </div>
@@ -197,7 +197,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           <button onClick={() => setIsDarkMode(!isDarkMode)} className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-800 hover:bg-slate-700">
             {isDarkMode ? <Sun className="w-4 h-4 text-slate-300" /> : <Moon className="w-4 h-4 text-slate-600" />}
           </button>
-          <button onClick={() => setKillSwitch(!killSwitchActive)} className="px-4 py-2 rounded-lg flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider font-['Inter'] min-h-[44px] min-w-[44px]">
+          <button onClick={() => setKillSwitch(!killSwitchActive)} className="px-4 py-2 rounded-lg flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider font-sans min-h-[44px] min-w-[44px]">
             <Power className="w-4 h-4" />
             {killSwitchActive ? 'HALT' : 'ACTIVE'}
           </button>
@@ -217,22 +217,22 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             <div className="col-span-1 sm:col-span-2 lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-6">
               <div className="grid grid-cols-2 gap-6 h-full">
                 <div className="flex flex-col justify-center">
-                  <motion.div key={safeDailyPnl} className="text-4xl font-black tabular-nums font-['JetBrains_Mono'] text-emerald-500">
+                  <motion.div key={safeDailyPnl} className="text-4xl font-black tabular-nums font-mono text-emerald-500">
                     {formatUSD(safeDailyPnl)}
                   </motion.div>
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Win Rate</span>
-                      <span className="text-sm font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(winRate.toFixed(1))}%</span>
+                      <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Win Rate</span>
+                      <span className="text-sm font-mono tabular-nums text-slate-300">{sanitizeValue(winRate.toFixed(1))}%</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Positions</span>
-                      <span className="text-sm font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(activePositions)}</span>
+                      <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Positions</span>
+                      <span className="text-sm font-mono tabular-nums text-slate-300">{sanitizeValue(activePositions)}</span>
                     </div>
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <h3 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-slate-300 mb-4">Equity Curve</h3>
+                  <h3 className="text-sm font-bold uppercase tracking-wider font-sans text-slate-300 mb-4">Equity Curve</h3>
                   <div className="flex-1 min-h-[120px]">
                     <EquityCurve />
                   </div>
@@ -243,10 +243,10 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             {/* AGENT MATRIX - Real Agent Logs */}
             <div className="col-span-1 sm:col-span-2 lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-slate-300">Agent Matrix</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider font-sans text-slate-300">Agent Matrix</h3>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                  <span className="text-xs font-medium text-emerald-500 font-['Inter'] uppercase tracking-wider">{sanitizeValue(realAgents.length)} Active</span>
+                  <span className="text-xs font-medium text-emerald-500 font-sans uppercase tracking-wider">{sanitizeValue(realAgents.length)} Active</span>
                 </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -255,21 +255,21 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                     <div className="absolute top-2 right-2">
                       <div className={cn("w-1.5 h-1.5 rounded-full", agent.heartbeat ? "bg-emerald-500 animate-pulse" : "bg-slate-400")} />
                     </div>
-                    <div className="text-xs font-bold font-['Inter'] text-slate-200 mb-2">{agent.name}</div>
+                    <div className="text-xs font-bold font-sans text-slate-200 mb-2">{agent.name}</div>
                     <div className="space-y-1">
                       <div className="flex justify-between items-center">
-                        <span className="text-xs font-['Inter'] text-slate-400">Status</span>
-                        <span className="text-xs font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(agent.heartbeat ? 'ACTIVE' : 'IDLE')}</span>
+                        <span className="text-xs font-sans text-slate-400">Status</span>
+                        <span className="text-xs font-mono tabular-nums text-slate-300">{sanitizeValue(agent.heartbeat ? 'ACTIVE' : 'IDLE')}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-xs font-['Inter'] text-slate-400">Events</span>
-                        <span className="text-xs font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(agent.events)}</span>
+                        <span className="text-xs font-sans text-slate-400">Events</span>
+                        <span className="text-xs font-mono tabular-nums text-slate-300">{sanitizeValue(agent.events)}</span>
                       </div>
                     </div>
                   </div>
                 )) : (
                   <div className="col-span-full text-center py-8">
-                    <span className="text-slate-400 text-sm font-['Inter']">No agent data available</span>
+                    <span className="text-slate-400 text-sm font-sans">No agent data available</span>
                   </div>
                 )}
               </div>
@@ -281,19 +281,19 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 {realTickerData.length > 0 ? realTickerData.map((ticker) => (
                   <div key={ticker.symbol} className="pl-4 first:pl-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold font-['Inter'] uppercase tracking-wider text-slate-400">{ticker.symbol}</span>
+                      <span className="text-xs font-bold font-sans uppercase tracking-wider text-slate-400">{ticker.symbol}</span>
                       <div className={cn("w-1.5 h-1.5 rounded-full", ticker.change >= 0 ? "bg-emerald-500" : "bg-red-500")} />
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-mono tabular-nums font-['JetBrains_Mono'] text-slate-200">{formatUSD(ticker.price)}</div>
-                      <div className={cn("text-xs font-mono tabular-nums font-['JetBrains_Mono']", ticker.change >= 0 ? "text-emerald-500" : "text-red-500")}>
+                      <div className="text-sm font-mono tabular-nums text-slate-200">{formatUSD(ticker.price)}</div>
+                      <div className={cn("text-xs font-mono tabular-nums", ticker.change >= 0 ? "text-emerald-500" : "text-red-500")}>
                         {ticker.change >= 0 ? '+' : ''}{sanitizeValue(ticker.change.toFixed(2))} ({ticker.changePercent >= 0 ? '+' : ''}{sanitizeValue(ticker.changePercent.toFixed(2))}%)
                       </div>
                     </div>
                   </div>
                 )) : (
                   <div className="col-span-full text-center py-4">
-                    <span className="text-slate-400 text-sm font-['Inter']">N/A - No price data</span>
+                    <span className="text-slate-400 text-sm font-sans">N/A - No price data</span>
                   </div>
                 )}
               </div>
@@ -314,10 +314,10 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           {/* AGENT THOUGHT STREAM - Real Agent Logs */}
           <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-slate-300">Agent Thought Stream</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wider font-sans text-slate-300">Agent Thought Stream</h3>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                <span className="text-xs font-medium text-emerald-500 font-['Inter'] uppercase tracking-wider">Live</span>
+                <span className="text-xs font-medium text-emerald-500 font-sans uppercase tracking-wider">Live</span>
               </div>
             </div>
             <div className="space-y-4 max-h-96 overflow-y-auto">
@@ -326,17 +326,17 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-3">
                       <Brain className="w-4 h-4 text-emerald-500" />
-                      <span className="text-xs font-bold font-['Inter'] text-slate-200">{sanitizeValue(log.agent_name || 'Unknown')}</span>
+                      <span className="text-xs font-bold font-sans text-slate-200">{sanitizeValue(log.agent_name || 'Unknown')}</span>
                     </div>
-                    <div className="text-xs font-mono tabular-nums font-['JetBrains_Mono'] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
+                    <div className="text-xs font-mono tabular-nums font-mono px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
                       {sanitizeValue(log.confidence ? `${(log.confidence * 100).toFixed(0)}%` : 'N/A')}
                     </div>
                   </div>
-                  <p className="text-sm font-['Inter'] text-slate-300 leading-relaxed">{sanitizeValue(log.message || 'No message')}</p>
+                  <p className="text-sm font-sans text-slate-300 leading-relaxed">{sanitizeValue(log.message || 'No message')}</p>
                 </motion.div>
               )) : (
                 <div className="text-center py-8">
-                  <span className="text-slate-400 text-sm font-['Inter']">No agent thoughts available</span>
+                  <span className="text-slate-400 text-sm font-sans">No agent thoughts available</span>
                 </div>
               )}
             </div>
@@ -345,13 +345,13 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
           {/* OPEN POSITIONS TABLE - Real Orders */}
           <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-slate-300">Open Positions</h3>
-              <span className="text-xs font-medium font-['Inter'] text-slate-400">{sanitizeValue(positions.length)} Active</span>
+              <h3 className="text-sm font-bold uppercase tracking-wider font-sans text-slate-300">Open Positions</h3>
+              <span className="text-xs font-medium font-sans text-slate-400">{sanitizeValue(positions.length)} Active</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">
+                  <tr className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">
                     <th className="text-left pb-3">Symbol</th>
                     <th className="text-center pb-3">Side</th>
                     <th className="text-right pb-3">Qty</th>
@@ -363,16 +363,16 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 <tbody>
                   {positions.length > 0 ? positions.map((position, index) => (
                     <tr key={index} className="border-t border-slate-800">
-                      <td className="py-3 font-mono tabular-nums font-['JetBrains_Mono'] font-bold text-slate-200">{sanitizeValue(position.symbol)}</td>
+                      <td className="py-3 font-mono tabular-nums font-mono font-bold text-slate-200">{sanitizeValue(position.symbol)}</td>
                       <td className="py-3 text-center">
                         <span className={cn("text-xs font-bold uppercase px-2 py-1 rounded", position.side === 'long' ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400")}>
                           {sanitizeValue(position.side)}
                         </span>
                       </td>
-                      <td className="py-3 text-right font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(position.quantity)}</td>
-                      <td className="py-3 text-right font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{formatUSD(position.entry_price)}</td>
-                      <td className="py-3 text-right font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{formatUSD(position.current_price)}</td>
-                      <td className={cn("py-3 text-right font-mono tabular-nums font-['JetBrains_Mono'] font-bold", (position.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
+                      <td className="py-3 text-right font-mono tabular-nums font-mono text-slate-300">{sanitizeValue(position.quantity)}</td>
+                      <td className="py-3 text-right font-mono tabular-nums font-mono text-slate-300">{formatUSD(position.entry_price)}</td>
+                      <td className="py-3 text-right font-mono tabular-nums font-mono text-slate-300">{formatUSD(position.current_price)}</td>
+                      <td className={cn("py-3 text-right font-mono tabular-nums font-mono font-bold", (position.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
                         {(position.pnl || 0) >= 0 ? '+' : ''}{formatUSD(position.pnl)}
                         <div className="text-xs">({(position.pnl_percent || 0) >= 0 ? '+' : ''}{sanitizeValue((position.pnl_percent || 0).toFixed(2))}%)</div>
                       </td>
@@ -380,7 +380,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                   )) : (
                     <tr>
                       <td colSpan={6} className="py-8 text-center">
-                        <span className="text-slate-400 text-sm font-['Inter']">No open positions</span>
+                        <span className="text-slate-400 text-sm font-sans">No open positions</span>
                       </td>
                     </tr>
                   )}
@@ -404,25 +404,25 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             {realAgents.length > 0 ? realAgents.map((agent, index) => (
               <div key={agent.name} className="bg-slate-900 rounded-xl border border-slate-800 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-sm font-bold font-['Inter'] text-slate-200">{agent.name}</h4>
+                  <h4 className="text-sm font-bold font-sans text-slate-200">{agent.name}</h4>
                   <div className="flex items-center gap-2">
                     <div className={cn("w-2 h-2 rounded-full", agent.heartbeat ? "bg-emerald-500 animate-pulse" : "bg-slate-400")} />
-                    <span className={cn("text-xs font-medium uppercase font-['Inter']", agent.tier === 'active' ? "text-emerald-500" : "text-slate-400")}>
+                    <span className={cn("text-xs font-medium uppercase font-sans", agent.tier === 'active' ? "text-emerald-500" : "text-slate-400")}>
                       {sanitizeValue(agent.tier)}
                     </span>
                   </div>
                 </div>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Events</span>
-                    <span className="text-sm font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(agent.events)}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Events</span>
+                    <span className="text-sm font-mono tabular-nums font-mono text-slate-300">{sanitizeValue(agent.events)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Last Seen</span>
-                    <span className="text-sm font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{formatTimeAgo(agent.lastSeen)}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Last Seen</span>
+                    <span className="text-sm font-mono tabular-nums font-mono text-slate-300">{formatTimeAgo(agent.lastSeen)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Status</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Status</span>
                     <span className={cn("text-xs font-bold uppercase", agent.heartbeat ? "text-emerald-500" : "text-slate-400")}>
                       {agent.heartbeat ? 'ACTIVE' : 'IDLE'}
                     </span>
@@ -431,7 +431,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               </div>
             )) : (
               <div className="col-span-full text-center py-8">
-                <span className="text-slate-400 text-sm font-['Inter']">No agent data available</span>
+                <span className="text-slate-400 text-sm font-sans">No agent data available</span>
               </div>
             )}
           </div>
@@ -451,58 +451,58 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
               <div className="flex items-center justify-between mb-4">
                 <FileCode className="w-5 h-5 text-emerald-500" />
-                <span className="text-xs font-medium text-emerald-500 font-['Inter'] uppercase tracking-wider">Evaluated</span>
+                <span className="text-xs font-medium text-emerald-500 font-sans uppercase tracking-wider">Evaluated</span>
               </div>
-              <div className="text-2xl font-black tabular-nums font-['JetBrains_Mono'] text-slate-200 mb-2">{sanitizeValue(learningMetrics.tradesEvaluated)}</div>
-              <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Trades</span>
+              <div className="text-2xl font-black tabular-nums font-mono text-slate-200 mb-2">{sanitizeValue(learningMetrics.tradesEvaluated)}</div>
+              <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Trades</span>
             </div>
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
               <div className="flex items-center justify-between mb-4">
                 <Brain className="w-5 h-5 text-amber-500" />
-                <span className="text-xs font-medium text-amber-500 font-['Inter'] uppercase tracking-wider">Completed</span>
+                <span className="text-xs font-medium text-amber-500 font-sans uppercase tracking-wider">Completed</span>
               </div>
-              <div className="text-2xl font-black tabular-nums font-['JetBrains_Mono'] text-slate-200 mb-2">{sanitizeValue(learningMetrics.reflectionsCompleted)}</div>
-              <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Reflections</span>
+              <div className="text-2xl font-black tabular-nums font-mono text-slate-200 mb-2">{sanitizeValue(learningMetrics.reflectionsCompleted)}</div>
+              <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Reflections</span>
             </div>
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
               <div className="flex items-center justify-between mb-4">
                 <Activity className="w-5 h-5 text-indigo-500" />
-                <span className="text-xs font-medium text-indigo-500 font-['Inter'] uppercase tracking-wider">Updated</span>
+                <span className="text-xs font-medium text-indigo-500 font-sans uppercase tracking-wider">Updated</span>
               </div>
-              <div className="text-2xl font-black tabular-nums font-['JetBrains_Mono'] text-slate-200 mb-2">{sanitizeValue(learningMetrics.icUpdates)}</div>
-              <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">IC Values</span>
+              <div className="text-2xl font-black tabular-nums font-mono text-slate-200 mb-2">{sanitizeValue(learningMetrics.icUpdates)}</div>
+              <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">IC Values</span>
             </div>
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
               <div className="flex items-center justify-between mb-4">
                 <Zap className="w-5 h-5 text-purple-500" />
-                <span className="text-xs font-medium text-purple-500 font-['Inter'] uppercase tracking-wider">Tested</span>
+                <span className="text-xs font-medium text-purple-500 font-sans uppercase tracking-wider">Tested</span>
               </div>
-              <div className="text-2xl font-black tabular-nums font-['JetBrains_Mono'] text-slate-200 mb-2">{sanitizeValue(learningMetrics.strategiesTested)}</div>
-              <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">Strategies</span>
+              <div className="text-2xl font-black tabular-nums font-mono text-slate-200 mb-2">{sanitizeValue(learningMetrics.strategiesTested)}</div>
+              <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">Strategies</span>
             </div>
           </div>
           <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-            <h3 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-slate-300 mb-6">Performance Summary</h3>
+            <h3 className="text-sm font-bold uppercase tracking-wider font-sans text-slate-300 mb-6">Performance Summary</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
               <div>
-                <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400 block mb-2">Win Rate</span>
-                <div className={cn("text-xl font-black tabular-nums font-['JetBrains_Mono']", learningMetrics.avgWinRate >= 70 ? "text-emerald-500" : "text-amber-500")}>
+                <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400 block mb-2">Win Rate</span>
+                <div className={cn("text-xl font-black tabular-nums font-mono", learningMetrics.avgWinRate >= 70 ? "text-emerald-500" : "text-amber-500")}>
                   {sanitizeValue(learningMetrics.avgWinRate.toFixed(1))}%
                 </div>
               </div>
               <div>
-                <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400 block mb-2">Total P&L</span>
-                <div className={cn("text-xl font-black tabular-nums font-['JetBrains_Mono']", learningMetrics.totalPnl >= 0 ? "text-emerald-500" : "text-red-500")}>
+                <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400 block mb-2">Total P&L</span>
+                <div className={cn("text-xl font-black tabular-nums font-mono", learningMetrics.totalPnl >= 0 ? "text-emerald-500" : "text-red-500")}>
                   {formatUSD(learningMetrics.totalPnl)}
                 </div>
               </div>
               <div>
-                <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400 block mb-2">Best Day</span>
-                <div className="text-xl font-black tabular-nums font-['JetBrains_Mono'] text-emerald-500">{formatUSD(learningMetrics.bestDay)}</div>
+                <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400 block mb-2">Best Day</span>
+                <div className="text-xl font-black tabular-nums font-mono text-emerald-500">{formatUSD(learningMetrics.bestDay)}</div>
               </div>
               <div>
-                <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400 block mb-2">Worst Day</span>
-                <div className="text-xl font-black tabular-nums font-['JetBrains_Mono'] text-red-500">{formatUSD(learningMetrics.worstDay)}</div>
+                <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400 block mb-2">Worst Day</span>
+                <div className="text-xl font-black tabular-nums font-mono text-red-500">{formatUSD(learningMetrics.worstDay)}</div>
               </div>
             </div>
           </div>
@@ -530,22 +530,22 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
               <div key={metric.label} className="bg-slate-900 rounded-xl border border-slate-800 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <metric.icon className={cn("w-4 h-4", metric.color === 'emerald' ? "text-emerald-500" : metric.color === 'amber' ? "text-amber-500" : metric.color === 'indigo' ? "text-indigo-500" : metric.color === 'purple' ? "text-purple-500" : metric.color === 'blue' ? "text-blue-500" : "text-red-500")} />
-                  <span className={cn("text-xs font-medium uppercase font-['Inter']", metric.color === 'emerald' ? "text-emerald-500" : metric.color === 'amber' ? "text-amber-500" : metric.color === 'indigo' ? "text-indigo-500" : metric.color === 'purple' ? "text-purple-500" : metric.color === 'blue' ? "text-blue-500" : "text-red-500")}>Live</span>
+                  <span className={cn("text-xs font-medium uppercase font-sans", metric.color === 'emerald' ? "text-emerald-500" : metric.color === 'amber' ? "text-amber-500" : metric.color === 'indigo' ? "text-indigo-500" : metric.color === 'purple' ? "text-purple-500" : metric.color === 'blue' ? "text-blue-500" : "text-red-500")}>Live</span>
                 </div>
-                <div className="text-lg font-black tabular-nums font-['JetBrains_Mono'] text-slate-200 mb-1">{metric.value}</div>
-                <span className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">{metric.label}</span>
+                <div className="text-lg font-black tabular-nums font-mono text-slate-200 mb-1">{metric.value}</div>
+                <span className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">{metric.label}</span>
               </div>
             ))}
           </div>
           <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-bold uppercase tracking-wider font-['Inter'] text-slate-300">Agent Status</h3>
-              <span className="text-xs font-medium font-['Inter'] text-slate-400">{sanitizeValue(realAgents.length)} Total Agents</span>
+              <h3 className="text-sm font-bold uppercase tracking-wider font-sans text-slate-300">Agent Status</h3>
+              <span className="text-xs font-medium font-sans text-slate-400">{sanitizeValue(realAgents.length)} Total Agents</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="text-xs font-semibold uppercase tracking-wider font-['Inter'] text-slate-400">
+                  <tr className="text-xs font-semibold uppercase tracking-wider font-sans text-slate-400">
                     <th className="text-left pb-3">Agent</th>
                     <th className="text-center pb-3">Status</th>
                     <th className="text-right pb-3">Events</th>
@@ -555,7 +555,7 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                 <tbody>
                   {realAgents.length > 0 ? realAgents.map((agent, index) => (
                     <tr key={agent.name} className="border-t border-slate-800">
-                      <td className="py-3 font-mono tabular-nums font-['JetBrains_Mono'] font-bold text-slate-200">{agent.name}</td>
+                      <td className="py-3 font-mono tabular-nums font-mono font-bold text-slate-200">{agent.name}</td>
                       <td className="py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <div className={cn("w-2 h-2 rounded-full", agent.heartbeat ? "bg-emerald-500 animate-pulse" : "bg-slate-400")} />
@@ -564,13 +564,13 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
                           </span>
                         </div>
                       </td>
-                      <td className="py-3 text-right font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{sanitizeValue(agent.events)}</td>
-                      <td className="py-3 text-right font-mono tabular-nums font-['JetBrains_Mono'] text-slate-300">{formatTimeAgo(agent.lastSeen)}</td>
+                      <td className="py-3 text-right font-mono tabular-nums font-mono text-slate-300">{sanitizeValue(agent.events)}</td>
+                      <td className="py-3 text-right font-mono tabular-nums font-mono text-slate-300">{formatTimeAgo(agent.lastSeen)}</td>
                     </tr>
                   )) : (
                     <tr>
                       <td colSpan={4} className="py-8 text-center">
-                        <span className="text-slate-400 text-sm font-['Inter']">No agent data available</span>
+                        <span className="text-slate-400 text-sm font-sans">No agent data available</span>
                       </td>
                     </tr>
                   )}
