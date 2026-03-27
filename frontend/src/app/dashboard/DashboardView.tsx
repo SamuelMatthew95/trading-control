@@ -14,7 +14,7 @@ import {
   Zap,
 } from 'lucide-react'
 
-const sanitizeValue = (value: any): string => {
+const sanitizeValue = (value: unknown): string => {
   if (value === undefined || value === null || value === '') return '--';
   if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
   if (typeof value === 'boolean') return value ? 'True' : 'False';
@@ -56,7 +56,7 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(cast) ? cast : null
 }
 
-function getMetric(systemMetrics: any[], metricName: string): number | null {
+function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
   const match = systemMetrics.find((metric) => metric?.metric_name === metricName)
   return toFiniteNumber(match?.value)
 }
@@ -72,7 +72,7 @@ function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentT
   )
 }
 
-function EquityCurve({ orders }: { orders: any[] }) {
+function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
   const points = useMemo(() => {
     let running = 0
     return orders.map((order, index) => {
@@ -175,7 +175,7 @@ export function DashboardView({ section }: { section: Section }) {
     const grouped = agentLogs.reduce<Record<string, { count: number; lastSeen: Date | null }>>((acc, log) => {
       const name = sanitizeValue(log?.agent_name || log?.agent)
       if (name === '--') return acc
-      const timestamp = new Date(log?.timestamp || log?.created_at || '')
+      const timestamp = new Date(String(log?.timestamp || log?.created_at || ''))
       const safeDate = Number.isNaN(timestamp.getTime()) ? null : timestamp
       const existing = acc[name] ?? { count: 0, lastSeen: null }
       const newest = !existing.lastSeen || (safeDate && safeDate > existing.lastSeen) ? safeDate : existing.lastSeen
@@ -199,7 +199,7 @@ export function DashboardView({ section }: { section: Section }) {
     const strategiesTested = learningEvents.filter((event) => event?.type === 'strategy_tested').length
 
     const dailyPnlMap = orders.reduce<Record<string, number>>((acc, order) => {
-      const timestamp = new Date(order?.timestamp || '')
+      const timestamp = new Date(String(order?.timestamp || ''))
       if (Number.isNaN(timestamp.getTime())) return acc
       const key = timestamp.toDateString()
       acc[key] = (acc[key] ?? 0) + (toFiniteNumber(order?.pnl) ?? 0)

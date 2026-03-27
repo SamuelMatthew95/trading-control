@@ -2,15 +2,22 @@ name: Frontend CI
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - main
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-ci.yml"
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:

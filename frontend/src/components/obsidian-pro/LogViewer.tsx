@@ -77,7 +77,7 @@ export function LogViewer({
 
   const clearLogs = () => {
     // This would typically be handled by a parent component
-    console.log('Clear logs requested')
+    console.warn('Clear logs requested')
   }
 
   return (

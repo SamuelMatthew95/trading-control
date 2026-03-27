@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Terminal, Download, Trash2, Pause, Play } from 'lucide-react';
+import { Download, Trash2, Pause, Play } from 'lucide-react';
 import { Sidebar } from '@/components/mission-control/Sidebar';
 import { Header } from '@/components/layout/Header';
 

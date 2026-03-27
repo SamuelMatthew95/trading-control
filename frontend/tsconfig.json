@@ -41,6 +41,9 @@
   ],
   "exclude": [
     "node_modules",
+    "src/test/**/*",
+    "src/hooks/useGlobalWebSocket.ts",
+    "vitest.config.ts",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/__tests__/**",
