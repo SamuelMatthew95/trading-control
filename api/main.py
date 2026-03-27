@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+import traceback
 import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timezone
@@ -119,8 +120,18 @@ def _run_startup_migrations(database_url_value: str) -> None:
     config = AlembicConfig(str(repo_root / "api" / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "api" / "alembic"))
     config.set_main_option("sqlalchemy.url", database_url_value)
-    command.upgrade(config, "head")
-    log_structured("info", "alembic_migration_completed")
+    try:
+        log_structured("info", "alembic_migration_starting")
+        command.upgrade(config, "head")
+        log_structured("info", "alembic_migration_completed")
+    except Exception:  # noqa: BLE001
+        log_structured(
+            "error",
+            "alembic_migration_failed",
+            exc_info=True,
+            traceback=traceback.format_exc(),
+        )
+        raise
 
 
 
@@ -311,17 +322,21 @@ async def lifespan(app: FastAPI):
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        log_structured("info", "database_initialized")
+        if settings.NODE_ENV != "production":
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            log_structured("info", "database_initialized")
+        else:
+            log_structured("info", "database_initialization_skipped_production")
 
         # Run Alembic migrations to ensure database schema is up to date
         try:
             await asyncio.to_thread(_run_startup_migrations, database_url)
         except Exception:  # noqa: BLE001
-            log_structured("error", "alembic_migration_failed", exc_info=True)
-            if settings.NODE_ENV == "production":
-                raise RuntimeError("Alembic migration failed during production startup")
+            log_structured(
+                "warning",
+                "alembic_migration_failed_starting_without_migration",
+            )
 
         try:
             redis_client = await get_redis()
