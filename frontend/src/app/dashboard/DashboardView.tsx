@@ -152,15 +152,9 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
         { metric_name: 'stream_lag:system_metrics', value: Math.floor(Math.random() * 110), timestamp: new Date().toISOString() },
         { metric_name: 'stream_lag:agent_logs', value: Math.floor(Math.random() * 130), timestamp: new Date().toISOString() },
       ]
-      
-      // Only add mock data if we have real system metrics (indicating WebSocket is working)
-      if (systemMetrics.length > 0) {
-        mockStreamMetrics.forEach(metric => {
-          addSystemMetric(metric)
-        })
-      }
     }
-  }, [systemMetrics, addSystemMetric])
+  }, [systemMetrics])
+      
 
   const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
 
