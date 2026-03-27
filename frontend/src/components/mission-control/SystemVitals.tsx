@@ -55,9 +55,9 @@ export function SystemVitals({ health, isLoading }: SystemVitalsProps) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
       {/* System Status */}
-      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors shadow-sm">
+      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-[0.7rem] uppercase tracking-widest text-slate-500">System Status</CardTitle>
+          <CardTitle className="text-xs font-sans font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">System Status</CardTitle>
           <Activity className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
@@ -69,20 +69,20 @@ export function SystemVitals({ health, isLoading }: SystemVitalsProps) {
               {currentData?.data?.status || 'Unknown'}
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+          <p className="text-xs font-sans text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
             {currentData?.data?.database_connected ? 'Database Connected' : 'Database Disconnected'}
           </p>
         </CardContent>
       </Card>
 
       {/* Latency */}
-      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors shadow-sm">
+      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-[0.7rem] uppercase tracking-widest text-slate-500">Avg Latency</CardTitle>
+          <CardTitle className="text-xs font-sans font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Latency</CardTitle>
           <Clock className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-[1.75rem] font-bold text-foreground leading-none">
+          <div className="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-slate-100 leading-none">
             {telemetry?.avg_latency_ms?.toFixed(2) || '—'}
             <span className="text-sm font-normal text-muted-foreground ml-2">ms</span>
           </div>
@@ -91,19 +91,19 @@ export function SystemVitals({ health, isLoading }: SystemVitalsProps) {
               value={telemetry ? Math.min((telemetry.avg_latency_ms || 0) / 100 * 100, 100) : 0}
               className="h-2" 
             />
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">Target: &lt;50ms</p>
+            <p className="text-xs font-sans text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">Target: &lt;50ms</p>
           </div>
         </CardContent>
       </Card>
 
       {/* Throughput */}
-      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors shadow-sm">
+      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-[0.7rem] uppercase tracking-widest text-slate-500">Total Requests</CardTitle>
+          <CardTitle className="text-xs font-sans font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Requests</CardTitle>
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-[1.75rem] font-bold text-foreground leading-none">
+          <div className="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-slate-100 leading-none">
             {telemetry?.total_requests?.toLocaleString() || '—'}
           </div>
           <div className="flex items-center gap-2 mt-3">
@@ -118,27 +118,27 @@ export function SystemVitals({ health, isLoading }: SystemVitalsProps) {
       </Card>
 
       {/* Queue Depth */}
-      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors shadow-sm">
+      <Card className="bg-card border-border hover:border-muted-foreground/20 transition-colors">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-[0.7rem] uppercase tracking-widest text-slate-500">Queue Depth</CardTitle>
+          <CardTitle className="text-xs font-sans font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Queue Depth</CardTitle>
           <Database className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-xs text-muted-foreground">Feedback Jobs</span>
-              <span className="text-sm font-medium text-foreground">
+              <span className="text-xs font-sans text-slate-500 dark:text-slate-400">Feedback Jobs</span>
+              <span className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 {currentData?.data?.feedback_jobs_pending ?? '—'}
               </span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-xs text-muted-foreground">Scoring Jobs</span>
-              <span className="text-sm font-medium text-foreground">
+              <span className="text-xs font-sans text-slate-500 dark:text-slate-400">Scoring Jobs</span>
+              <span className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 {currentData?.data?.scoring_pending ?? '—'}
               </span>
             </div>
             {(currentData?.data?.feedback_jobs_failed || 0) > 0 && (
-              <div className="flex items-center gap-1 text-destructive">
+              <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400">
                 <AlertTriangle className="h-3 w-3" />
                 <span className="text-xs leading-relaxed">
                   {currentData?.data?.feedback_jobs_failed ?? 0} failed jobs

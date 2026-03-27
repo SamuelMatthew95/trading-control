@@ -60,7 +60,7 @@ export function ProTradingCard({
       className={cn(
         'glass-card relative overflow-hidden',
         sizeStyles[size],
-        glow && 'shadow-[0_8px_30px_rgb(0,0,0,0.12)]',
+        glow && '',
         className
       )}
     >

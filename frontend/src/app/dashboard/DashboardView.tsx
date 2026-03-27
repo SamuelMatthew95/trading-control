@@ -1,1083 +1,551 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, type ComponentType } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
-import { ObsidianDashboard } from '@/components/obsidian-pro/ObsidianDashboard'
-import {
-  TrendingUp,
-  BarChart3,
-  Layers,
-  Zap,
-  CheckCircle2,
-  AlertTriangle,
-  X,
-  Bot,
-  RotateCcw,
-  Trash2,
-  CandlestickChart,
-  BookOpen,
-  Settings2,
-  Activity,
-  Clock,
-  Power,
-  Play,
-  Pause
-} from 'lucide-react'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { motion, AnimatePresence } from 'framer-motion'
-import { TrendingDown, ChevronUp, ChevronDown } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Brain,
+  FileCode,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+} from 'lucide-react'
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
+const sanitizeValue = (value: any): string => {
+  if (value === undefined || value === null || value === '') return '--';
+  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
+  if (typeof value === 'boolean') return value ? 'True' : 'False';
+  return String(value);
+};
 
-export function DashboardView({ section }: { section: 'overview' | 'trading' | 'agents' | 'learning' | 'system' }) {
-  const { 
-    agentLogs, 
-    killSwitchActive, 
-    learningEvents, 
-    orders, 
-    prices, 
-    positions, 
-    systemMetrics,
+const formatUSD = (value?: number | null): string => {
+  if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
+  return `$${Math.abs(value).toFixed(2)}`;
+};
+
+const formatTimeAgo = (date: Date): string => {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
+
+const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
+const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
+const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
+const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
+
+type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system'
+
+type AgentSummary = {
+  name: string
+  count: number
+  lastSeen: Date | null
+  status: 'ACTIVE' | 'IDLE'
+  tier: 'active' | 'challenger' | 'inactive'
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const cast = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(cast) ? cast : null
+}
+
+function getMetric(systemMetrics: any[], metricName: string): number | null {
+  const match = systemMetrics.find((metric) => metric?.metric_name === metricName)
+  return toFiniteNumber(match?.value)
+}
+
+function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentType<{ className?: string }> }) {
+  return (
+    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <Icon className="h-5 w-5 text-slate-400" />
+        <p className="text-sm font-sans text-slate-400">{message}</p>
+      </div>
+    </div>
+  )
+}
+
+function EquityCurve({ orders }: { orders: any[] }) {
+  const points = useMemo(() => {
+    let running = 0
+    return orders.map((order, index) => {
+      running += toFiniteNumber(order?.pnl) ?? 0
+      return { x: index, y: running }
+    })
+  }, [orders])
+
+  if (points.length === 0) {
+    return <EmptyState message="No equity data yet" icon={BarChart3} />
+  }
+
+  const maxY = Math.max(...points.map((point) => point.y), 0)
+  const minY = Math.min(...points.map((point) => point.y), 0)
+  const range = maxY - minY || 1
+  const chartPoints = points
+    .map((point, index) => {
+      const x = (index / Math.max(points.length - 1, 1)) * 100
+      const y = 100 - ((point.y - minY) / range) * 100
+      return `${x},${y}`
+    })
+    .join(' ')
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+      <svg viewBox="0 0 100 100" className="h-48 w-full">
+        <polyline
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-emerald-500"
+          points={chartPoints}
+        />
+      </svg>
+    </div>
+  )
+}
+
+function MobileNavigation({ section }: { section: Section }) {
+  const links: { key: Section; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'trading', label: 'Trading' },
+    { key: 'agents', label: 'Agents' },
+    { key: 'learning', label: 'Learning' },
+    { key: 'system', label: 'System' },
+  ]
+
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-100/95 px-2 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
+      <div className="mx-auto grid max-w-7xl grid-cols-5 gap-1">
+        {links.map((link) => (
+          <div
+            key={link.key}
+            className={cn(
+              'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold',
+              section === link.key
+                ? 'bg-slate-900 text-slate-100 dark:bg-slate-100 dark:text-slate-900'
+                : 'text-slate-500 dark:text-slate-400'
+            )}
+          >
+            {link.label}
+          </div>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
+export function DashboardView({ section }: { section: Section }) {
+  const {
+    agentLogs = [],
+    learningEvents = [],
+    orders = [],
+    prices = {},
+    positions = [],
+    systemMetrics = [],
     dashboardData,
-    isLoading,
-    wsConnected,
-    setKillSwitch,
-    addSystemMetric
   } = useCodexStore()
 
-  const [selected, setSelected] = useState('BTC/USD')
-  const [selectedTf, setSelectedTf] = useState('5m')
-  const [dlqItems, setDlqItems] = useState<any[]>([])
-  const [isCompactMode, setIsCompactMode] = useState(false)
-  const [showToast, setShowToast] = useState(false)
-  const [toastMessage, setToastMessage] = useState('')
-  const [previousPnl, setPreviousPnl] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
+  const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
+  const summary = useMemo(() => {
+    const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
+    const wins = orders.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
+    const winRate = orders.length > 0 ? (wins / orders.length) * 100 : null
+    const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
+    const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
+    const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
+    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard
 
-  // Calculate metrics with enhanced data
-  const dailyPnl = useMemo(() => 
-    orders.reduce((sum, o) => sum + Number(o.pnl || 0), 0), 
-    [orders]
-  )
-
-  // Calculate secondary metrics
-  const pnlChange = dailyPnl - previousPnl
-  const pnlChangePercent = previousPnl !== 0 ? (pnlChange / Math.abs(previousPnl)) * 100 : 0
-  const winRate = orders.length > 0 ? (orders.filter(o => Number(o.pnl) > 0).length / orders.length) * 100 : 0
-  const activePositions = orders.filter(o => o.side === 'long' || o.side === 'short').length
-
-  // Animate P&L changes
-  useEffect(() => {
-    if (dailyPnl !== previousPnl) {
-      setIsAnimating(true)
-      const timer = setTimeout(() => {
-        setPreviousPnl(dailyPnl)
-        setIsAnimating(false)
-      }, 300)
-      return () => clearTimeout(timer)
+    return {
+      dailyPnlNumeric,
+      winRate,
+      activePositions,
+      dailyChange,
+      hasOrders: orders.length > 0,
     }
-  }, [dailyPnl, previousPnl])
+  }, [orders, positions, systemMetrics, dashboardData])
 
-  const avgLatency = useMemo(() => {
-    const latencies = agentLogs.map(l => l.latency_ms || 0).filter(l => l > 0)
-    return latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0
+  const realAgents = useMemo(() => {
+    const grouped = agentLogs.reduce<Record<string, { count: number; lastSeen: Date | null }>>((acc, log) => {
+      const name = sanitizeValue(log?.agent_name || log?.agent)
+      if (name === '--') return acc
+      const timestamp = new Date(log?.timestamp || log?.created_at || '')
+      const safeDate = Number.isNaN(timestamp.getTime()) ? null : timestamp
+      const existing = acc[name] ?? { count: 0, lastSeen: null }
+      const newest = !existing.lastSeen || (safeDate && safeDate > existing.lastSeen) ? safeDate : existing.lastSeen
+      acc[name] = { count: existing.count + 1, lastSeen: newest }
+      return acc
+    }, {})
+
+    const now = Date.now()
+    return Object.entries(grouped).map<AgentSummary>(([name, data]) => {
+      const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
+      const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'ACTIVE' : 'IDLE'
+      const tier: AgentSummary['tier'] = status === 'ACTIVE' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
+      return { name, count: data.count, lastSeen: data.lastSeen, status, tier }
+    })
   }, [agentLogs])
 
-  // Add mock stream lag data for testing
-  useEffect(() => {
-    // Add some mock stream lag metrics if none exist
-    if (systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0) {
-      const mockStreamMetrics = [
-        { metric_name: 'stream_lag:market_ticks', value: Math.floor(Math.random() * 100), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:signals', value: Math.floor(Math.random() * 150), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:orders', value: Math.floor(Math.random() * 80), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:executions', value: Math.floor(Math.random() * 120), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:risk_alerts', value: Math.floor(Math.random() * 90), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:learning_events', value: Math.floor(Math.random() * 200), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:system_metrics', value: Math.floor(Math.random() * 110), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:agent_logs', value: Math.floor(Math.random() * 130), timestamp: new Date().toISOString() },
-      ]
-      
-      // Only add mock data if we have real system metrics (indicating WebSocket is working)
-      if (systemMetrics.length > 0) {
-        mockStreamMetrics.forEach(metric => {
-          addSystemMetric(metric)
-        })
-      }
+  const learningSummary = useMemo(() => {
+    const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
+    const reflectionsCompleted = learningEvents.filter((event) => event?.type === 'reflection').length
+    const icValuesUpdated = learningEvents.filter((event) => event?.type === 'ic_update').length
+    const strategiesTested = learningEvents.filter((event) => event?.type === 'strategy_tested').length
+
+    const dailyPnlMap = orders.reduce<Record<string, number>>((acc, order) => {
+      const timestamp = new Date(order?.timestamp || '')
+      if (Number.isNaN(timestamp.getTime())) return acc
+      const key = timestamp.toDateString()
+      acc[key] = (acc[key] ?? 0) + (toFiniteNumber(order?.pnl) ?? 0)
+      return acc
+    }, {})
+
+    const dayEntries = Object.entries(dailyPnlMap)
+    const bestDay = dayEntries.length > 0 ? dayEntries.reduce((best, current) => (current[1] > best[1] ? current : best)) : null
+    const worstDay = dayEntries.length > 0 ? dayEntries.reduce((worst, current) => (current[1] < worst[1] ? current : worst)) : null
+
+    return {
+      tradesEvaluated,
+      reflectionsCompleted,
+      icValuesUpdated,
+      strategiesTested,
+      bestDay,
+      worstDay,
     }
-  }, [systemMetrics, addSystemMetric])
+  }, [learningEvents, orders])
 
-  const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
+  const tickerEntries = useMemo(() => Object.entries(prices).slice(0, 6), [prices])
 
-  // Market status (simplified - in real app this would check actual market hours)
-  const currentTime = new Date()
-  const marketHours = { open: 9.5, close: 16 } // 9:30 AM - 4:00 PM EST
-  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60
-  const marketStatus = currentHour >= marketHours.open && currentHour <= marketHours.close
-
-  // OVERVIEW PAGE - Professional Trading Command Center
-  if (section === 'overview') {
-    return (
-      <div className="min-h-screen bg-white dark:bg-zinc-950">
-        {/* HIGH-PERFORMANCE TRADING TERMINAL HEADER */}
-        <div className="h-16 bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6">
-          {/* LEFT - CLEAN SYSTEM STATUS */}
-          <div className="flex items-center gap-6">
-            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              System / Overview
-            </span>
-            <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
-            
-            {/* LATENCY - Monospace */}
-            <span className="text-sm font-mono text-slate-600 dark:text-slate-400">
-              {avgLatency}ms
-            </span>
+  const contentBySection = (
+    <>
+      {section === 'overview' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[
+              { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
+              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`, trend: 0 },
+              { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
+              { title: 'Daily Change %', value: summary.dailyChange == null ? 'N/A' : `${sanitizeValue(summary.dailyChange.toFixed(2))}%`, trend: summary.dailyChange == null ? 0 : summary.dailyChange > 0 ? 1 : summary.dailyChange < 0 ? -1 : 0 },
+            ].map((item) => (
+              <div key={item.title} className={cardClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className={sectionTitleClass}>{item.title}</p>
+                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-500" /> : <span className="h-4 w-4" />}
+                </div>
+                <p className={valueClass}>{item.value}</p>
+              </div>
+            ))}
           </div>
-          
-          {/* RIGHT - CONTROLS */}
-          <div className="flex items-center gap-4">
-            {/* P&L DISPLAY - Monospace Data */}
-            <div className="flex flex-col items-end">
-              <span className={cn(
-                "text-lg font-bold font-mono tabular-nums",
-                dailyPnl >= 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
-              )}>
-                {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-              </span>
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                24h P&L
-              </span>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+            <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
+              <div className="mb-3 flex items-center justify-between">
+                <p className={sectionTitleClass}>Equity Curve</p>
+              </div>
+              <EquityCurve orders={orders} />
             </div>
+            <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
+              <div className="mb-3 flex items-center justify-between">
+                <p className={sectionTitleClass}>Agent Matrix</p>
+                <p className={mutedClass}>{sanitizeValue(realAgents.length)}</p>
+              </div>
+              {realAgents.length === 0 ? (
+                <EmptyState message="No agent data available" icon={Activity} />
+              ) : (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {realAgents.map((agent) => (
+                    <div
+                      key={agent.name}
+                      className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                          <span className={mutedClass}>{agent.status}</span>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)} events</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
 
-            {/* EXPORT BUTTON - Clean Style */}
-            <button className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl">
-              Export Report
-            </button>
-
-            {/* TRADING CONTROL BUTTON */}
-            <button 
-              onClick={() => {
-                setKillSwitch(!killSwitchActive)
-                setToastMessage(killSwitchActive ? 'Trading Stopped' : 'Trading Started')
-                setShowToast(true)
-                setTimeout(() => setShowToast(false), 3000)
-              }}
-              className="h-10 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100 transition-all hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl"
-            >
-              {killSwitchActive ? 'Stop Trading' : 'Start Trading'}
-            </button>
+          <div className={cardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className={sectionTitleClass}>Ticker Strip</p>
+            </div>
+            {tickerEntries.length === 0 ? (
+              <EmptyState message="No live price data" icon={TrendingUp} />
+            ) : (
+              <div className="grid grid-cols-1 divide-y divide-slate-200 dark:divide-slate-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-6">
+                {tickerEntries.map(([symbol, priceData]) => {
+                  const price = toFiniteNumber(priceData?.price)
+                  const change = toFiniteNumber(priceData?.change)
+                  const pct = price && change ? (change / (price - change)) * 100 : null
+                  const isPositive = (change ?? 0) >= 0
+                  return (
+                    <div key={symbol} className="px-3 py-2">
+                      <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
+                      <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{price == null ? '--' : formatUSD(price)}</p>
+                      <p className={cn('text-xs font-mono tabular-nums', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
+                        {change == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(change)}`} / {pct == null ? '--' : `${sanitizeValue(pct.toFixed(2))}%`}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
+      )}
 
-        {/* Toast Notification */}
-        <AnimatePresence>
-          {showToast && (
-            <motion.div
-              initial={{ opacity: 0, y: -50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -50 }}
-              className="fixed top-20 right-6 z-50 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 font-sans text-sm"
-            >
-              {toastMessage}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* MAIN GRID - Professional Layout */}
-        <div className={cn(
-          "p-6 space-y-6 transition-all duration-300",
-          isCompactMode ? "space-y-4" : "space-y-6"
-        )}>
-          {/* ROW 1 - PRIMARY SIGNALS */}
-          <div className="grid grid-cols-12 gap-6">
-            {/* P&L HERO CARD - MOST IMPORTANT */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="col-span-8"
-            >
-              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 backdrop-blur-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em]">
-                    TOTAL P&L
-                  </p>
-                  <button
-                    onClick={() => setIsCompactMode(!isCompactMode)}
-                    className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
-                  >
-                    {isCompactMode ? 'Expand' : 'Compact'}
-                  </button>
+      {section === 'trading' && (
+        <div className="space-y-4">
+          <div className={cardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className={sectionTitleClass}>Agent Thought Stream</p>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                <span className={mutedClass}>LIVE</span>
+              </div>
+            </div>
+            {agentLogs.length === 0 ? (
+              <EmptyState message="No agent activity yet" icon={Activity} />
+            ) : (
+              <div className="relative max-h-80 overflow-y-auto">
+                <div className="space-y-2">
+                  {agentLogs.slice(-10).reverse().map((log, index) => {
+                    const confidence = toFiniteNumber(log?.confidence)
+                    const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
+                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
+                    return (
+                      <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
+                        <div className="mb-1 flex items-center gap-2">
+                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(log?.agent_name || log?.agent) === '--' ? 'N/A' : sanitizeValue(log?.agent_name || log?.agent)}</p>
+                          <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
+                        </div>
+                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{sanitizeValue(log?.message || log?.summary || log?.primary_edge) === '--' ? 'N/A' : sanitizeValue(log?.message || log?.summary || log?.primary_edge)}</p>
+                      </div>
+                    )
+                  })}
                 </div>
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-slate-900" />
+              </div>
+            )}
+          </div>
 
-                <div className="flex items-center gap-4 mb-4">
-                  <motion.h1 
-                    key={dailyPnl}
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className={cn(
-                      "text-5xl font-black tracking-tight tabular-nums transition-all duration-300 font-mono",
-                      isAnimating && "scale-105",
-                      dailyPnl >= 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
-                    )}
-                  >
-                    {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-                  </motion.h1>
-                  <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                    24h
+          <div className={cardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className={sectionTitleClass}>Open Positions</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 pb-2 dark:border-slate-800">
+                    {['Symbol', 'Side', 'Qty', 'Entry Price', 'Current Price', 'P&L', 'P&L %'].map((head) => (
+                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No open positions" icon={BarChart3} /></td>
+                    </tr>
+                  ) : (
+                    positions.map((position, index) => {
+                      const pnl = toFiniteNumber(position?.pnl)
+                      const pnlPct = toFiniteNumber(position?.pnl_pct)
+                      const isPositive = (pnl ?? 0) >= 0
+                      const side = sanitizeValue(position?.side).toUpperCase()
+                      return (
+                        <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
+                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
+                          <td className="px-2 py-2">
+                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
+                              {side === '--' ? 'N/A' : side}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.qty)}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
+                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
+                            {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
+                          </td>
+                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
+                            {pnlPct == null ? '--' : `${sanitizeValue(pnlPct.toFixed(2))}%`}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {section === 'agents' && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+          {realAgents.length === 0 ? (
+            <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-4')}>
+              <EmptyState message="No agent data available. Waiting for WebSocket connection." icon={Activity} />
+            </div>
+          ) : (
+            realAgents.map((agent) => (
+              <div key={agent.name} className={cn(cardClass, 'flex h-full flex-col justify-between')}>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', agent.tier === 'active' ? 'bg-emerald-500/15 text-emerald-500' : agent.tier === 'challenger' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500')}>
+                    {agent.tier.toUpperCase()}
                   </span>
                 </div>
-
-                {/* Secondary Metrics */}
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  <div className="text-center">
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Change</p>
-                    <div className={cn(
-                      "flex items-center justify-center gap-1 text-sm font-semibold font-mono",
-                      pnlChange > 0 ? "text-slate-950 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"
-                    )}>
-                      {pnlChange > 0 ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      {pnlChange >= 0 ? '+' : ''}{pnlChange.toFixed(2)}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Win Rate</p>
-                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100 font-mono">
-                      {winRate.toFixed(1)}%
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Positions</p>
-                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100 font-mono">
-                      {activePositions}
-                    </p>
-                  </div>
+                <div className="mb-2 flex items-center gap-2">
+                  <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                  <span className={mutedClass}>{agent.status}</span>
                 </div>
-
-                {/* Mini chart placeholder */}
-                <div className="opacity-60">
-                  <div className="h-16 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-600">
-                    <TrendingUp className="w-6 h-6 text-slate-400 dark:text-slate-500 opacity-20" />
-                  </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Events <span className="float-right font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</span></p>
+                  <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Last Seen <span className="float-right font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'N/A'}</span></p>
+                  <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Status <span className="float-right font-sans text-slate-900 dark:text-slate-100">{agent.status}</span></p>
                 </div>
               </div>
-            </motion.div>
+            ))
+          )}
+        </div>
+      )}
 
-            {/* MARKET SENTIMENT - COMPACT */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="col-span-4"
-            >
-              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 backdrop-blur-sm">
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-4 uppercase tracking-[0.2em]">
-                  MARKET SENTIMENT
+      {section === 'learning' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+            {[
+              { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-indigo-500' },
+              { label: 'Reflections Completed', value: learningSummary.reflectionsCompleted, Icon: Brain, color: 'text-violet-500' },
+              { label: 'IC Values Updated', value: learningSummary.icValuesUpdated, Icon: Activity, color: 'text-indigo-500' },
+              { label: 'Strategies Tested', value: learningSummary.strategiesTested, Icon: Zap, color: 'text-violet-500' },
+            ].map((item) => (
+              <div key={item.label} className={cardClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className={sectionTitleClass}>{item.label}</p>
+                  <item.Icon className={cn('h-4 w-4', item.color)} />
+                </div>
+                <p className={valueClass}>{sanitizeValue(item.value)}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Performance Summary</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Win Rate</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Total P&L</p>
+                <p className={cn('text-sm font-mono tabular-nums', summary.dailyPnlNumeric >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
+                  {summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--'}
                 </p>
-
-                <div className="flex flex-col items-center justify-center">
-                  {/* Simple gauge */}
-                  <div className="w-20 h-20 rounded-xl border border-slate-300 dark:border-slate-600 flex items-center justify-center mb-3">
-                    <div className="w-16 h-16 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                      <span className="text-lg font-semibold text-slate-950 dark:text-slate-100 font-mono">65</span>
-                    </div>
-                  </div>
-
-                  <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
-                    Neutral
-                  </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    Fear & Greed Index
-                  </p>
-                </div>
               </div>
-            </motion.div>
-          </div>
-
-          {/* ROW 2 - SYSTEM STATE */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            {/* MARKET STATUS */}
-            <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                {/* LEFT */}
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                    {marketStatus ? (
-                      <Play className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                    ) : (
-                      <Pause className="w-5 h-5 text-slate-500" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
-                      {marketStatus ? 'Markets Open' : 'Markets Closed'}
-                    </p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {marketStatus ? 'Trading Active' : `Opens 9:30 AM EST`}
-                    </p>
-                  </div>
-                </div>
-
-                {/* RIGHT */}
-                <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  9:30 AM – 4:00 PM EST
-                </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Best Day</p>
+                <p className="text-sm font-mono tabular-nums text-emerald-500">
+                  {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${learningSummary.bestDay[1] >= 0 ? '+' : '-'}${formatUSD(learningSummary.bestDay[1])})` : 'N/A'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Worst Day</p>
+                <p className="text-sm font-mono tabular-nums text-rose-500">
+                  {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${learningSummary.worstDay[1] >= 0 ? '+' : '-'}${formatUSD(learningSummary.worstDay[1])})` : 'N/A'}
+                </p>
               </div>
             </div>
-          </motion.div>
-        </div>
-      </div>
-    )
-  }
-
-  // TRADING PAGE
-  if (section === 'trading') {
-    return (
-      <div className="min-h-screen bg-white dark:bg-slate-950">
-        {/* TOP BAR */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
-          <div className="flex items-center gap-4">
-            <span className="text-gray-600 dark:text-gray-400 text-sm">
-              System / Trading
-            </span>
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                wsConnected ? "bg-green-500" : "bg-red-500"
-              )} />
-              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-                ● LIVE
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <span className={cn(
-              "font-semibold text-lg",
-              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-            )}>
-              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-            </span>
-            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
-              New Order
-            </button>
           </div>
         </div>
+      )}
 
-        <div className="p-6 space-y-8">
-          {/* Symbol Selection */}
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex flex-wrap gap-2">
-                {['BTC/USD','ETH/USD','SOL/USD','SPY','AAPL','NVDA'].map(s => (
-                  <button
-                    key={s}
-                    className={cn(
-                      "px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200",
-                      selected === s
-                        ? "bg-gray-900 text-white"
-                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800"
-                    )}
-                    onClick={() => setSelected(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                {['1m','5m','15m','1h','4h'].map(tf => (
-                  <button
-                    key={tf}
-                    className={cn(
-                      "px-2.5 py-1 text-xs rounded-md transition-all duration-200",
-                      selectedTf === tf 
-                        ? "bg-gray-900 text-white" 
-                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800"
-                    )}
-                    onClick={() => setSelectedTf(tf)}
-                  >
-                    {tf}
-                  </button>
-                ))}
-              </div>
-            </div>
+      {section === 'system' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
+            {[
+              { label: 'Market Ticks', key: 'market_ticks', suffix: '', Icon: Activity },
+              { label: 'Signals Generated', key: 'signals_generated', suffix: '', Icon: TrendingUp },
+              { label: 'Orders', key: 'orders_length', suffix: '', Icon: BarChart3 },
+              { label: 'Executions', key: 'executions', suffix: '', Icon: Zap },
+              { label: 'Avg Latency', key: 'avg_latency', suffix: 'ms', Icon: Activity },
+              { label: 'Error Rate', key: 'error_rate', suffix: '%', Icon: AlertTriangle },
+            ].map((metric) => {
+              const metricValue = metric.key === 'orders_length' ? orders.length : getMetric(systemMetrics, metric.key)
+              return (
+                <div key={metric.label} className={cardClass}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <metric.Icon className="h-4 w-4 text-slate-500" />
+                    <span className={sectionTitleClass}>{metric.label}</span>
+                  </div>
+                  <p className={valueClass}>{metricValue == null ? '--' : `${sanitizeValue(metricValue)}${metric.suffix}`}</p>
+                  <p className={mutedClass}>{metric.label}</p>
+                </div>
+              )
+            })}
           </div>
 
-          {/* Trading Interface */}
-          <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            {/* Chart Area */}
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-8 shadow-sm flex items-center justify-center min-h-96">
-              <div className="text-center">
-                <CandlestickChart className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-lg text-gray-600 dark:text-gray-400 font-medium">Chart Integration</p>
-                <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">{selected} · {selectedTf} timeframe</p>
-              </div>
-            </div>
-
-            {/* Order Panel */}
-            <div className="space-y-6">
-              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Order Entry</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-2 block font-medium uppercase">Symbol</label>
-                    <div className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white rounded-lg">
-                      {selected}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-2 block font-medium uppercase">Quantity</label>
-                    <input 
-                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white rounded-lg outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-200" 
-                      placeholder="0.00" 
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-2 block font-medium uppercase">Price</label>
-                    <input 
-                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white rounded-lg outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-200" 
-                      placeholder="Market" 
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <button className="bg-green-500 text-white py-2.5 text-sm font-semibold rounded-lg hover:bg-green-600 transition-all duration-200">
-                      LONG
-                    </button>
-                    <button className="bg-red-500 text-white py-2.5 text-sm font-semibold rounded-lg hover:bg-red-600 transition-all duration-200">
-                      SHORT
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Positions */}
-              <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Open Positions</h3>
-                {orders.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">No open positions</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {orders.slice(0,3).map((o,i) => (
-                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-800 rounded-lg">
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-white">{o.symbol}</p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">{(o.side || 'n/a').toUpperCase()}</p>
-                        </div>
-                        <p className={cn(
-                          "font-semibold",
-                          Number(o.pnl) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                          {Number(o.pnl) >= 0 ? '+' : ''}${Number(o.pnl || 0).toFixed(2)}
-                        </p>
-                      </div>
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800">
+                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
+                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // AGENTS PAGE
-  if (section === 'agents') {
-    return (
-      <div className="min-h-screen bg-white dark:bg-slate-950">
-        {/* TOP BAR */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
-          <div className="flex items-center gap-4">
-            <span className="text-gray-600 dark:text-gray-400 text-sm">
-              System / Agents
-            </span>
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                wsConnected ? "bg-green-500" : "bg-red-500"
-              )} />
-              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-                ● LIVE
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <span className={cn(
-              "font-semibold text-lg",
-              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-            )}>
-              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-            </span>
-            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
-              Configure Agents
-            </button>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-8">
-          {/* Metrics Strip */}
-          <div className="grid grid-cols-4 gap-4">
-            {[
-              { label: 'Avg Latency', value: avgLatency + 'ms', icon: Activity, color: 'blue' },
-              { label: 'Cost Today', value: '$' + costToday.toFixed(2), icon: Zap, color: 'yellow' },
-              { label: 'Total Runs', value: agentLogs.length, icon: Bot, color: 'green' },
-              { label: 'Fallbacks', value: agentLogs.filter(l => l.fallback).length, icon: AlertTriangle, color: 'red' },
-            ].map((m, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                    {m.label}
-                  </p>
-                  <m.icon className="h-4 w-4 text-gray-500" />
-                </div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {m.value}
-                </p>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Agent Activity */}
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Agent Activity</h3>
-            {agentLogs.length === 0 ? (
-              <div className="text-center py-12">
-                <Bot className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-sm text-gray-600 dark:text-gray-400">No agent activity yet</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {agentLogs.slice(0,5).map((log, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.1 }}
-                    className={cn(
-                      "p-4 rounded-lg border-l-4 transition-all duration-200 hover:shadow-md",
-                      log.action === 'buy'  && "border-l-green-500 bg-green-50 dark:bg-green-950/20",
-                      log.action === 'sell' && "border-l-red-500 bg-red-50 dark:bg-red-950/20",
-                      !log.action || log.action === 'hold' && "border-l-gray-400 bg-gray-50 dark:bg-slate-800"
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <span className={cn(
-                          "inline-flex px-2 py-1 text-xs font-semibold uppercase rounded-md",
-                          log.action === 'buy'  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                          log.action === 'sell' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                          "bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300"
-                        )}>
-                          {log.action || 'HOLD'}
-                        </span>
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">{log.symbol || '—'}</span>
-                      </div>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {log.latency_ms || 0}ms
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-                      {log.primary_edge || 'No edge description'}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // LEARNING PAGE
-  if (section === 'learning') {
-    return (
-      <div className="min-h-screen bg-white dark:bg-slate-950">
-        {/* TOP BAR */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
-          <div className="flex items-center gap-4">
-            <span className="text-gray-600 dark:text-gray-400 text-sm">
-              System / Learning
-            </span>
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                wsConnected ? "bg-green-500" : "bg-red-500"
-              )} />
-              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-                ● LIVE
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <span className={cn(
-              "font-semibold text-lg",
-              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-            )}>
-              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-            </span>
-            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
-              Export Report
-            </button>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-8">
-          {/* Learning Stats */}
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: 'Trades Evaluated', value: learningEvents.length, icon: TrendingUp },
-              { label: 'Reflections', value: learningEvents.filter(e => e.event === 'reflection_completed').length, icon: BookOpen },
-              { label: 'IC Updates', value: 0, icon: Settings2 },
-            ].map((stat, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                    {stat.label}
-                  </p>
-                  <stat.icon className="h-4 w-4 text-gray-500" />
-                </div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Trade Timeline */}
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Trade Timeline</h3>
-            {learningEvents.length === 0 ? (
-              <div className="text-center py-12">
-                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-base text-gray-600 dark:text-gray-400 font-medium">Complete paper trades to see performance</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200 dark:border-slate-700">
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Symbol</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Event</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {realAgents.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {learningEvents.slice(0,10).map((e,i) => (
-                      <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
-                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.symbol || '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{e.event || e.type}</td>
-                        <td className={cn(
-                          "px-4 py-3 text-right font-mono text-sm font-semibold",
-                          Number(e.pnl) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                          {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // SYSTEM PAGE - Real-time Agent Dashboard
-  return (
-    <div className="min-h-screen bg-white dark:bg-black">
-      {/* TOP BAR */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
-        <div className="flex items-center gap-4">
-          <span className="text-gray-600 dark:text-gray-400 text-sm">
-            System / System
-          </span>
-          <div className="flex items-center gap-2">
-            <div className={cn(
-              "w-2 h-2 rounded-full",
-              wsConnected ? "bg-green-500" : "bg-red-500"
-            )} />
-            <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-              ● LIVE
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-6">
-          <span className={cn(
-            "font-semibold text-lg",
-            dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-          )}>
-            {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-          </span>
-          <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
-            System Health
-          </button>
-        </div>
-      </div>
-
-      <div className="p-6 space-y-6">
-        {/* STREAM COUNTS - Professional Overview */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-white">System Overview</h3>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-4 gap-6">
-              {[
-                { 
-                  name: 'Market Ticks', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'market_tick_count' || 
-                    m.metric_name === 'market_ticks' ||
-                    m.metric_name?.includes('tick')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) || 
-                  (agentLogs.filter(log => log.event_type === 'tick' || log.event_type === 'market_tick').length),
-                  change: '+12.4%',
-                  status: 'active'
-                },
-                { 
-                  name: 'Signals', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'signal_count' || 
-                    m.metric_name === 'signals' ||
-                    m.metric_name?.includes('signal')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) ||
-                  (agentLogs.filter(log => log.event_type === 'signal' || log.action === 'buy' || log.action === 'sell').length),
-                  change: '+8.2%',
-                  status: 'active'
-                },
-                { 
-                  name: 'Orders', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'order_count' || 
-                    m.metric_name === 'orders' ||
-                    m.metric_name?.includes('order')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) ||
-                  (agentLogs.filter(log => log.event_type === 'order' || log.action === 'buy' || log.action === 'sell').length),
-                  change: '+3.7%',
-                  status: 'active'
-                },
-                { 
-                  name: 'Executions', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'execution_count' || 
-                    m.metric_name === 'executions' ||
-                    m.metric_name?.includes('execution')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) ||
-                  (agentLogs.filter(log => log.event_type === 'execution' || log.action === 'execute').length),
-                  change: '+1.2%',
-                  status: 'active'
-                },
-              ].map((metric, i) => (
-                <div key={i} className="text-center">
-                  <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                    {metric.count.toLocaleString()}
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {metric.name}
-                  </div>
-                  <div className="text-xs text-green-600 dark:text-green-400 mt-2">
-                    {metric.change}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* AGENTS TABLE - Professional Layout */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-white">Agent Status</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Agent</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Events (5m)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Activity</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Performance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {(() => {
-                  // Process agent logs to compute real-time activity
-                  const now = new Date()
-                  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000)
-                  const oneMinuteAgo = new Date(now.getTime() - 60 * 1000)
-                  const twentySecondsAgo = new Date(now.getTime() - 20 * 1000)
-
-                  // Type definition for agent stats
-                  type AgentStats = {
-                    name: string
-                    events: Record<string, number>
-                    lastTime: Date
-                    totalEvents: number
-                    recentEvents: any[]
-                  }
-
-                  // Group agent logs by agent name and compute stats
-                  const agentStats = agentLogs.reduce((acc: Record<string, AgentStats>, log: any) => {
-                    const agentName = log.agent_name || log.agent || 'Unknown'
-                    const timestamp = new Date(log.timestamp || log.created_at || now)
-                    
-                    if (!acc[agentName]) {
-                      acc[agentName] = {
-                        name: agentName,
-                        events: {},
-                        lastTime: timestamp,
-                        totalEvents: 0,
-                        recentEvents: []
-                      }
-                    }
-
-                    const agent = acc[agentName]
-                    
-                    // Update last time if this event is more recent
-                    if (timestamp > agent.lastTime) {
-                      agent.lastTime = timestamp
-                    }
-
-                    // Standardize event type mapping
-                    let eventType = log.event_type || log.action || log.type || 'unknown'
-                    
-                    // Normalize common event types
-                    const eventTypeMap: Record<string, string> = {
-                      'buy': 'signal',
-                      'sell': 'signal', 
-                      'purchase': 'signal',
-                      'trade': 'signal',
-                      'order': 'signal',
-                      'execution': 'order',
-                      'execute': 'order',
-                      'fill': 'order',
-                      'market_tick': 'tick',
-                      'price_update': 'tick',
-                      'quote': 'tick',
-                      'analysis': 'analysis',
-                      'reasoning': 'analysis',
-                      'grading': 'grade',
-                      'assessment': 'grade',
-                      'learning': 'learning',
-                      'training': 'learning',
-                      'reflection': 'reflection',
-                      'review': 'reflection',
-                      'notification': 'notification',
-                      'alert': 'notification',
-                      'message': 'notification'
-                    }
-                    
-                    eventType = eventTypeMap[eventType.toLowerCase()] || eventType
-                    
-                    agent.events[eventType] = (agent.events[eventType] || 0) + 1
-                    agent.totalEvents++
-
-                    // Track recent events (last 5 minutes)
-                    if (timestamp > fiveMinutesAgo) {
-                      agent.recentEvents.push({ ...log, timestamp })
-                    }
-
-                    return acc
-                  }, {} as Record<string, AgentStats>)
-                  
-                  // Add fallback mock data if no real agents exist
-                  if (Object.keys(agentStats).length === 0) {
-                    const mockAgents: AgentStats[] = [
-                      {
-                        name: 'SignalGenerator',
-                        events: { signal: 45 },
-                        lastTime: new Date(now.getTime() - 30000), // 30 seconds ago
-                        totalEvents: 45,
-                        recentEvents: Array(45).fill(null).map((_, i) => ({
-                        timestamp: new Date(now.getTime() - (i * 1000)),
-                        agent_name: 'SignalGenerator'
-                      }))
-                      },
-                      {
-                        name: 'ReasoningAgent', 
-                        events: { analysis: 23 },
-                        lastTime: new Date(now.getTime() - 45000), // 45 seconds ago
-                        totalEvents: 23,
-                        recentEvents: Array(23).fill(null).map((_, i) => ({
-                        timestamp: new Date(now.getTime() - (i * 2000)),
-                        agent_name: 'ReasoningAgent'
-                      }))
-                      },
-                      {
-                        name: 'ExecutionAgent',
-                        events: { order: 12 },
-                        lastTime: new Date(now.getTime() - 15000), // 15 seconds ago
-                        totalEvents: 12,
-                        recentEvents: Array(12).fill(null).map((_, i) => ({
-                        timestamp: new Date(now.getTime() - (i * 3000)),
-                        agent_name: 'ExecutionAgent'
-                      }))
-                      }
-                    ]
-                    
-                    mockAgents.forEach(agent => {
-                      agentStats[agent.name] = agent
-                    })
-                  }
-
-                  // Convert to array and determine status
-                  const agents = Object.values(agentStats).map((agent: AgentStats) => {
-                    const timeSinceLastEvent = now.getTime() - agent.lastTime.getTime()
-                    
-                    // Determine status based on last activity
-                    let status: 'active' | 'idle' | 'offline'
-                    let statusText: string
-                    let statusColor: string
-                    
-                    if (timeSinceLastEvent < 20000) { // < 20 seconds
-                      status = 'active'
-                      statusText = 'Running'
-                      statusColor = 'text-green-600 dark:text-green-400'
-                    } else if (timeSinceLastEvent < 60000) { // < 1 minute
-                      status = 'idle'
-                      statusText = 'Idle'
-                      statusColor = 'text-yellow-600 dark:text-yellow-400'
-                    } else {
-                      status = 'offline'
-                      statusText = 'Offline'
-                      statusColor = 'text-red-600 dark:text-red-400'
-                    }
-
-                    // Determine tier based on activity level
-                    let tier: string
-                    let performanceColor: string
-                    const recentEventCount = agent.recentEvents.length
-                    
-                    if (recentEventCount > 50) {
-                      tier = 'High'
-                      performanceColor = 'text-green-600 dark:text-green-400'
-                    } else if (recentEventCount > 10) {
-                      tier = 'Medium'
-                      performanceColor = 'text-blue-600 dark:text-blue-400'
-                    } else {
-                      tier = 'Low'
-                      performanceColor = 'text-gray-600 dark:text-gray-400'
-                    }
-
-                    // Format last time
-                    const lastTimeStr = agent.lastTime.toLocaleTimeString('en-US', {
-                      hour12: false,
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit'
-                    })
-
-                    return {
-                      name: agent.name,
-                      events: agent.events,
-                      lastTime: agent.lastTime,
-                      totalEvents: agent.totalEvents,
-                      recentEvents: agent.recentEvents,
-                      status,
-                      statusText,
-                      statusColor,
-                      tier,
-                      performanceColor,
-                      lastTimeFormatted: lastTimeStr,
-                      recentCount: agent.recentEvents.length
-                    }
-                  })
-
-                  // Sort by activity (most recent first)
-                  agents.sort((a, b) => b.lastTime.getTime() - a.lastTime.getTime())
-
-                  return agents.map((agent, i) => {
-                    const eventEntries = Object.entries(agent.events)
-                    const hasEvents = eventEntries.length > 0
-                    const totalRecentEvents = eventEntries.reduce((sum, [_, count]) => sum + count, 0)
-
-                    return (
-                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {agent.name}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", 
-                            agent.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                            agent.status === 'idle' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                            'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                          )}>
-                            {agent.statusText}
+                  ) : (
+                    realAgents.map((agent) => (
+                      <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
+                        <td className="px-2 py-2 text-xs font-sans">
+                          <span className="inline-flex items-center gap-2">
+                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-white">
-                            {totalRecentEvents}
-                          </div>
-                          {hasEvents && (
-                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {eventEntries.slice(0, 2).map(([eventType, count]) => 
-                                `${eventType}: ${count}`
-                              ).join(', ')}
-                              {eventEntries.length > 2 && ' + more'}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-white">
-                            {agent.lastTimeFormatted}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className={cn("text-sm font-medium", agent.performanceColor)}>
-                              {agent.tier}
-                            </div>
-                          </div>
-                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'N/A'}</td>
                       </tr>
-                    )
-                  })
-                })()}
-              </tbody>
-            </table>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      )}
+    </>
+  )
 
-      </div>
+  return (
+    <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
+      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+        {contentBySection}
+      </main>
+
+      <MobileNavigation section={section} />
     </div>
   )
 }

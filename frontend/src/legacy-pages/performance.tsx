@@ -67,7 +67,7 @@ export default function PerformancePage() {
                 ['Execution cost', pnl?.execution_cost, 'purple'],
                 ['Net alpha', pnl?.net_alpha, 'green'],
               ].map(([k, v, color]) => (
-                <div key={String(k)} className={`bg-card border border-border rounded-lg p-5 hover:border-muted-foreground/20 transition-colors shadow-sm ${
+                <div key={String(k)} className={`bg-card border border-border rounded-lg p-5 hover:border-muted-foreground/20 transition-colors ${
                   color === 'blue' ? 'border-l-4 border-l-blue-500' :
                   color === 'purple' ? 'border-l-4 border-l-purple-500' :
                   'border-l-4 border-l-green-500'
@@ -82,7 +82,7 @@ export default function PerformancePage() {
           {/* Task Performance Table */}
           <section className="mb-8">
             <h2 className="text-[0.7rem] uppercase tracking-widest text-slate-500 mb-3">Task Performance</h2>
-            <div className="bg-card border border-border rounded-lg p-5 shadow-sm">
+            <div className="bg-card border border-border rounded-lg p-5">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">

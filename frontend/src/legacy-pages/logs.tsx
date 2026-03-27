@@ -133,7 +133,7 @@ export default function LogsPage() {
       <div className="flex-1 flex flex-col">
         <Header title="Logs" subtitle="Real-time system activity" />
         <main className="flex-1 overflow-y-auto p-6">
-          <Card className="bg-card border-border shadow-sm h-full">
+          <Card className="bg-card border-border h-full">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
               <CardTitle className="text-lg font-semibold text-foreground">System Logs</CardTitle>
               <div className="flex items-center gap-2">

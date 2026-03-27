@@ -120,7 +120,7 @@ const SentimentEngine = memo(() => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 }}
-      className="glass-card p-6 col-span-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+      className="glass-card p-6 col-span-4 "
     >
       <h3 className="section-header">MARKET SENTIMENT</h3>
       <div className="flex flex-col items-center justify-center mt-6">
