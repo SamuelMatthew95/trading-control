@@ -98,6 +98,20 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     const reflections = learningEvents.filter(e => e.type === 'reflection').length
     const icUpdates = learningEvents.filter(e => e.type === 'ic_update').length
     
+    // Calculate best/worst days from actual orders
+    const dailyPnLs = new Map()
+    orders.forEach(order => {
+      if (order && order.timestamp && typeof order.pnl === 'number') {
+        const date = new Date(order.timestamp).toDateString()
+        const currentPnL = dailyPnLs.get(date) || 0
+        dailyPnLs.set(date, currentPnL + order.pnl)
+      }
+    })
+    
+    const pnlValues = Array.from(dailyPnLs.values())
+    const bestDay = pnlValues.length > 0 ? Math.max(...pnlValues) : 0
+    const worstDay = pnlValues.length > 0 ? Math.min(...pnlValues) : 0
+    
     return {
       tradesEvaluated: evaluated,
       reflectionsCompleted: reflections,
@@ -105,10 +119,10 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
       strategiesTested: learningEvents.filter(e => e.type === 'strategy_tested').length,
       avgWinRate: winRate,
       totalPnl: safeDailyPnl,
-      bestDay: 0, // Calculate from real data
-      worstDay: 0, // Calculate from real data
+      bestDay,
+      worstDay,
     }
-  }, [learningEvents, winRate, safeDailyPnl])
+  }, [learningEvents, winRate, safeDailyPnl, orders])
 
   // Real system metrics
   const realSystemMetrics = useMemo(() => {
@@ -570,12 +584,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     )
   }
 
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold font-['Inter'] mb-4 text-white">{section.charAt(0).toUpperCase() + section.slice(1)} Page</h1>
-        <p className="text-slate-500 font-['Inter']">Coming soon...</p>
-      </div>
-    </div>
-  )
+  // Fallback removed - all pages should work with real data
+  return null
 }
