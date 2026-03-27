@@ -53,6 +53,10 @@ from api.services.simple_consumers import (
 )
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
+from api.v3_complete_startup import (
+    start_complete_v3_background,
+    stop_complete_v3_background,
+)
 
 configure_logging(settings.LOG_LEVEL)
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
@@ -268,6 +272,8 @@ async def lifespan(app: FastAPI):
     agent_logs_consumer: AgentLogsConsumer | None = None
     consumer_lag_monitor: BackgroundServiceTask | None = None
     llm_cost_monitor_service: BackgroundServiceTask | None = None
+    complete_v3_manager = None
+    complete_v3_task: asyncio.Task[None] | None = None
     app.state.redis_client = None
     app.state.event_bus = None
     app.state.dlq_manager = None
@@ -408,6 +414,12 @@ async def lifespan(app: FastAPI):
             await order_reconciler.start()
             app.state.order_reconciler = order_reconciler
 
+            if os.getenv("ENABLE_COMPLETE_V3_BOOT", "false").lower() == "true":
+                complete_v3_manager, complete_v3_task = start_complete_v3_background()
+                app.state.complete_v3_manager = complete_v3_manager
+                app.state.complete_v3_task = complete_v3_task
+                log_structured("info", "complete_v3_boot_enabled")
+
         initialize_services()
 
         log_structured(
@@ -454,6 +466,8 @@ async def lifespan(app: FastAPI):
             and app.state.websocket_broadcaster is not None
         ):
             await app.state.websocket_broadcaster.stop()
+
+        await stop_complete_v3_background(complete_v3_manager, complete_v3_task)
 
         await close_redis()
         await engine.dispose()

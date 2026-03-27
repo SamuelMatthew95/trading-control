@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import signal
-import sys
 from contextlib import suppress
 from typing import Any
 
@@ -203,25 +202,22 @@ async def verify_complete_pipeline(redis_client: Redis) -> dict[str, int | str]:
 
     return results
 
-
-async def main() -> None:
-    """CLI entrypoint for launching the complete v3 system."""
-    system_manager = CompleteV3SystemManager()
-    redis = get_redis()
-
-    try:
-        await system_manager.start()
-    except KeyboardInterrupt:
-        log_structured("info", "v3_keyboard_interrupt")
-    except Exception as exc:  # noqa: BLE001
-        log_structured("error", "v3_system_fatal", exc_info=True)
-        sys.exit(1)
-    finally:
-        await system_manager.stop()
-        with suppress(Exception):
-            await redis.close()
+def start_complete_v3_background() -> tuple[CompleteV3SystemManager, asyncio.Task[None]]:
+    """Start the complete v3 manager as a background task for app lifespan usage."""
+    manager = CompleteV3SystemManager()
+    task = asyncio.create_task(manager.start(), name="complete-v3-system")
+    return manager, task
 
 
-if __name__ == "__main__":
-    log_structured("info", "v3_cli_entrypoint")
-    asyncio.run(main())
+async def stop_complete_v3_background(
+    manager: CompleteV3SystemManager | None,
+    task: asyncio.Task[None] | None,
+) -> None:
+    """Stop and cleanup a background complete v3 manager task."""
+    if manager is not None:
+        await manager.stop()
+    if task is not None and not task.done():
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
