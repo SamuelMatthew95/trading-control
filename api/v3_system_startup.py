@@ -55,7 +55,7 @@ class V3SystemManager:
             
             # Initialize EventBus and DLQ
             self.bus = EventBus(self.redis)
-            self.dlq = DLQManager(self.redis)
+            self.dlq = DLQManager(self.redis, self.bus)
             
             # Create streams (idempotent)
             streams = [

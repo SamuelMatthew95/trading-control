@@ -104,7 +104,7 @@ class ContainerV3System:
             logger.info("Connected to Redis")
 
             self.bus = EventBus(self.redis)
-            self.dlq = DLQManager(self.redis)
+            self.dlq = DLQManager(self.redis, self.bus)
             self.agents = await start_fixed_v3_system(self.bus, self.dlq, self.redis)
             self.running = True
 
