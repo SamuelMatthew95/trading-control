@@ -226,7 +226,7 @@ export function DashboardView({ section }: { section: Section }) {
     <>
       {section === 'overview' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
               { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', positive: summary.dailyPnlNumeric >= 0 },
               { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`, positive: (summary.winRate ?? 0) >= 50 },

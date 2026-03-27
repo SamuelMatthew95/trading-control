@@ -1,6 +1,4 @@
-import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme/ThemeToggle'
-import { Power } from 'lucide-react'
 
 interface HeaderProps {
   title: string
@@ -22,11 +20,6 @@ export function Header({ title, subtitle }: HeaderProps) {
             <span>LIVE</span>
             <span className="font-mono tabular-nums">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
-
-          <Button variant="destructive" size="sm">
-            <Power className="mr-1 h-4 w-4" />
-            HALT
-          </Button>
 
           <ThemeToggle />
         </div>
