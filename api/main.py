@@ -414,11 +414,13 @@ async def lifespan(app: FastAPI):
             await order_reconciler.start()
             app.state.order_reconciler = order_reconciler
 
-            if os.getenv("ENABLE_COMPLETE_V3_BOOT", "false").lower() == "true":
-                complete_v3_manager, complete_v3_task = start_complete_v3_background()
-                app.state.complete_v3_manager = complete_v3_manager
-                app.state.complete_v3_task = complete_v3_task
-                log_structured("info", "complete_v3_boot_enabled")
+            complete_v3_manager, complete_v3_task = start_complete_v3_background()
+            app.state.complete_v3_manager = complete_v3_manager
+            app.state.complete_v3_task = complete_v3_task
+            log_structured("info", "complete_v3_boot_initialized")
+
+        if redis_client is None:
+            log_structured("warning", "complete_v3_boot_skipped_no_redis")
 
         initialize_services()
 
