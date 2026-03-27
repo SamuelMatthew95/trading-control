@@ -2,84 +2,46 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
-import { ObsidianDashboard } from '@/components/obsidian-pro/ObsidianDashboard'
 import { 
-  AlertTriangle, 
-  Activity, 
   TrendingUp, 
-  TrendingDown,
-  Zap,
-  Brain,
-  Award,
-  Clock,
-  FileCode,
-  Bell,
-  ChevronUp,
-  ChevronDown,
-  Power,
-  Play,
-  Pause,
-  BookOpen,
-  Settings2
+  TrendingDown, 
+  Power, 
+  Sun, 
+  Moon
 } from 'lucide-react'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { motion, AnimatePresence } from 'framer-motion'
-import { LiveTicker } from '@/components/LiveTicker'
-import { AgentCommandCenter } from '@/components/AgentCommandCenter'
-import { AgentThoughtStream } from '@/components/AgentThoughtStream'
+import { motion } from 'framer-motion'
 import { EquityCurve } from '@/components/EquityCurve'
 import { MobileNavigation } from '@/components/MobileNavigation'
 
-// HELPER FUNCTIONS - CRITICAL FOR DATA INTEGRITY
+// NUCLEAR RESET: Senior-Engineer Grade Helper Functions
 const formatUSD = (value?: number | null): string => {
   return value != null && isFinite(value) ? `$${value.toFixed(2)}` : "$0.00";
 };
 
-function sanitizeValue(value: any): string {
-  if (value === undefined || value === null || value === '') {
-    return '--';
-  }
-  if (typeof value === 'number' && Number.isNaN(value)) {
-    return '--';
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'True' : 'False';
-  }
+const sanitizeValue = (value: any): string => {
+  if (value === undefined || value === null || value === '') return '--';
+  if (typeof value === 'number' && Number.isNaN(value)) return '--';
+  if (typeof value === 'boolean') return value ? 'True' : 'False';
   return String(value);
-}
+};
 
 export function DashboardView({ section }: { section: 'overview' | 'trading' | 'agents' | 'learning' | 'system' }) {
-  const [currentSection, setCurrentSection] = useState(section)
-  const handleSectionChange = (newSection: 'overview' | 'trading' | 'agents' | 'learning' | 'system') => {
-    setCurrentSection(newSection)
-  }
+  const [isDarkMode, setIsDarkMode] = useState(true)
+  const [previousPnl, setPreviousPnl] = useState(0)
+  const [isAnimating, setIsAnimating] = useState(false)
 
   // SAFE DATA EXTRACTION WITH DEFAULTS
   const { 
     agentLogs = [], 
     killSwitchActive, 
-    learningEvents = [], 
     orders = [], 
-    prices = {}, 
-    positions = [], 
     systemMetrics = [],
-    dashboardData = null, 
-    isLoading = true,
-    regime = 'neutral', 
     wsConnected = false,
     setKillSwitch
   } = useCodexStore()
 
-  const [selected, setSelected] = useState('BTC/USD')
-  const [selectedTf, setSelectedTf] = useState('5m')
-  const [dlqItems, setDlqItems] = useState<any[]>([])
-  const [isCompactMode, setIsCompactMode] = useState(false)
-
-  // Calculate metrics with enhanced data validation - NEVER SHOW NaN
+  // NUCLEAR RESET: Calculate metrics with NaN-proof logic
   const dailyPnl = useMemo(() => {
     if (!orders || orders.length === 0) return 0
     const validOrders = orders.filter(o => 
@@ -91,44 +53,21 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     return validOrders.reduce((sum, o) => sum + Number(o.pnl), 0)
   }, [orders])
 
-  // Calculate system metrics with data sanitization
-  const avgLatency = useMemo(() => {
-    if (!systemMetrics || systemMetrics.length === 0) return 0
-    const latencyMetrics = systemMetrics.filter(m => 
-      m && 
-      m.metric_name === 'latency' && 
-      typeof m.value === 'number' && 
-      !isNaN(Number(m.value))
-    )
-    return latencyMetrics.length > 0 
-      ? (latencyMetrics.reduce((sum, m) => sum + Number(m.value), 0) / latencyMetrics.length).toFixed(0)
-      : '0'
-  }, [systemMetrics])
-
-  // Check if data is loading for skeleton
-  const isLoadingBalance = !orders || orders.length === 0
-  const hasValidData = !isLoadingBalance && !isNaN(dailyPnl) && isFinite(dailyPnl)
-  
-  // Sanitized P&L value - never NaN
-  const safeDailyPnl = hasValidData ? dailyPnl : 0
-  const safePnlChange = hasValidData ? (safeDailyPnl - 0) : 0
+  const safeDailyPnl = dailyPnl || 0
+  const safePnlChange = safeDailyPnl - 0
   const winRate = useMemo(() => {
     const validOrders = orders.filter(o => o && typeof o.pnl === 'number' && !isNaN(Number(o.pnl)))
     return validOrders.length > 0 ? (validOrders.filter(o => Number(o.pnl) > 0).length / validOrders.length) * 100 : 0
   }, [orders])
   const activePositions = orders.filter(o => o.side === 'long' || o.side === 'short').length
 
-  // MARKET HOURS
+  // Market status
   const currentTime = new Date()
-  const marketHours = { open: 9.5, close: 16 } // 9:30 AM - 4:00 PM EST
+  const marketHours = { open: 9.5, close: 16 }
   const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60
   const marketStatus = currentHour >= marketHours.open && currentHour <= marketHours.close
 
-  // P&L ANIMATION
-  const [previousPnl, setPreviousPnl] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
-  const [showToast, setShowToast] = useState(false)
-  const [toastMessage, setToastMessage] = useState('')
+  // P&L Animation
   useEffect(() => {
     if (safeDailyPnl !== previousPnl) {
       setIsAnimating(true)
@@ -137,914 +76,357 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     }
   }, [safeDailyPnl, previousPnl])
 
-
-  // Add mock stream lag data for testing
-  useEffect(() => {
-    // Add some mock stream lag metrics if none exist
-    if (systemMetrics.filter(m => m.metric_name?.startsWith('stream_lag:')).length === 0) {
-      const mockStreamMetrics = [
-        { metric_name: 'stream_lag:market_ticks', value: Math.floor(Math.random() * 100), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:signals', value: Math.floor(Math.random() * 150), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:orders', value: Math.floor(Math.random() * 80), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:executions', value: Math.floor(Math.random() * 120), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:risk_alerts', value: Math.floor(Math.random() * 90), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:learning_events', value: Math.floor(Math.random() * 200), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:system_metrics', value: Math.floor(Math.random() * 110), timestamp: new Date().toISOString() },
-        { metric_name: 'stream_lag:agent_logs', value: Math.floor(Math.random() * 130), timestamp: new Date().toISOString() },
-      ]
-    }
-  }, [systemMetrics])
-      
-
-  const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
-
-  // Mock agents data for the premium UI
+  // Mock agents data
   const agents = [
-    { id: '1', name: 'SignalGenerator', tier: 'active', heartbeat: true },
-    { id: '2', name: 'ReasoningAgent', tier: 'active', heartbeat: true },
-    { id: '3', name: 'GradeAgent', tier: 'active', heartbeat: true },
-    { id: '4', name: 'ICUpdater', tier: 'challenger', heartbeat: false },
+    { id: '1', name: 'SignalGenerator', tier: 'active', heartbeat: true, metrics: { 'Status': 'ACTIVE', 'NVDA': '1,247', 'SPY': '892', 'Latency': '12ms' } },
+    { id: '2', name: 'ReasoningAgent', tier: 'active', heartbeat: true, metrics: { 'Provider': 'Groq', 'Decisions': '847', 'Latency': '45ms', 'Success': '94.2%' } },
+    { id: '3', name: 'GradeAgent', tier: 'active', heartbeat: true, metrics: { 'Grade': 'A-', 'Action': 'Weight Cut', 'Accuracy': '94.2%', 'Weight': '0.82' } },
+    { id: '4', name: 'ICUpdater', tier: 'challenger', heartbeat: false, metrics: { 'Correlation': '0.73', 'Metric': 'Spearman', 'Sync': '2m ago', 'Weights': 'Updated' } },
+    { id: '5', name: 'ReflectionAgent', tier: 'active', heartbeat: true, metrics: { 'Hypotheses': '142', 'Next Run': '5m', 'Success': '68%', 'Insight': 'Volume' } },
+    { id: '6', name: 'StrategyProposer', tier: 'active', heartbeat: true, metrics: { 'PRs': '3', 'Auto-Deploy': 'True', 'Strategies': '12', 'Deploy': '1h ago' } },
+    { id: '7', name: 'HistoryAgent', tier: 'retired', heartbeat: false, metrics: { 'Cron': 'Success', 'Patterns': '28', 'Seasonality': 'Detected', 'Run': '6d ago' } },
+    { id: '8', name: 'NotificationAgent', tier: 'active', heartbeat: true, metrics: { 'Stream': 'Redis', 'Severity': 'Normal', 'Queue': '0', 'Alerts': '2' } },
   ]
 
-  // OVERVIEW PAGE - Premium Bento Grid Layout
+  // Mock ticker data
+  const tickerData = [
+    { symbol: 'NVDA', price: 875.28, change: 2.34, changePercent: 0.27 },
+    { symbol: 'SPY', price: 512.43, change: -1.12, changePercent: -0.22 },
+    { symbol: 'AAPL', price: 178.92, change: 0.85, changePercent: 0.48 },
+    { symbol: 'BTC', price: 67234.56, change: 1234.78, changePercent: 1.87 },
+    { symbol: 'ETH', price: 3456.78, change: -45.23, changePercent: -1.29 },
+    { symbol: 'SOL', price: 145.67, change: 3.21, changePercent: 2.25 },
+  ]
+
+  // OVERVIEW PAGE - Nuclear Reset Implementation
   if (section === 'overview') {
     return (
-      <div className="min-h-screen bg-slate-50">
-        {/* PREMIUM HEADER - No Borders, Soft Shadow */}
-        <div className="bg-white border-b border-slate-100 shadow-sm">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex items-center justify-between">
-              {/* LEFT - Clean Title */}
-              <div className="flex items-center gap-4">
-                <h1 className="text-2xl font-bold text-slate-900 font-['Inter']">
-                  Trading Console
-                </h1>
-                <div className="flex items-center gap-2">
-                  <div className={cn(
-                    "w-2 h-2 rounded-full transition-all duration-300",
-                    wsConnected ? "bg-emerald-500" : "bg-slate-300"
-                  )} />
-                  <span className={cn(
-                    "text-sm font-medium font-['Inter'] transition-all duration-300",
-                    wsConnected ? "text-emerald-600" : "text-slate-500"
-                  )}>
-                    {wsConnected ? 'Live' : 'Offline'}
-                  </span>
-                </div>
+      <div className={cn(
+        "min-h-screen transition-colors duration-300",
+        isDarkMode ? "bg-slate-950" : "bg-slate-50"
+      )}>
+        {/* NUCLEAR RESET: Professional Header */}
+        <div className={cn(
+          "h-10 border-b transition-colors duration-300",
+          isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+        )}>
+          <div className="max-w-7xl mx-auto px-4 h-full flex items-center justify-between">
+            {/* Left: Title + Connection Status */}
+            <div className="flex items-center gap-4">
+              <h1 className={cn(
+                "text-sm font-bold uppercase tracking-wider font-['Inter']",
+                isDarkMode ? "text-white" : "text-slate-900"
+              )}>
+                Trading Console
+              </h1>
+              <div className="flex items-center gap-2">
+                <div className={cn(
+                  "w-2 h-2 rounded-full animate-pulse",
+                  wsConnected ? "bg-emerald-500" : "bg-slate-400"
+                )} />
+                <span className={cn(
+                  "text-xs font-semibold uppercase tracking-wider font-['Inter']",
+                  wsConnected ? "text-emerald-500" : "text-slate-400"
+                )}>
+                  {wsConnected ? 'LIVE' : 'OFFLINE'}
+                </span>
               </div>
+            </div>
 
-              {/* RIGHT - P&L with Premium Styling */}
-              <div className="flex items-center gap-6">
-                <div className="flex flex-col items-end">
-                  {isLoadingBalance || !hasValidData ? (
-                    <div className="w-32 h-8 bg-slate-100 rounded-lg animate-pulse" />
-                  ) : (
-                    <motion.span 
+            {/* Center: Daily P&L with NaN Guard */}
+            <div className="flex items-center gap-6">
+              <motion.div
+                key={safeDailyPnl}
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className={cn(
+                  "text-xl font-black tabular-nums font-['JetBrains_Mono'] transition-all duration-300",
+                  isAnimating && "scale-105",
+                  safeDailyPnl >= 0 ? "text-emerald-500" : "text-red-500",
+                  !isDarkMode && safeDailyPnl >= 0 ? "text-emerald-600" : "",
+                  !isDarkMode && safeDailyPnl < 0 ? "text-red-600" : ""
+                )}
+              >
+                {formatUSD(safeDailyPnl)}
+              </motion.div>
+              <span className={cn(
+                "text-xs font-semibold uppercase tracking-wider font-['Inter']",
+                isDarkMode ? "text-slate-400" : "text-slate-500"
+              )}>
+                Daily P&L
+              </span>
+            </div>
+
+            {/* Right: Dark Mode Toggle + Kill Switch */}
+            <div className="flex items-center gap-3">
+              {/* Dark Mode Toggle */}
+              <button
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className={cn(
+                  "w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200",
+                  isDarkMode ? "bg-slate-800 hover:bg-slate-700" : "bg-slate-100 hover:bg-slate-200"
+                )}
+              >
+                {isDarkMode ? (
+                  <Sun className="w-4 h-4 text-slate-300" />
+                ) : (
+                  <Moon className="w-4 h-4 text-slate-600" />
+                )}
+              </button>
+
+              {/* Kill Switch */}
+              <button
+                onClick={() => setKillSwitch(!killSwitchActive)}
+                className={cn(
+                  "px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 min-h-[44px] min-w-[44px]",
+                  "text-xs font-bold uppercase tracking-wider font-['Inter']",
+                  killSwitchActive 
+                    ? "bg-red-600 hover:bg-red-700 text-white" 
+                    : isDarkMode 
+                      ? "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                      : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                )}
+              >
+                <Power className="w-4 h-4" />
+                {killSwitchActive ? 'HALT' : 'ACTIVE'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* NUCLEAR RESET: Bento Grid Layout */}
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            
+            {/* P&L CARD - 2x2 Grid */}
+            <div className="col-span-1 sm:col-span-2 lg:col-span-2 row-span-2">
+              <div className={cn(
+                "rounded-xl border p-6 h-full transition-colors duration-300",
+                isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+              )}>
+                {/* Top-Left: Big Monospace P&L */}
+                <div className="grid grid-cols-2 gap-6 h-full">
+                  <div className="flex flex-col justify-center">
+                    <motion.div
                       key={safeDailyPnl}
-                      initial={{ scale: 0.95, opacity: 0 }}
+                      initial={{ scale: 0.8, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
                       className={cn(
-                        "text-3xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
+                        "text-4xl font-black tabular-nums font-['JetBrains_Mono'] transition-all duration-300",
                         isAnimating && "scale-105",
-                        safeDailyPnl >= 0 ? "text-emerald-600" : "text-red-600"
+                        safeDailyPnl >= 0 ? "text-emerald-500" : "text-red-500",
+                        !isDarkMode && safeDailyPnl >= 0 ? "text-emerald-600" : "",
+                        !isDarkMode && safeDailyPnl < 0 ? "text-red-600" : ""
                       )}
                     >
                       {formatUSD(safeDailyPnl)}
-                    </motion.span>
-                  )}
-                  <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">
-                    Daily P&L
-                  </span>
-                </div>
-
-                {/* Premium Emergency Stop - No Heavy Borders */}
-                <button 
-                  onClick={() => {
-                    setKillSwitch(!killSwitchActive)
-                    setToastMessage(killSwitchActive ? '🚨 SYSTEM HALTED' : '🟢 SYSTEM ACTIVATED')
-                    setShowToast(true)
-                    setTimeout(() => setShowToast(false), 3000)
-                  }}
-                  className={cn(
-                    "px-6 py-3 text-sm font-bold uppercase tracking-wider transition-all duration-200 rounded-xl font-['Inter'] min-h-[44px] min-w-[44px]",
-                    "hover:scale-105 active:scale-95",
-                    killSwitchActive 
-                      ? "bg-red-500 text-white shadow-lg shadow-red-500/25 hover:bg-red-600"
-                      : "bg-slate-900 text-white shadow-lg shadow-slate-900/25 hover:bg-slate-800"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={cn(
-                      "w-2 h-2 rounded-full transition-all duration-300",
-                      killSwitchActive ? "bg-white" : "bg-emerald-400"
-                    )} />
-                    {killSwitchActive ? 'HALT' : 'ACTIVE'}
+                    </motion.div>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        {safePnlChange > 0 ? (
+                          <TrendingUp className="w-4 h-4 text-emerald-500" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-500" />
+                        )}
+                        <span className={cn(
+                          "text-sm font-mono tabular-nums font-['JetBrains_Mono']",
+                          safePnlChange >= 0 ? "text-emerald-500" : "text-red-500",
+                          !isDarkMode && safePnlChange >= 0 ? "text-emerald-600" : "",
+                          !isDarkMode && safePnlChange < 0 ? "text-red-600" : ""
+                        )}>
+                          {formatUSD(safePnlChange)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className={cn(
+                          "text-xs font-semibold uppercase tracking-wider font-['Inter']",
+                          isDarkMode ? "text-slate-400" : "text-slate-500"
+                        )}>
+                          Win Rate
+                        </span>
+                        <span className={cn(
+                          "text-sm font-mono tabular-nums font-['JetBrains_Mono']",
+                          isDarkMode ? "text-slate-300" : "text-slate-700"
+                        )}>
+                          {winRate.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className={cn(
+                          "text-xs font-semibold uppercase tracking-wider font-['Inter']",
+                          isDarkMode ? "text-slate-400" : "text-slate-500"
+                        )}>
+                          Positions
+                        </span>
+                        <span className={cn(
+                          "text-sm font-mono tabular-nums font-['JetBrains_Mono']",
+                          isDarkMode ? "text-slate-300" : "text-slate-700"
+                        )}>
+                          {activePositions}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </button>
+
+                  {/* Top-Right: Equity Curve */}
+                  <div className="flex flex-col">
+                    <h3 className={cn(
+                      "text-sm font-bold uppercase tracking-wider font-['Inter'] mb-4",
+                      isDarkMode ? "text-slate-300" : "text-slate-700"
+                    )}>
+                      Equity Curve
+                    </h3>
+                    <div className="flex-1 min-h-[120px]">
+                      <EquityCurve />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* PREMIUM BENTO GRID - Generous White Space */}
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="grid grid-cols-12 gap-6 auto-rows-auto">
-            
-            {/* MAIN EQUITY CARD - 8 columns wide, 4 rows tall */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="col-span-12 lg:col-span-8 row-span-4 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-8"
-            >
-              <div className="flex flex-col h-full">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900 font-['Inter']">
-                      Portfolio Performance
-                    </h2>
-                    <p className="text-sm text-slate-500 font-['Inter']">
-                      Real-time equity tracking
-                    </p>
-                  </div>
+            {/* AGENT MATRIX CARD */}
+            <div className="col-span-1 sm:col-span-2 lg:col-span-2">
+              <div className={cn(
+                "rounded-xl border p-6 transition-colors duration-300",
+                isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+              )}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className={cn(
+                    "text-sm font-bold uppercase tracking-wider font-['Inter']",
+                    isDarkMode ? "text-slate-300" : "text-slate-700"
+                  )}>
+                    Agent Matrix
+                  </h3>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    <span className="text-xs font-medium text-emerald-600 font-['Inter'] uppercase tracking-wider">
-                      Live
+                    <span className="text-xs font-medium text-emerald-500 font-['Inter'] uppercase tracking-wider">
+                      8 Active
                     </span>
                   </div>
                 </div>
 
-                {/* Main P&L Display */}
-                <div className="flex items-center justify-center mb-8">
-                  <motion.h1 
-                    key={safeDailyPnl}
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className={cn(
-                      "text-6xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
-                      isAnimating && "scale-105",
-                      safeDailyPnl >= 0 ? "text-emerald-600" : "text-red-600"
-                    )}
-                  >
-                    {safeDailyPnl >= 0 ? '+' : ''}{formatUSD(safeDailyPnl)}
-                  </motion.h1>
-                </div>
+                {/* High-Density Agent Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {agents.map((agent) => (
+                    <div
+                      key={agent.id}
+                      className={cn(
+                        "relative p-3 rounded-lg border transition-all duration-200 hover:scale-105",
+                        isDarkMode 
+                          ? "bg-slate-800 border-slate-700 hover:border-slate-600" 
+                          : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                      )}
+                    >
+                      {/* Status LED - Top Right */}
+                      <div className="absolute top-2 right-2">
+                        <div className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                          agent.heartbeat 
+                            ? agent.tier === 'active' ? "bg-emerald-500 animate-pulse" :
+                              agent.tier === 'challenger' ? "bg-amber-500 animate-pulse" :
+                              "bg-slate-400"
+                            : "bg-slate-400"
+                        )} />
+                      </div>
 
-                {/* Metrics Row */}
-                <div className="flex items-center justify-center gap-12 mb-8">
-                  <div className="flex flex-col gap-2 items-center">
-                    <div className="flex items-center gap-2">
-                      {safePnlChange > 0 ? <ChevronUp className="w-5 h-5 text-emerald-500" /> : <ChevronDown className="w-5 h-5 text-red-500" />}
-                      <span className={cn(
-                        "text-xl font-bold font-mono font-['JetBrains_Mono'] tabular-nums",
-                        safePnlChange > 0 ? "text-emerald-600" : "text-red-600"
-                      )}>
-                        {safePnlChange >= 0 ? '+' : ''}{formatUSD(safePnlChange)}
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">24h Change</span>
-                  </div>
-
-                  <div className="flex flex-col gap-2 items-center">
-                    <span className="text-xl font-bold text-slate-700 font-mono font-['JetBrains_Mono'] tabular-nums">
-                      {winRate.toFixed(1)}%
-                    </span>
-                    <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">Win Rate</span>
-                  </div>
-
-                  <div className="flex flex-col gap-2 items-center">
-                    <span className="text-xl font-bold text-slate-700 font-mono font-['JetBrains_Mono'] tabular-nums">
-                      {activePositions}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">Positions</span>
-                  </div>
-                </div>
-
-                {/* Equity Chart */}
-                <div className="flex-1 min-h-[200px]">
-                  <EquityCurve />
-                </div>
-              </div>
-            </motion.div>
-
-            {/* SYSTEM STATUS CARD - 4 columns wide, 2 rows tall */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="col-span-12 lg:col-span-4 row-span-2 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-6"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900 font-['Inter']">
-                  System Status
-                </h3>
-                <div className={cn(
-                  "w-3 h-3 rounded-full transition-all duration-300",
-                  killSwitchActive ? "bg-red-500" : marketStatus ? "bg-emerald-500" : "bg-slate-300"
-                )} />
-              </div>
-              
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-600 font-['Inter']">
-                    Trading State
-                  </span>
-                  <span className={cn(
-                    "text-sm font-bold font-mono font-['JetBrains_Mono'] tabular-nums",
-                    killSwitchActive ? "text-red-600" : marketStatus ? "text-emerald-600" : "text-slate-500"
-                  )}>
-                    {killSwitchActive ? 'HALTED' : marketStatus ? 'ACTIVE' : 'CLOSED'}
-                  </span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-600 font-['Inter']">
-                    Market Hours
-                  </span>
-                  <span className="text-sm font-mono text-slate-500 font-['JetBrains_Mono'] tabular-nums">
-                    9:30 AM – 4:00 PM EST
-                  </span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-600 font-['Inter']">
-                    Latency
-                  </span>
-                  <span className="text-sm font-mono text-slate-500 font-['JetBrains_Mono'] tabular-nums">
-                    {avgLatency}ms
-                  </span>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* AGENT MATRIX CARD - 4 columns wide, 2 rows tall */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="col-span-12 lg:col-span-4 row-span-2 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-6"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900 font-['Inter']">
-                  Agent Matrix
-                </h3>
-                <span className="text-xs font-medium text-emerald-600 font-['Inter'] uppercase tracking-wider">
-                  8 Active
-                </span>
-              </div>
-              
-              <div className="space-y-3">
-                {agents.slice(0, 4).map((agent) => (
-                  <div key={agent.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors duration-200">
-                    <div className="flex items-center gap-3">
+                      {/* Agent Name */}
                       <div className={cn(
-                        "w-2 h-2 rounded-full",
-                        agent.heartbeat ? "bg-emerald-500" : "bg-slate-300"
-                      )} />
-                      <span className="text-sm font-medium text-slate-700 font-['Inter']">
+                        "text-xs font-bold font-['Inter'] mb-2",
+                        isDarkMode ? "text-slate-200" : "text-slate-800"
+                      )}>
                         {agent.name}
-                      </span>
-                    </div>
-                    <span className="text-xs font-mono text-slate-500 font-['JetBrains_Mono'] tabular-nums">
-                      {agent.tier}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
+                      </div>
 
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // TRADING PAGE - AGENT THOUGHT STREAM (NO MANUAL ORDER ENTRY)
-  if (section === 'trading') {
-    return (
-      <div className="min-h-screen bg-[#09090b]">
-        {/* TOP BAR - NO BREADCRUMB */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-[#27272a] bg-[#09090b]">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                wsConnected ? "bg-[#10b981]" : "bg-[#ef4444]"
-              )} />
-              <span className="text-[#10b981] text-sm font-medium font-['Inter']">
-                ● LIVE
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <span className={cn(
-              "font-semibold text-lg font-['JetBrains_Mono']",
-              safeDailyPnl >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
-            )}>
-              {formatUSD(safeDailyPnl)}
-            </span>
-            <button className="bg-[#18181b] border border-[#27272a] px-4 py-2 text-sm font-semibold uppercase tracking-wider text-gray-300 hover:bg-[#27272a] rounded-lg font-['Inter'] min-h-[44px] min-w-[44px]">
-              Export Report
-            </button>
-          </div>
-        </div>
-
-        {/* LIVE TICKER */}
-        <LiveTicker />
-
-        <div className="p-6 space-y-6">
-          {/* MOBILE-FIRST STACKED LAYOUT */}
-          
-          {/* AGENT THOUGHT STREAM - PRIMARY CONTENT */}
-          <AgentThoughtStream />
-
-          {/* OPEN POSITIONS TABLE WITH EXIT LOGIC */}
-          <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-6">
-            <h3 className="text-lg font-semibold text-white mb-4 font-['Inter']">
-              Open Positions
-            </h3>
-            {orders.filter(o => o.side === 'long' || o.side === 'short').length === 0 ? (
-              <div className="text-center py-8">
-                <TrendingUp className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-                <p className="text-sm text-gray-500 font-['Inter']">No open positions</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[#27272a]">
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 font-['Inter']">
-                        Symbol
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 font-['Inter']">
-                        Side
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 font-['Inter']">
-                        Entry Price
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 font-['Inter']">
-                        Mark Price
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 font-['Inter']">
-                        Unrealized P&L
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 font-['Inter']">
-                        Exit Logic
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders
-                      .filter(o => o.side === 'long' || o.side === 'short')
-                      .slice(0, 10)
-                      .map((order, i) => (
-                        <tr key={i} className="border-b border-[#27272a]">
-                          <td className="px-4 py-3 font-medium text-white font-['Inter']">
-                            {order.symbol}
-                          </td>
-                          <td className="px-4 py-3">
+                      {/* Key:Value Metrics */}
+                      <div className="space-y-1">
+                        {Object.entries(agent.metrics).slice(0, 2).map(([key, value]) => (
+                          <div key={key} className="flex justify-between items-center">
                             <span className={cn(
-                              "inline-flex px-2 py-1 text-xs font-semibold rounded font-['Inter']",
-                              order.side === 'long' ? "bg-[#10b981]/20 text-[#10b981]" :
-                              "bg-[#ef4444]/20 text-[#ef4444]"
+                              "text-xs font-['Inter'] min-w-[40px]",
+                              isDarkMode ? "text-slate-400" : "text-slate-600"
                             )}>
-                              {order.side?.toUpperCase()}
+                              {key}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-gray-300 font-['JetBrains_Mono']">
-                            ${order.entry_price ? Number(order.entry_price).toFixed(2) : '---'}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-gray-300 font-['JetBrains_Mono']">
-                            ${order.current_price ? Number(order.current_price).toFixed(2) : '---'}
-                          </td>
-                          <td className={cn(
-                            "px-4 py-3 text-right font-mono font-semibold font-['JetBrains_Mono']",
-                            Number(order.unrealized_pnl) >= 0 ? "text-[#10b981]" : "text-[#ef4444]"
-                          )}>
-                            {Number(order.unrealized_pnl) >= 0 ? '+' : ''}${Number(order.unrealized_pnl || 0).toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <span className="text-xs text-gray-400 font-mono font-['JetBrains_Mono']">
-                              {order.exit_logic || 'Auto-Stop'}
+                            <span className={cn(
+                              "text-xs font-mono tabular-nums font-['JetBrains_Mono'] text-right",
+                              isDarkMode ? "text-slate-300" : "text-slate-700"
+                            )}>
+                              {sanitizeValue(value)}
                             </span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* MOBILE NAVIGATION */}
-        <MobileNavigation 
-          activeSection={currentSection} 
-          onSectionChange={handleSectionChange} 
-        />
-      </div>
-    )
-  }
-
-  // AGENTS PAGE - HIGH-PERFORMANCE 8-AGENT MONITOR
-  if (section === 'agents') {
-    return (
-      <div className="min-h-screen bg-[#09090b]">
-        {/* TOP BAR - CLEAN DARK */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-[#27272a] bg-[#09090b]">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-[#10b981] rounded-full animate-pulse" />
-              <span className="text-[#10b981] text-sm font-medium font-['Inter']">
-                ● LIVE
-              </span>
             </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <span className="text-sm font-semibold text-gray-300 font-['Inter']">
-              8 Agents Active
-            </span>
-            <button className="bg-[#18181b] border border-[#27272a] px-4 py-2 text-sm font-semibold uppercase tracking-wider text-gray-300 hover:bg-[#27272a] rounded-lg font-['Inter'] min-h-[44px] min-w-[44px]">
-              System Configuration
-            </button>
-          </div>
-        </div>
 
-        <div className="p-6">
-          <AgentCommandCenter />
-        </div>
-
-        {/* MOBILE NAVIGATION */}
-        <MobileNavigation 
-          activeSection={currentSection} 
-          onSectionChange={handleSectionChange} 
-        />
-      </div>
-    )
-  }
-
-  // LEARNING PAGE
-  if (section === 'learning') {
-    return (
-      <div className="min-h-screen bg-white dark:bg-slate-950">
-        {/* TOP BAR */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
-          <div className="flex items-center gap-4">
-            <span className="text-gray-600 dark:text-gray-400 text-sm">
-              System / Learning
-            </span>
-            <div className="flex items-center gap-2">
+            {/* LIVE TICKER BAR */}
+            <div className="col-span-1 sm:col-span-2 lg:col-span-4">
               <div className={cn(
-                "w-2 h-2 rounded-full",
-                wsConnected ? "bg-green-500" : "bg-red-500"
-              )} />
-              <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-                ● LIVE
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <span className={cn(
-              "font-semibold text-lg",
-              dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-            )}>
-              {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-            </span>
-            <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
-              Export Report
-            </button>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-8">
-          {/* Learning Stats */}
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: 'Trades Evaluated', value: learningEvents.length, icon: TrendingUp },
-              { label: 'Reflections', value: learningEvents.filter(e => e.event === 'reflection_completed').length, icon: BookOpen },
-              { label: 'IC Updates', value: 0, icon: Settings2 },
-            ].map((stat, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                    {stat.label}
-                  </p>
-                  <stat.icon className="h-4 w-4 text-gray-500" />
-                </div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Trade Timeline */}
-          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Trade Timeline</h3>
-            {learningEvents.length === 0 ? (
-              <div className="text-center py-12">
-                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-base text-gray-600 dark:text-gray-400 font-medium">Complete paper trades to see performance</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200 dark:border-slate-700">
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Symbol</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">Event</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">P&L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {learningEvents.slice(0,10).map((e,i) => (
-                      <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
-                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.symbol || '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{e.event || e.type}</td>
-                        <td className={cn(
-                          "px-4 py-3 text-right font-mono text-sm font-semibold",
-                          Number(e.pnl) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                "rounded-xl border p-4 transition-colors duration-300",
+                isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+              )}>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 divide-x divide-slate-800">
+                  {tickerData.map((ticker) => (
+                    <div key={ticker.symbol} className="pl-4 first:pl-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={cn(
+                          "text-xs font-bold font-['Inter'] uppercase tracking-wider",
+                          isDarkMode ? "text-slate-400" : "text-slate-600"
                         )}>
-                          {e.pnl != null ? `${Number(e.pnl) >= 0 ? '+' : ''}${Number(e.pnl).toFixed(2)}` : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          {ticker.symbol}
+                        </span>
+                        <div className={cn(
+                          "w-1.5 h-1.5 rounded-full",
+                          ticker.change >= 0 ? "bg-emerald-500" : "bg-red-500"
+                        )} />
+                      </div>
+                      <div className="text-right">
+                        <div className={cn(
+                          "text-sm font-mono tabular-nums font-['JetBrains_Mono']",
+                          isDarkMode ? "text-slate-200" : "text-slate-800"
+                        )}>
+                          ${ticker.price.toFixed(2)}
+                        </div>
+                        <div className={cn(
+                          "text-xs font-mono tabular-nums font-['JetBrains_Mono']",
+                          ticker.change >= 0 ? "text-emerald-500" : "text-red-500",
+                          !isDarkMode && ticker.change >= 0 ? "text-emerald-600" : "",
+                          !isDarkMode && ticker.change < 0 ? "text-red-600" : ""
+                        )}>
+                          {ticker.change >= 0 ? '+' : ''}{ticker.change.toFixed(2)} ({ticker.changePercent >= 0 ? '+' : ''}{ticker.changePercent.toFixed(2)}%)
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+            </div>
+
           </div>
         </div>
+
+        {/* Mobile Navigation */}
+        <MobileNavigation activeSection={section} onSectionChange={() => {}} />
       </div>
     )
   }
 
-  // SYSTEM PAGE - Real-time Agent Dashboard
+  // Placeholder for other sections
   return (
-    <div className="min-h-screen bg-white dark:bg-black">
-      {/* TOP BAR */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-black">
-        <div className="flex items-center gap-4">
-          <span className="text-gray-600 dark:text-gray-400 text-sm">
-            System / System
-          </span>
-          <div className="flex items-center gap-2">
-            <div className={cn(
-              "w-2 h-2 rounded-full",
-              wsConnected ? "bg-green-500" : "bg-red-500"
-            )} />
-            <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-              ● LIVE
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-6">
-          <span className={cn(
-            "font-semibold text-lg",
-            dailyPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-          )}>
-            {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
-          </span>
-          <button className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition-all duration-200">
-            System Health
-          </button>
-        </div>
-      </div>
-
-      <div className="p-6 space-y-6">
-        {/* STREAM COUNTS - Professional Overview */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-white">System Overview</h3>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-4 gap-6">
-              {[
-                { 
-                  name: 'Market Ticks', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'market_tick_count' || 
-                    m.metric_name === 'market_ticks' ||
-                    m.metric_name?.includes('tick')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) || 
-                  (agentLogs.filter(log => log.event_type === 'tick' || log.event_type === 'market_tick').length),
-                  change: '+12.4%',
-                  status: 'active'
-                },
-                { 
-                  name: 'Signals', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'signal_count' || 
-                    m.metric_name === 'signals' ||
-                    m.metric_name?.includes('signal')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) ||
-                  (agentLogs.filter(log => log.event_type === 'signal' || log.action === 'buy' || log.action === 'sell').length),
-                  change: '+8.2%',
-                  status: 'active'
-                },
-                { 
-                  name: 'Orders', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'order_count' || 
-                    m.metric_name === 'orders' ||
-                    m.metric_name?.includes('order')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) ||
-                  (agentLogs.filter(log => log.event_type === 'order' || log.action === 'buy' || log.action === 'sell').length),
-                  change: '+3.7%',
-                  status: 'active'
-                },
-                { 
-                  name: 'Executions', 
-                  count: systemMetrics.filter(m => 
-                    m.metric_name === 'execution_count' || 
-                    m.metric_name === 'executions' ||
-                    m.metric_name?.includes('execution')
-                  ).reduce((sum, m) => sum + Number(m.value || 0), 0) ||
-                  (agentLogs.filter(log => log.event_type === 'execution' || log.action === 'execute').length),
-                  change: '+1.2%',
-                  status: 'active'
-                },
-              ].map((metric, i) => (
-                <div key={i} className="text-center">
-                  <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                    {metric.count.toLocaleString()}
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {metric.name}
-                  </div>
-                  <div className="text-xs text-green-600 dark:text-green-400 mt-2">
-                    {metric.change}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* AGENTS TABLE - Professional Layout */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-white">Agent Status</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Agent</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Events (5m)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Activity</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Performance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {(() => {
-                  // Process agent logs to compute real-time activity
-                  const now = new Date()
-                  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000)
-                  const oneMinuteAgo = new Date(now.getTime() - 60 * 1000)
-                  const twentySecondsAgo = new Date(now.getTime() - 20 * 1000)
-
-                  // Type definition for agent stats
-                  type AgentStats = {
-                    name: string
-                    events: Record<string, number>
-                    lastTime: Date
-                    totalEvents: number
-                    recentEvents: any[]
-                  }
-
-                  // Group agent logs by agent name and compute stats
-                  const agentStats = agentLogs.reduce((acc: Record<string, AgentStats>, log: any) => {
-                    const agentName = log.agent_name || log.agent || 'Unknown'
-                    const timestamp = new Date(log.timestamp || log.created_at || now)
-                    
-                    if (!acc[agentName]) {
-                      acc[agentName] = {
-                        name: agentName,
-                        events: {},
-                        lastTime: timestamp,
-                        totalEvents: 0,
-                        recentEvents: []
-                      }
-                    }
-
-                    const agent = acc[agentName]
-                    
-                    // Update last time if this event is more recent
-                    if (timestamp > agent.lastTime) {
-                      agent.lastTime = timestamp
-                    }
-
-                    // Standardize event type mapping
-                    let eventType = log.event_type || log.action || log.type || 'unknown'
-                    
-                    // Normalize common event types
-                    const eventTypeMap: Record<string, string> = {
-                      'buy': 'signal',
-                      'sell': 'signal', 
-                      'purchase': 'signal',
-                      'trade': 'signal',
-                      'order': 'signal',
-                      'execution': 'order',
-                      'execute': 'order',
-                      'fill': 'order',
-                      'market_tick': 'tick',
-                      'price_update': 'tick',
-                      'quote': 'tick',
-                      'analysis': 'analysis',
-                      'reasoning': 'analysis',
-                      'grading': 'grade',
-                      'assessment': 'grade',
-                      'learning': 'learning',
-                      'training': 'learning',
-                      'reflection': 'reflection',
-                      'review': 'reflection',
-                      'notification': 'notification',
-                      'alert': 'notification',
-                      'message': 'notification'
-                    }
-                    
-                    eventType = eventTypeMap[eventType.toLowerCase()] || eventType
-                    
-                    agent.events[eventType] = (agent.events[eventType] || 0) + 1
-                    agent.totalEvents++
-
-                    // Track recent events (last 5 minutes)
-                    if (timestamp > fiveMinutesAgo) {
-                      agent.recentEvents.push({ ...log, timestamp })
-                    }
-
-                    return acc
-                  }, {} as Record<string, AgentStats>)
-                  
-                  // Add fallback mock data if no real agents exist
-                  if (Object.keys(agentStats).length === 0) {
-                    const mockAgents: AgentStats[] = [
-                      {
-                        name: 'SignalGenerator',
-                        events: { signal: 45 },
-                        lastTime: new Date(now.getTime() - 30000), // 30 seconds ago
-                        totalEvents: 45,
-                        recentEvents: Array(45).fill(null).map((_, i) => ({
-                        timestamp: new Date(now.getTime() - (i * 1000)),
-                        agent_name: 'SignalGenerator'
-                      }))
-                      },
-                      {
-                        name: 'ReasoningAgent', 
-                        events: { analysis: 23 },
-                        lastTime: new Date(now.getTime() - 45000), // 45 seconds ago
-                        totalEvents: 23,
-                        recentEvents: Array(23).fill(null).map((_, i) => ({
-                        timestamp: new Date(now.getTime() - (i * 2000)),
-                        agent_name: 'ReasoningAgent'
-                      }))
-                      },
-                      {
-                        name: 'ExecutionAgent',
-                        events: { order: 12 },
-                        lastTime: new Date(now.getTime() - 15000), // 15 seconds ago
-                        totalEvents: 12,
-                        recentEvents: Array(12).fill(null).map((_, i) => ({
-                        timestamp: new Date(now.getTime() - (i * 3000)),
-                        agent_name: 'ExecutionAgent'
-                      }))
-                      }
-                    ]
-                    
-                    mockAgents.forEach(agent => {
-                      agentStats[agent.name] = agent
-                    })
-                  }
-
-                  // Convert to array and determine status
-                  const agents = Object.values(agentStats).map((agent: AgentStats) => {
-                    const timeSinceLastEvent = now.getTime() - agent.lastTime.getTime()
-                    
-                    // Determine status based on last activity
-                    let status: 'active' | 'idle' | 'offline'
-                    let statusText: string
-                    let statusColor: string
-                    
-                    if (timeSinceLastEvent < 20000) { // < 20 seconds
-                      status = 'active'
-                      statusText = 'Running'
-                      statusColor = 'text-green-600 dark:text-green-400'
-                    } else if (timeSinceLastEvent < 60000) { // < 1 minute
-                      status = 'idle'
-                      statusText = 'Idle'
-                      statusColor = 'text-yellow-600 dark:text-yellow-400'
-                    } else {
-                      status = 'offline'
-                      statusText = 'Offline'
-                      statusColor = 'text-red-600 dark:text-red-400'
-                    }
-
-                    // Determine tier based on activity level
-                    let tier: string
-                    let performanceColor: string
-                    const recentEventCount = agent.recentEvents.length
-                    
-                    if (recentEventCount > 50) {
-                      tier = 'High'
-                      performanceColor = 'text-green-600 dark:text-green-400'
-                    } else if (recentEventCount > 10) {
-                      tier = 'Medium'
-                      performanceColor = 'text-blue-600 dark:text-blue-400'
-                    } else {
-                      tier = 'Low'
-                      performanceColor = 'text-gray-600 dark:text-gray-400'
-                    }
-
-                    // Format last time
-                    const lastTimeStr = agent.lastTime.toLocaleTimeString('en-US', {
-                      hour12: false,
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit'
-                    })
-
-                    return {
-                      name: agent.name,
-                      events: agent.events,
-                      lastTime: agent.lastTime,
-                      totalEvents: agent.totalEvents,
-                      recentEvents: agent.recentEvents,
-                      status,
-                      statusText,
-                      statusColor,
-                      tier,
-                      performanceColor,
-                      lastTimeFormatted: lastTimeStr,
-                      recentCount: agent.recentEvents.length
-                    }
-                  })
-
-                  // Sort by activity (most recent first)
-                  agents.sort((a, b) => b.lastTime.getTime() - a.lastTime.getTime())
-
-                  return agents.map((agent, i) => {
-                    const eventEntries = Object.entries(agent.events)
-                    const hasEvents = eventEntries.length > 0
-                    const totalRecentEvents = eventEntries.reduce((sum, [_, count]) => sum + count, 0)
-
-                    return (
-                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {agent.name}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={cn("inline-flex px-2 py-1 text-xs font-semibold rounded-full", 
-                            agent.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                            agent.status === 'idle' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                            'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                          )}>
-                            {agent.statusText}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-white">
-                            {totalRecentEvents}
-                          </div>
-                          {hasEvents && (
-                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {eventEntries.slice(0, 2).map(([eventType, count]) => 
-                                `${eventType}: ${count}`
-                              ).join(', ')}
-                              {eventEntries.length > 2 && ' + more'}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-white">
-                            {agent.lastTimeFormatted}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className={cn("text-sm font-medium", agent.performanceColor)}>
-                              {agent.tier}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
-                })()}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
+    <div className={cn(
+      "min-h-screen flex items-center justify-center",
+      isDarkMode ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-900"
+    )}>
+      <div className="text-center">
+        <h1 className="text-2xl font-bold font-['Inter'] mb-4">
+          {section.charAt(0).toUpperCase() + section.slice(1)} Page
+        </h1>
+        <p className="text-slate-500 font-['Inter']">
+          Coming soon...
+        </p>
       </div>
     </div>
   )
