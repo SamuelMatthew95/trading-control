@@ -3,14 +3,12 @@
 import { useCallback, useMemo, type ComponentType } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
-import { motion } from 'framer-motion'
 import {
   Activity,
   AlertTriangle,
   BarChart3,
   Brain,
   FileCode,
-  Power,
   TrendingDown,
   TrendingUp,
   Zap,
@@ -146,22 +144,15 @@ function MobileNavigation({ section }: { section: Section }) {
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
-    killSwitchActive,
     learningEvents = [],
     orders = [],
     prices = {},
     positions = [],
     systemMetrics = [],
     dashboardData,
-    wsConnected,
-    setKillSwitch,
   } = useCodexStore()
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
-  const onToggleKillSwitch = useCallback(() => {
-    setKillSwitch(!killSwitchActive)
-  }, [killSwitchActive, setKillSwitch])
-
   const summary = useMemo(() => {
     const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
     const wins = orders.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
@@ -230,10 +221,6 @@ export function DashboardView({ section }: { section: Section }) {
   }, [learningEvents, orders])
 
   const tickerEntries = useMemo(() => Object.entries(prices).slice(0, 6), [prices])
-
-  const headerPnlLabel = summary.hasOrders
-    ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}`
-    : '--'
 
   const contentBySection = (
     <>
@@ -553,35 +540,7 @@ export function DashboardView({ section }: { section: Section }) {
   )
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
-      <header className="sticky top-0 z-20 h-12 border-b border-slate-200 bg-slate-100/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-        <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <p className="text-xs font-sans font-semibold uppercase tracking-widest text-slate-700 dark:text-slate-300">Trading Console</p>
-            <div className="flex items-center gap-2">
-              <span className={cn('h-2 w-2 rounded-full', wsConnected ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
-              <span className="text-xs font-sans text-slate-500 dark:text-slate-400">{wsConnected ? 'LIVE' : 'OFFLINE'}</span>
-            </div>
-          </div>
-          <motion.div key={headerPnlLabel} initial={{ opacity: 0.65 }} animate={{ opacity: 1 }} className={cn('text-sm font-mono tabular-nums font-black', summary.dailyPnlNumeric >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-            {headerPnlLabel}
-          </motion.div>
-          <button
-            type="button"
-            onClick={onToggleKillSwitch}
-            className={cn(
-              'flex min-h-11 min-w-11 items-center justify-center rounded-lg border px-3 text-xs font-sans font-semibold transition-transform active:scale-95',
-              killSwitchActive
-                ? 'border-rose-500 bg-rose-500 text-slate-100'
-                : 'border-slate-300 bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
-            )}
-          >
-            <Power className="mr-1 h-3 w-3" />
-            {killSwitchActive ? 'HALT' : 'ACTIVE'}
-          </button>
-        </div>
-      </header>
-
+    <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
         {contentBySection}
       </main>
