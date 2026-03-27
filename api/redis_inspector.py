@@ -18,8 +18,12 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 async def get_event_bus() -> EventBus:
     """Dependency to get EventBus with Redis connection."""
-    redis = await get_redis()
-    return EventBus(redis)
+    try:
+        redis = await get_redis()
+        return EventBus(redis)
+    except Exception as exc:
+        log_structured("warning", "debug_redis_unavailable", error=str(exc))
+        raise HTTPException(status_code=503, detail="Redis unavailable for debug endpoints")
 
 
 @router.get("/streams")

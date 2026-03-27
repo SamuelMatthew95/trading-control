@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from api.core.models import TradePerformance
 from api.core.writer.safe_writer import SafeWriter
@@ -49,6 +50,10 @@ async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> Dict
             return StandardResponse(
                 success=True, data={"trades": trades_data}
             ).model_dump()
+    except (OperationalError, ProgrammingError):
+        # In degraded environments (fresh DB / local sqlite without migrations),
+        # return an empty payload instead of failing the endpoint.
+        return StandardResponse(success=True, data={"trades": []}).model_dump()
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch trades: {str(exc)}"

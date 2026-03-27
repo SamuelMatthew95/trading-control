@@ -103,10 +103,12 @@ async def root() -> Dict[str, Any]:
             success=True,
             data=HealthResponse(
                 status="running",
-                orchestrator=True,
-                database="unknown",
                 timestamp=datetime.now(timezone.utc).isoformat(),
-                config_source="modular_app",
+                services={
+                    "orchestrator": "healthy",
+                    "database": "unknown",
+                    "config_source": "modular_app",
+                },
             ).model_dump(),
         ).model_dump()
     except Exception as e:
