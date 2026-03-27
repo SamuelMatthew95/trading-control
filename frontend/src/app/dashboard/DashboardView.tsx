@@ -228,15 +228,15 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', positive: summary.dailyPnlNumeric >= 0 },
-              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`, positive: (summary.winRate ?? 0) >= 50 },
-              { title: 'Active Positions', value: sanitizeValue(summary.activePositions), positive: summary.activePositions > 0 },
-              { title: 'Daily Change %', value: summary.dailyChange == null ? 'N/A' : `${sanitizeValue(summary.dailyChange.toFixed(2))}%`, positive: (summary.dailyChange ?? 0) >= 0 },
+              { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
+              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`, trend: 0 },
+              { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
+              { title: 'Daily Change %', value: summary.dailyChange == null ? 'N/A' : `${sanitizeValue(summary.dailyChange.toFixed(2))}%`, trend: summary.dailyChange == null ? 0 : summary.dailyChange > 0 ? 1 : summary.dailyChange < 0 ? -1 : 0 },
             ].map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
-                  {item.positive ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <TrendingDown className="h-4 w-4 text-rose-500" />}
+                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-500" /> : <span className="h-4 w-4" />}
                 </div>
                 <p className={valueClass}>{item.value}</p>
               </div>
