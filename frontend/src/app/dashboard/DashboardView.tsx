@@ -137,9 +137,6 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
     }
   }, [safeDailyPnl, previousPnl])
 
-    const latencies = agentLogs.map(l => l.latency_ms || 0).filter(l => l > 0)
-    return latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0
-  }, [agentLogs])
 
   // Add mock stream lag data for testing
   useEffect(() => {
