@@ -41,6 +41,60 @@ async def _redis_ready(request: Request) -> bool:
         return False
 
 
+async def _oldest_pending_score_age_seconds() -> float | None:
+    """Return the age in seconds of the oldest pending score job when available."""
+    try:
+        from api.database import get_async_session
+
+        async with get_async_session() as session:
+            table_result = await session.execute(
+                text(
+                    """
+                    SELECT table_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND column_name = 'scoring_status'
+                      AND table_name IN ('run', 'runs', 'agent_runs')
+                    ORDER BY CASE table_name
+                        WHEN 'run' THEN 1
+                        WHEN 'runs' THEN 2
+                        WHEN 'agent_runs' THEN 3
+                        ELSE 99
+                    END
+                    LIMIT 1
+                    """
+                )
+            )
+            table_name = table_result.scalar()
+            if not table_name:
+                return None
+
+            query_by_table = {
+                "run": "SELECT MIN(created_at) FROM run WHERE scoring_status = :status",
+                "runs": "SELECT MIN(created_at) FROM runs WHERE scoring_status = :status",
+                "agent_runs": (
+                    "SELECT MIN(created_at) FROM agent_runs WHERE scoring_status = :status"
+                ),
+            }
+            query = query_by_table.get(table_name)
+            if not query:
+                return None
+
+            oldest_result = await session.execute(text(query), {"status": "pending"})
+            oldest_created_at = oldest_result.scalar()
+
+            if oldest_created_at is None:
+                return None
+
+            now = datetime.now(timezone.utc)
+            if oldest_created_at.tzinfo is None:
+                oldest_created_at = oldest_created_at.replace(tzinfo=timezone.utc)
+            return (now - oldest_created_at).total_seconds()
+    except Exception:
+        # Compatibility metric is best-effort and should never fail health checks.
+        return None
+
+
 @router.get("/")
 async def root() -> Dict[str, Any]:
     """Root endpoint with standardized response format."""
@@ -94,24 +148,7 @@ async def system_health() -> Dict[str, Any]:
         db_healthy = await test_database_connection()
         telemetry = metrics_store.snapshot()
 
-        from sqlalchemy import func, select
-
-        from api.core.models import Run
-        from api.database import get_async_session
-
-        oldest_pending_age_seconds = None
-        async with get_async_session() as session:
-            oldest_pending = await session.execute(
-                select(func.min(Run.created_at)).where(Run.scoring_status == "pending")
-            )
-            oldest_created_at = oldest_pending.scalar()
-            if oldest_created_at:
-                # Handle both timezone-aware and naive datetimes
-                now = datetime.now(timezone.utc)
-                if oldest_created_at.tzinfo is None:
-                    # If oldest_created_at is naive, assume it's UTC
-                    oldest_created_at = oldest_created_at.replace(tzinfo=timezone.utc)
-                oldest_pending_age_seconds = (now - oldest_created_at).total_seconds()
+        oldest_pending_age_seconds = await _oldest_pending_score_age_seconds()
 
         return StandardResponse(
             success=True,
