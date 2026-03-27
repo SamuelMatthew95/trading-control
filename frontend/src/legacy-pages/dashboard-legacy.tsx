@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
-import axios from 'axios';
+import { useEffect, useState, useRef } from 'react';
 import { Sidebar } from '@/components/mission-control/Sidebar';
 import { SystemVitals } from '@/components/mission-control/SystemVitals';
 import { BotControl } from '@/components/mission-control/BotControl';
 import { Header } from '@/components/layout/Header';
-import { Badge } from '@/components/ui/badge';
 import { useHealthCheck } from '@/hooks/useHealthCheck';
 import { AlertCircle } from 'lucide-react';
 
 export default function ExecutiveDashboard() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const prevDataRef = useRef<any>(null);
   const [connectionIssue, setConnectionIssue] = useState(false);
   const { data: healthData, isLoading: healthLoading, error, refetch } = useHealthCheck();

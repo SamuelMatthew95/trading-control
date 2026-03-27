@@ -1,5 +1,7 @@
 # Trading Control
 
+![Frontend CI](https://github.com/SamuelMatthew95/trading-control/actions/workflows/frontend-ci.yml/badge.svg)
+
 A production-grade platform for orchestrating autonomous AI agents in real-time trading systems.
 
 ---

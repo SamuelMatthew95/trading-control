@@ -57,7 +57,8 @@ export function SentimentGauge({
   }
 
   const config = getSentimentConfig(value)
-  const angle = (value / 100) * 180 - 90 // Convert to -90 to 90 degrees
+  const _angle = (value / 100) * 180 - 90
+  void _angle
 
   const sizeStyles = {
     sm: { width: 80, height: 40, strokeWidth: 6 },

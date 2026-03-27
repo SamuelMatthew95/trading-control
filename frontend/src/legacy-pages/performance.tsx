@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Sidebar } from '@/components/mission-control/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { AlertCircle } from 'lucide-react';
 
 export default function PerformancePage() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pnl, setPnl] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [summary, setSummary] = useState<any>({ items: [] });
   const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [_isLoading, setIsLoading] = useState(true);
+  void _isLoading;
 
   const load = async () => {
     try {
@@ -97,6 +100,7 @@ export default function PerformancePage() {
                 </thead>
                 <tbody>
                   {(summary.items || []).length > 0 ? (
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     (summary.items || []).map((r: any) => (
                       <tr key={r.task_slug} className="border-b border-border/50">
                         <td className="py-3 text-foreground">{r.task_type}</td>

@@ -1,41 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState, memo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useCodexStore } from '@/stores/useCodexStore'
 import {
-  TrendingUp,
-  BarChart3,
-  Layers,
   Zap,
-  CheckCircle2,
-  AlertTriangle,
-  X,
-  Bot,
-  RotateCcw,
-  Trash2,
-  CandlestickChart,
-  BookOpen,
-  Settings2,
-  Power,
-  Activity,
-  Wifi,
-  WifiOff,
-  Signal,
   SignalLow,
   SignalMedium,
   SignalHigh,
-  Pause,
-  Play,
-  ChevronDown,
-  ChevronUp,
-  ArrowUp,
-  ArrowDown,
-  Minus
 } from 'lucide-react'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,7 +27,7 @@ import { ProTradingCard } from './ProTradingCard'
 import { SentimentGauge } from './SentimentGauge'
 import { LogViewer } from './LogViewer'
 import { StatusChip, AgentStatusChip, TrendChip } from './StatusChip'
-import { MarketEmptyState, BotEmptyState, DataEmptyState, LoadingState } from './EmptyStates'
+import { MarketEmptyState } from './EmptyStates'
 import { KillSwitchState } from './KillSwitchState'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
@@ -113,7 +86,8 @@ const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
 PnLHero.displayName = 'PnLHero'
 
 const SentimentEngine = memo(() => {
-  const [sentiment, setSentiment] = useState(65) // 0 = Fear, 50 = Neutral, 100 = Greed
+  const [sentiment, _setSentiment] = useState(65) // 0 = Fear, 50 = Neutral, 100 = Greed
+  void _setSentiment
   
   return (
     <motion.div
@@ -132,11 +106,11 @@ const SentimentEngine = memo(() => {
 
 SentimentEngine.displayName = 'SentimentEngine'
 
-const MarketTicker = memo(({ prices }: { prices: Record<string, any> }) => {
-  const [prevPrices, setPrevPrices] = useState<Record<string, number>>({})
+const MarketTicker = memo(({ prices }: { prices: Record<string, { price: number; change: number }> }) => {
+  const [prevPrices, setPrevPrices] = useState<Record<string, { price: number; change: number }>>({})
   
   const getPriceChange = (symbol: string, currentPrice: number) => {
-    const prevPrice = prevPrices[symbol]
+    const prevPrice = prevPrices[symbol]?.price
     if (prevPrice === undefined) return null
     return currentPrice > prevPrice ? 'up' : currentPrice < prevPrice ? 'down' : 'neutral'
   }
@@ -215,7 +189,7 @@ const MarketTicker = memo(({ prices }: { prices: Record<string, any> }) => {
 
 MarketTicker.displayName = 'MarketTicker'
 
-const AgentStatusPulse = memo(({ agentLogs }: { agentLogs: any[] }) => {
+const AgentStatusPulse = memo(({ agentLogs: _agentLogs }: { agentLogs: unknown[] }) => {
   const agents = [
     { name: 'Reasoning Agent', status: 'running', lastAction: 'Analyzed BTC trend' },
     { name: 'Execution Engine', status: 'running', lastAction: 'Placed SPY order' },
@@ -258,7 +232,7 @@ const AgentStatusPulse = memo(({ agentLogs }: { agentLogs: any[] }) => {
 
 AgentStatusPulse.displayName = 'AgentStatusPulse'
 
-const SystemHealthMetrics = memo(({ systemMetrics }: { systemMetrics: any[] }) => {
+const SystemHealthMetrics = memo(({ systemMetrics }: { systemMetrics: Array<{ metric_name?: string; value?: number }> }) => {
   const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
   const avgLag = systemMetrics
     .filter(m => m.metric_name?.startsWith('stream_lag:'))
@@ -368,19 +342,28 @@ const KillSwitch = memo(({ killSwitchActive, onToggle }: {
 
 KillSwitch.displayName = 'KillSwitch'
 
-const LogTerminal = memo(({ agentLogs, isExpanded, onToggle }: { 
-  agentLogs: any[]
+const LogTerminal = memo(({ agentLogs, isExpanded: _isExpanded, onToggle: _onToggle }: {
+  agentLogs: Array<Record<string, unknown>>
   isExpanded: boolean
-  onToggle: () => void 
+  onToggle: () => void
 }) => {
   // Convert agent logs to LogViewer format
-  const logs = agentLogs.slice(0, 10).map((log, index) => ({
-    id: `log-${index}`,
-    timestamp: new Date(log.timestamp || Date.now()).toLocaleTimeString(),
-    level: (log.action === 'buy' || log.action === 'sell') ? 'success' as const : 'info' as const,
-    message: `${log.action?.toUpperCase() || 'HOLD'} ${log.symbol || 'UNKNOWN'} - ${log.primary_edge || 'No edge description'}`,
-    details: `Confidence: ${((log.confidence || 0) * 100).toFixed(0)}% | Latency: ${log.latency_ms || 0}ms | Cost: $${log.cost_usd || '0.000'}`
-  }))
+  const logs = agentLogs.slice(0, 10).map((log, index) => {
+    const timestamp = String(log.timestamp || Date.now())
+    const action = typeof log.action === 'string' ? log.action : 'hold'
+    const symbol = typeof log.symbol === 'string' ? log.symbol : 'UNKNOWN'
+    const primaryEdge = typeof log.primary_edge === 'string' ? log.primary_edge : 'No edge description'
+    const confidence = typeof log.confidence === 'number' ? log.confidence : 0
+    const latencyMs = typeof log.latency_ms === 'number' ? log.latency_ms : 0
+    const costUsd = typeof log.cost_usd === 'number' ? log.cost_usd : 0
+    return {
+      id: `log-${index}`,
+      timestamp: new Date(timestamp).toLocaleTimeString(),
+      level: (action === 'buy' || action === 'sell') ? 'success' as const : 'info' as const,
+      message: `${action.toUpperCase()} ${symbol} - ${primaryEdge}`,
+      details: `Confidence: ${(confidence * 100).toFixed(0)}% | Latency: ${latencyMs}ms | Cost: $${costUsd || '0.000'}`
+    }
+  })
   
   return (
     <LogViewer

@@ -11,11 +11,13 @@ interface SystemVitalsProps {
   isLoading: boolean;
 }
 
-export function SystemVitals({ health, isLoading }: SystemVitalsProps) {
+export function SystemVitals({ health, isLoading: _isLoading }: SystemVitalsProps) {
   const prevDataRef = useRef<HealthResponse | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [_isRefreshing, setIsRefreshing] = useState(false);
+  const [_lastUpdated, setLastUpdated] = useState<string>('');
+  void _isRefreshing;
+  void _lastUpdated;
 
   useEffect(() => {
     if (health) {
