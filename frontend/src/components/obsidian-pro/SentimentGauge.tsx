@@ -22,11 +22,11 @@ export function SentimentGauge({
         label: 'FEAR',
         gradient: 'from-rose-400 to-red-500',
         ringColor: 'border-rose-200',
-        glowColor: 'shadow-rose-100',
+        glowColor: 'bg-rose-100',
         lightMode: {
           gradient: 'from-rose-300 to-red-400',
           ringColor: 'border-rose-200',
-          glowColor: 'shadow-rose-50'
+          glowColor: 'bg-rose-50'
         }
       }
     }
@@ -35,11 +35,11 @@ export function SentimentGauge({
         label: 'NEUTRAL',
         gradient: 'from-amber-400 to-yellow-500',
         ringColor: 'border-amber-200',
-        glowColor: 'shadow-amber-100',
+        glowColor: 'bg-amber-100',
         lightMode: {
           gradient: 'from-amber-300 to-yellow-400',
           ringColor: 'border-amber-200',
-          glowColor: 'shadow-amber-50'
+          glowColor: 'bg-amber-50'
         }
       }
     }
@@ -47,11 +47,11 @@ export function SentimentGauge({
       label: 'GREED',
       gradient: 'from-emerald-400 to-green-500',
       ringColor: 'border-emerald-200',
-      glowColor: 'shadow-emerald-100',
+      glowColor: 'bg-emerald-100',
       lightMode: {
         gradient: 'from-emerald-300 to-green-400',
         ringColor: 'border-emerald-200',
-        glowColor: 'shadow-emerald-50'
+        glowColor: 'bg-emerald-50'
       }
     }
   }
@@ -124,7 +124,7 @@ export function SentimentGauge({
             cx={width / 2}
             cy={height / 2}
             r={strokeWidth / 2}
-            className={cn('fill-white', config.glowColor.replace('shadow-', 'bg-'))}
+            className={cn('fill-white', config.glowColor)}
             animate={{
               scale: [1, 1.2, 1],
               opacity: [0.8, 1, 0.8]

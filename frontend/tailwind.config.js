@@ -7,10 +7,19 @@ const config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+      },
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
-        surface: 'hsl(var(--surface))',
+        surface: {
+          base: '#020617',
+          card: '#0f172a',
+          raised: '#1e293b',
+          border: '#27272a',
+        },
         border: 'hsl(var(--border))',
         muted: {
           DEFAULT: 'hsl(var(--muted))',
@@ -22,9 +31,9 @@ const config = {
         },
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        lg: '0.75rem',
+        md: '0.625rem',
+        sm: '0.5rem',
       },
     },
   },

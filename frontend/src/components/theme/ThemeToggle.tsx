@@ -10,52 +10,27 @@ export function ThemeToggle() {
 
   React.useEffect(() => {
     setMounted(true)
-    // Check for saved theme preference or default to system preference
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
       const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
       const initialTheme = savedTheme || systemTheme
-      
       setTheme(initialTheme)
       document.documentElement.classList.toggle('dark', initialTheme === 'dark')
     }
   }, [])
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light'
-    setTheme(newTheme)
+    const nextTheme = theme === 'light' ? 'dark' : 'light'
+    setTheme(nextTheme)
     if (typeof window !== 'undefined') {
-      localStorage.setItem('theme', newTheme)
-      document.documentElement.classList.toggle('dark', newTheme === 'dark')
+      localStorage.setItem('theme', nextTheme)
+      document.documentElement.classList.toggle('dark', nextTheme === 'dark')
     }
   }
 
-  // Prevent hydration mismatch
-  if (!mounted) {
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="p-2 rounded-md hover:bg-accent transition-colors"
-      >
-        <div className="w-4 h-4" />
-        <span className="sr-only">Toggle theme</span>
-      </Button>
-    )
-  }
-
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={toggleTheme}
-      className="p-2 rounded-md hover:bg-accent transition-colors"
-    >
-      {theme === 'dark' ? (
-        <Sun size={16} />
-      ) : (
-        <Moon size={16} />
-      )}
+    <Button variant="outline" size="icon-lg" onClick={toggleTheme} className="min-h-11 min-w-11">
+      {mounted && theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       <span className="sr-only">Toggle theme</span>
     </Button>
   )

@@ -151,7 +151,7 @@ export function LogViewer({
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.05 }}
                         className={cn(
-                          'group rounded-lg border p-3 transition-all duration-200 hover:shadow-md',
+                          'group rounded-lg border p-3 transition-all duration-200',
                           config.bg,
                           config.border
                         )}

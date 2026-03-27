@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, type ComponentType } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import { motion } from 'framer-motion'
@@ -63,7 +63,7 @@ function getMetric(systemMetrics: any[], metricName: string): number | null {
   return toFiniteNumber(match?.value)
 }
 
-function EmptyState({ message, icon: Icon }: { message: string; icon: React.ComponentType<{ className?: string }> }) {
+function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentType<{ className?: string }> }) {
   return (
     <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -131,7 +131,7 @@ function MobileNavigation({ section }: { section: Section }) {
             className={cn(
               'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold',
               section === link.key
-                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                ? 'bg-slate-900 text-slate-100 dark:bg-slate-100 dark:text-slate-900'
                 : 'text-slate-500 dark:text-slate-400'
             )}
           >
@@ -572,7 +572,7 @@ export function DashboardView({ section }: { section: Section }) {
             className={cn(
               'flex min-h-11 min-w-11 items-center justify-center rounded-lg border px-3 text-xs font-sans font-semibold transition-transform active:scale-95',
               killSwitchActive
-                ? 'border-rose-500 bg-rose-500 text-white'
+                ? 'border-rose-500 bg-rose-500 text-slate-100'
                 : 'border-slate-300 bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
             )}
           >
