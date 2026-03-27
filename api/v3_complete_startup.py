@@ -72,8 +72,7 @@ class CompleteV3SystemManager:
             for flow_line in PIPELINE_FLOW_DESCRIPTION:
                 log_structured("info", "v3_pipeline_step", step=flow_line)
             await self._run_forever()
-        except Exception as exc:  # noqa: BLE001
-            del exc
+        except Exception:  # noqa: BLE001
             log_structured("error", "v3_system_startup_failed", exc_info=True)
             raise
 
@@ -99,8 +98,7 @@ class CompleteV3SystemManager:
             try:
                 await bus.create_stream(stream_name)
                 log_structured("info", "v3_stream_ready", stream=stream_name)
-            except Exception as exc:  # noqa: BLE001
-                del exc
+            except Exception:  # noqa: BLE001
                 log_structured(
                     "warning",
                     "v3_stream_create_failed",
@@ -139,7 +137,7 @@ class CompleteV3SystemManager:
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             log_structured("info", "v3_runtime_cancelled")
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             log_structured("error", "v3_system_runtime_error", exc_info=True)
         finally:
             await self.stop()
@@ -206,7 +204,7 @@ async def verify_complete_pipeline(redis_client: Redis) -> dict[str, int | str]:
     try:
         dlq_messages = await redis_client.xrange("dlq:market_ticks")
         log_structured("info", "v3_pipeline_dlq_count", count=len(dlq_messages))
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log_structured("warning", "v3_pipeline_dlq_read_failed", exc_info=True)
 
     return results

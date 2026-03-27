@@ -181,11 +181,6 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
     stream_info = await bus.get_stream_info()
     for stream, info in stream_info.items():
         lag = float(info.get("lag", 0))
-        labels = {
-            "stream": stream,
-            "length": int(info.get("length", 0)),
-            "groups": int(info.get("groups", 0)),
-        }
         await _record_system_metric(bus, "stream_lag", lag, {"stream": stream})
         if lag > settings.MAX_CONSUMER_LAG_ALERT:
             await bus.publish(
