@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.db import get_db
+from api.database import get_db
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agents.reasoning_agent import ReasoningAgent

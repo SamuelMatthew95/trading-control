@@ -10,7 +10,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.core.writer.safe_writer import SafeWriter
 
 logger = logging.getLogger(__name__)

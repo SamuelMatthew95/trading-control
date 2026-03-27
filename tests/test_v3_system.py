@@ -22,7 +22,7 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.redis_client import get_redis
 from api.agents.v3_agent_system import V3_AGENTS
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.core.writer.safe_writer import SafeWriter
 from api.observability import log_structured
 
@@ -331,7 +331,7 @@ async def test_full_system_integration():
         assert results["market_ticks"] > 0
         assert sum(results.values()) > 0
         
-        print("✅ Full system integration test passed!")
+        print("[OK] Full system integration test passed!")
         
     finally:
         await redis.close()

@@ -78,7 +78,7 @@ class ContainerV3System:
         return False
 
     async def _wait_for_postgres(self, timeout_seconds: int) -> bool:
-        from api.db import AsyncSessionFactory
+        from api.database import AsyncSessionFactory
 
         for attempt in range(timeout_seconds):
             try:

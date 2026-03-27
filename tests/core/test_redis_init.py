@@ -162,55 +162,55 @@ if __name__ == "__main__":
     import asyncio
 
     async def run_tests():
-        print("🧪 Running Redis init tests with fakeredis...")
+        print("TEST Running Redis init tests with fakeredis...")
 
         try:
             # Import fakeredis for direct testing
             import fakeredis
 
             # Test 1: Happy path
-            print("\n1️⃣ Testing happy path...")
+            print("\n1. Testing happy path...")
             fake_redis_1 = fakeredis.FakeAsyncRedis(decode_responses=True)
             await test_happy_path_stream_creation(fake_redis_1)
             await fake_redis_1.aclose()
-            print("✅ Happy path test passed")
+            print("[OK] Happy path test passed")
 
             # Test 2: Idempotency
-            print("\n2️⃣ Testing idempotency...")
+            print("\n2. Testing idempotency...")
             fake_redis_2 = fakeredis.FakeAsyncRedis(decode_responses=True)
             await test_idempotency_multiple_calls(fake_redis_2)
             await fake_redis_2.aclose()
-            print("✅ Idempotency test passed")
+            print("[OK] Idempotency test passed")
 
             # Test 3: Skip startup order (removed - was flaky)
-            print("\n3️⃣ Skipping startup order test (removed - was flaky)")
-            print("✅ Startup order test skipped")
+            print("\n3. Skipping startup order test (removed - was flaky)")
+            print("[OK] Startup order test skipped")
 
             # Test 4: All streams consumable
-            print("\n4️⃣ Testing all streams consumable...")
+            print("\n4. Testing all streams consumable...")
             fake_redis_4 = fakeredis.FakeAsyncRedis(decode_responses=True)
             await test_all_streams_have_consumers(fake_redis_4)
             await fake_redis_4.aclose()
-            print("✅ All streams consumable test passed")
+            print("[OK] All streams consumable test passed")
 
             # Test 5: Message handling
-            print("\n5️⃣ Testing message handling...")
+            print("\n5. Testing message handling...")
             fake_redis_5 = fakeredis.FakeAsyncRedis(decode_responses=True)
             await test_stream_creation_with_messages(fake_redis_5)
             await fake_redis_5.aclose()
-            print("✅ Message handling test passed")
+            print("[OK] Message handling test passed")
 
             # Test 6: Group id parameter
-            print("\n6️⃣ Testing group id parameter...")
+            print("\n6. Testing group id parameter...")
             fake_redis_6 = fakeredis.FakeAsyncRedis(decode_responses=True)
             await test_group_id_parameter(fake_redis_6)
             await fake_redis_6.aclose()
-            print("✅ Group id parameter test passed")
+            print("[OK] Group id parameter test passed")
 
-            print("\n🎉 All tests passed!")
+            print("\n All tests passed!")
 
         except Exception as exc:
-            print(f"\n❌ Test failed: {exc}")
+            print(f"\n[FAIL] Test failed: {exc}")
             raise
 
     asyncio.run(run_tests())

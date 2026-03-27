@@ -22,7 +22,7 @@ from api.database import (
     get_settings_info,
     test_database_connection,
 )
-from api.db import AsyncSessionFactory, engine
+from api.database import AsyncSessionFactory, engine
 from api.events.bus import EventBus, create_redis_groups
 from api.events.dlq import DLQManager
 from api.main_state import set_services

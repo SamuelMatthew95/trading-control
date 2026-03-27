@@ -17,10 +17,10 @@ def validate_syntax(file_path: Path) -> bool:
         ast.parse(source)
         return True
     except SyntaxError as e:
-        print(f"❌ Syntax error in {file_path}: {e}")
+        print(f"[FAIL] Syntax error in {file_path}: {e}")
         return False
     except Exception as e:
-        print(f"❌ Error reading {file_path}: {e}")
+        print(f"[FAIL] Error reading {file_path}: {e}")
         return False
 
 
@@ -110,7 +110,7 @@ def validate_async_patterns(file_path: Path) -> List[str]:
 
 def main() -> int:
     """Run production readiness validation."""
-    print("🚀 Production Readiness Validation")
+    print("Production Readiness Validation")
     print("=" * 50)
     
     # Files to validate
@@ -127,7 +127,7 @@ def main() -> int:
     
     for file_path_str in files_to_check:
         file_path = Path(file_path_str)
-        print(f"\n📁 Validating {file_path}")
+        print(f"\nValidating {file_path}")
         
         # Syntax check
         if not validate_syntax(file_path):
@@ -137,42 +137,42 @@ def main() -> int:
         # Import validation
         import_issues = validate_imports(file_path)
         if import_issues:
-            print("  ⚠️  Import issues:")
+            print("  [WARN]  Import issues:")
             for issue in import_issues:
                 print(f"    - {issue}")
         
         # Error handling validation
         error_issues = validate_error_handling(file_path)
         if error_issues:
-            print("  ⚠️  Error handling issues:")
+            print("  [WARN]  Error handling issues:")
             for issue in error_issues[:3]:  # Limit output
                 print(f"    - {issue}")
         
         # Async pattern validation
         async_issues = validate_async_patterns(file_path)
         if async_issues:
-            print("  ⚠️  Async pattern issues:")
+            print("  [WARN]  Async pattern issues:")
             for issue in async_issues[:3]:  # Limit output
                 print(f"    - {issue}")
         
         if not (import_issues or error_issues or async_issues):
-            print("  ✅ Passed all checks")
+            print("  [OK] Passed all checks")
     
     # Summary
     print("\n" + "=" * 50)
     if all_passed:
-        print("🎉 All files passed production readiness validation!")
-        print("\n📋 Production Features Validated:")
-        print("  ✅ Proper Redis connection pooling (max_connections=30)")
-        print("  ✅ Health checks enabled (health_check_interval=30)")
-        print("  ✅ WebSocket broadcast pattern (1 Redis conn for N clients)")
-        print("  ✅ Graceful shutdown with timeouts")
-        print("  ✅ Comprehensive error handling")
-        print("  ✅ No orphaned background tasks")
-        print("  ✅ Connection leak prevention")
+        print("All files passed production readiness validation!")
+        print("\nProduction Features Validated:")
+        print("  [OK] Proper Redis connection pooling (max_connections=30)")
+        print("  [OK] Health checks enabled (health_check_interval=30)")
+        print("  [OK] WebSocket broadcast pattern (1 Redis conn for N clients)")
+        print("  [OK] Graceful shutdown with timeouts")
+        print("  [OK] Comprehensive error handling")
+        print("  [OK] No orphaned background tasks")
+        print("  [OK] Connection leak prevention")
         return 0
     else:
-        print("❌ Some files failed validation. Please fix issues before deploying.")
+        print("[FAIL] Some files failed validation. Please fix issues before deploying.")
         return 1
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.services.execution.brokers.paper import PaperBroker
 

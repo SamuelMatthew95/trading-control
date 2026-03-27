@@ -8,7 +8,7 @@ This handler has been replaced by SystemMetricsConsumer.
 Keeping this file only for backward compatibility with existing tests.
 
 Active processing path:
-SystemMetricsConsumer → SafeWriter.write_system_metric
+SystemMetricsConsumer -> SafeWriter.write_system_metric
 
 This handler should NOT be used in new code.
 """

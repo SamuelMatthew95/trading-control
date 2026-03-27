@@ -2,16 +2,16 @@
 COMPLETE V3 System Requirements Test
 
 VALIDATES EVERY SINGLE EXPLICIT REQUIREMENT:
-✅ REDIS STREAMS ONLY - No direct agent calls
-✅ TRACEABILITY MANDATORY - Every message has trace_id + msg_id
-✅ SAFEWRITE V3 ONLY - All Postgres writes atomic
-✅ STOP V2 EVENTS - Auto-DLQ for old schema
-✅ NO SLEEPS - Pure event-driven blocking
-✅ EXPLICIT FIELD MAPPING - No **row shortcuts
-✅ FULL EVENT FAN-OUT - All agents publish downstream
-✅ OBSERVABILITY - Dashboard-visible tables only
-✅ ERROR HANDLING - Nack on failure, DLQ on schema errors
-✅ COMPLETE PIPELINE - All steps implemented
+[OK] REDIS STREAMS ONLY - No direct agent calls
+[OK] TRACEABILITY MANDATORY - Every message has trace_id + msg_id
+[OK] SAFEWRITE V3 ONLY - All Postgres writes atomic
+[OK] STOP V2 EVENTS - Auto-DLQ for old schema
+[OK] NO SLEEPS - Pure event-driven blocking
+[OK] EXPLICIT FIELD MAPPING - No **row shortcuts
+[OK] FULL EVENT FAN-OUT - All agents publish downstream
+[OK] OBSERVABILITY - Dashboard-visible tables only
+[OK] ERROR HANDLING - Nack on failure, DLQ on schema errors
+[OK] COMPLETE PIPELINE - All steps implemented
 """
 
 import asyncio
@@ -27,7 +27,7 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.redis_client import get_redis
 from api.agents.v3_complete_system import COMPLETE_V3_AGENTS, NotificationAgent
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.core.writer.safe_writer import SafeWriter
 from api.observability import log_structured
 
@@ -60,7 +60,7 @@ class TestV3CompleteRequirements:
 
     async def test_requirement_1_redis_streams_only(self, event_bus, dlq, redis_client):
         """REQUIREMENT 1: REDIS STREAMS ONLY - No direct agent calls."""
-        print("🔍 Testing: REDIS STREAMS ONLY")
+        print(" Testing: REDIS STREAMS ONLY")
         
         # Create all streams
         streams = [
@@ -77,13 +77,13 @@ class TestV3CompleteRequirements:
         for stream in streams:
             info = await redis_client.xinfo_stream(stream)
             assert info is not None
-            print(f"✅ Stream exists: {stream}")
+            print(f"[OK] Stream exists: {stream}")
         
-        print("✅ REQUIREMENT 1 PASSED: REDIS STREAMS ONLY")
+        print("[OK] REQUIREMENT 1 PASSED: REDIS STREAMS ONLY")
 
     async def test_requirement_2_traceability_mandatory(self, event_bus, redis_client):
         """REQUIREMENT 2: TRACEABILITY MANDATORY - Every message has trace_id + msg_id."""
-        print("🔍 Testing: TRACEABILITY MANDATORY")
+        print(" Testing: TRACEABILITY MANDATORY")
         
         await event_bus.create_stream("market_ticks")
         
@@ -110,12 +110,12 @@ class TestV3CompleteRequirements:
         assert data.get("msg_id") == msg_id
         assert data.get("trace_id") == trace_id
         
-        print(f"✅ Traceability verified: msg_id={msg_id}, trace_id={trace_id}")
-        print("✅ REQUIREMENT 2 PASSED: TRACEABILITY MANDATORY")
+        print(f"[OK] Traceability verified: msg_id={msg_id}, trace_id={trace_id}")
+        print("[OK] REQUIREMENT 2 PASSED: TRACEABILITY MANDATORY")
 
     async def test_requirement_3_safewriter_v3_only(self, safe_writer):
         """REQUIREMENT 3: SAFEWRITE V3 ONLY - All Postgres writes atomic."""
-        print("🔍 Testing: SAFEWRITE V3 ONLY")
+        print(" Testing: SAFEWRITE V3 ONLY")
         
         msg_id = str(uuid.uuid4())
         stream = "test_stream"
@@ -155,11 +155,11 @@ class TestV3CompleteRequirements:
         with pytest.raises(ValueError, match="Invalid schema version"):
             await safe_writer.write_order(str(uuid.uuid4()), stream, v2_data)
         
-        print("✅ REQUIREMENT 3 PASSED: SAFEWRITE V3 ONLY")
+        print("[OK] REQUIREMENT 3 PASSED: SAFEWRITE V3 ONLY")
 
     async def test_requirement_4_stop_v2_events(self, event_bus, dlq, redis_client):
         """REQUIREMENT 4: STOP V2 EVENTS - Auto-DLQ for old schema."""
-        print("🔍 Testing: STOP V2 EVENTS")
+        print(" Testing: STOP V2 EVENTS")
         
         await event_bus.create_stream("test_v2")
         
@@ -186,12 +186,12 @@ class TestV3CompleteRequirements:
         assert dlq_data.get("schema_version") == "v2"
         assert "Invalid schema version" in dlq_data.get("error", "")
         
-        print(f"✅ V2 event sent to DLQ: {v2_msg_id}")
-        print("✅ REQUIREMENT 4 PASSED: STOP V2 EVENTS")
+        print(f"[OK] V2 event sent to DLQ: {v2_msg_id}")
+        print("[OK] REQUIREMENT 4 PASSED: STOP V2 EVENTS")
 
     async def test_requirement_6_explicit_field_mapping(self, safe_writer):
         """REQUIREMENT 6: EXPLICIT FIELD MAPPING - No **row shortcuts."""
-        print("🔍 Testing: EXPLICIT FIELD MAPPING")
+        print(" Testing: EXPLICIT FIELD MAPPING")
         
         msg_id = str(uuid.uuid4())
         stream = "test_mapping"
@@ -217,12 +217,12 @@ class TestV3CompleteRequirements:
         
         assert result is True
         
-        print("✅ Explicit field mapping verified in SafeWriter")
-        print("✅ REQUIREMENT 6 PASSED: EXPLICIT FIELD MAPPING")
+        print("[OK] Explicit field mapping verified in SafeWriter")
+        print("[OK] REQUIREMENT 6 PASSED: EXPLICIT FIELD MAPPING")
 
     async def test_requirement_7_full_event_fan_out(self, event_bus, redis_client):
         """REQUIREMENT 7: FULL EVENT FAN-OUT - All agents publish downstream."""
-        print("🔍 Testing: FULL EVENT FAN-OUT")
+        print(" Testing: FULL EVENT FAN-OUT")
         
         # Create all streams for the pipeline
         streams = [
@@ -256,18 +256,18 @@ class TestV3CompleteRequirements:
             messages = await redis_client.xrange(stream)
             if messages:
                 processed_streams.append(stream)
-                print(f"✅ Stream has messages: {stream}")
+                print(f"[OK] Stream has messages: {stream}")
         
         # Should have processed multiple streams in the pipeline
         assert len(processed_streams) >= 2  # At least input and one output
         assert "market_ticks" in processed_streams
         
-        print(f"✅ Fan-out verified: {len(processed_streams)} streams processed")
-        print("✅ REQUIREMENT 7 PASSED: FULL EVENT FAN-OUT")
+        print(f"[OK] Fan-out verified: {len(processed_streams)} streams processed")
+        print("[OK] REQUIREMENT 7 PASSED: FULL EVENT FAN-OUT")
 
     async def test_requirement_8_observability(self, event_bus, redis_client):
         """REQUIREMENT 8: OBSERVABILITY - Dashboard-visible tables only."""
-        print("🔍 Testing: OBSERVABILITY")
+        print(" Testing: OBSERVABILITY")
         
         await event_bus.create_stream("test_observability")
         
@@ -299,12 +299,12 @@ class TestV3CompleteRequirements:
         assert "metadata" in data
         assert "performance" in data["metadata"]
         
-        print("✅ Observability data preserved in events")
-        print("✅ REQUIREMENT 8 PASSED: OBSERVABILITY")
+        print("[OK] Observability data preserved in events")
+        print("[OK] REQUIREMENT 8 PASSED: OBSERVABILITY")
 
     async def test_requirement_9_error_handling(self, event_bus, dlq, redis_client):
         """REQUIREMENT 9: ERROR HANDLING - Nack on failure, DLQ on schema errors."""
-        print("🔍 Testing: ERROR HANDLING")
+        print(" Testing: ERROR HANDLING")
         
         await event_bus.create_stream("test_error")
         
@@ -327,12 +327,12 @@ class TestV3CompleteRequirements:
         # This would be tested with actual agent processing
         # For now, we verify the DLQ mechanism works
         
-        print("✅ Error handling verified - schema errors go to DLQ")
-        print("✅ REQUIREMENT 9 PASSED: ERROR HANDLING")
+        print("[OK] Error handling verified - schema errors go to DLQ")
+        print("[OK] REQUIREMENT 9 PASSED: ERROR HANDLING")
 
     async def test_requirement_10_complete_pipeline(self, event_bus, redis_client):
         """REQUIREMENT 10: COMPLETE PIPELINE - All steps implemented."""
-        print("🔍 Testing: COMPLETE PIPELINE")
+        print(" Testing: COMPLETE PIPELINE")
         
         # Create all streams for complete pipeline
         streams = [
@@ -365,7 +365,7 @@ class TestV3CompleteRequirements:
         actual_agents = [agent.__name__ for agent in agent_classes]
         for expected in expected_agents:
             assert expected in actual_agents
-            print(f"✅ Agent defined: {expected}")
+            print(f"[OK] Agent defined: {expected}")
         
         # Test pipeline flow
         test_event = {
@@ -380,12 +380,12 @@ class TestV3CompleteRequirements:
         await redis_client.xadd("market_ticks", test_event)
         await asyncio.sleep(1.0)
         
-        print("✅ Complete pipeline verified")
-        print("✅ REQUIREMENT 10 PASSED: COMPLETE PIPELINE")
+        print("[OK] Complete pipeline verified")
+        print("[OK] REQUIREMENT 10 PASSED: COMPLETE PIPELINE")
 
     async def test_mandatory_logging_format(self, event_bus, redis_client):
         """Test mandatory logging format: [AGENT_NAME] Processed {msg_id} trace_id={trace_id}"""
-        print("🔍 Testing: MANDATORY LOGGING FORMAT")
+        print(" Testing: MANDATORY LOGGING FORMAT")
         
         await event_bus.create_stream("test_logging")
         
@@ -393,19 +393,19 @@ class TestV3CompleteRequirements:
         # In a real test, we'd capture stdout and verify the format
         # For now, we verify the infrastructure supports it
         
-        print("✅ Logging format infrastructure verified")
-        print("✅ MANDATORY LOGGING FORMAT TEST PASSED")
+        print("[OK] Logging format infrastructure verified")
+        print("[OK] MANDATORY LOGGING FORMAT TEST PASSED")
 
     async def test_no_sleeps_event_driven(self):
         """Test that system is event-driven with no sleeps."""
-        print("🔍 Testing: NO SLEEPS - Event-driven only")
+        print(" Testing: NO SLEEPS - Event-driven only")
         
         # Verify agent system doesn't use sleep() calls
         # This would be a code analysis test in practice
         # For now, we verify the design pattern
         
-        print("✅ Event-driven design verified")
-        print("✅ NO SLEEPS TEST PASSED")
+        print("[OK] Event-driven design verified")
+        print("[OK] NO SLEEPS TEST PASSED")
 
 
 async def test_all_requirements_complete():
@@ -453,7 +453,7 @@ async def test_all_requirements_complete():
         
         print("\nCOMPLETE TEST RESULTS:")
         for stream, count in results.items():
-            status = "✅" if count > 0 else "❌"
+            status = "[OK]" if count > 0 else "[FAIL]"
             print(f"  {status} {stream}: {count} messages")
         
         # Verify v2 events go to DLQ
@@ -469,20 +469,20 @@ async def test_all_requirements_complete():
         await asyncio.sleep(0.5)
         
         dlq_messages = await redis.xrange("dlq:market_ticks")
-        print(f"  ✅ DLQ: {len(dlq_messages)} v2 messages")
+        print(f"  [OK] DLQ: {len(dlq_messages)} v2 messages")
         
         print("\n" + "=" * 80)
-        print("🎉 ALL REQUIREMENTS VERIFIED!")
-        print("✅ REDIS STREAMS ONLY")
-        print("✅ TRACEABILITY MANDATORY") 
-        print("✅ SAFEWRITE V3 ONLY")
-        print("✅ STOP V2 EVENTS")
-        print("✅ NO SLEEPS")
-        print("✅ EXPLICIT FIELD MAPPING")
-        print("✅ FULL EVENT FAN-OUT")
-        print("✅ OBSERVABILITY")
-        print("✅ ERROR HANDLING")
-        print("✅ COMPLETE PIPELINE")
+        print(" ALL REQUIREMENTS VERIFIED!")
+        print("[OK] REDIS STREAMS ONLY")
+        print("[OK] TRACEABILITY MANDATORY") 
+        print("[OK] SAFEWRITE V3 ONLY")
+        print("[OK] STOP V2 EVENTS")
+        print("[OK] NO SLEEPS")
+        print("[OK] EXPLICIT FIELD MAPPING")
+        print("[OK] FULL EVENT FAN-OUT")
+        print("[OK] OBSERVABILITY")
+        print("[OK] ERROR HANDLING")
+        print("[OK] COMPLETE PIPELINE")
         print("=" * 80)
         
     finally:
@@ -490,5 +490,5 @@ async def test_all_requirements_complete():
 
 
 if __name__ == "__main__":
-    print("🧪 RUNNING COMPLETE V3 REQUIREMENTS TEST")
+    print("TEST RUNNING COMPLETE V3 REQUIREMENTS TEST")
     asyncio.run(test_all_requirements_complete())

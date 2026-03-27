@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.models import SystemMetrics, TradePerformance, Order, AgentLog
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.services.metrics_aggregator import MetricsAggregator
 
 logger = logging.getLogger(__name__)
