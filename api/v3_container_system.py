@@ -116,7 +116,7 @@ class ContainerV3System:
                 logger.info("Pipeline: %s", step)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Container startup failed")
-            log_structured("error", "container_system_startup_failed", error=str(exc))
+            log_structured("error", "container_system_startup_failed", exc_info=True)
             raise
 
     async def stop(self) -> None:
@@ -177,7 +177,7 @@ async def main() -> None:
     try:
         await system.run_with_signal_handling()
     except Exception as exc:  # noqa: BLE001
-        log_structured("error", "container_system_error", error=str(exc))
+        log_structured("error", "container_system_error", exc_info=True)
         logger.error("Fatal error: %s", exc)
         sys.exit(1)
 

@@ -73,7 +73,7 @@ class CompleteV3SystemManager:
                 log_structured("info", "v3_pipeline_step", step=flow_line)
             await self._run_forever()
         except Exception as exc:  # noqa: BLE001
-            log_structured("error", "v3_system_startup_failed", error=str(exc))
+            log_structured("error", "v3_system_startup_failed", exc_info=True)
             raise
 
     async def _initialize_runtime_dependencies(self) -> None:
@@ -97,7 +97,7 @@ class CompleteV3SystemManager:
                     "warning",
                     "v3_stream_create_failed",
                     stream=stream_name,
-                    error=str(exc),
+                    exc_info=True,
                 )
 
     async def stop(self) -> None:
@@ -132,7 +132,7 @@ class CompleteV3SystemManager:
         except asyncio.CancelledError:
             log_structured("info", "v3_runtime_cancelled")
         except Exception as exc:  # noqa: BLE001
-            log_structured("error", "v3_system_runtime_error", error=str(exc))
+            log_structured("error", "v3_system_runtime_error", exc_info=True)
         finally:
             await self.stop()
 
@@ -192,14 +192,14 @@ async def verify_complete_pipeline(redis_client: Redis) -> dict[str, int | str]:
                 "warning",
                 "v3_pipeline_stream_read_failed",
                 stream=stream_name,
-                error=str(exc),
+                exc_info=True,
             )
 
     try:
         dlq_messages = await redis_client.xrange("dlq:market_ticks")
         log_structured("info", "v3_pipeline_dlq_count", count=len(dlq_messages))
     except Exception as exc:  # noqa: BLE001
-        log_structured("warning", "v3_pipeline_dlq_read_failed", error=str(exc))
+        log_structured("warning", "v3_pipeline_dlq_read_failed", exc_info=True)
 
     return results
 
@@ -214,7 +214,7 @@ async def main() -> None:
     except KeyboardInterrupt:
         log_structured("info", "v3_keyboard_interrupt")
     except Exception as exc:  # noqa: BLE001
-        log_structured("error", "v3_system_fatal", error=str(exc))
+        log_structured("error", "v3_system_fatal", exc_info=True)
         sys.exit(1)
     finally:
         await system_manager.stop()
