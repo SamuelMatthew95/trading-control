@@ -72,8 +72,8 @@ class TestLoggingSafety:
         
         # Strict assertion - no issues allowed
         assert not issues_found, (
-            f"🚨 CRITICAL: Found {len(issues_found)} structlog event= issues:\n" +
-            "\n".join([f"  ❌ {issue['file']}:{issue['line']} - {issue['content']}" 
+            f"ALERT CRITICAL: Found {len(issues_found)} structlog event= issues:\n" +
+            "\n".join([f"  [FAIL] {issue['file']}:{issue['line']} - {issue['content']}" 
                       for issue in issues_found]) +
             "\n\nThese will cause 'BoundLogger.info() got multiple values for argument 'event' errors!"
         )
@@ -150,7 +150,7 @@ class TestLoggingSafety:
         # Should have no remaining error=str(exc) patterns
         assert not error_str_patterns, (
             f"Found {len(error_str_patterns)} remaining error=str(exc) patterns:\n" +
-            "\n".join([f"  ❌ {pattern['file']}:{pattern['line']} - {pattern['content']}" 
+            "\n".join([f"  [FAIL] {pattern['file']}:{pattern['line']} - {pattern['content']}" 
                       for pattern in error_str_patterns]) +
             "\n\nAll should use exc_info=True instead!"
         )

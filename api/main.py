@@ -22,7 +22,7 @@ from api.database import (
     get_settings_info,
     test_database_connection,
 )
-from api.db import AsyncSessionFactory, engine
+from api.database import AsyncSessionFactory, engine
 from api.events.bus import EventBus, create_redis_groups
 from api.events.dlq import DLQManager
 from api.main_state import set_services
@@ -53,6 +53,10 @@ from api.services.simple_consumers import (
 )
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
+from api.v3_complete_startup import (
+    start_complete_v3_background,
+    stop_complete_v3_background,
+)
 
 configure_logging(settings.LOG_LEVEL)
 ENABLE_SIGNAL_SCHEDULER = os.getenv("ENABLE_SIGNAL_SCHEDULER", "true").lower() == "true"
@@ -108,7 +112,7 @@ async def _record_system_metric(
     # Generate msg_id ONCE at producer layer
     msg_id = str(uuid.uuid4())
     payload = {
-        "msg_id": msg_id,  # ✅ CRITICAL: Add msg_id at producer layer
+        "msg_id": msg_id,  # CRITICAL: Add msg_id at producer layer
         "type": "system_metric",
         "metric_name": metric_name,
         "value": value,
@@ -125,7 +129,7 @@ async def _record_system_metric(
                 {
                     "id": msg_id,
                     "metric_name": metric_name,
-                    "metric_value": value,  # ✅ Fix column name
+                    "metric_value": value,  # Fix column name
                     "labels": json.dumps(labels, default=str),
                     "timestamp": datetime.now(timezone.utc).replace(tzinfo=None),
                 },
@@ -158,7 +162,7 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
             await bus.publish(
                 "risk_alerts",
                 {
-                    "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
+                    "msg_id": str(uuid.uuid4()),  # Add msg_id at producer layer
                     "type": "consumer_lag",
                     "stream": stream,
                     "lag": lag,
@@ -183,7 +187,7 @@ async def on_message_processed(bus: EventBus, stream: str, lag: float) -> None:
         await bus.publish(
             "risk_alerts",
             {
-                "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
+                "msg_id": str(uuid.uuid4()),  # Add msg_id at producer layer
                 "type": "consumer_lag",
                 "stream": stream,
                 "lag": lag,
@@ -203,7 +207,7 @@ async def on_llm_cost_updated(bus: EventBus, redis_client, cost: float) -> None:
         await bus.publish(
             "risk_alerts",
             {
-                "msg_id": str(uuid.uuid4()),  # ✅ Add msg_id at producer layer
+                "msg_id": str(uuid.uuid4()),  # Add msg_id at producer layer
                 "type": "llm_cost",
                 "cost": cost,
                 "limit": settings.ANTHROPIC_COST_ALERT_USD,
@@ -268,6 +272,8 @@ async def lifespan(app: FastAPI):
     agent_logs_consumer: AgentLogsConsumer | None = None
     consumer_lag_monitor: BackgroundServiceTask | None = None
     llm_cost_monitor_service: BackgroundServiceTask | None = None
+    complete_v3_manager = None
+    complete_v3_task: asyncio.Task[None] | None = None
     app.state.redis_client = None
     app.state.event_bus = None
     app.state.dlq_manager = None
@@ -408,6 +414,14 @@ async def lifespan(app: FastAPI):
             await order_reconciler.start()
             app.state.order_reconciler = order_reconciler
 
+            complete_v3_manager, complete_v3_task = start_complete_v3_background()
+            app.state.complete_v3_manager = complete_v3_manager
+            app.state.complete_v3_task = complete_v3_task
+            log_structured("info", "complete_v3_boot_initialized")
+
+        if redis_client is None:
+            log_structured("warning", "complete_v3_boot_skipped_no_redis")
+
         initialize_services()
 
         log_structured(
@@ -454,6 +468,8 @@ async def lifespan(app: FastAPI):
             and app.state.websocket_broadcaster is not None
         ):
             await app.state.websocket_broadcaster.stop()
+
+        await stop_complete_v3_background(complete_v3_manager, complete_v3_task)
 
         await close_redis()
         await engine.dispose()

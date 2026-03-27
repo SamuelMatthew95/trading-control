@@ -1,4 +1,4 @@
-"""LLM provider router — switch via LLM_PROVIDER + matching API key."""
+"""LLM provider router - switch via LLM_PROVIDER + matching API key."""
 from __future__ import annotations
 import json
 from api.config import settings
@@ -148,7 +148,7 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     provider = settings.LLM_PROVIDER.lower().strip()
     if provider not in _PROVIDERS:
         raise RuntimeError(
-            f"unknown_provider: '{provider}' — "
+            f"unknown_provider: '{provider}' - "
             f"supported: {list(_PROVIDERS.keys())}"
         )
     api_key = _get_provider_key(provider)

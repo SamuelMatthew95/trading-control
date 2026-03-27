@@ -182,7 +182,7 @@ class MetricsAggregator:
             }
             
         except Exception as e:
-            # 🛡️ Handle missing trade_performance table gracefully
+            # Handle missing trade_performance table gracefully
             log_structured(
                 "warning",
                 "Trade performance table unavailable - using fallback",

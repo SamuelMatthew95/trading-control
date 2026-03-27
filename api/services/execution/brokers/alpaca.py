@@ -1,4 +1,4 @@
-"""Alpaca broker — live paper trading with real market prices."""
+"""Alpaca broker - live paper trading with real market prices."""
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +29,7 @@ class AlpacaBroker:
         self, symbol: str, side: str, qty: float, price: float
     ) -> dict[str, Any]:
         """Place order via Alpaca paper trading API."""
-        # Normalize symbol — Alpaca uses "AAPL" not "AAPL/USD"
+        # Normalize symbol - Alpaca uses "AAPL" not "AAPL/USD"
         alpaca_symbol = symbol.replace("/USD", "").replace("/", "")
 
         payload = {
@@ -73,7 +73,7 @@ class AlpacaBroker:
             symbol=alpaca_symbol,
         )
 
-        # Poll for fill — market orders fill fast, max 10 attempts
+        # Poll for fill - market orders fill fast, max 10 attempts
         fill_price = price  # fallback to signal price
         status = "pending"
         for attempt in range(10):

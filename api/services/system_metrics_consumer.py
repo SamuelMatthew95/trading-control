@@ -9,7 +9,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
@@ -42,7 +42,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         value = await self.redis.get("kill_switch:active")
         if value and value.decode() == "1":
             raise RuntimeError("KillSwitchActive")
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         # Parse timestamp, fallback to UTC now

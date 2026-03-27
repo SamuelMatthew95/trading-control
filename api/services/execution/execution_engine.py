@@ -11,7 +11,7 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager

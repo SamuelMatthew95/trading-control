@@ -10,14 +10,14 @@ import aiohttp
 from api.config import settings
 from api.observability import log_structured
 
-# Only stock symbols — strip crypto
+# Only stock symbols - strip crypto
 LIVE_SYMBOLS = ["SPY", "AAPL", "NVDA"]
 
 
 class AlpacaStream:
     """
     Streams real-time market data from Alpaca IEX feed.
-    Free tier — real prices, 15min delayed for stocks but
+    Free tier - real prices, 15min delayed for stocks but
     good enough for paper trading signals.
     """
 

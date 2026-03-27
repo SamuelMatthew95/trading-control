@@ -350,7 +350,7 @@ async def get_stream_health(redis_client) -> Dict[str, Any]:
             }
             
         except Exception as e:
-            # 🛡️ Handle missing streams gracefully
+            # Handle missing streams gracefully
             health[stream] = {
                 "status": "missing",
                 "backlog": 0,

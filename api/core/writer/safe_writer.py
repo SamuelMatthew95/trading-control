@@ -172,9 +172,9 @@ class SafeWriter:
                 try:
                     session.add(order)
                     await session.flush()  # Try to insert
-                    order_id = order.id  # 🔥 CRITICAL: Get actual ID after flush
+                    order_id = order.id  # Capture the actual persisted ID after flush
                 except IntegrityError:
-                    # 🔥 CRITICAL: Verify it's the same idempotency_key, not hiding bugs
+                    # Verify the idempotency key maps to the same existing order
                     from sqlalchemy import select
                     existing = await session.execute(
                         select(Order).where(Order.idempotency_key == idempotency_key)
@@ -197,7 +197,7 @@ class SafeWriter:
                 event = Event(
                     event_type='order.created',
                     entity_type='order',
-                    entity_id=order_id,  # 🔥 CRITICAL: Use actual order ID
+                    entity_id=order_id,  # Use the persisted order ID
                     idempotency_key=msg_id,  # Use msg_id for Event dedup
                     data=data
                 )
@@ -396,7 +396,7 @@ class SafeWriter:
                     raise ValueError("metric_name is required")
                 
                 if metric_value is None:
-                    metric_value = 0.0  # ✅ Fallback to prevent NOT NULL violations
+                    metric_value = 0.0  # Fallback to prevent NOT NULL violations
                 
                 # Log operation with actual msg_id
                 logger.info(
@@ -406,7 +406,7 @@ class SafeWriter:
 
                 # Use PostgreSQL UPSERT for idempotent writes
                 stmt = pg_insert(SystemMetrics).values(
-                    id=UUID(msg_id),  # ✅ Convert string to UUID for SQLAlchemy
+                    id=UUID(msg_id),  # Convert string to UUID for SQLAlchemy
                     metric_name=metric_name,
                     metric_value=metric_value,
                     metric_unit=metric_unit,
@@ -533,7 +533,7 @@ class SafeWriter:
                 self._validate_schema_v3(data, 'VectorMemory')
                 self.validate_payload(data, ['content', 'content_type', 'embedding'])
 
-                # 🔥 CRITICAL: Validate embedding size and type
+                # Validate embedding size and type
                 embedding = data['embedding']
                 if not isinstance(embedding, list) or len(embedding) != 1536:
                     raise ValueError("embedding must be 1536-length list")

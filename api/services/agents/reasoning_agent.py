@@ -13,7 +13,7 @@ import aiohttp
 from sqlalchemy import text
 
 from api.config import settings
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
@@ -80,7 +80,7 @@ class ReasoningAgent(BaseStreamConsumer):
         await self.redis.incrby(budget_key, tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
         
-        # 🔥 Event-driven: Trigger cost update immediately
+        # Event-driven: trigger cost update immediately
         # This replaces polling - cost updates happen instantly when LLM is used
         try:
             from api.main import on_llm_cost_updated

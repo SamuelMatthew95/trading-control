@@ -4,7 +4,7 @@ Health check endpoints for container deployment
 
 from fastapi import APIRouter
 from api.redis_client import get_redis, close_redis
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 
 router = APIRouter()
 

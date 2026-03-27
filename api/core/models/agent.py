@@ -69,7 +69,7 @@ class AgentLog(Base):
     trace_id = Column(String, nullable=True, index=True)
     schema_version = Column(String, nullable=False, index=True)
     source = Column(String, nullable=False, index=True)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)  # ✅ Add timestamp field
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)  # Add timestamp field
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
     __table_args__ = (

@@ -8,7 +8,7 @@ from typing import Any, Set
 from fastapi import WebSocket
 
 from api.observability import log_structured
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.services.metrics_aggregator import MetricsAggregator
 
 

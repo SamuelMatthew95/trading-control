@@ -1,4 +1,4 @@
-"""Signal generator — bridges market_ticks → signals stream."""
+"""Signal generator - bridges market_ticks -> signals stream."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

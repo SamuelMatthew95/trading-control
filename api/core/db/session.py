@@ -1,84 +1,113 @@
-"""
-Production-safe database startup verification.
+"""Database readiness checks used during production startup.
 
-NEVER create tables in app runtime - only verify connection and schema.
+This module intentionally validates schema state at startup instead of creating
+or mutating schema objects at runtime.
 """
 
-from sqlalchemy import inspect
-from sqlalchemy.exc import SQLAlchemyError
+from __future__ import annotations
+
 import logging
+from collections.abc import Iterable
+
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
-def ensure_database_ready(engine):
-    """Verify database is properly migrated before starting application."""
+REQUIRED_TABLES: tuple[str, ...] = (
+    "strategies",
+    "orders",
+    "positions",
+    "agent_pool",
+    "agent_runs",
+    "agent_logs",
+    "events",
+    "vector_memory",
+    "trade_performance",
+)
+
+CRITICAL_INDEXES: tuple[tuple[str, str], ...] = (
+    ("orders", "idx_orders_strategy_status"),
+    ("positions", "idx_positions_strategy_symbol"),
+    ("trade_performance", "idx_trade_unique"),
+    ("agent_logs", "idx_agent_logs_trace"),
+    ("events", "idx_events_entity_created"),
+)
+
+
+class DatabaseReadinessError(RuntimeError):
+    """Raised when database schema validation fails."""
+
+
+def _collect_missing_tables(engine: Engine, required_tables: Iterable[str]) -> list[str]:
+    inspector = inspect(engine)
+    return [table for table in required_tables if not inspector.has_table(table)]
+
+
+def _collect_missing_indexes(
+    engine: Engine,
+    required_indexes: Iterable[tuple[str, str]],
+) -> list[str]:
+    inspector = inspect(engine)
+    missing: list[str] = []
+    for table_name, index_name in required_indexes:
+        if not inspector.has_index(table_name, index_name):
+            missing.append(f"{table_name}.{index_name}")
+    return missing
+
+
+def ensure_database_ready(engine: Engine) -> bool:
+    """Validate that required tables and indexes exist.
+
+    Args:
+        engine: A synchronous SQLAlchemy engine bound to the target database.
+
+    Returns:
+        True when all required schema objects are present.
+
+    Raises:
+        DatabaseReadinessError: If schema objects are missing or inspection fails.
+    """
     try:
-        inspector = inspect(engine)
-        
-        # Critical tables that must exist
-        required_tables = [
-            'strategies',
-            'orders', 
-            'positions',
-            'agent_pool',
-            'agent_runs',
-            'agent_logs',
-            'events',
-            'vector_memory',
-            'trade_performance'
-        ]
-        
-        missing_tables = []
-        for table in required_tables:
-            if not inspector.has_table(table):
-                missing_tables.append(table)
-        
+        missing_tables = _collect_missing_tables(engine, REQUIRED_TABLES)
         if missing_tables:
-            error_msg = f"Database not properly migrated. Missing tables: {missing_tables}. Run 'alembic upgrade head'"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
-        
-        # Verify critical indexes exist
-        critical_indexes = [
-            ('orders', 'idx_orders_strategy_status'),
-            ('positions', 'idx_positions_strategy_symbol'),
-            ('trade_performance', 'idx_trade_unique'),
-            ('agent_logs', 'idx_agent_logs_trace'),
-            ('events', 'idx_events_entity_created')
-        ]
-        
-        missing_indexes = []
-        for table, index_name in critical_indexes:
-            if not inspector.has_index(table, index_name):
-                missing_indexes.append(f"{table}.{index_name}")
-        
+            message = (
+                "Database not properly migrated. Missing tables: "
+                f"{missing_tables}. Run 'alembic upgrade head'."
+            )
+            raise DatabaseReadinessError(message)
+
+        missing_indexes = _collect_missing_indexes(engine, CRITICAL_INDEXES)
         if missing_indexes:
-            error_msg = f"Critical indexes missing: {missing_indexes}. Run 'alembic upgrade head'"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
-        
+            message = (
+                "Critical indexes missing: "
+                f"{missing_indexes}. Run 'alembic upgrade head'."
+            )
+            raise DatabaseReadinessError(message)
+
         logger.info("Database schema verification passed")
         return True
-        
-    except SQLAlchemyError as e:
-        error_msg = f"Database connection failed: {e}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
+    except SQLAlchemyError as exc:
+        message = f"Database connection or inspection failed: {exc}"
+        raise DatabaseReadinessError(message) from exc
+    except DatabaseReadinessError as exc:
+        logger.error(str(exc))
+        raise
 
 
-def analyze_vector_table(engine):
-    """Run ANALYZE on vector_memory table for index performance."""
+def analyze_vector_table(engine: Engine) -> None:
+    """Run ANALYZE against ``vector_memory`` to maintain planner performance."""
     try:
-        with engine.connect() as conn:
-            conn.execute("ANALYZE vector_memory;")
-            logger.info("Vector table analyzed for optimal index performance")
-    except SQLAlchemyError as e:
-        logger.warning(f"Failed to analyze vector table: {e}")
+        with engine.begin() as connection:
+            connection.execute(text("ANALYZE vector_memory"))
+        logger.info("Vector table analyzed for index performance")
+    except SQLAlchemyError as exc:
+        logger.warning("Failed to analyze vector table: %s", exc)
 
 
-# Production startup guard
-def safe_startup(engine):
-    """Complete production-safe startup verification."""
+def safe_startup(engine: Engine) -> None:
+    """Run all production startup database checks."""
     ensure_database_ready(engine)
     analyze_vector_table(engine)
     logger.info("Production startup verification complete")

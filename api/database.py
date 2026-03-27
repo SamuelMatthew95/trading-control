@@ -65,9 +65,13 @@ def _run_alembic_upgrade(url: str) -> None:
 
 database_url = _resolve_database_url()
 async_engine = create_async_engine(database_url, echo=False, pool_pre_ping=True)
+# Canonical engine alias used across runtime modules.
+engine = async_engine
 AsyncSessionLocal = async_sessionmaker(
     async_engine, class_=AsyncSession, expire_on_commit=False
 )
+# Backward-compatible alias used by existing modules and tests.
+AsyncSessionFactory = AsyncSessionLocal
 Base = declarative_base()
 
 
@@ -80,6 +84,12 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Compatibility wrapper matching the historic dependency function name."""
+    async with get_async_session() as session:
+        yield session
 
 
 async def init_database() -> None:

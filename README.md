@@ -200,12 +200,19 @@ uvicorn api.main:app
 
 ```text
 api/
-agents/
-tools/
-memory/
-models/
-services/
+  core/         # domain models, stream logic, DB readiness checks
+  events/       # event bus + DLQ handling
+  routes/       # FastAPI route modules
+  services/     # orchestration, execution, ingestion services
+  alembic/      # schema migration history
+  database.py   # canonical async DB engine + session management
+frontend/       # Next.js dashboard
+scripts/        # operational and validation scripts
 tests/
+  core/
+  api/
+  integration/
+docs/
 ```
 
 ---

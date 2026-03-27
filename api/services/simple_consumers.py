@@ -10,7 +10,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.db import AsyncSessionFactory
+from api.database import AsyncSessionFactory
 from api.core.writer.safe_writer import SafeWriter
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class SimpleConsumer(BaseStreamConsumer):
         if value and value.decode() == "1":
             raise RuntimeError("KillSwitchActive")
 
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         # Log payload for visibility (temporary fix for missing data)
@@ -50,7 +50,7 @@ class SimpleConsumer(BaseStreamConsumer):
                 "stream": self.stream,
                 "msg_id": msg_id,
                 "consumer": self.consumer,
-                "payload": data,  # ✅ Log actual payload
+                "payload": data,  # Log actual payload
             }
         )
 
@@ -67,7 +67,7 @@ class ExecutionsConsumer(SimpleConsumer):
         if await self.redis.get("kill_switch:active") == "1":
             raise RuntimeError("KillSwitchActive")
 
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         try:
@@ -117,7 +117,7 @@ class RiskAlertsConsumer(SimpleConsumer):
         if await self.redis.get("kill_switch:active") == "1":
             raise RuntimeError("KillSwitchActive")
 
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         try:
@@ -169,7 +169,7 @@ class LearningEventsConsumer(SimpleConsumer):
         if await self.redis.get("kill_switch:active") == "1":
             raise RuntimeError("KillSwitchActive")
 
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         try:
@@ -219,7 +219,7 @@ class AgentLogsConsumer(SimpleConsumer):
         if await self.redis.get("kill_switch:active") == "1":
             raise RuntimeError("KillSwitchActive")
 
-        # ✅ Use centralized msg_id extraction
+        # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)
 
         try:
