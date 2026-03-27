@@ -158,226 +158,264 @@ export function DashboardView({ section }: { section: 'overview' | 'trading' | '
 
   const costToday = systemMetrics.find(m => m.metric_name === 'llm_cost_usd')?.value || 0
 
-  // OVERVIEW PAGE - Professional Trading Command Center
+  // Mock agents data for the premium UI
+  const agents = [
+    { id: '1', name: 'SignalGenerator', tier: 'active', heartbeat: true },
+    { id: '2', name: 'ReasoningAgent', tier: 'active', heartbeat: true },
+    { id: '3', name: 'GradeAgent', tier: 'active', heartbeat: true },
+    { id: '4', name: 'ICUpdater', tier: 'challenger', heartbeat: false },
+  ]
+
+  // OVERVIEW PAGE - Premium Bento Grid Layout
   if (section === 'overview') {
     return (
-      <div className="min-h-screen bg-[#09090b]">
-        {/* STRICT DARK MODE HEADER */}
-        <div className="bg-[#09090b] border-b border-[#27272a] h-20 flex items-center justify-between px-6">
-          {/* RIGHT - P&L WITH SKELETON */}
-          <div className="flex items-center gap-4">
-            {/* P&L DISPLAY - PRODUCTION READABLE */}
-            <div className="flex flex-col items-end">
-              {isLoadingBalance || !hasValidData ? (
-                <div className="w-32 h-8 bg-[#1f2937] rounded animate-pulse" />
-              ) : (
-                <motion.span 
-                  key={safeDailyPnl}
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
+      <div className="min-h-screen bg-slate-50">
+        {/* PREMIUM HEADER - No Borders, Soft Shadow */}
+        <div className="bg-white border-b border-slate-100 shadow-sm">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              {/* LEFT - Clean Title */}
+              <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold text-slate-900 font-['Inter']">
+                  Trading Console
+                </h1>
+                <div className="flex items-center gap-2">
+                  <div className={cn(
+                    "w-2 h-2 rounded-full transition-all duration-300",
+                    wsConnected ? "bg-emerald-500" : "bg-slate-300"
+                  )} />
+                  <span className={cn(
+                    "text-sm font-medium font-['Inter'] transition-all duration-300",
+                    wsConnected ? "text-emerald-600" : "text-slate-500"
+                  )}>
+                    {wsConnected ? 'Live' : 'Offline'}
+                  </span>
+                </div>
+              </div>
+
+              {/* RIGHT - P&L with Premium Styling */}
+              <div className="flex items-center gap-6">
+                <div className="flex flex-col items-end">
+                  {isLoadingBalance || !hasValidData ? (
+                    <div className="w-32 h-8 bg-slate-100 rounded-lg animate-pulse" />
+                  ) : (
+                    <motion.span 
+                      key={safeDailyPnl}
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className={cn(
+                        "text-3xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
+                        isAnimating && "scale-105",
+                        safeDailyPnl >= 0 ? "text-emerald-600" : "text-red-600"
+                      )}
+                    >
+                      {formatUSD(safeDailyPnl)}
+                    </motion.span>
+                  )}
+                  <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">
+                    Daily P&L
+                  </span>
+                </div>
+
+                {/* Premium Emergency Stop - No Heavy Borders */}
+                <button 
+                  onClick={() => {
+                    setKillSwitch(!killSwitchActive)
+                    setToastMessage(killSwitchActive ? '🚨 SYSTEM HALTED' : '🟢 SYSTEM ACTIVATED')
+                    setShowToast(true)
+                    setTimeout(() => setShowToast(false), 3000)
+                  }}
                   className={cn(
-                    "text-3xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
-                    isAnimating && "scale-105",
-                    safeDailyPnl >= 0 ? "text-emerald-400" : "text-red-400"
+                    "px-6 py-3 text-sm font-bold uppercase tracking-wider transition-all duration-200 rounded-xl font-['Inter'] min-h-[44px] min-w-[44px]",
+                    "hover:scale-105 active:scale-95",
+                    killSwitchActive 
+                      ? "bg-red-500 text-white shadow-lg shadow-red-500/25 hover:bg-red-600"
+                      : "bg-slate-900 text-white shadow-lg shadow-slate-900/25 hover:bg-slate-800"
                   )}
                 >
-                  {formatUSD(safeDailyPnl)}
-                </motion.span>
-              )}
-              <span className="text-sm font-semibold text-gray-400 font-['Inter'] uppercase tracking-wide">
-                Daily P&L
-              </span>
-            </div>
-
-            {/* SYSTEM EMERGENCY STOP */}
-            <button 
-              onClick={() => {
-                setKillSwitch(!killSwitchActive)
-                setToastMessage(killSwitchActive ? '🚨 SYSTEM HALTED' : '🟢 SYSTEM ACTIVATED')
-                setShowToast(true)
-                setTimeout(() => setShowToast(false), 3000)
-              }}
-              className={cn(
-                "px-8 py-4 text-sm font-bold uppercase tracking-wider transition-all duration-200 rounded-lg border-2 font-['Inter'] min-h-[44px] min-w-[44px]",
-                killSwitchActive 
-                  ? "bg-[#ef4444] border-[#ef4444] text-white hover:bg-red-600 shadow-red-500/50 shadow-xl animate-pulse"
-                  : "bg-[#18181b] border-[#27272a] text-gray-300 hover:bg-[#27272a]"
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "w-3 h-3 rounded-full transition-all duration-300",
-                  killSwitchActive ? "bg-white animate-pulse" : "bg-gray-500"
-                )} />
-                {killSwitchActive ? 'SYSTEM HALT' : 'SYSTEM ACTIVE'}
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "w-2 h-2 rounded-full transition-all duration-300",
+                      killSwitchActive ? "bg-white" : "bg-emerald-400"
+                    )} />
+                    {killSwitchActive ? 'HALT' : 'ACTIVE'}
+                  </div>
+                </button>
               </div>
-            </button>
+            </div>
           </div>
         </div>
 
-        {/* Toast Notification */}
-        <AnimatePresence>
-          {showToast && (
-            <motion.div
-              initial={{ opacity: 0, y: -50 }}
+        {/* PREMIUM BENTO GRID - Generous White Space */}
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="grid grid-cols-12 gap-6 auto-rows-auto">
+            
+            {/* MAIN EQUITY CARD - 8 columns wide, 4 rows tall */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -50 }}
-              className="fixed top-20 right-6 z-50 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-4 py-2 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 font-sans text-sm"
+              transition={{ duration: 0.5 }}
+              className="col-span-12 lg:col-span-8 row-span-4 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-8"
             >
-              {toastMessage}
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <div className="flex flex-col h-full">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 font-['Inter']">
+                      Portfolio Performance
+                    </h2>
+                    <p className="text-sm text-slate-500 font-['Inter']">
+                      Real-time equity tracking
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                    <span className="text-xs font-medium text-emerald-600 font-['Inter'] uppercase tracking-wider">
+                      Live
+                    </span>
+                  </div>
+                </div>
 
-        {/* LIVE TICKER TAPE */}
-        <LiveTicker />
+                {/* Main P&L Display */}
+                <div className="flex items-center justify-center mb-8">
+                  <motion.h1 
+                    key={safeDailyPnl}
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className={cn(
+                      "text-6xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono']",
+                      isAnimating && "scale-105",
+                      safeDailyPnl >= 0 ? "text-emerald-600" : "text-red-600"
+                    )}
+                  >
+                    {safeDailyPnl >= 0 ? '+' : ''}{formatUSD(safeDailyPnl)}
+                  </motion.h1>
+                </div>
 
-        {/* MAIN GRID - Strict Dark Mode */}
-        <div className="p-6 space-y-6 bg-[#09090b]">
-          {/* ROW 1 - P&L CARD WITH STRICT COLORS */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="bg-[#18181b] border border-[#27272a] rounded-xl p-6"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-medium text-gray-400 uppercase tracking-wider font-['Inter']">
-                Total P&L
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500 font-['Inter']">
-                  Real-time Equity
-                </span>
-                <div className="w-2 h-2 bg-[#10b981] rounded-full animate-pulse" />
+                {/* Metrics Row */}
+                <div className="flex items-center justify-center gap-12 mb-8">
+                  <div className="flex flex-col gap-2 items-center">
+                    <div className="flex items-center gap-2">
+                      {safePnlChange > 0 ? <ChevronUp className="w-5 h-5 text-emerald-500" /> : <ChevronDown className="w-5 h-5 text-red-500" />}
+                      <span className={cn(
+                        "text-xl font-bold font-mono font-['JetBrains_Mono'] tabular-nums",
+                        safePnlChange > 0 ? "text-emerald-600" : "text-red-600"
+                      )}>
+                        {safePnlChange >= 0 ? '+' : ''}{formatUSD(safePnlChange)}
+                      </span>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">24h Change</span>
+                  </div>
+
+                  <div className="flex flex-col gap-2 items-center">
+                    <span className="text-xl font-bold text-slate-700 font-mono font-['JetBrains_Mono'] tabular-nums">
+                      {winRate.toFixed(1)}%
+                    </span>
+                    <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">Win Rate</span>
+                  </div>
+
+                  <div className="flex flex-col gap-2 items-center">
+                    <span className="text-xl font-bold text-slate-700 font-mono font-['JetBrains_Mono'] tabular-nums">
+                      {activePositions}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-500 font-['Inter'] uppercase tracking-wider">Positions</span>
+                  </div>
+                </div>
+
+                {/* Equity Chart */}
+                <div className="flex-1 min-h-[200px]">
+                  <EquityCurve />
+                </div>
               </div>
-            </div>
+            </motion.div>
 
-            <div className="flex items-center justify-center gap-6 mb-6">
-              <motion.h1 
-                key={safeDailyPnl}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className={cn(
-                  "text-5xl font-black tracking-tight tabular-nums transition-all duration-300 font-['JetBrains_Mono'] text-center",
-                  isAnimating && "scale-105",
-                  safeDailyPnl >= 0 ? "text-emerald-400" : "text-red-400"
-                )}
-              >
-                {safeDailyPnl >= 0 ? '+' : ''}{formatUSD(safeDailyPnl)}
-              </motion.h1>
-            </div>
-
-            <div className="flex items-center justify-center gap-10">
-              <div className="flex flex-col gap-2 items-center">
-                <div className="flex items-center gap-2">
-                  {safePnlChange > 0 ? <ChevronUp className="w-5 h-5 text-emerald-400" /> : <ChevronDown className="w-5 h-5 text-red-400" />}
+            {/* SYSTEM STATUS CARD - 4 columns wide, 2 rows tall */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="col-span-12 lg:col-span-4 row-span-2 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-900 font-['Inter']">
+                  System Status
+                </h3>
+                <div className={cn(
+                  "w-3 h-3 rounded-full transition-all duration-300",
+                  killSwitchActive ? "bg-red-500" : marketStatus ? "bg-emerald-500" : "bg-slate-300"
+                )} />
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600 font-['Inter']">
+                    Trading State
+                  </span>
                   <span className={cn(
-                    "text-lg font-bold font-mono font-['JetBrains_Mono'] tabular-nums",
-                    safePnlChange > 0 ? "text-emerald-400" : "text-red-400"
+                    "text-sm font-bold font-mono font-['JetBrains_Mono'] tabular-nums",
+                    killSwitchActive ? "text-red-600" : marketStatus ? "text-emerald-600" : "text-slate-500"
                   )}>
-                    {safePnlChange >= 0 ? '+' : ''}{formatUSD(safePnlChange)}
+                    {killSwitchActive ? 'HALTED' : marketStatus ? 'ACTIVE' : 'CLOSED'}
                   </span>
                 </div>
-                <span className="text-sm font-semibold text-gray-300 font-['Inter'] uppercase tracking-wider">24h Change</span>
-              </div>
-
-              <div className="flex flex-col gap-2 items-center">
-                <span className="text-lg font-bold text-gray-200 font-mono font-['JetBrains_Mono'] tabular-nums">
-                  {winRate.toFixed(1)}%
-                </span>
-                <span className="text-sm font-semibold text-gray-300 font-['Inter'] uppercase tracking-wider">Win Rate</span>
-              </div>
-
-              <div className="flex flex-col gap-2 items-center">
-                <span className="text-lg font-bold text-gray-200 font-mono font-['JetBrains_Mono'] tabular-nums">
-                  {activePositions}
-                </span>
-                <span className="text-sm font-semibold text-gray-300 font-['Inter'] uppercase tracking-wider">Positions</span>
-              </div>
-            </div>
-
-            {/* REAL-TIME EQUITY CURVE */}
-            <EquityCurve />
-          </motion.div>
-
-          {/* ROW 2 - SYSTEM STATE */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            {/* ENHANCED SYSTEM STATUS */}
-            <div className={cn(
-              "border rounded-xl p-6 backdrop-blur-sm transition-all duration-300",
-              killSwitchActive 
-                ? "bg-red-950/30 border-red-800/50"
-                : "bg-[#18181b] border-[#27272a]"
-            )}>
-              <div className="flex items-center justify-between">
-                {/* LEFT */}
-                <div className="flex items-center gap-4">
-                  <div className={cn(
-                    "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300",
-                    killSwitchActive 
-                      ? "bg-red-900/50 border border-red-800"
-                      : "bg-[#09090b] border border-[#27272a]"
-                  )}>
-                    {killSwitchActive ? (
-                      <Pause className="w-6 h-6 text-red-400" />
-                    ) : marketStatus ? (
-                      <Play className="w-6 h-6 text-emerald-400" />
-                    ) : (
-                      <Pause className="w-6 h-6 text-gray-400" />
-                    )}
-                  </div>
-                  <div>
-                    <p className={cn(
-                      "text-xl font-bold transition-all duration-300 font-['Inter']",
-                      killSwitchActive 
-                        ? "text-red-300"
-                        : "text-white"
-                    )}>
-                      {killSwitchActive ? '⚠️ TRADING HALTED' : marketStatus ? '🚀 Systems Active' : '⏸️ Markets Closed'}
-                    </p>
-                    <p className={cn(
-                      "text-base font-medium transition-all duration-300 font-['Inter']",
-                      killSwitchActive 
-                        ? "text-red-400"
-                        : "text-gray-300"
-                    )}>
-                      {killSwitchActive 
-                        ? 'Manual stop engaged - All trading paused'
-                        : marketStatus 
-                          ? 'Automated trading active • Market open' 
-                          : `Waiting for market open • 9:30 AM EST`
-                      }
-                    </p>
-                  </div>
-                </div>
-
-                {/* RIGHT */}
-                <div className="text-right">
-                  <div className={cn(
-                    "text-lg font-semibold transition-all duration-300 font-['Inter']",
-                    killSwitchActive 
-                      ? "text-red-400"
-                      : "text-gray-300"
-                  )}>
+                
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600 font-['Inter']">
                     Market Hours
-                  </div>
-                  <div className={cn(
-                    "text-base font-mono transition-all duration-300 font-['JetBrains_Mono'] tabular-nums",
-                    killSwitchActive 
-                      ? "text-red-500"
-                      : "text-gray-400"
-                  )}>
+                  </span>
+                  <span className="text-sm font-mono text-slate-500 font-['JetBrains_Mono'] tabular-nums">
                     9:30 AM – 4:00 PM EST
-                  </div>
+                  </span>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600 font-['Inter']">
+                    Latency
+                  </span>
+                  <span className="text-sm font-mono text-slate-500 font-['JetBrains_Mono'] tabular-nums">
+                    {avgLatency}ms
+                  </span>
                 </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+
+            {/* AGENT MATRIX CARD - 4 columns wide, 2 rows tall */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="col-span-12 lg:col-span-4 row-span-2 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-900 font-['Inter']">
+                  Agent Matrix
+                </h3>
+                <span className="text-xs font-medium text-emerald-600 font-['Inter'] uppercase tracking-wider">
+                  8 Active
+                </span>
+              </div>
+              
+              <div className="space-y-3">
+                {agents.slice(0, 4).map((agent) => (
+                  <div key={agent.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors duration-200">
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "w-2 h-2 rounded-full",
+                        agent.heartbeat ? "bg-emerald-500" : "bg-slate-300"
+                      )} />
+                      <span className="text-sm font-medium text-slate-700 font-['Inter']">
+                        {agent.name}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-slate-500 font-['JetBrains_Mono'] tabular-nums">
+                      {agent.tier}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+          </div>
         </div>
       </div>
     )
