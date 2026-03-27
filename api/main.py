@@ -7,6 +7,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -19,6 +20,7 @@ from api.config import get_cors_origins, parse_csv_env, settings
 from api.core.schemas import ErrorResponse
 from api.database import (
     Base,
+    database_url,
     get_settings_info,
     test_database_connection,
 )
@@ -100,6 +102,27 @@ def initialize_services() -> None:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
 
+def _should_run_migrations(url: str) -> bool:
+    return url.startswith("postgresql") or url.startswith("postgres")
+
+
+def _run_startup_migrations(database_url_value: str) -> None:
+    """Run Alembic migrations using Alembic's API to avoid module shadowing."""
+    if not _should_run_migrations(database_url_value):
+        log_structured("info", "alembic_migration_skipped_non_postgres")
+        return
+
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+
+    repo_root = Path(__file__).resolve().parent.parent
+    config = AlembicConfig(str(repo_root / "api" / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "api" / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url_value)
+    command.upgrade(config, "head")
+    log_structured("info", "alembic_migration_completed")
+
+
 
 
 async def _record_system_metric(
@@ -152,11 +175,6 @@ async def collect_consumer_lag_metrics(bus: EventBus) -> None:
     stream_info = await bus.get_stream_info()
     for stream, info in stream_info.items():
         lag = float(info.get("lag", 0))
-        labels = {
-            "stream": stream,
-            "length": int(info.get("length", 0)),
-            "groups": int(info.get("groups", 0)),
-        }
         await _record_system_metric(bus, "stream_lag", lag, {"stream": stream})
         if lag > settings.MAX_CONSUMER_LAG_ALERT:
             await bus.publish(
@@ -299,23 +317,11 @@ async def lifespan(app: FastAPI):
 
         # Run Alembic migrations to ensure database schema is up to date
         try:
-            import subprocess
-            import sys
-            result = subprocess.run(
-                [sys.executable, "-m", "alembic", "upgrade", "head"],
-                capture_output=True,
-                text=True,
-                cwd="api"
-            )
-            if result.returncode != 0:
-                log_structured(
-                    "warning", "alembic_migration_failed",
-                    stderr=result.stderr, returncode=result.returncode
-                )
-            else:
-                log_structured("info", "alembic_migration_completed")
+            await asyncio.to_thread(_run_startup_migrations, database_url)
         except Exception:  # noqa: BLE001
-            log_structured("warning", "Alembic migration failed")
+            log_structured("error", "alembic_migration_failed", exc_info=True)
+            if settings.NODE_ENV == "production":
+                raise RuntimeError("Alembic migration failed during production startup")
 
         try:
             redis_client = await get_redis()
