@@ -195,7 +195,7 @@ class BaseStreamConsumer(ABC):
         """Safely reclaim stale messages with timeout and error handling."""
         try:
             return await asyncio.wait_for(
-                self.bus.reclaim_stale(self.stream, self.group), timeout=3.0
+                self.bus.reclaim_stale(self.stream, self.group, self.consumer), timeout=3.0
             )
         except asyncio.TimeoutError:
             log_structured("warning", "Reclaim stale timeout", stream=self.stream)
