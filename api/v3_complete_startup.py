@@ -10,9 +10,9 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from api.agents.v3_complete_system import (
-    start_complete_v3_system,
-    stop_complete_v3_system,
+from api.v3_fixed_system import (
+    start_fixed_v3_system as start_complete_v3_system,
+    stop_fixed_v3_system as stop_complete_v3_system,
 )
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -54,7 +54,7 @@ class CompleteV3SystemManager:
         self.bus: EventBus | None = None
         self.dlq: DLQManager | None = None
         self.redis: Redis | None = None
-        self.agents: list[Any] = []
+        self.agents: dict[str, Any] = {}
         self.running = False
         self.shutdown_event = asyncio.Event()
 
