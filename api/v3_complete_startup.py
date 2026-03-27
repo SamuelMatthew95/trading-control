@@ -63,8 +63,9 @@ class CompleteV3SystemManager:
         try:
             log_structured("info", "v3_startup_begin")
             await self._initialize_runtime_dependencies()
+            bus, dlq, redis = self._validate_runtime_dependencies()
             await self._create_streams()
-            self.agents = await start_complete_v3_system(self.bus, self.dlq, self.redis)
+            self.agents = await start_complete_v3_system(bus, dlq, redis)
             self.running = True
             self._install_signal_handlers()
             log_structured("info", "v3_startup_ready", agent_count=len(self.agents))
@@ -72,26 +73,34 @@ class CompleteV3SystemManager:
                 log_structured("info", "v3_pipeline_step", step=flow_line)
             await self._run_forever()
         except Exception as exc:  # noqa: BLE001
+            del exc
             log_structured("error", "v3_system_startup_failed", exc_info=True)
             raise
 
     async def _initialize_runtime_dependencies(self) -> None:
+        """Initialize runtime dependencies required before agent startup."""
         self.redis = await get_redis()
         await self.redis.ping()
         log_structured("info", "v3_redis_connected")
         self.bus = EventBus(self.redis)
-        self.dlq = DLQManager(self.redis)
+        self.dlq = DLQManager(self.redis, self.bus)
+
+    def _validate_runtime_dependencies(self) -> tuple[EventBus, DLQManager, Redis]:
+        """Return initialized runtime dependencies or raise a clear startup error."""
+        if self.bus is None or self.dlq is None or self.redis is None:
+            raise RuntimeError("Runtime dependencies were not initialized before startup")
+        return self.bus, self.dlq, self.redis
 
     async def _create_streams(self) -> None:
-        if self.bus is None:
-            raise RuntimeError("Event bus must be initialized before stream creation")
+        bus, _, _ = self._validate_runtime_dependencies()
 
         log_structured("info", "v3_stream_creation_begin", stream_count=len(PIPELINE_STREAMS))
         for stream_name in PIPELINE_STREAMS:
             try:
-                await self.bus.create_stream(stream_name)
+                await bus.create_stream(stream_name)
                 log_structured("info", "v3_stream_ready", stream=stream_name)
             except Exception as exc:  # noqa: BLE001
+                del exc
                 log_structured(
                     "warning",
                     "v3_stream_create_failed",
@@ -220,4 +229,3 @@ async def stop_complete_v3_background(
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-

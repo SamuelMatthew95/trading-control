@@ -100,6 +100,35 @@ def initialize_services() -> None:
         metrics_store.update_agent(agent, "idle", health="ok", last_task="none")
 
 
+def _run_startup_migrations() -> None:
+    """Run Alembic migrations from repository root to avoid local module shadowing."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "api/alembic.ini",
+            "upgrade",
+            "head",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        log_structured(
+            "warning",
+            "alembic_migration_failed",
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
+        return
+    log_structured("info", "alembic_migration_completed")
+
+
 
 
 async def _record_system_metric(
@@ -299,21 +328,7 @@ async def lifespan(app: FastAPI):
 
         # Run Alembic migrations to ensure database schema is up to date
         try:
-            import subprocess
-            import sys
-            result = subprocess.run(
-                [sys.executable, "-m", "alembic", "upgrade", "head"],
-                capture_output=True,
-                text=True,
-                cwd="api"
-            )
-            if result.returncode != 0:
-                log_structured(
-                    "warning", "alembic_migration_failed",
-                    stderr=result.stderr, returncode=result.returncode
-                )
-            else:
-                log_structured("info", "alembic_migration_completed")
+            _run_startup_migrations()
         except Exception:  # noqa: BLE001
             log_structured("warning", "Alembic migration failed")
 
