@@ -55,7 +55,20 @@ export interface PriceData {
   price: number
   change: number
   changePercent?: number
+  previousPrice?: number
+  updatedAt?: string
   [key: string]: unknown
+}
+
+export interface StreamStat {
+  count: number
+  lastMessageTimestamp: string | null
+}
+
+export interface RecentEvent {
+  stream: string
+  msgId: string
+  timestamp: string
 }
 
 type DashboardData = {
@@ -86,6 +99,12 @@ type CodexState = {
   regime: string
   killSwitchActive: boolean
   wsConnected: boolean
+  marketTickCount: number
+  lastMarketSymbol: string | null
+  wsMessageCount: number
+  wsLastMessageTimestamp: string | null
+  streamStats: Record<string, StreamStat>
+  recentEvents: RecentEvent[]
   updatePrice: (symbol: string, price: number, change: number) => void
   addSignal: (signal: Record<string, unknown>) => void
   addOrder: (order: Order) => void
@@ -99,6 +118,8 @@ type CodexState = {
   setRegime: (regime: string) => void
   setKillSwitch: (active: boolean) => void
   setWsConnected: (connected: boolean) => void
+  trackWsMessage: (event: { stream?: string | null; msgId?: string | null; timestamp?: string | null }) => void
+  trackMarketTick: (symbol?: string | null) => void
   hydrateDashboard: (data: DashboardData) => void
   bulkUpdate: (updates: Partial<CodexState>) => void
 }
@@ -117,9 +138,31 @@ export const useCodexStore = create<CodexState>((set) => ({
   regime: 'neutral',
   killSwitchActive: false,
   wsConnected: false,
+  marketTickCount: 0,
+  lastMarketSymbol: null,
+  wsMessageCount: 0,
+  wsLastMessageTimestamp: null,
+  streamStats: {
+    market_ticks: { count: 0, lastMessageTimestamp: null },
+    signals: { count: 0, lastMessageTimestamp: null },
+    orders: { count: 0, lastMessageTimestamp: null },
+    executions: { count: 0, lastMessageTimestamp: null },
+    agent_logs: { count: 0, lastMessageTimestamp: null },
+    risk_alerts: { count: 0, lastMessageTimestamp: null },
+    notifications: { count: 0, lastMessageTimestamp: null },
+  },
+  recentEvents: [],
 
   updatePrice: (symbol, price, change) => set((state) => ({
-    prices: { ...state.prices, [symbol]: { price, change } }
+    prices: {
+      ...state.prices,
+      [symbol]: {
+        price,
+        change,
+        previousPrice: state.prices[symbol]?.price ?? price - change,
+        updatedAt: new Date().toISOString(),
+      },
+    }
   })),
   addSignal: (signal) => set((state) => ({
     signals: [signal, ...state.signals].slice(0, 50)
@@ -149,6 +192,34 @@ export const useCodexStore = create<CodexState>((set) => ({
   setRegime: (regime) => set({ regime }),
   setKillSwitch: (killSwitchActive) => set({ killSwitchActive }),
   setWsConnected: (wsConnected) => set({ wsConnected }),
+  trackWsMessage: ({ stream, msgId, timestamp }) =>
+    set((state) => {
+      const resolvedStream = stream || 'system'
+      const resolvedTimestamp = timestamp || new Date().toISOString()
+      const existing = state.streamStats[resolvedStream] ?? { count: 0, lastMessageTimestamp: null }
+      const event: RecentEvent = {
+        stream: resolvedStream,
+        msgId: msgId || 'n/a',
+        timestamp: resolvedTimestamp,
+      }
+      return {
+        wsMessageCount: state.wsMessageCount + 1,
+        wsLastMessageTimestamp: resolvedTimestamp,
+        streamStats: {
+          ...state.streamStats,
+          [resolvedStream]: {
+            count: existing.count + 1,
+            lastMessageTimestamp: resolvedTimestamp,
+          },
+        },
+        recentEvents: [event, ...state.recentEvents].slice(0, 20),
+      }
+    }),
+  trackMarketTick: (symbol) =>
+    set((state) => ({
+      marketTickCount: state.marketTickCount + 1,
+      lastMarketSymbol: symbol || state.lastMarketSymbol,
+    })),
 
   hydrateDashboard: (data: DashboardData) => {
     set((currentState) => {
