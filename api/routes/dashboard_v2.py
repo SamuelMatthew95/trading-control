@@ -5,6 +5,7 @@ Provides real-time dashboard data without NaN issues.
 """
 
 import logging
+import json
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.models import SystemMetrics, TradePerformance, Order, AgentLog
 from api.database import AsyncSessionFactory
 from api.services.metrics_aggregator import MetricsAggregator
+from api.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -109,3 +111,168 @@ async def get_order_metrics() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting order metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/prices")
+async def get_prices() -> Dict[str, Any]:
+    """
+    Get current market prices from Redis cache.
+    
+    This provides instant price data for dashboard initial load,
+    without requiring WebSocket connection.
+    """
+    try:
+        symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
+        redis_client = await get_redis()
+        
+        # Get all price keys from Redis
+        keys = [f"prices:{symbol}" for symbol in symbols]
+        cached_values = await redis_client.mget(keys)
+        
+        prices = {}
+        for symbol, cached_value in zip(symbols, cached_values):
+            if cached_value:
+                try:
+                    prices[symbol] = json.loads(cached_value)
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON for price {symbol}")
+                    prices[symbol] = None
+            else:
+                prices[symbol] = None
+        
+        return {
+            "prices": prices,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "redis_cache"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting prices from cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/health/worker")
+async def get_worker_health() -> Dict[str, Any]:
+    """
+    Check background worker health by examining price timestamps and heartbeat in Redis.
+    
+    Returns worker status based on how recently prices were updated and worker heartbeat.
+    Uses HTTP status codes for Render health check integration:
+    - 200: Healthy
+    - 200: Degraded (still running but slow)
+    - 503: Unhealthy (worker stopped/failing)
+    """
+    try:
+        symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
+        redis_client = await get_redis()
+        
+        # Get all price keys and heartbeat from Redis
+        keys = [f"prices:{symbol}" for symbol in symbols] + ["worker:heartbeat"]
+        cached_values = await redis_client.mget(keys)
+        
+        # Extract heartbeat (last item)
+        heartbeat_value = cached_values[-1]
+        price_values = cached_values[:-1]
+        
+        now = datetime.now(timezone.utc)
+        timestamps = []
+        stale_symbols = []
+        
+        # Check price timestamps
+        for symbol, cached_value in zip(symbols, price_values):
+            if cached_value:
+                try:
+                    price_data = json.loads(cached_value)
+                    timestamp_str = price_data.get("timestamp")
+                    if timestamp_str:
+                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        timestamps.append(timestamp)
+                        
+                        # Check if price is stale (older than 90 seconds)
+                        if (now - timestamp).total_seconds() > 90:
+                            stale_symbols.append(symbol)
+                except (json.JSONDecodeError, ValueError):
+                    stale_symbols.append(symbol)
+            else:
+                stale_symbols.append(symbol)
+        
+        # Check heartbeat
+        heartbeat_age = None
+        heartbeat_status = "missing"
+        if heartbeat_value:
+            try:
+                heartbeat_time = datetime.fromisoformat(heartbeat_value.replace('Z', '+00:00'))
+                heartbeat_age = (now - heartbeat_time).total_seconds()
+                
+                if heartbeat_age <= 10:
+                    heartbeat_status = "healthy"
+                elif heartbeat_age <= 30:
+                    heartbeat_status = "degraded"
+                else:
+                    heartbeat_status = "stale"
+            except ValueError:
+                heartbeat_status = "invalid"
+        
+        if not timestamps:
+            health_data = {
+                "status": "unhealthy",
+                "message": "No price data found in Redis",
+                "last_update": None,
+                "heartbeat_status": heartbeat_status,
+                "heartbeat_age": int(heartbeat_age) if heartbeat_age else None,
+                "stale_symbols": symbols,
+                "total_symbols": len(symbols),
+                "fresh_symbols": 0,
+                "check_time": now.isoformat()
+            }
+            # Return 503 for unhealthy status
+            raise HTTPException(status_code=503, detail=health_data)
+        
+        # Get the most recent timestamp
+        last_update = max(timestamps)
+        age_seconds = (now - last_update).total_seconds()
+        
+        # Determine overall health status
+        if age_seconds <= 30 and heartbeat_status == "healthy":
+            status = "healthy"
+            message = "Worker is actively updating prices"
+            http_status = 200
+        elif age_seconds <= 90 and heartbeat_status in ["healthy", "degraded"]:
+            status = "degraded"
+            message = "Worker may be slow or experiencing issues"
+            http_status = 200  # Still return 200 for degraded - worker is running
+        else:
+            status = "unhealthy"
+            message = "Worker appears to be stopped or failing"
+            http_status = 503
+        
+        health_data = {
+            "status": status,
+            "message": message,
+            "last_update": last_update.isoformat(),
+            "age_seconds": int(age_seconds),
+            "heartbeat_status": heartbeat_status,
+            "heartbeat_age": int(heartbeat_age) if heartbeat_age else None,
+            "stale_symbols": stale_symbols if stale_symbols else None,
+            "total_symbols": len(symbols),
+            "fresh_symbols": len(symbols) - len(stale_symbols),
+            "check_time": now.isoformat()
+        }
+        
+        # Return proper HTTP status for Render
+        if http_status != 200:
+            raise HTTPException(status_code=http_status, detail=health_data)
+        
+        return health_data
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (our health check failures)
+        raise
+    except Exception as e:
+        logger.error(f"Error checking worker health: {e}")
+        error_data = {
+            "status": "error",
+            "message": f"Health check failed: {str(e)}",
+            "check_time": datetime.now(timezone.utc).isoformat()
+        }
+        raise HTTPException(status_code=503, detail=error_data)

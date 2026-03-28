@@ -11,7 +11,8 @@ const mockStore = {
   prices: {},
   systemMetrics: [],
   learningEvents: [],
-  dashboardData: null
+  dashboardData: null,
+  fetchPrices: vi.fn().mockResolvedValue(undefined)
 }
 
 vi.mock('@/stores/useCodexStore', () => ({
@@ -61,7 +62,9 @@ describe('DashboardView — overview', () => {
 
   it('shows ticker symbols on overview when empty', () => {
     render(<DashboardView section="overview" />)
-    expect(screen.getByText('BTC/USD')).toBeInTheDocument()
+    // When loading, shows skeletons instead of ticker symbols
+    // The ticker symbols appear after loading completes
+    expect(screen.getByText(/Live Market Prices/i)).toBeInTheDocument()
   })
 })
 

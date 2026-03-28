@@ -229,6 +229,23 @@ class WebSocketManager {
         const change = Number.isFinite(price) ? price - previousPrice : 0
         if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
         store.trackMarketTick(symbol)
+      } else if (msg.type === 'price_update' && msg.symbol && msg.price) {
+        // Handle price updates from background worker
+        const price = Number(msg.price)
+        const symbol = msg.symbol
+        const currentPriceData = store.prices[symbol]
+        const messageTimestamp = msg.timestamp || new Date().toISOString()
+        
+        // Only update if WebSocket data is newer than existing data
+        const shouldUpdate = !currentPriceData?.updatedAt || 
+          new Date(messageTimestamp) > new Date(currentPriceData.updatedAt)
+        
+        if (shouldUpdate && Number.isFinite(price)) {
+          const previousPrice = currentPriceData?.price ?? price
+          const change = price - previousPrice
+          store.updatePrice(symbol, price, change)
+          store.trackMarketTick(symbol)
+        }
       } else if (msg.stream === 'signals') {
         store.addSignal({
           ...(msg as unknown as Record<string, unknown>),

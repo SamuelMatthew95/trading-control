@@ -22,6 +22,7 @@ from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.health import router as health_router
 from api.routes.dlq import router as dlq_router
+from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.ws import router as ws_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
@@ -170,6 +171,7 @@ app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
+app.include_router(dashboard_v2_router, prefix="/api")
 app.include_router(ws_router)
 
 

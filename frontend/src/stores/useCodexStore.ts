@@ -106,6 +106,7 @@ type CodexState = {
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEvent[]
   updatePrice: (symbol: string, price: number, change: number) => void
+  updatePriceFromCache: (symbol: string, priceData: PriceData) => void
   addSignal: (signal: Record<string, unknown>) => void
   addOrder: (order: Order) => void
   updateOrder: (order: Order) => void
@@ -122,6 +123,7 @@ type CodexState = {
   trackMarketTick: (symbol?: string | null) => void
   hydrateDashboard: (data: DashboardData) => void
   bulkUpdate: (updates: Partial<CodexState>) => void
+  fetchPrices: () => Promise<void>
 }
 
 export const useCodexStore = create<CodexState>((set) => ({
@@ -164,6 +166,47 @@ export const useCodexStore = create<CodexState>((set) => ({
       },
     }
   })),
+  updatePriceFromCache: (symbol, priceData) => set((state) => ({
+    prices: {
+      ...state.prices,
+      [symbol]: {
+        price: Number(priceData.price),
+        change: 0, // Will be calculated based on previous price
+        previousPrice: state.prices[symbol]?.price ?? Number(priceData.price),
+        updatedAt: (priceData as any).timestamp || new Date().toISOString(),
+      },
+    }
+  })),
+  fetchPrices: async () => {
+    try {
+      const response = await fetch('/api/dashboard/prices')
+      if (!response.ok) throw new Error('Failed to fetch prices')
+      
+      const data = await response.json()
+      const prices = data.prices || {}
+      
+      set((state) => {
+        const updatedPrices = { ...state.prices }
+        for (const [symbol, priceData] of Object.entries(prices)) {
+          if (priceData && typeof priceData === 'object') {
+            const price = Number((priceData as any).price)
+            const previousPrice = state.prices[symbol]?.price ?? price
+            const change = price - previousPrice
+            
+            updatedPrices[symbol] = {
+              price,
+              change,
+              previousPrice,
+              updatedAt: (priceData as any).timestamp || new Date().toISOString(),
+            }
+          }
+        }
+        return { prices: updatedPrices }
+      })
+    } catch (error) {
+      console.error('Error fetching prices:', error)
+    }
+  },
   addSignal: (signal) => set((state) => ({
     signals: [signal, ...state.signals].slice(0, 50)
   })),
