@@ -116,8 +116,15 @@ async def root() -> Dict[str, Any]:
 
 
 @router.get("/health")
-async def health_check() -> Dict[str, str]:
-    return {"status": "ok"}
+async def health_check(request: Request) -> Dict[str, Any]:
+    db_ready = await _database_ready(request)
+    redis_ready = await _redis_ready(request)
+    return {
+        "status": "ok" if db_ready and redis_ready else "degraded",
+        "database": "connected" if db_ready else "disconnected",
+        "redis": "connected" if redis_ready else "disconnected",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/readiness")
