@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,18 +17,47 @@ class WebSocketBroadcaster:
         self._running = False
         self._last_error: str | None = None
         self._messages_sent = 0
+        self._broadcast_task: asyncio.Task[None] | None = None
+        self._redis_client = None
 
     async def start(self, redis_client=None) -> None:
+        if self._running:
+            return
         self._running = True
+        self._redis_client = redis_client
+        self._broadcast_task = asyncio.create_task(self._dashboard_broadcast_loop(), name="ws-broadcaster-loop")
 
     async def stop(self) -> None:
         self._running = False
+        if self._broadcast_task is not None:
+            self._broadcast_task.cancel()
+            try:
+                await self._broadcast_task
+            except asyncio.CancelledError:
+                pass
+            self._broadcast_task = None
+
         for ws in list(self._connections):
             try:
                 await ws.close(code=1001)
             except Exception:
                 pass
         self._connections.clear()
+
+    async def _dashboard_broadcast_loop(self) -> None:
+        while self._running:
+            try:
+                # Compatibility loop hook (kept intentionally minimal).
+                if self._redis_client is not None and hasattr(self._redis_client, "xread"):
+                    await self._redis_client.xread({}, block=100, count=1)
+                else:
+                    await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                self._last_error = str(exc)
+                log_structured("warning", "websocket_background_loop_error", exc_info=True)
+                await asyncio.sleep(0.1)
 
     @property
     def active_connections(self) -> int:

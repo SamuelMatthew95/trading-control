@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import traceback
 from typing import Optional
 
 from redis.asyncio import ConnectionPool, Redis
@@ -30,12 +29,7 @@ async def get_redis() -> Redis:
     if _redis_client is None:
         redis_url = settings.REDIS_URL
         if not redis_url:
-            log_structured(
-                "error",
-                "redis_url_missing",
-                event_name="redis_url_missing",
-                msg="REDIS_URL env variable not set",
-            )
+            log_structured("error", "redis_url_missing", event_name="redis_url_missing")
             raise RuntimeError("Missing REDIS_URL")
 
         _redis_pool = ConnectionPool.from_url(
@@ -53,22 +47,11 @@ async def get_redis() -> Redis:
 
         try:
             await _redis_client.ping()
-            log_structured(
-                "info",
-                "redis_connected",
-                event_name="redis_connected",
-                url_masked=_mask_redis_url(redis_url),
-            )
-        except (ConnectionError, TimeoutError) as exc:
-            log_structured(
-                "error",
-                "redis_connection_failed",
-                event_name="redis_connection_failed",
-                exc_info=True,
-                traceback=traceback.format_exc(),
-            )
+            log_structured("info", "redis_connected", event_name="redis_connected", url_masked=_mask_redis_url(redis_url))
+        except (ConnectionError, TimeoutError):
+            log_structured("error", "Redis connection failed", exc_info=True)
             await close_redis()
-            raise RuntimeError("Cannot connect to Redis") from exc
+            raise
     return _redis_client
 
 
@@ -77,13 +60,17 @@ async def close_redis() -> None:
     if _redis_client is not None:
         try:
             await _redis_client.aclose()
-            log_structured("info", "redis_client_closed")
+            log_structured("info", "Redis client closed")
+        except (ConnectionError, TimeoutError):
+            log_structured("warning", "Error closing Redis client", exc_info=True)
         finally:
             _redis_client = None
 
     if _redis_pool is not None:
         try:
             await _redis_pool.aclose()
-            log_structured("info", "redis_pool_closed")
+            log_structured("info", "Redis connection pool closed")
+        except (ConnectionError, TimeoutError):
+            log_structured("warning", "Error closing Redis pool", exc_info=True)
         finally:
             _redis_pool = None
