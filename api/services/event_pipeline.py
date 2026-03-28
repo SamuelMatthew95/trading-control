@@ -10,6 +10,7 @@ from typing import Any
 from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_state import AgentStateRegistry
 
 
 class EventPipeline:
@@ -23,12 +24,14 @@ class EventPipeline:
         *,
         consumer_name: str = "pipeline",
         max_retries: int = 3,
+        agent_state: AgentStateRegistry | None = None,
     ):
         self.bus = bus
         self.broadcaster = broadcaster
         self.dlq = dlq
         self.consumer_name = consumer_name
         self.max_retries = max_retries
+        self.agent_state = agent_state
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._recent_events: deque[dict[str, Any]] = deque(maxlen=200)
@@ -193,6 +196,25 @@ class EventPipeline:
             "payload": event,
             "timestamp": ts,
         }
+        if self.agent_state:
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else event
+            agent_name = payload.get("agent_name") or payload.get("agent")
+            if agent_name:
+                agent_status = self.agent_state.update(
+                    str(agent_name),
+                    status=str(payload.get("status") or "running"),
+                    health=str(payload.get("health") or "ok"),
+                    last_task=str(payload.get("last_task") or event_type),
+                )
+                await self.broadcaster.broadcast(
+                    {
+                        "type": "agent_status",
+                        "msg_id": msg_id,
+                        "event_type": "agent_status",
+                        "payload": agent_status,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
         log_structured(
             "info",
             "pipeline_event_processed",

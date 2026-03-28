@@ -22,6 +22,7 @@ from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.health import router as health_router
 from api.routes.ws import router as ws_router
+from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
 from api.services.websocket_broadcaster import get_broadcaster
 
@@ -35,9 +36,11 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = None
     app.state.event_pipeline = None
     app.state.dlq_manager = None
+    app.state.agent_state = None
 
     pipeline: EventPipeline | None = None
     broadcaster = get_broadcaster()
+    agent_state = AgentStateRegistry()
 
     try:
         db_ok = await test_database_connection()
@@ -71,13 +74,14 @@ async def lifespan(app: FastAPI):
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
-        pipeline = EventPipeline(event_bus, broadcaster, dlq_manager)
+        pipeline = EventPipeline(event_bus, broadcaster, dlq_manager, agent_state=agent_state)
         await pipeline.start()
 
         app.state.event_bus = event_bus
         app.state.event_pipeline = pipeline
         app.state.websocket_broadcaster = broadcaster
         app.state.dlq_manager = dlq_manager
+        app.state.agent_state = agent_state
 
         await broadcaster.broadcast(
             {
@@ -89,8 +93,13 @@ async def lifespan(app: FastAPI):
 
         log_structured(
             "info",
-            "startup_complete",
-            event="startup_complete",
+            "system_startup_status",
+            event="system_startup_status",
+            redis="ok",
+            pipeline="started",
+            websocket="ready",
+            agents_connected=0,
+            agents=list(AGENT_NAMES),
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),

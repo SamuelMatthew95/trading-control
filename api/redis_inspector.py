@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from api.config import settings
 from api.events.bus import STREAMS
 from api.observability import log_structured
 
@@ -19,6 +20,48 @@ class TestEventRequest(BaseModel):
     stream: str = "market_ticks"
     payload: dict[str, Any] = {"message": "hello"}
 
+
+
+
+def _mask_redis_url(url: str) -> str:
+    if not url:
+        return ""
+    if "@" not in url:
+        return url
+    prefix, suffix = url.split("@", 1)
+    if ":" in prefix:
+        return f"{prefix.rsplit(':', 1)[0]}:****@{suffix}"
+    return f"****@{suffix}"
+
+
+@router.get("/redis")
+async def debug_redis(request: Request) -> dict[str, Any]:
+    redis_client = request.app.state.redis_client
+    if redis_client is None:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+    pong = await redis_client.ping()
+    return {
+        "status": "ok" if pong else "error",
+        "ping": bool(pong),
+        "masked_url": _mask_redis_url(settings.REDIS_URL or ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "last_error": getattr(getattr(request.app.state, "event_pipeline", None), "_last_error", None),
+    }
+
+
+@router.get("/agents")
+async def debug_agents(request: Request) -> dict[str, Any]:
+    registry = getattr(request.app.state, "agent_state", None)
+    pipeline = getattr(request.app.state, "event_pipeline", None)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="Agent registry unavailable")
+    states = registry.snapshot()
+    return {
+        "agents": states,
+        "count": len(states),
+        "last_error": getattr(pipeline, "_last_error", None) if pipeline else None,
+        "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
+    }
 
 @router.get("/streams")
 async def debug_streams(request: Request, limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
@@ -60,12 +103,14 @@ async def debug_streams(request: Request, limit: int = Query(default=20, ge=1, l
 @router.get("/ws")
 async def debug_ws(request: Request) -> dict[str, Any]:
     broadcaster = getattr(request.app.state, "websocket_broadcaster", None)
+    pipeline = getattr(request.app.state, "event_pipeline", None)
     if broadcaster is None:
         raise HTTPException(status_code=503, detail="WebSocket broadcaster unavailable")
     return {
         "active_connections": broadcaster.active_connections,
         "messages_sent": broadcaster.messages_sent,
         "last_error": broadcaster.last_error,
+        "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -95,9 +140,12 @@ async def debug_dlq(request: Request, limit: int = Query(default=50, ge=1, le=50
 @router.get("/dlq/stats")
 async def debug_dlq_stats(request: Request) -> dict[str, Any]:
     dlq = getattr(request.app.state, "dlq_manager", None)
+    pipeline = getattr(request.app.state, "event_pipeline", None)
     if dlq is None:
         raise HTTPException(status_code=503, detail="DLQ manager unavailable")
-    return await dlq.stats()
+    stats = await dlq.stats()
+    stats["recent_activity"] = pipeline.status().get("recent_failures", [])[:10] if pipeline else []
+    return stats
 
 
 @router.post("/publish-test-event")
