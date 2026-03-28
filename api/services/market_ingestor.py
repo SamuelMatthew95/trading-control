@@ -136,7 +136,29 @@ class MarketDataIngestor:
         async for tick in self.provider.stream_ticks():
             if not self._running:
                 break
+            if not self._is_valid_tick(tick):
+                continue
             await self.bus.publish("market_ticks", tick, maxlen=10_000)
+
+    def _is_valid_tick(self, tick: dict[str, Any]) -> bool:
+        try:
+            symbol = str(tick.get("symbol", ""))
+            price = float(tick.get("price", 0) or 0)
+            bid = float(tick.get("bid", price) or price)
+            ask = float(tick.get("ask", price) or price)
+            volume = float(tick.get("volume", 0) or 0)
+            timestamp = str(tick.get("timestamp", ""))
+        except Exception:
+            return False
+        return bool(
+            symbol
+            and timestamp
+            and price > 0
+            and bid > 0
+            and ask > 0
+            and ask >= bid
+            and volume >= 0
+        )
 
 
 class MarketIngestor(MarketDataIngestor):

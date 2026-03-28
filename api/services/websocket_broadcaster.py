@@ -23,16 +23,9 @@ class WebSocketBroadcaster:
             "signals": "$",
             "orders": "$",
             "executions": "$",
-            "trade_performance": "$",
             "risk_alerts": "$",
             "learning_events": "$",
             "agent_logs": "$",
-            "agent_grades": "$",
-            "factor_ic_history": "$",
-            "reflection_outputs": "$",
-            "proposals": "$",
-            "notifications": "$",
-            "github_prs": "$",
         }
         self._idle_sleep_seconds = 0.1
         self._xread_streams_state: str | None = None
