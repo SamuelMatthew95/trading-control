@@ -1,8 +1,6 @@
-"""Database initialization utilities for Trading Control."""
+"""Database initialization utilities for non-production bootstrap flows."""
 
 from __future__ import annotations
-
-import asyncio
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -10,20 +8,19 @@ from api.core.models import Base
 
 
 async def init_database(database_url: str) -> None:
-    """Create all SQLAlchemy-managed tables for the configured database URL."""
+    """Create SQLAlchemy tables for SQLite/local use.
+
+    Production PostgreSQL environments should run Alembic migrations instead of
+    `metadata.create_all` to preserve schema history and migration safety.
+    """
+    if database_url.startswith(("postgres://", "postgresql://", "postgresql+asyncpg://")):
+        raise RuntimeError(
+            "PostgreSQL bootstrap must use Alembic migrations (do not call create_all in production)."
+        )
+
     engine = create_async_engine(database_url)
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     finally:
         await engine.dispose()
-
-
-if __name__ == "__main__":
-    import os
-
-    url = os.getenv("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable is required")
-
-    asyncio.run(init_database(url))
