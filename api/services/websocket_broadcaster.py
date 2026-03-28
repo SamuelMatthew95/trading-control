@@ -58,6 +58,10 @@ class WebSocketBroadcaster:
                         continue
 
                     messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=1)
+                    if not messages:
+                        await asyncio.sleep(self._idle_sleep_seconds)
+                        continue
+
                     for stream_name, stream_messages in messages:
                         if not stream_messages:
                             continue
