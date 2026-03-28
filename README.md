@@ -13,15 +13,13 @@ It is designed for deterministic local development, integration testing, and pro
 - Architecture: https://matthew.docs.buildwithfern.com/docs/system-design/architecture
 - API Reference: https://matthew.docs.buildwithfern.com/api-reference/api-reference/
 
-## Quick Start
-
-### 1) Prerequisites
+## Prerequisites
 
 - Python 3.10+
 - pip
 - (Optional for full runtime) PostgreSQL + Redis
 
-### 2) Install
+## Installation
 
 ```bash
 git clone https://github.com/SamuelMatthew95/trading-control.git
@@ -32,7 +30,7 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-### 3) Configure environment
+## Configuration
 
 ```bash
 cp .env.example .env
@@ -47,13 +45,13 @@ ENABLE_SIGNAL_SCHEDULER=false
 LOG_LEVEL=INFO
 ```
 
-### 4) Run the API
+## Run the Bot / API
 
 ```bash
 uvicorn api.main:app --reload
 ```
 
-### 5) Run tests
+## Run Tests
 
 ```bash
 pytest

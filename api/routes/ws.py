@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -23,7 +24,9 @@ async def dashboard_ws(websocket: WebSocket) -> None:
 
     await broadcaster.add_connection(websocket)
     for stream in STREAMS:
-        broadcaster.register_stream(stream, "$")
+        register_result = broadcaster.register_stream(stream, "$")
+        if inspect.isawaitable(register_result):
+            await register_result
     try:
         await websocket.send_json(
             {"type": "system", "status": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
