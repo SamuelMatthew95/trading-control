@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from api.events.bus import STREAMS
 from api.observability import log_structured
 
 
@@ -19,7 +20,8 @@ class WebSocketBroadcaster:
         self._messages_sent = 0
         self._broadcast_task: asyncio.Task[None] | None = None
         self._redis_client = None
-        self._stream_offsets: dict[str, str] = {}
+        # Pre-register known streams so xread is never called with an empty stream map.
+        self._stream_offsets: dict[str, str] = {stream: "$" for stream in STREAMS}
         self._idle_sleep_seconds = 0.1
 
     async def start(self, redis_client=None) -> None:
@@ -52,10 +54,12 @@ class WebSocketBroadcaster:
                 # Compatibility loop hook (kept intentionally minimal).
                 if self._redis_client is not None and hasattr(self._redis_client, "xread"):
                     if not self._stream_offsets:
-                        # Streams are registered dynamically by callers. On startup there may
-                        # be nothing to read from yet, so idle instead of calling xread({}).
+                        self._last_error = "No streams registered for websocket broadcaster xread loop"
+                        log_structured("error", "websocket_xread_streams_empty")
                         await asyncio.sleep(self._idle_sleep_seconds)
                         continue
+
+                    log_structured("debug", "websocket_xread_streams_ready", stream_count=len(self._stream_offsets))
 
                     messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=1)
                     if not messages:
