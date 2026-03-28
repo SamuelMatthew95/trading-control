@@ -20,6 +20,7 @@ from api.events.dlq import DLQManager
 from api.observability import bind_request_context, configure_logging, log_structured, metrics_store
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
+from api.routes.debug import router as debug_router
 from api.routes.health import router as health_router
 from api.routes.dlq import router as dlq_router
 from api.routes.ws import router as ws_router
@@ -143,6 +144,7 @@ app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
+app.include_router(debug_router)
 app.include_router(ws_router)
 
 
