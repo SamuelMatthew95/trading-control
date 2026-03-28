@@ -19,7 +19,14 @@ class WebSocketBroadcaster:
         self._messages_sent = 0
         self._broadcast_task: asyncio.Task[None] | None = None
         self._redis_client = None
-        self._stream_offsets: dict[str, str] = {}
+        self._stream_offsets: dict[str, str] = {
+            "signals": "$",
+            "orders": "$",
+            "executions": "$",
+            "risk_alerts": "$",
+            "learning_events": "$",
+            "agent_logs": "$",
+        }
         self._idle_sleep_seconds = 0.1
         self._xread_streams_state: str | None = None
 
@@ -64,16 +71,40 @@ class WebSocketBroadcaster:
                         log_structured("debug", "websocket_xread_streams_ready", stream_count=len(self._stream_offsets))
                         self._xread_streams_state = "ready"
 
-                    messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=1)
+                    messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=100)
                     if not messages:
                         await asyncio.sleep(self._idle_sleep_seconds)
                         continue
 
+                    messages_read = 0
+                    broadcasts_attempted = 0
                     for stream_name, stream_messages in messages:
                         if not stream_messages:
                             continue
+                        decoded_stream_name = self._decode_redis_value(stream_name)
+                        for msg_id, payload in stream_messages:
+                            decoded_id = self._decode_redis_value(msg_id)
+                            decoded_payload = self._decode_redis_payload(payload)
+                            outbound = {
+                                "stream": decoded_stream_name,
+                                "msg_id": decoded_id,
+                                **decoded_payload,
+                            }
+                            await self.broadcast(outbound)
+                            messages_read += 1
+                            broadcasts_attempted += len(self._connections)
+
                         *_, (last_id, _payload) = stream_messages
-                        self._stream_offsets[str(stream_name)] = str(last_id)
+                        self._stream_offsets[decoded_stream_name] = self._decode_redis_value(last_id)
+
+                    log_structured(
+                        "debug",
+                        "websocket_xread_cycle_processed",
+                        streams_returned=len(messages),
+                        messages_read=messages_read,
+                        broadcasts_attempted=broadcasts_attempted,
+                        connected_clients=len(self._connections),
+                    )
                 else:
                     await asyncio.sleep(self._idle_sleep_seconds)
             except asyncio.CancelledError:
@@ -82,6 +113,26 @@ class WebSocketBroadcaster:
                 self._last_error = str(exc)
                 log_structured("warning", "websocket_background_loop_error", exc_info=True)
                 await asyncio.sleep(self._idle_sleep_seconds)
+
+    @staticmethod
+    def _decode_redis_value(value: Any) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return str(value)
+
+    @classmethod
+    def _decode_redis_payload(cls, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {"payload": payload}
+
+        decoded_payload: dict[str, Any] = {}
+        for key, value in payload.items():
+            decoded_key = cls._decode_redis_value(key)
+            decoded_value: Any = value
+            if isinstance(value, bytes):
+                decoded_value = value.decode("utf-8")
+            decoded_payload[decoded_key] = decoded_value
+        return decoded_payload
 
     def register_stream(self, stream_name: str, last_id: str = "$") -> None:
         stream = stream_name.strip()

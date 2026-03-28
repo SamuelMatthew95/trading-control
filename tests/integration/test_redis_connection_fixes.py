@@ -240,13 +240,22 @@ class TestWebSocketBroadcaster:
         await broadcaster.stop()
 
     @pytest.mark.asyncio
-    async def test_dashboard_loop_skips_xread_without_streams(self, broadcaster, mock_redis_client):
-        """The dashboard loop should idle when no streams are registered."""
+    async def test_dashboard_loop_reads_default_streams_on_start(self, broadcaster, mock_redis_client):
+        """The dashboard loop should read from hardcoded default streams on start."""
         await broadcaster.start(mock_redis_client)
 
         await asyncio.sleep(0.15)
 
-        mock_redis_client.xread.assert_not_called()
+        assert mock_redis_client.xread.await_count >= 1
+        first_call = mock_redis_client.xread.await_args_list[0]
+        assert first_call.args[0] == {
+            "signals": "$",
+            "orders": "$",
+            "executions": "$",
+            "risk_alerts": "$",
+            "learning_events": "$",
+            "agent_logs": "$",
+        }
         assert broadcaster._running is True
 
         await broadcaster.stop()
@@ -261,7 +270,14 @@ class TestWebSocketBroadcaster:
 
         assert mock_redis_client.xread.await_count >= 1
         first_call = mock_redis_client.xread.await_args_list[0]
-        assert first_call.args[0] == {"orders": "0-0"}
+        assert first_call.args[0] == {
+            "signals": "$",
+            "orders": "0-0",
+            "executions": "$",
+            "risk_alerts": "$",
+            "learning_events": "$",
+            "agent_logs": "$",
+        }
 
         await broadcaster.stop()
 
