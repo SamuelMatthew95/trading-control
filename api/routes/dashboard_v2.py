@@ -4,8 +4,9 @@ Dashboard API - Clean metrics read layer using MetricsAggregator.
 Provides real-time dashboard data without NaN issues.
 """
 
-import logging
+import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -19,6 +20,9 @@ from api.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+# Track process start time for startup grace period
+PROCESS_START_TIME = datetime.now(timezone.utc)
 
 
 @router.get("/snapshot")
@@ -160,21 +164,70 @@ async def get_worker_health() -> Dict[str, Any]:
     Uses HTTP status codes for Render health check integration:
     - 200: Healthy
     - 200: Degraded (still running but slow)
+    - 200: Starting (within 60s grace period)
     - 503: Unhealthy (worker stopped/failing)
     """
+    now = datetime.now(timezone.utc)
+    
+    # Check startup grace period (60 seconds)
+    uptime_seconds = (now - PROCESS_START_TIME).total_seconds()
+    if uptime_seconds < 60:
+        return {
+            "status": "starting",
+            "message": "Worker is warming up",
+            "uptime_seconds": uptime_seconds,
+            "check_time": now.isoformat()
+        }
+    
+    # After grace period, perform actual health checks
     try:
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
-        redis_client = await get_redis()
         
-        # Get all price keys and heartbeat from Redis
+        # Try to get Redis client with timeout
+        try:
+            redis_client = await asyncio.wait_for(get_redis(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("Redis connection timeout during health check")
+            return {
+                "status": "degraded",
+                "message": "Redis unavailable or slow",
+                "error": "Redis connection timeout",
+                "check_time": now.isoformat()
+            }
+        except Exception as e:
+            logger.warning(f"Redis connection failed during health check: {e}")
+            return {
+                "status": "degraded", 
+                "message": "Redis unavailable or slow",
+                "error": str(e),
+                "check_time": now.isoformat()
+            }
+        
+        # Get all price keys and heartbeat from Redis with timeout
         keys = [f"prices:{symbol}" for symbol in symbols] + ["worker:heartbeat"]
-        cached_values = await redis_client.mget(keys)
+        try:
+            cached_values = await asyncio.wait_for(redis_client.mget(keys), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("Redis mget timeout during health check")
+            return {
+                "status": "degraded",
+                "message": "Redis unavailable or slow", 
+                "error": "Redis read timeout",
+                "check_time": now.isoformat()
+            }
+        except Exception as e:
+            logger.warning(f"Redis read failed during health check: {e}")
+            return {
+                "status": "degraded",
+                "message": "Redis unavailable or slow",
+                "error": str(e),
+                "check_time": now.isoformat()
+            }
         
         # Extract heartbeat (last item)
         heartbeat_value = cached_values[-1]
         price_values = cached_values[:-1]
         
-        now = datetime.now(timezone.utc)
         timestamps = []
         stale_symbols = []
         
@@ -223,6 +276,7 @@ async def get_worker_health() -> Dict[str, Any]:
                 "stale_symbols": symbols,
                 "total_symbols": len(symbols),
                 "fresh_symbols": 0,
+                "uptime_seconds": uptime_seconds,
                 "check_time": now.isoformat()
             }
             # Return 503 for unhealthy status
@@ -256,6 +310,7 @@ async def get_worker_health() -> Dict[str, Any]:
             "stale_symbols": stale_symbols if stale_symbols else None,
             "total_symbols": len(symbols),
             "fresh_symbols": len(symbols) - len(stale_symbols),
+            "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
         
@@ -269,10 +324,11 @@ async def get_worker_health() -> Dict[str, Any]:
         # Re-raise HTTP exceptions (our health check failures)
         raise
     except Exception as e:
-        logger.error(f"Error checking worker health: {e}")
+        logger.error(f"Unexpected error in worker health check: {e}")
         error_data = {
             "status": "error",
             "message": f"Health check failed: {str(e)}",
-            "check_time": datetime.now(timezone.utc).isoformat()
+            "uptime_seconds": uptime_seconds,
+            "check_time": now.isoformat()
         }
         raise HTTPException(status_code=503, detail=error_data)
