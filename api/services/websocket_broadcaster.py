@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from api.events.bus import STREAMS
 from api.observability import log_structured
 
 
@@ -20,8 +19,7 @@ class WebSocketBroadcaster:
         self._messages_sent = 0
         self._broadcast_task: asyncio.Task[None] | None = None
         self._redis_client = None
-        # Pre-register known streams so xread is never called with an empty stream map.
-        self._stream_offsets: dict[str, str] = {stream: "$" for stream in STREAMS}
+        self._stream_offsets: dict[str, str] = {}
         self._idle_sleep_seconds = 0.1
 
     async def start(self, redis_client=None) -> None:
