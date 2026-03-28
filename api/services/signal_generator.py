@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import uuid
 from typing import Any
 
+from api.config import settings
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
@@ -16,7 +18,6 @@ class SignalGenerator(BaseStreamConsumer):
     per symbol. With 10s tick interval and N=10, fires every ~100 seconds.
     Result: ~864 LLM calls/day = 6% of Groq free limit.
     """
-    SIGNAL_EVERY_N_TICKS: int = 10
 
     def __init__(self, bus: EventBus, dlq: DLQManager):
         super().__init__(
@@ -36,7 +37,8 @@ class SignalGenerator(BaseStreamConsumer):
         count = self._tick_count.get(symbol, 0) + 1
         self._tick_count[symbol] = count
 
-        if count % self.SIGNAL_EVERY_N_TICKS != 0:
+        threshold = max(int(settings.SIGNAL_EVERY_N_TICKS), 1)
+        if count % threshold != 0:
             return
 
         signal = {
@@ -52,6 +54,8 @@ class SignalGenerator(BaseStreamConsumer):
             "stop_atr_x": 1.5,
             "rr_ratio": 2.0,
             "context": {"tick_count": count},
+            "source": "signal_generator",
+            "msg_id": str(uuid.uuid4()),
         }
 
         await self.bus.publish("signals", signal)

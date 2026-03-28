@@ -103,13 +103,15 @@ class ReasoningAgent(BaseStreamConsumer):
                     "limit": settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
                 },
             )
-        await self.bus.publish("agent_logs", {"type": "agent_log", **summary})
+        await self.bus.publish("agent_logs", {"type": "agent_log", "msg_id": str(uuid.uuid4()), "source": "reasoning", **summary})
         # Normalize action to lowercase for consistent comparison
         action = summary.get("action", "").lower()
         if action not in {"reject", "hold", "flat"}:
             await self.bus.publish(
                 "orders",
                 {
+                    "msg_id": str(uuid.uuid4()),
+                    "source": "reasoning",
                     "strategy_id": data.get("strategy_id"),
                     "symbol": data.get("symbol"),
                     "side": action,
@@ -307,6 +309,8 @@ RETURNING id
             result = await session.execute(
                 query,
                 {
+                    "msg_id": str(uuid.uuid4()),
+                    "source": "reasoning",
                     "strategy_id": data.get("strategy_id"),
                     "symbol": data.get("symbol"),
                     "signal_data": json.dumps(data, default=str),

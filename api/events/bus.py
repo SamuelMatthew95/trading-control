@@ -16,10 +16,17 @@ STREAMS = (
     "signals",
     "orders",
     "executions",
+    "trade_performance",
     "risk_alerts",
     "learning_events",
     "system_metrics",
     "agent_logs",
+    "agent_grades",
+    "factor_ic_history",
+    "reflection_outputs",
+    "proposals",
+    "notifications",
+    "github_prs",
 )
 DEFAULT_GROUP = "workers"
 

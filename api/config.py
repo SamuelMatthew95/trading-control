@@ -29,7 +29,14 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Market data
+    MARKET_DATA_PROVIDER: str = "alpaca"
     MARKET_TICK_INTERVAL_SECONDS: float = 10.0
+
+    # Agent trigger thresholds
+    SIGNAL_EVERY_N_TICKS: int = 10
+    GRADE_EVERY_N_FILLS: int = 5
+    IC_UPDATE_EVERY_N_FILLS: int = 10
+    REFLECT_EVERY_N_FILLS: int = 10
 
     # LLM provider routing
     LLM_PROVIDER: str = "groq"
@@ -78,6 +85,12 @@ class Settings(BaseSettings):
     def validate_runtime_requirements(self) -> "Settings":
         if self.NODE_ENV == "production" and not self.DATABASE_URL:
             raise ValueError("DATABASE_URL is required in production")
+        if (self.MARKET_DATA_PROVIDER or "alpaca").lower() == "alpaca" and (
+            not self.ALPACA_API_KEY or not self.ALPACA_SECRET_KEY
+        ):
+            raise ValueError(
+                "ALPACA_API_KEY and ALPACA_SECRET_KEY are required when MARKET_DATA_PROVIDER=alpaca"
+            )
         return self
 
 
