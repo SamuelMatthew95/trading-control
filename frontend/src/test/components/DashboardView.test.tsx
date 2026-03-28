@@ -54,14 +54,14 @@ describe('DashboardView — overview', () => {
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument()
   })
 
-  it('shows empty state when no agents', () => {
+  it('shows daily P&L on overview when empty', () => {
     render(<DashboardView section="overview" />)
-    expect(screen.getByText(/no agent data available/i)).toBeInTheDocument()
+    expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
   })
 
-  it('shows empty state when no prices', () => {
+  it('shows ticker symbols on overview when empty', () => {
     render(<DashboardView section="overview" />)
-    expect(screen.getByText(/no live price data/i)).toBeInTheDocument()
+    expect(screen.getByText('BTC/USD')).toBeInTheDocument()
   })
 })
 
@@ -81,8 +81,9 @@ describe('DashboardView — agents', () => {
     expect(() => render(<DashboardView section="agents" />)).not.toThrow()
   })
 
-  it('shows empty state when no agent logs', () => {
+  it('shows agents in waiting state when no logs', () => {
     render(<DashboardView section="agents" />)
-    expect(screen.getByText(/no agent data available/i)).toBeInTheDocument()
+    expect(screen.getByText('SIGNAL_AGENT')).toBeInTheDocument()
+    expect(screen.getAllByText('waiting')).toHaveLength(7)
   })
 })

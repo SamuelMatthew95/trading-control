@@ -1,11 +1,10 @@
 'use client'
 
-import { useCallback, useMemo, type ComponentType } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import {
   Activity,
-  AlertTriangle,
   BarChart3,
   Brain,
   FileCode,
@@ -42,6 +41,13 @@ const formatTimeAgo = (date: Date): string => {
   return `${Math.floor(hours / 24)}d ago`;
 };
 
+const formatTimestamp = (value?: string | null): string => {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--'
+  return date.toLocaleTimeString()
+}
+
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
@@ -53,9 +59,21 @@ type AgentSummary = {
   name: string
   count: number
   lastSeen: Date | null
-  status: 'ACTIVE' | 'IDLE'
+  status: 'ACTIVE' | 'IDLE' | 'WAITING'
   tier: 'active' | 'challenger' | 'inactive'
 }
+
+const TRACKED_AGENTS = [
+  'SIGNAL_AGENT',
+  'REASONING_AGENT',
+  'GRADE_AGENT',
+  'IC_UPDATER',
+  'REFLECTION_AGENT',
+  'STRATEGY_PROPOSER',
+  'NOTIFICATION_AGENT',
+] as const
+
+const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
@@ -156,7 +174,16 @@ export function DashboardView({ section }: { section: Section }) {
     positions = [],
     systemMetrics = [],
     dashboardData,
+    marketTickCount,
+    lastMarketSymbol,
+    streamStats,
+    wsMessageCount,
+    wsLastMessageTimestamp,
+    recentEvents,
+    wsConnected,
   } = useCodexStore()
+
+  const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -190,13 +217,41 @@ export function DashboardView({ section }: { section: Section }) {
     }, {})
 
     const now = Date.now()
-    return Object.entries(grouped).map<AgentSummary>(([name, data]) => {
+    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([name, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
       const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'ACTIVE' : 'IDLE'
       const tier: AgentSummary['tier'] = status === 'ACTIVE' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return { name, count: data.count, lastSeen: data.lastSeen, status, tier }
     })
+
+    const normalizedByName = new Map(incomingAgents.map((agent) => [agent.name, agent]))
+    for (const name of TRACKED_AGENTS) {
+      if (!normalizedByName.has(name)) {
+        normalizedByName.set(name, {
+          name,
+          count: 0,
+          lastSeen: null,
+          status: 'WAITING',
+          tier: 'inactive',
+        })
+      }
+    }
+
+    return Array.from(normalizedByName.values())
   }, [agentLogs])
+
+  useEffect(() => {
+    if (!wsConnected || agentLogs.length > 0) {
+      setShowNoAgentDataMessage(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
+        setShowNoAgentDataMessage(true)
+      }
+    }, 10000)
+    return () => clearTimeout(timer)
+  }, [agentLogs.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -226,7 +281,10 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [learningEvents, orders])
 
-  const tickerEntries = useMemo(() => Object.entries(prices).slice(0, 6), [prices])
+  const tickerEntries = useMemo(
+    () => TICKER_SYMBOLS.map((symbol) => [symbol, prices[symbol]] as const),
+    [prices]
+  )
 
   const contentBySection = (
     <>
@@ -287,29 +345,28 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Ticker Strip</p>
+              <p className={sectionTitleClass}>Live Market Prices</p>
             </div>
-            {tickerEntries.length === 0 ? (
-              <EmptyState message="No live price data" icon={TrendingUp} />
-            ) : (
-              <div className="grid grid-cols-1 divide-y divide-slate-200 dark:divide-slate-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-6">
-                {tickerEntries.map(([symbol, priceData]) => {
-                  const price = toFiniteNumber(priceData?.price)
-                  const change = toFiniteNumber(priceData?.change)
-                  const pct = price && change ? (change / (price - change)) * 100 : null
-                  const isPositive = (change ?? 0) >= 0
-                  return (
-                    <div key={symbol} className="px-3 py-2">
-                      <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
-                      <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{price == null ? '--' : formatUSD(price)}</p>
-                      <p className={cn('text-xs font-mono tabular-nums', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                        {change == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(change)}`} / {pct == null ? '--' : `${sanitizeValue(pct.toFixed(2))}%`}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {tickerEntries.map(([symbol, priceData]) => {
+                const price = toFiniteNumber(priceData?.price)
+                const previous = toFiniteNumber(priceData?.previousPrice)
+                const change = price != null && previous != null ? price - previous : null
+                const isPositive = (change ?? 0) >= 0
+                return (
+                  <div key={symbol} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                    <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
+                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{price == null ? '--' : formatUSD(price)}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className={cn('text-xs font-mono tabular-nums', change == null ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500')}>
+                        {change == null ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
                       </p>
+                      <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -402,32 +459,60 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'agents' && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
-          {realAgents.length === 0 ? (
-            <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-4')}>
-              <EmptyState message="No agent data available. Waiting for WebSocket connection." icon={Activity} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Market Ticks</p>
+              <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
+              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
             </div>
-          ) : (
-            realAgents.map((agent) => (
-              <div key={agent.name} className={cn(cardClass, 'flex h-full flex-col justify-between')}>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', agent.tier === 'active' ? 'bg-emerald-500/15 text-emerald-500' : agent.tier === 'challenger' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500')}>
-                    {agent.tier.toUpperCase()}
-                  </span>
-                </div>
-                <div className="mb-2 flex items-center gap-2">
-                  <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
-                  <span className={mutedClass}>{agent.status}</span>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Events <span className="float-right font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</span></p>
-                  <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Last Seen <span className="float-right font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'N/A'}</span></p>
-                  <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Status <span className="float-right font-sans text-slate-900 dark:text-slate-100">{agent.status}</span></p>
-                </div>
-              </div>
-            ))
-          )}
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Tracked Agents</p>
+              <p className={valueClass}>{TRACKED_AGENTS.length}</p>
+              <p className={mutedClass}>Pre-populated on connect</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Agent Events</p>
+              <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
+              <p className={mutedClass}>Total events received</p>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800">
+                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
+                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {showNoAgentDataMessage ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                    </tr>
+                  ) : (
+                    realAgents.map((agent) => (
+                      <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
+                        <td className="px-2 py-2 text-xs font-sans">
+                          <span className="inline-flex items-center gap-2">
+                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                            <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -482,63 +567,60 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'system' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
-            {[
-              { label: 'Market Ticks', key: 'market_ticks', suffix: '', Icon: Activity },
-              { label: 'Signals Generated', key: 'signals_generated', suffix: '', Icon: TrendingUp },
-              { label: 'Orders', key: 'orders_length', suffix: '', Icon: BarChart3 },
-              { label: 'Executions', key: 'executions', suffix: '', Icon: Zap },
-              { label: 'Avg Latency', key: 'avg_latency', suffix: 'ms', Icon: Activity },
-              { label: 'Error Rate', key: 'error_rate', suffix: '%', Icon: AlertTriangle },
-            ].map((metric) => {
-              const metricValue = metric.key === 'orders_length' ? orders.length : getMetric(systemMetrics, metric.key)
-              return (
-                <div key={metric.label} className={cardClass}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <metric.Icon className="h-4 w-4 text-slate-500" />
-                    <span className={sectionTitleClass}>{metric.label}</span>
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
+                const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
+                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
+                return (
+                  <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
+                      <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
+                    </div>
+                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
                   </div>
-                  <p className={valueClass}>{metricValue == null ? '--' : `${sanitizeValue(metricValue)}${metric.suffix}`}</p>
-                  <p className={mutedClass}>{metric.label}</p>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
 
           <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800">
-                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {realAgents.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
-                    </tr>
-                  ) : (
-                    realAgents.map((agent) => (
-                      <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
-                        <td className="px-2 py-2 text-xs font-sans">
-                          <span className="inline-flex items-center gap-2">
-                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'N/A'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <p className={cn(sectionTitleClass, 'mb-3')}>WebSocket Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Connection</p>
+                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Messages Received</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Last Message</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
+              </div>
             </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
+            {recentEvents.length === 0 ? (
+              <EmptyState message="No websocket events yet" icon={Activity} />
+            ) : (
+              <div className="space-y-2">
+                {recentEvents.map((event, index) => (
+                  <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-indigo-500/15 text-indigo-400' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
+                      {event.stream}
+                    </span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
+                    <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

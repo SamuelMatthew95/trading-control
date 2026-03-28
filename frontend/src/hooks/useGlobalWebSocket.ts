@@ -14,6 +14,11 @@ type WebSocketMessage = {
   stream?: string
   event_type?: string
   message_id?: string
+  msg_id?: string
+  symbol?: string
+  price?: string | number
+  side?: string
+  confidence?: string | number
 }
 
 export enum ConnectionState {
@@ -187,6 +192,12 @@ class WebSocketManager {
       this.dispatch('ws-message', msg)
       // Store logic with safe data normalization
       const store = useCodexStore.getState()
+      const messageTimestamp = msg.timestamp || (msg.payload as Record<string, unknown> | undefined)?.timestamp as string | undefined || new Date().toISOString()
+      store.trackWsMessage({
+        stream: msg.stream || msg.type || 'system',
+        msgId: msg.msg_id || msg.message_id || null,
+        timestamp: messageTimestamp,
+      })
       const eventPayload = msg.data ?? (msg as unknown as { payload?: unknown }).payload
       if (msg.type === 'dashboard_update' && msg.data) {
         try {
@@ -211,6 +222,23 @@ class WebSocketManager {
       } else if (msg.type === 'system_metric' && eventPayload) {
         const norm = this._normalizeSystemMetric(eventPayload)
         if (norm) store.addSystemMetric(norm)
+      } else if (msg.stream === 'market_ticks') {
+        const price = Number(msg.price)
+        const symbol = msg.symbol || 'UNKNOWN'
+        const previousPrice = store.prices[symbol]?.price ?? price
+        const change = Number.isFinite(price) ? price - previousPrice : 0
+        if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
+        store.trackMarketTick(symbol)
+      } else if (msg.stream === 'signals') {
+        store.addSignal({
+          ...(msg as unknown as Record<string, unknown>),
+          confidence: Number(msg.confidence),
+        })
+      } else if (msg.stream === 'orders') {
+        // Stream payloads are partially typed; store merge handles sparse updates.
+        store.updateOrder(msg as never)
+      } else if (msg.stream === 'notifications') {
+        store.addRiskAlert(msg as unknown as Record<string, unknown>)
       } else if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) {
         const normalizedAgentPayload = msg.type === 'agent_status'
           ? {
@@ -245,6 +273,16 @@ class WebSocketManager {
           const norm = this._normalizeAgentEvent(payloadWithContext)
           if (norm) store.addAgentLog(norm)
         }
+      } else if (msg.stream === 'agent_logs') {
+        const source = msg as unknown as Record<string, unknown>
+        const payloadObj = (source.payload as Record<string, unknown> | undefined) ?? {}
+        const norm = this._normalizeAgentEvent({
+          ...source,
+          ...payloadObj,
+          agent_name: source.agent || source.source || payloadObj.agent || source['agent_name'],
+          timestamp: msg.timestamp || payloadObj.timestamp || new Date().toISOString(),
+        })
+        if (norm) store.addAgentLog(norm)
       }
     }
     this._socket.onclose = (_event) => {
