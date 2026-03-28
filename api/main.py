@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
@@ -25,6 +25,7 @@ from api.routes.dlq import router as dlq_router
 from api.routes.ws import router as ws_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
+from api.services.signal_agent_runtime import SignalAgentRuntime
 from api.services.websocket_broadcaster import get_broadcaster
 
 configure_logging(settings.LOG_LEVEL)
@@ -38,8 +39,10 @@ async def lifespan(app: FastAPI):
     app.state.event_pipeline = None
     app.state.dlq_manager = None
     app.state.agent_state = None
+    app.state.signal_agent_runtime = None
 
     pipeline: EventPipeline | None = None
+    signal_agent: SignalAgentRuntime | None = None
     broadcaster = get_broadcaster()
     agent_state = AgentStateRegistry()
 
@@ -78,11 +81,15 @@ async def lifespan(app: FastAPI):
         pipeline = EventPipeline(event_bus, broadcaster, dlq_manager, agent_state=agent_state)
         await pipeline.start()
 
+        signal_agent = SignalAgentRuntime(event_bus)
+        await signal_agent.start()
+
         app.state.event_bus = event_bus
         app.state.event_pipeline = pipeline
         app.state.websocket_broadcaster = broadcaster
         app.state.dlq_manager = dlq_manager
         app.state.agent_state = agent_state
+        app.state.signal_agent_runtime = signal_agent
 
         await broadcaster.broadcast(
             {
@@ -99,7 +106,7 @@ async def lifespan(app: FastAPI):
             redis="ok",
             pipeline="started",
             websocket="ready",
-            agents_connected=0,
+            agents_connected=1 if signal_agent else 0,
             agents=list(AGENT_NAMES),
             msg_id="none",
             event_type="system",
@@ -120,6 +127,9 @@ async def lifespan(app: FastAPI):
         )
         raise
     finally:
+        if signal_agent is not None:
+            with suppress(Exception):
+                await signal_agent.stop()
         if pipeline is not None:
             await pipeline.stop()
         await broadcaster.stop()
