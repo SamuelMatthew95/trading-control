@@ -191,6 +191,7 @@ class EventPipeline:
 
         outbound = {
             "type": "event",
+            "stream": stream,
             "msg_id": msg_id,
             "event_type": event_type,
             "payload": event,
