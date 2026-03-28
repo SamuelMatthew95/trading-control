@@ -45,6 +45,17 @@ ENABLE_SIGNAL_SCHEDULER=false
 LOG_LEVEL=INFO
 ```
 
+### Render required env vars
+
+When deploying on Render, set these additional environment variables in the web service:
+
+```env
+ALPACA_API_KEY=your_alpaca_api_key
+ALPACA_SECRET_KEY=your_alpaca_secret_key
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+MARKET_DATA_PROVIDER=alpaca
+```
+
 ## Run the Bot / API
 
 ```bash

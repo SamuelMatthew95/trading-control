@@ -29,7 +29,14 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Market data
+    MARKET_DATA_PROVIDER: str = "alpaca"
     MARKET_TICK_INTERVAL_SECONDS: float = 10.0
+
+    # Agent trigger thresholds
+    SIGNAL_EVERY_N_TICKS: int = 10
+    GRADE_EVERY_N_FILLS: int = 5
+    IC_UPDATE_EVERY_N_FILLS: int = 10
+    REFLECT_EVERY_N_FILLS: int = 10
 
     # LLM provider routing
     LLM_PROVIDER: str = "groq"

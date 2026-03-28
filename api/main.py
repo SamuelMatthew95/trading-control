@@ -25,6 +25,16 @@ from api.routes.dlq import router as dlq_router
 from api.routes.ws import router as ws_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
+from api.services.market_ingestor import MarketDataIngestor
+from api.services.signal_generator import SignalGenerator
+from api.services.agents.reasoning_agent import ReasoningAgent
+from api.services.agents.pipeline_agents import (
+    GradeAgent,
+    ICUpdater,
+    NotificationAgent,
+    ReflectionAgent,
+    StrategyProposer,
+)
 from api.services.websocket_broadcaster import get_broadcaster
 
 configure_logging(settings.LOG_LEVEL)
@@ -38,6 +48,7 @@ async def lifespan(app: FastAPI):
     app.state.event_pipeline = None
     app.state.dlq_manager = None
     app.state.agent_state = None
+    app.state.agents = []
 
     pipeline: EventPipeline | None = None
     broadcaster = get_broadcaster()
@@ -84,6 +95,20 @@ async def lifespan(app: FastAPI):
         app.state.dlq_manager = dlq_manager
         app.state.agent_state = agent_state
 
+        agents = [
+            MarketDataIngestor(event_bus),
+            SignalGenerator(event_bus, dlq_manager),
+            ReasoningAgent(event_bus, dlq_manager, redis_client),
+            GradeAgent(event_bus, dlq_manager),
+            ICUpdater(event_bus, dlq_manager, redis_client),
+            ReflectionAgent(event_bus, dlq_manager),
+            StrategyProposer(event_bus, dlq_manager),
+            NotificationAgent(event_bus, dlq_manager, redis_client),
+        ]
+        for agent in agents:
+            await agent.start()
+        app.state.agents = agents
+
         await broadcaster.broadcast(
             {
                 "type": "system",
@@ -99,7 +124,7 @@ async def lifespan(app: FastAPI):
             redis="ok",
             pipeline="started",
             websocket="ready",
-            agents_connected=0,
+            agents_connected=len(app.state.agents),
             agents=list(AGENT_NAMES),
             msg_id="none",
             event_type="system",
@@ -120,6 +145,8 @@ async def lifespan(app: FastAPI):
         )
         raise
     finally:
+        for agent in reversed(getattr(app.state, "agents", [])):
+            await agent.stop()
         if pipeline is not None:
             await pipeline.stop()
         await broadcaster.stop()
