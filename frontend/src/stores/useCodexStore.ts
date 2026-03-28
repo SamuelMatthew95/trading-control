@@ -85,6 +85,15 @@ type DashboardData = {
 
 type PriceRecord = Record<string, PriceData>
 
+// Type for price data from API
+interface CachedPriceData {
+  price: string | number;
+  bid?: string;
+  ask?: string;
+  timestamp: string;
+  source?: string;
+}
+
 type CodexState = {
   prices: PriceRecord
   orders: Order[]
@@ -106,7 +115,7 @@ type CodexState = {
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEvent[]
   updatePrice: (symbol: string, price: number, change: number) => void
-  updatePriceFromCache: (symbol: string, priceData: PriceData) => void
+  updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void
   addSignal: (signal: Record<string, unknown>) => void
   addOrder: (order: Order) => void
   updateOrder: (order: Order) => void
@@ -173,7 +182,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         price: Number(priceData.price),
         change: 0, // Will be calculated based on previous price
         previousPrice: state.prices[symbol]?.price ?? Number(priceData.price),
-        updatedAt: (priceData as any).timestamp || new Date().toISOString(),
+        updatedAt: priceData.timestamp || new Date().toISOString(),
       },
     }
   })),
@@ -183,13 +192,13 @@ export const useCodexStore = create<CodexState>((set) => ({
       if (!response.ok) throw new Error('Failed to fetch prices')
       
       const data = await response.json()
-      const prices = data.prices || {}
+      const prices: Record<string, CachedPriceData | null> = data.prices || {}
       
       set((state) => {
         const updatedPrices = { ...state.prices }
         for (const [symbol, priceData] of Object.entries(prices)) {
           if (priceData && typeof priceData === 'object') {
-            const price = Number((priceData as any).price)
+            const price = Number(priceData.price)
             const previousPrice = state.prices[symbol]?.price ?? price
             const change = price - previousPrice
             
@@ -197,7 +206,7 @@ export const useCodexStore = create<CodexState>((set) => ({
               price,
               change,
               previousPrice,
-              updatedAt: (priceData as any).timestamp || new Date().toISOString(),
+              updatedAt: priceData.timestamp || new Date().toISOString(),
             }
           }
         }
