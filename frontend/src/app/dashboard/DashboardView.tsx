@@ -96,6 +96,19 @@ function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentT
   )
 }
 
+function PriceCardSkeleton() {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+      <div className="mb-1 h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-1 h-6 w-24 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-2 flex items-center justify-between">
+        <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+      </div>
+    </div>
+  )
+}
+
 function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
   const points = useMemo(() => {
     let running = 0
@@ -181,9 +194,21 @@ export function DashboardView({ section }: { section: Section }) {
     wsLastMessageTimestamp,
     recentEvents,
     wsConnected,
+    fetchPrices,
   } = useCodexStore()
 
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
+  const [pricesLoading, setPricesLoading] = useState(true)
+
+  // Fetch initial prices on component mount
+  useEffect(() => {
+    const loadPrices = async () => {
+      setPricesLoading(true)
+      await fetchPrices()
+      setPricesLoading(false)
+    }
+    loadPrices()
+  }, [fetchPrices])
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -331,11 +356,24 @@ export function DashboardView({ section }: { section: Section }) {
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
                         <div className="flex items-center gap-2">
-                          <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
-                          <span className={mutedClass}>{agent.status}</span>
+                          <span className={cn('h-2 w-2 rounded-full', 
+                            agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 
+                            agent.status === 'IDLE' ? 'bg-amber-500' : 'bg-slate-500'
+                          )} />
+                          <span className={cn('text-xs font-sans font-medium',
+                            agent.status === 'ACTIVE' ? 'text-emerald-500' : 
+                            agent.status === 'IDLE' ? 'text-amber-500' : 'text-slate-500'
+                          )}>{agent.status}</span>
                         </div>
                       </div>
-                      <p className="mt-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)} events</p>
+                      <div className="mt-2 flex items-center justify-between">
+                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                          {agent.count} events
+                        </p>
+                        <p className={mutedClass}>
+                          {agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'Never'}
+                        </p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -346,26 +384,58 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Live Market Prices</p>
+              <div className="flex items-center gap-2">
+                {pricesLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                    <span className="text-xs font-sans text-amber-500">Loading</span>
+                  </div>
+                ) : Object.keys(prices).length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="text-xs font-sans text-emerald-500">Live</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-slate-500" />
+                    <span className="text-xs font-sans text-slate-500">No Data</span>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {tickerEntries.map(([symbol, priceData]) => {
-                const price = toFiniteNumber(priceData?.price)
-                const previous = toFiniteNumber(priceData?.previousPrice)
-                const change = price != null && previous != null ? price - previous : null
-                const isPositive = (change ?? 0) >= 0
-                return (
-                  <div key={symbol} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                    <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
-                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{price == null ? '--' : formatUSD(price)}</p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <p className={cn('text-xs font-mono tabular-nums', change == null ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                        {change == null ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
+              {pricesLoading ? (
+                // Show loading skeletons
+                Array.from({ length: 6 }).map((_, index) => <PriceCardSkeleton key={`skeleton-${index}`} />)
+              ) : (
+                tickerEntries.map(([symbol, priceData]) => {
+                  const price = toFiniteNumber(priceData?.price)
+                  const previous = toFiniteNumber(priceData?.previousPrice)
+                  const change = price != null && previous != null ? price - previous : null
+                  const isPositive = (change ?? 0) >= 0
+                  const hasData = price != null && !isNaN(price)
+                  
+                  return (
+                    <div key={symbol} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
+                        <div className={cn('h-2 w-2 rounded-full', hasData ? 'bg-emerald-500' : 'bg-slate-500')} />
+                      </div>
+                      <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                        {hasData ? formatUSD(price) : '--'}
                       </p>
-                      <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
+                      <div className="mt-2 flex items-center justify-between">
+                        <p className={cn('text-xs font-mono tabular-nums', 
+                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500'
+                        )}>
+                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
+                        </p>
+                        <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
