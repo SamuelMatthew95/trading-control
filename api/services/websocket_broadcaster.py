@@ -21,6 +21,7 @@ class WebSocketBroadcaster:
         self._redis_client = None
         self._stream_offsets: dict[str, str] = {}
         self._idle_sleep_seconds = 0.1
+        self._xread_streams_state: str | None = None
 
     async def start(self, redis_client=None) -> None:
         if self._running:
@@ -52,10 +53,16 @@ class WebSocketBroadcaster:
                 # Compatibility loop hook (kept intentionally minimal).
                 if self._redis_client is not None and hasattr(self._redis_client, "xread"):
                     if not self._stream_offsets:
-                        # Streams are registered dynamically by callers. On startup there may
-                        # be nothing to read from yet, so idle instead of calling xread({}).
+                        self._last_error = "No streams registered for websocket broadcaster xread loop"
+                        if self._xread_streams_state != "empty":
+                            log_structured("error", "websocket_xread_streams_empty")
+                            self._xread_streams_state = "empty"
                         await asyncio.sleep(self._idle_sleep_seconds)
                         continue
+
+                    if self._xread_streams_state != "ready":
+                        log_structured("debug", "websocket_xread_streams_ready", stream_count=len(self._stream_offsets))
+                        self._xread_streams_state = "ready"
 
                     messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=1)
                     if not messages:
