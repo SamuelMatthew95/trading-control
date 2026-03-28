@@ -1,43 +1,44 @@
 # Trading Control
 
-Trading Control is a Python-based trading orchestration service that coordinates strategy execution, captures operational metrics, and exposes APIs for monitoring and control. The project combines an async backend, optional frontend dashboard, and automated tests so you can run and validate trading workflows in a repeatable way.
+Trading Control is an event-driven trading orchestration platform with:
+
+- a FastAPI backend for control and telemetry APIs,
+- a Redis Streams pipeline for internal event flow, and
+- an optional Next.js dashboard for operational visibility.
+
+It is designed for deterministic local development, integration testing, and production-style runtime behavior.
 
 ## Documentation
 
 - Architecture: https://matthew.docs.buildwithfern.com/docs/system-design/architecture
 - API Reference: https://matthew.docs.buildwithfern.com/api-reference/api-reference/
 
-## Prerequisites
+## Quick Start
+
+### 1) Prerequisites
 
 - Python 3.10+
 - pip
-- (Optional for full runtime) PostgreSQL and Redis
+- (Optional for full runtime) PostgreSQL + Redis
 
-## Installation
+### 2) Install
 
 ```bash
 git clone https://github.com/SamuelMatthew95/trading-control.git
 cd trading-control
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-For development and testing tools:
-
-```bash
 pip install -r requirements-dev.txt
 ```
 
-## Configuration
-
-Copy and edit the example environment file:
+### 3) Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Common variables:
+Typical values:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/trading_control
@@ -46,31 +47,37 @@ ENABLE_SIGNAL_SCHEDULER=false
 LOG_LEVEL=INFO
 ```
 
-## Run the Bot / API
+### 4) Run the API
 
 ```bash
 uvicorn api.main:app --reload
 ```
 
-## Run Tests
+### 5) Run tests
 
 ```bash
 pytest
 ```
 
-## Project Structure
+## Repository Layout
 
 ```text
 trading-control/
-├── api/                    # FastAPI app, core domain logic, services, and DB layer
-├── docs/                   # Project documentation
-├── frontend/               # Optional Next.js dashboard
-├── scripts/                # Utility and validation scripts
-├── tests/                  # Unit and regression tests
-├── requirements.txt        # Production dependencies
-├── requirements-dev.txt    # Development and test dependencies
+├── api/                     # FastAPI app, services, event pipeline, persistence
+├── docs/                    # Architecture, deployment, and contributor docs
+├── frontend/                # Optional Next.js operator dashboard
+├── scripts/                 # Operational and validation helper scripts
+├── tests/                   # Unit, API, and integration test suites
+├── fakeredis/               # In-repo async fakeredis test shim used by tests
+├── requirements.txt         # Runtime dependencies
+├── requirements-dev.txt     # Dev/test dependencies
+├── pytest.ini               # Pytest configuration
 └── README.md
 ```
+
+## Note on `fakeredis/`
+
+The `fakeredis/` folder is intentionally kept in-repo. It provides a minimal async `FakeAsyncRedis` implementation used by tests that import `fakeredis` directly. Removing this folder would break those tests unless all imports and fixtures are migrated to an external dependency pattern.
 
 ## License
 
