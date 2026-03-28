@@ -9,7 +9,10 @@ type WebSocketMessage = {
   timestamp?: string
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: any
   stream?: string
+  event_type?: string
   message_id?: string
 }
 
@@ -220,9 +223,26 @@ class WebSocketManager {
         const norm = this._normalizeAgentEvent(normalizedAgentPayload)
         if (norm) store.addAgentLog(norm)
       } else if (msg.type === 'event' && eventPayload) {
-        const normalizedEventPayload = ((eventPayload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (eventPayload as Record<string, unknown>)
-        if (normalizedEventPayload.agent_name || normalizedEventPayload.agent) {
-          const norm = this._normalizeAgentEvent(normalizedEventPayload)
+        const unwrappedPayload = ((eventPayload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (eventPayload as Record<string, unknown>)
+        const normalizedEventPayload = this._coerceObject(unwrappedPayload)
+        if (!normalizedEventPayload) return
+
+        const payloadWithContext: Record<string, unknown> = {
+          ...normalizedEventPayload,
+          stream: msg.stream || normalizedEventPayload.stream,
+          event_type: msg.event_type || normalizedEventPayload.event_type || normalizedEventPayload.type,
+          timestamp: msg.timestamp || normalizedEventPayload.timestamp,
+        }
+
+        const looksLikeAgentEvent = Boolean(
+          payloadWithContext['agent_name'] ||
+          payloadWithContext['agent'] ||
+          payloadWithContext['stream'] === 'agent_logs' ||
+          payloadWithContext['event_type'] === 'agent_log'
+        )
+
+        if (looksLikeAgentEvent) {
+          const norm = this._normalizeAgentEvent(payloadWithContext)
           if (norm) store.addAgentLog(norm)
         }
       }
@@ -318,8 +338,9 @@ class WebSocketManager {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _normalizeAgentEvent(raw: any): any | null {
     if (!raw || typeof raw !== 'object') return null
+    const inferredAgentName = raw.agent_name || raw.agent || raw.source_agent || (raw.stream === 'agent_logs' ? 'Agent Pipeline' : 'Unknown')
     return {
-      agent_name: raw.agent_name || raw.agent || 'Unknown',
+      agent_name: inferredAgentName,
       event_type: this._normalizeEventType(raw.event_type || raw.action || raw.type || 'processed'),
       timestamp: raw.timestamp || raw.created_at || new Date().toISOString(),
       symbol: raw.symbol,
@@ -330,6 +351,24 @@ class WebSocketManager {
       ...(raw.message_id && { message_id: raw.message_id }),
       ...(raw.data && { data: raw.data }),
     }
+  }
+
+  private _coerceObject(value: unknown): Record<string, unknown> | null {
+    if (!value) return null
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>
+    }
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>
+        }
+      } catch {
+        return null
+      }
+    }
+    return null
   }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _normalizeSystemMetric(raw: any): any | null {
