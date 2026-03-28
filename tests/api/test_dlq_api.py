@@ -230,12 +230,12 @@ class TestDLQAPI:
 
     @pytest.mark.asyncio
     async def test_redis_max_connections_is_20(self):
-        """Test that Redis client has max_connections=20."""
-        # Read the source file
-        with open("api/redis_client.py", "r") as f:
-            redis_source_code = f.read()
+        """Test that Redis client configures max_connections=30."""
+        import inspect
+        from api import redis_client
 
-        # Check for max_connections=20
+        redis_source_code = inspect.getsource(redis_client)
+
         assert (
             "max_connections=30" in redis_source_code
         ), "Redis client should have max_connections=30"
