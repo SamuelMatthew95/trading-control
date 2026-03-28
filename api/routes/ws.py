@@ -21,21 +21,25 @@ async def dashboard_ws(websocket: WebSocket) -> None:
         return
 
     await broadcaster.add_connection(websocket)
+    await websocket.send_json(
+        {"type": "system", "status": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
 
     try:
         while True:
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
             except asyncio.TimeoutError:
-                await websocket.send_json({"type": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()})
+                await websocket.send_json({"type": "system", "status": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()})
             except WebSocketDisconnect:
                 break
     except Exception as exc:  # noqa: BLE001
         log_structured(
             "error",
             "ws_connection_error",
-            event_type="ws_connection_error",
+            event="ws_connection_error",
             msg_id="none",
+            event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
             error=str(exc),
         )

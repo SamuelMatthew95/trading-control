@@ -16,6 +16,7 @@ from api.config import get_cors_origins, parse_csv_env, settings
 from api.core.schemas import ErrorResponse
 from api.database import engine, get_settings_info, test_database_connection
 from api.events.bus import EventBus, create_redis_groups
+from api.events.dlq import DLQManager
 from api.observability import bind_request_context, configure_logging, log_structured, metrics_store
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
     app.state.redis_client = None
     app.state.event_bus = None
     app.state.event_pipeline = None
+    app.state.dlq_manager = None
 
     pipeline: EventPipeline | None = None
     broadcaster = get_broadcaster()
@@ -47,23 +49,50 @@ async def lifespan(app: FastAPI):
 
         redis_client = await get_redis()
         app.state.redis_client = redis_client
+        log_structured(
+            "info",
+            "redis_connected",
+            event="redis_connected",
+            msg_id="none",
+            event_type="system",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
 
         event_bus = EventBus(redis_client)
+        dlq_manager = DLQManager(redis_client, event_bus)
         await create_redis_groups(redis_client)
         await broadcaster.start(redis_client)
+        log_structured(
+            "info",
+            "websocket_started",
+            event="websocket_started",
+            msg_id="none",
+            event_type="system",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
 
-        pipeline = EventPipeline(event_bus, broadcaster)
+        pipeline = EventPipeline(event_bus, broadcaster, dlq_manager)
         await pipeline.start()
 
         app.state.event_bus = event_bus
         app.state.event_pipeline = pipeline
         app.state.websocket_broadcaster = broadcaster
+        app.state.dlq_manager = dlq_manager
+
+        await broadcaster.broadcast(
+            {
+                "type": "system",
+                "status": "running",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         log_structured(
             "info",
             "startup_complete",
-            event_type="startup_complete",
+            event="startup_complete",
             msg_id="none",
+            event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
             environment=settings.NODE_ENV,
             config_source=get_settings_info().get("config_source"),
@@ -73,7 +102,8 @@ async def lifespan(app: FastAPI):
         log_structured(
             "error",
             "startup_failed",
-            event_type="startup_failed",
+            event="startup_failed",
+            event_type="system",
             msg_id="none",
             timestamp=datetime.now(timezone.utc).isoformat(),
             error=str(exc),
