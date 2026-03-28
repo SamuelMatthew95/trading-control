@@ -180,6 +180,8 @@ class NotificationAgent(MultiStreamAgent):
         self.redis = redis_client
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        if stream == "notifications":
+            return
         msg_id = data.get("msg_id") or redis_id
         notification = {
             "msg_id": str(uuid.uuid4()),

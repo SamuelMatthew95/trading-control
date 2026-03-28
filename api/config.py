@@ -85,12 +85,6 @@ class Settings(BaseSettings):
     def validate_runtime_requirements(self) -> "Settings":
         if self.NODE_ENV == "production" and not self.DATABASE_URL:
             raise ValueError("DATABASE_URL is required in production")
-        if (self.MARKET_DATA_PROVIDER or "alpaca").lower() == "alpaca" and (
-            not self.ALPACA_API_KEY or not self.ALPACA_SECRET_KEY
-        ):
-            raise ValueError(
-                "ALPACA_API_KEY and ALPACA_SECRET_KEY are required when MARKET_DATA_PROVIDER=alpaca"
-            )
         return self
 
 

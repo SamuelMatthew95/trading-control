@@ -27,14 +27,14 @@ class MarketDataProvider(ABC):
 
 class AlpacaProvider(MarketDataProvider):
     def __init__(self) -> None:
+        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=10_000)
+
+    async def stream_ticks(self) -> AsyncIterator[dict[str, Any]]:
         if not settings.ALPACA_API_KEY or not settings.ALPACA_SECRET_KEY:
             raise RuntimeError(
                 "ALPACA_API_KEY and ALPACA_SECRET_KEY are required when MARKET_DATA_PROVIDER=alpaca. "
                 "Set both env vars before starting the API."
             )
-        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=10_000)
-
-    async def stream_ticks(self) -> AsyncIterator[dict[str, Any]]:
         stock_stream = StockDataStream(settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY)
         crypto_stream = CryptoDataStream(settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY)
 
@@ -77,8 +77,14 @@ class AlpacaProvider(MarketDataProvider):
         stock_stream.subscribe_bars(on_stock_bar, "AAPL", "TSLA", "SPY")
         crypto_stream.subscribe_bars(on_crypto_bar, "BTC/USD", "ETH/USD", "SOL/USD")
 
-        stock_task = asyncio.create_task(stock_stream._run_forever(), name="alpaca-stock-bars")
-        crypto_task = asyncio.create_task(crypto_stream._run_forever(), name="alpaca-crypto-bars")
+        async def run_stock_stream() -> None:
+            await asyncio.to_thread(stock_stream.run)
+
+        async def run_crypto_stream() -> None:
+            await asyncio.to_thread(crypto_stream.run)
+
+        stock_task = asyncio.create_task(run_stock_stream(), name="alpaca-stock-bars")
+        crypto_task = asyncio.create_task(run_crypto_stream(), name="alpaca-crypto-bars")
 
         try:
             while True:
