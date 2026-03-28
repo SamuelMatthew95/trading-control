@@ -228,6 +228,7 @@ class TestWebSocketBroadcaster:
         """Test Redis listener error handling."""
         mock_redis_client.xread.side_effect = ConnectionError("Redis error")
         
+        broadcaster.register_stream("orders")
         await broadcaster.start(mock_redis_client)
         
         # Give listener a chance to encounter error
@@ -236,6 +237,32 @@ class TestWebSocketBroadcaster:
         # Should still be running despite errors
         assert broadcaster._running is True
         
+        await broadcaster.stop()
+
+    @pytest.mark.asyncio
+    async def test_dashboard_loop_skips_xread_without_streams(self, broadcaster, mock_redis_client):
+        """The dashboard loop should idle when no streams are registered."""
+        await broadcaster.start(mock_redis_client)
+
+        await asyncio.sleep(0.15)
+
+        mock_redis_client.xread.assert_not_called()
+        assert broadcaster._running is True
+
+        await broadcaster.stop()
+
+    @pytest.mark.asyncio
+    async def test_dashboard_loop_reads_registered_streams(self, broadcaster, mock_redis_client):
+        """Registered streams should be passed to Redis xread."""
+        broadcaster.register_stream("orders", "0-0")
+        await broadcaster.start(mock_redis_client)
+
+        await asyncio.sleep(0.15)
+
+        assert mock_redis_client.xread.await_count >= 1
+        first_call = mock_redis_client.xread.await_args_list[0]
+        assert first_call.args[0] == {"orders": "0-0"}
+
         await broadcaster.stop()
 
     def test_get_broadcaster_singleton(self):

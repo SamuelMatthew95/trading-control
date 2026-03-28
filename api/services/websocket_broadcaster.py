@@ -19,6 +19,8 @@ class WebSocketBroadcaster:
         self._messages_sent = 0
         self._broadcast_task: asyncio.Task[None] | None = None
         self._redis_client = None
+        self._stream_offsets: dict[str, str] = {}
+        self._idle_sleep_seconds = 0.1
 
     async def start(self, redis_client=None) -> None:
         if self._running:
@@ -49,15 +51,32 @@ class WebSocketBroadcaster:
             try:
                 # Compatibility loop hook (kept intentionally minimal).
                 if self._redis_client is not None and hasattr(self._redis_client, "xread"):
-                    await self._redis_client.xread({}, block=100, count=1)
+                    if not self._stream_offsets:
+                        # Streams are registered dynamically by callers. On startup there may
+                        # be nothing to read from yet, so idle instead of calling xread({}).
+                        await asyncio.sleep(self._idle_sleep_seconds)
+                        continue
+
+                    messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=1)
+                    for stream_name, stream_messages in messages:
+                        if not stream_messages:
+                            continue
+                        *_, (last_id, _payload) = stream_messages
+                        self._stream_offsets[str(stream_name)] = str(last_id)
                 else:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(self._idle_sleep_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 self._last_error = str(exc)
                 log_structured("warning", "websocket_background_loop_error", exc_info=True)
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(self._idle_sleep_seconds)
+
+    def register_stream(self, stream_name: str, last_id: str = "$") -> None:
+        stream = stream_name.strip()
+        if not stream:
+            return
+        self._stream_offsets[stream] = last_id
 
     @property
     def active_connections(self) -> int:
