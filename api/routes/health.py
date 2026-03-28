@@ -116,8 +116,21 @@ async def root() -> Dict[str, Any]:
 
 
 @router.get("/health")
-async def health_check() -> Dict[str, str]:
-    return {"status": "ok"}
+async def health_check(request: Request) -> Dict[str, Any]:
+    db_ready = await _database_ready(request)
+    redis_ready = await _redis_ready(request)
+    pipeline = getattr(request.app.state, "event_pipeline", None)
+    broadcaster = getattr(request.app.state, "websocket_broadcaster", None)
+    return {
+        "status": "ok" if db_ready and redis_ready else "degraded",
+        "database": "connected" if db_ready else "disconnected",
+        "redis": "connected" if redis_ready else "disconnected",
+        "pipeline_running": bool(pipeline and pipeline.status().get("running")),
+        "active_ws_connections": getattr(broadcaster, "active_connections", 0) if broadcaster else 0,
+        "last_error": pipeline.status().get("last_error") if pipeline else None,
+        "recent_activity": pipeline.status().get("recent", [])[:5] if pipeline else [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/readiness")

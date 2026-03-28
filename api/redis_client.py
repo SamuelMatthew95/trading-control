@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from redis.asyncio import Redis, ConnectionPool
+from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import ConnectionError, TimeoutError
 
 from api.config import settings
@@ -14,31 +14,41 @@ _redis_client: Optional[Redis] = None
 _redis_pool: Optional[ConnectionPool] = None
 
 
+def _mask_redis_url(url: str) -> str:
+    if "@" not in url:
+        return url
+    prefix, suffix = url.split("@", 1)
+    if ":" in prefix:
+        scheme_and_user = prefix.rsplit(":", 1)[0]
+        return f"{scheme_and_user}:****@{suffix}"
+    return f"****@{suffix}"
+
+
 async def get_redis() -> Redis:
     global _redis_client, _redis_pool
     if _redis_client is None:
-        redis_url = settings.REDIS_URL or "redis://localhost:6379/0"
+        redis_url = settings.REDIS_URL
+        if not redis_url:
+            log_structured("error", "redis_url_missing", event_name="redis_url_missing")
+            raise RuntimeError("Missing REDIS_URL")
 
-        # Create connection pool with reasonable limits for hosting
         _redis_pool = ConnectionPool.from_url(
             redis_url,
             encoding="utf-8",
             decode_responses=True,
-            max_connections=30,  # Conservative limit for hosting environments
+            max_connections=30,
             socket_connect_timeout=5,
             socket_timeout=5,
-            health_check_interval=30,  # Reap dead connections every 30s
+            health_check_interval=30,
             retry_on_timeout=True,
             retry_on_error=[ConnectionError],
         )
-
         _redis_client = Redis(connection_pool=_redis_pool)
 
-        # Test connection
         try:
             await _redis_client.ping()
-            log_structured("info", "Redis connection established", pool_size=30)
-        except (ConnectionError, TimeoutError) as exc:
+            log_structured("info", "redis_connected", event_name="redis_connected", url_masked=_mask_redis_url(redis_url))
+        except (ConnectionError, TimeoutError):
             log_structured("error", "Redis connection failed", exc_info=True)
             await close_redis()
             raise
@@ -51,7 +61,7 @@ async def close_redis() -> None:
         try:
             await _redis_client.aclose()
             log_structured("info", "Redis client closed")
-        except (ConnectionError, TimeoutError) as exc:
+        except (ConnectionError, TimeoutError):
             log_structured("warning", "Error closing Redis client", exc_info=True)
         finally:
             _redis_client = None
@@ -60,7 +70,7 @@ async def close_redis() -> None:
         try:
             await _redis_pool.aclose()
             log_structured("info", "Redis connection pool closed")
-        except (ConnectionError, TimeoutError) as exc:
+        except (ConnectionError, TimeoutError):
             log_structured("warning", "Error closing Redis pool", exc_info=True)
         finally:
             _redis_pool = None

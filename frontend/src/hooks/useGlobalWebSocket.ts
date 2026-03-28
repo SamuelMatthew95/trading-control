@@ -184,6 +184,7 @@ class WebSocketManager {
       this.dispatch('ws-message', msg)
       // Store logic with safe data normalization
       const store = useCodexStore.getState()
+      const eventPayload = msg.data ?? (msg as unknown as { payload?: unknown }).payload
       if (msg.type === 'dashboard_update' && msg.data) {
         try {
           // Normalize data safely before passing to store
@@ -204,15 +205,26 @@ class WebSocketManager {
             if (norm) store.addSystemMetric(norm)
           }
         }
-      } else if (msg.type === 'system_metric' && msg.data) {
-        const norm = this._normalizeSystemMetric(msg.data)
+      } else if (msg.type === 'system_metric' && eventPayload) {
+        const norm = this._normalizeSystemMetric(eventPayload)
         if (norm) store.addSystemMetric(norm)
-      } else if (msg.type === 'agent_event' && msg.data) {
-        const norm = this._normalizeAgentEvent(msg.data)
+      } else if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) {
+        const normalizedAgentPayload = msg.type === 'agent_status'
+          ? {
+              agent_name: (eventPayload as Record<string, unknown>).name,
+              timestamp: (eventPayload as Record<string, unknown>).updated_at || new Date().toISOString(),
+              message: (eventPayload as Record<string, unknown>).last_task || 'status_update',
+              ...(eventPayload as Record<string, unknown>),
+            }
+          : eventPayload
+        const norm = this._normalizeAgentEvent(normalizedAgentPayload)
         if (norm) store.addAgentLog(norm)
-      } else if (msg.type === 'event' && msg.data && (msg.data.agent_name || msg.data.agent)) {
-        const norm = this._normalizeAgentEvent(msg.data)
-        if (norm) store.addAgentLog(norm)
+      } else if (msg.type === 'event' && eventPayload) {
+        const normalizedEventPayload = ((eventPayload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (eventPayload as Record<string, unknown>)
+        if (normalizedEventPayload.agent_name || normalizedEventPayload.agent) {
+          const norm = this._normalizeAgentEvent(normalizedEventPayload)
+          if (norm) store.addAgentLog(norm)
+        }
       }
     }
     this._socket.onclose = (_event) => {
