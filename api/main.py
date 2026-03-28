@@ -21,6 +21,7 @@ from api.observability import bind_request_context, configure_logging, log_struc
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.health import router as health_router
+from api.routes.dlq import router as dlq_router
 from api.routes.ws import router as ws_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
@@ -55,7 +56,7 @@ async def lifespan(app: FastAPI):
         log_structured(
             "info",
             "redis_connected",
-            event="redis_connected",
+            event_name="redis_connected",
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -68,7 +69,7 @@ async def lifespan(app: FastAPI):
         log_structured(
             "info",
             "websocket_started",
-            event="websocket_started",
+            event_name="websocket_started",
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -94,7 +95,7 @@ async def lifespan(app: FastAPI):
         log_structured(
             "info",
             "system_startup_status",
-            event="system_startup_status",
+            event_name="system_startup_status",
             redis="ok",
             pipeline="started",
             websocket="ready",
@@ -111,11 +112,11 @@ async def lifespan(app: FastAPI):
         log_structured(
             "error",
             "startup_failed",
-            event="startup_failed",
+            event_name="startup_failed",
             event_type="system",
             msg_id="none",
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=str(exc),
+            exc_info=True,
         )
         raise
     finally:
@@ -140,6 +141,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.A
 
 app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
+app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
 app.include_router(ws_router)
 

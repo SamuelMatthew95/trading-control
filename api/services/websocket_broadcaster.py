@@ -46,7 +46,7 @@ class WebSocketBroadcaster:
         log_structured(
             "info",
             "ws_client_connected",
-            event="ws_client_connected",
+            event_name="ws_client_connected",
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -58,7 +58,7 @@ class WebSocketBroadcaster:
         log_structured(
             "info",
             "ws_client_disconnected",
-            event="ws_client_disconnected",
+            event_name="ws_client_disconnected",
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -81,11 +81,11 @@ class WebSocketBroadcaster:
                 log_structured(
                     "error",
                     "ws_client_send_failed",
-                    event="ws_client_send_failed",
+                    event_name="ws_client_send_failed",
                     msg_id=msg_id,
                     event_type=event_type,
                     timestamp=ts,
-                    error=str(exc),
+                    exc_info=True,
                 )
 
         for ws in disconnected:
@@ -94,7 +94,7 @@ class WebSocketBroadcaster:
         log_structured(
             "info",
             "websocket_broadcast",
-            event="websocket_broadcast",
+            event_name="websocket_broadcast",
             msg_id=msg_id,
             event_type=event_type,
             timestamp=ts,

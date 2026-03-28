@@ -89,7 +89,7 @@ async def debug_streams(request: Request, limit: int = Query(default=20, ge=1, l
                 )
             data[stream] = parsed
         except Exception as exc:  # noqa: BLE001
-            log_structured("error", "debug_stream_read_failed", stream=stream, error=str(exc))
+            log_structured("error", "debug_stream_read_failed", stream=stream, exc_info=True)
             data[stream] = [{"error": str(exc)}]
 
     return {

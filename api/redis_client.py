@@ -33,7 +33,7 @@ async def get_redis() -> Redis:
             log_structured(
                 "error",
                 "redis_url_missing",
-                event="redis_url_missing",
+                event_name="redis_url_missing",
                 msg="REDIS_URL env variable not set",
             )
             raise RuntimeError("Missing REDIS_URL")
@@ -56,15 +56,15 @@ async def get_redis() -> Redis:
             log_structured(
                 "info",
                 "redis_connected",
-                event="redis_connected",
+                event_name="redis_connected",
                 url_masked=_mask_redis_url(redis_url),
             )
         except (ConnectionError, TimeoutError) as exc:
             log_structured(
                 "error",
                 "redis_connection_failed",
-                event="redis_connection_failed",
-                error=str(exc),
+                event_name="redis_connection_failed",
+                exc_info=True,
                 traceback=traceback.format_exc(),
             )
             await close_redis()

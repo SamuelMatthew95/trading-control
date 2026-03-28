@@ -21,9 +21,13 @@ async def dashboard_ws(websocket: WebSocket) -> None:
         return
 
     await broadcaster.add_connection(websocket)
-    await websocket.send_json(
-        {"type": "system", "status": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
-    )
+    try:
+        await websocket.send_json(
+            {"type": "system", "status": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
+        )
+    except Exception:
+        # Continue loop; disconnect cleanup happens in finally block.
+        pass
 
     try:
         while True:
@@ -37,11 +41,11 @@ async def dashboard_ws(websocket: WebSocket) -> None:
         log_structured(
             "error",
             "ws_connection_error",
-            event="ws_connection_error",
+            event_name="ws_connection_error",
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=str(exc),
+            exc_info=True,
         )
     finally:
         await broadcaster.remove_connection(websocket)

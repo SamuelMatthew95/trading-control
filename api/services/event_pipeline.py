@@ -46,7 +46,7 @@ class EventPipeline:
         log_structured(
             "info",
             "pipeline_started",
-            event="pipeline_started",
+            event_name="pipeline_started",
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -113,7 +113,7 @@ class EventPipeline:
             log_structured(
                 "error",
                 "pipeline_event_failed",
-                event="pipeline_event_failed",
+                event_name="pipeline_event_failed",
                 msg_id=msg_id,
                 event_type=event_type,
                 timestamp=ts,
@@ -130,7 +130,7 @@ class EventPipeline:
                 log_structured(
                     "warning",
                     "pipeline_event_retried",
-                    event="pipeline_event_retried",
+                    event_name="pipeline_event_retried",
                     msg_id=msg_id,
                     event_type=event_type,
                     timestamp=ts,
@@ -160,7 +160,7 @@ class EventPipeline:
             log_structured(
                 "error",
                 "pipeline_event_sent_to_dlq",
-                event="pipeline_event_sent_to_dlq",
+                event_name="pipeline_event_sent_to_dlq",
                 msg_id=msg_id,
                 event_type=event_type,
                 timestamp=ts,
@@ -181,7 +181,7 @@ class EventPipeline:
         log_structured(
             "info",
             "pipeline_event_received",
-            event="pipeline_event_received",
+            event_name="pipeline_event_received",
             msg_id=msg_id,
             event_type=event_type,
             timestamp=ts,
@@ -218,7 +218,7 @@ class EventPipeline:
         log_structured(
             "info",
             "pipeline_event_processed",
-            event="pipeline_event_processed",
+            event_name="pipeline_event_processed",
             msg_id=msg_id,
             event_type=event_type,
             timestamp=ts,
@@ -229,7 +229,7 @@ class EventPipeline:
         log_structured(
             "info",
             "websocket_broadcast",
-            event="websocket_broadcast",
+            event_name="websocket_broadcast",
             msg_id=msg_id,
             event_type=event_type,
             timestamp=ts,
@@ -240,7 +240,7 @@ class EventPipeline:
         log_structured(
             "info",
             "pipeline_event_acked",
-            event="pipeline_event_acked",
+            event_name="pipeline_event_acked",
             msg_id=msg_id,
             event_type=event_type,
             timestamp=ts,

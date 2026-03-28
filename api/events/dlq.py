@@ -32,6 +32,16 @@ class DLQManager:
         }
         await self.redis.hset(f"dlq:{stream}", event_id, json.dumps(record, default=str))
 
+
+    async def should_dlq(self, event_id: str) -> bool:
+        retries_key = f"dlq:retries:{event_id}"
+        retries = int(await self.redis.incr(retries_key))
+        await self.redis.expire(retries_key, 86400)
+        return retries >= 3
+
+    async def get_all(self) -> list[dict[str, Any]]:
+        return await self.get_recent(limit=10000)
+
     async def get_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for stream in STREAMS:

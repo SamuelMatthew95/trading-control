@@ -126,6 +126,8 @@ def log_structured(level: str, message: str, **extra_data: Any) -> None:
     if level.lower() not in {"debug", "info", "warning", "error", "exception", "critical"}:
         level = "info"
 
+    if "event" in extra_data:
+        extra_data.pop("event")
 
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(message, **extra_data)
