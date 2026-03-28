@@ -263,3 +263,7 @@ build/
 .vscode/extensions.json
 .vercel
 .env*.local
+
+# Runtime artifacts
+trade-log.json
+trade-memory.json

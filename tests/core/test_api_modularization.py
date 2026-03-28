@@ -8,12 +8,15 @@ def test_modular_api_structure_exists():
         Path("api/routes/trades.py"),
         Path("api/routes/performance.py"),
         Path("api/services/trading.py"),
-        Path("api/core/models/__init__.py"),  # Updated to use models package
+        Path("api/core/models/__init__.py"),
     ]
     assert all(path.exists() for path in expected)
 
 
-def test_readme_mentions_db_backed_persistent_memory():
-    content = Path("README.md").read_text(encoding="utf-8")
-    assert "Persistent Memory" in content
-    assert "Agent-level performance tracking" in content
+def test_readme_contains_core_sections():
+    with open("README.md", "r", encoding="utf-8") as readme_file:
+        content = readme_file.read()
+
+    assert "## Installation" in content
+    assert "## Configuration" in content
+    assert "## Run Tests" in content

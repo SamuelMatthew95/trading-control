@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 try:
-    from multi_agent_orchestrator import MultiAgentOrchestrator
+    from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
 except ImportError:
     MultiAgentOrchestrator = None
 

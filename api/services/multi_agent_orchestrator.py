@@ -524,13 +524,14 @@ class MultiAgentOrchestrator:
             self.agent_calls.append(call)
             return {"success": True, "data": output}
         except Exception as exc:  # noqa: BLE001
+            error_text = str(exc)
             call = AgentCall(
                 agent_name,
                 input_data,
                 {},
                 datetime.now(timezone.utc),
                 False,
-                error=str(exc),
+                error=error_text,
                 duration_ms=int((time.time() - start) * 1000),
             )
             self.agent_calls.append(call)

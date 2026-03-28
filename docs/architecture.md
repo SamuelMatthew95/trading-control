@@ -20,7 +20,7 @@ api/
     ├── learning.py
     └── memory.py
 
-multi_agent_orchestrator.py # Planner + execution + evaluation runtime
+api/services/multi_agent_orchestrator.py # Planner + execution + evaluation runtime
 ```
 
 ## Request flow
@@ -43,7 +43,7 @@ Global error handling is centralized in `api.main` with a JSON error response sh
 
 ## Agent orchestration
 
-The orchestrator (`multi_agent_orchestrator.py`) is organized around:
+The orchestrator (`api/services/multi_agent_orchestrator.py`) is organized around:
 
 - planning,
 - tool-mediated execution with guardrails/retries,

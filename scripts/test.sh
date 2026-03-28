@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-pip install -r requirements-test.txt
+pip install -r requirements-dev.txt
 pytest -q tests/
