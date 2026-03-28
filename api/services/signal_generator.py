@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -40,6 +41,7 @@ class SignalGenerator(BaseStreamConsumer):
             return
 
         signal = {
+            "msg_id": str(uuid4()),
             "symbol": symbol,
             "price": price,
             "action": "hold",

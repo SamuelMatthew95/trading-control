@@ -24,11 +24,10 @@ from api.routes.health import router as health_router
 from api.routes.dlq import router as dlq_router
 from api.routes.ws import router as ws_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
-from api.services.consensus_agent_runtime import ConsensusAgentRuntime
+from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.event_pipeline import EventPipeline
-from api.services.risk_agent_runtime import RiskAgentRuntime
-from api.services.signal_agent_runtime import SignalAgentRuntime
-from api.services.sizing_agent_runtime import SizingAgentRuntime
+from api.services.market_tick_simulator import MarketTickSimulator
+from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
 
 configure_logging(settings.LOG_LEVEL)
@@ -42,16 +41,14 @@ async def lifespan(app: FastAPI):
     app.state.event_pipeline = None
     app.state.dlq_manager = None
     app.state.agent_state = None
-    app.state.signal_agent_runtime = None
-    app.state.risk_agent_runtime = None
-    app.state.consensus_agent_runtime = None
-    app.state.sizing_agent_runtime = None
+    app.state.market_tick_simulator = None
+    app.state.signal_generator = None
+    app.state.reasoning_agent = None
 
     pipeline: EventPipeline | None = None
-    signal_agent: SignalAgentRuntime | None = None
-    risk_agent: RiskAgentRuntime | None = None
-    consensus_agent: ConsensusAgentRuntime | None = None
-    sizing_agent: SizingAgentRuntime | None = None
+    market_tick_simulator: MarketTickSimulator | None = None
+    signal_generator: SignalGenerator | None = None
+    reasoning_agent: ReasoningAgent | None = None
     broadcaster = get_broadcaster()
     agent_state = AgentStateRegistry()
 
@@ -90,24 +87,21 @@ async def lifespan(app: FastAPI):
         pipeline = EventPipeline(event_bus, broadcaster, dlq_manager, agent_state=agent_state)
         await pipeline.start()
 
-        signal_agent = SignalAgentRuntime(event_bus)
-        risk_agent = RiskAgentRuntime(event_bus)
-        consensus_agent = ConsensusAgentRuntime(event_bus)
-        sizing_agent = SizingAgentRuntime(event_bus)
-        await signal_agent.start()
-        await risk_agent.start()
-        await consensus_agent.start()
-        await sizing_agent.start()
+        market_tick_simulator = MarketTickSimulator(event_bus)
+        signal_generator = SignalGenerator(event_bus, dlq_manager)
+        reasoning_agent = ReasoningAgent(event_bus, dlq_manager, redis_client)
+        await market_tick_simulator.start()
+        await signal_generator.start()
+        await reasoning_agent.start()
 
         app.state.event_bus = event_bus
         app.state.event_pipeline = pipeline
         app.state.websocket_broadcaster = broadcaster
         app.state.dlq_manager = dlq_manager
         app.state.agent_state = agent_state
-        app.state.signal_agent_runtime = signal_agent
-        app.state.risk_agent_runtime = risk_agent
-        app.state.consensus_agent_runtime = consensus_agent
-        app.state.sizing_agent_runtime = sizing_agent
+        app.state.market_tick_simulator = market_tick_simulator
+        app.state.signal_generator = signal_generator
+        app.state.reasoning_agent = reasoning_agent
 
         await broadcaster.broadcast(
             {
@@ -124,7 +118,7 @@ async def lifespan(app: FastAPI):
             redis="ok",
             pipeline="started",
             websocket="ready",
-            agents_connected=4 if all([signal_agent, risk_agent, consensus_agent, sizing_agent]) else 0,
+            agents_connected=2 if all([signal_generator, reasoning_agent]) else 0,
             agents=list(AGENT_NAMES),
             msg_id="none",
             event_type="system",
@@ -145,18 +139,15 @@ async def lifespan(app: FastAPI):
         )
         raise
     finally:
-        if signal_agent is not None:
+        if market_tick_simulator is not None:
             with suppress(Exception):
-                await signal_agent.stop()
-        if risk_agent is not None:
+                await market_tick_simulator.stop()
+        if signal_generator is not None:
             with suppress(Exception):
-                await risk_agent.stop()
-        if consensus_agent is not None:
+                await signal_generator.stop()
+        if reasoning_agent is not None:
             with suppress(Exception):
-                await consensus_agent.stop()
-        if sizing_agent is not None:
-            with suppress(Exception):
-                await sizing_agent.stop()
+                await reasoning_agent.stop()
         if pipeline is not None:
             await pipeline.stop()
         await broadcaster.stop()
