@@ -318,5 +318,6 @@ Fern definition update.
 
 ### Fern repo details
 - Repo name: fern-support/matthew
+- Repo URL: https://github.com/fern-support/matthew/
 - Definition files location: [add path once confirmed e.g. fern/definition/]
 - To verify changes published: check https://matthew.docs.buildwithfern.com/
