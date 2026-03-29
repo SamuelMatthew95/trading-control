@@ -98,7 +98,7 @@ class MetricsAggregator:
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                         age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
                         is_stale = age_seconds > STALE_THRESHOLD_SECONDS
-                    except:
+                    except (ValueError, AttributeError):
                         is_stale = True
                 else:
                     is_stale = True

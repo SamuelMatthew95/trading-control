@@ -3,9 +3,7 @@ Risk Calculator Script
 Position sizing and risk management for automated trading
 """
 
-from typing import Any, Dict
-
-import numpy as np
+from typing import Any
 
 
 class RiskCalculator:
@@ -26,7 +24,7 @@ class RiskCalculator:
         stop_loss_pct: float,
         entry_price: float,
         portfolio_risk: float = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Calculate optimal position size based on risk parameters
 
@@ -78,7 +76,7 @@ class RiskCalculator:
         signal_strength: float,
         atr: float = None,
         volatility: float = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Calculate optimal stop loss level
 
@@ -126,8 +124,8 @@ class RiskCalculator:
         }
 
     def assess_portfolio_risk(
-        self, positions: Dict[str, Dict[str, Any]], account_balance: float
-    ) -> Dict[str, Any]:
+        self, positions: dict[str, dict[str, Any]], account_balance: float
+    ) -> dict[str, Any]:
         """
         Assess overall portfolio risk
 
@@ -143,12 +141,9 @@ class RiskCalculator:
         total_unrealized_pnl = 0
         max_concentration = 0
 
-        for symbol, position in positions.items():
+        for _symbol, position in positions.items():
             position_value = position.get("value", 0)
             unrealized_pnl = position.get("unrealized_pnl", 0)
-            current_price = position.get(
-                "current_price", position.get("entry_price", 0)
-            )
 
             total_position_value += position_value
             total_unrealized_pnl += unrealized_pnl
@@ -196,7 +191,7 @@ class RiskCalculator:
 
     def validate_risk_reward(
         self, entry_price: float, target_price: float, stop_loss: float
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Validate risk/reward ratio meets minimum requirements
 

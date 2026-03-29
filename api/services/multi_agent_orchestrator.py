@@ -253,11 +253,11 @@ class DocumentRetriever:
     def retrieve(self, query: str, *, top_k: int = 2) -> list[dict[str, str]]:
         scored: list[tuple[int, str, str]] = []
         q_terms = {term.lower() for term in query.split() if len(term) > 2}
-        for name, text in self.documents.items():
-            lower = text.lower()
+        for name, doc_text in self.documents.items():
+            lower = doc_text.lower()
             score = sum(1 for term in q_terms if term in lower)
             if score:
-                scored.append((score, name, text[:500]))
+                scored.append((score, name, doc_text[:500]))
         scored.sort(reverse=True)
         return [
             {"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]

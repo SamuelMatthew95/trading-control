@@ -21,12 +21,12 @@ class FakeAsyncRedis:
     async def dbsize(self) -> int:
         return sum(len(messages) for messages in self._streams.values())
 
-    async def xgroup_create(self, stream: str, group: str, id: str = "$", mkstream: bool = False):
+    async def xgroup_create(self, stream: str, group: str, id_param: str = "$", mkstream: bool = False):
         if group in self._groups[stream]:
             raise ResponseError("BUSYGROUP Consumer Group name already exists")
         if mkstream and stream not in self._streams:
             self._streams[stream] = []
-        self._groups[stream][group] = {"name": group, "pending": 0, "last-delivered-id": id}
+        self._groups[stream][group] = {"name": group, "pending": 0, "last-delivered-id": id_param}
         return True
 
     async def xgroup_destroy(self, stream: str, group: str) -> int:
@@ -41,10 +41,10 @@ class FakeAsyncRedis:
             raise ResponseError("NOGROUP No such key")
         return list(groups.values())
 
-    async def xgroup_setid(self, stream: str, group: str, id: str):
+    async def xgroup_setid(self, stream: str, group: str, id_param: str):
         if group not in self._groups.get(stream, {}):
             raise ResponseError("NOGROUP No such key")
-        self._groups[stream][group]["last-delivered-id"] = id
+        self._groups[stream][group]["last-delivered-id"] = id_param
         return True
 
     async def xadd(self, stream: str, fields: dict[str, Any], **kwargs):
