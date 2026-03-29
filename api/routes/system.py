@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..core.config import get_settings
 from ..core.models import AgentLog, Order, SystemMetrics
+from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
@@ -155,7 +156,7 @@ async def get_stream_lag() -> dict[str, Any]:
         return lag_info
 
     except Exception as e:
-        logger.error(f"Error calculating stream lag: {e}")
+        log_structured("error", "stream lag calculation failed", error=str(e))
         return {"error": str(e)}
 
 
@@ -230,7 +231,7 @@ async def stream_agent_logs(
                             last_timestamp = max(last_timestamp, log.timestamp)
 
         except Exception as e:
-            logger.error(f"Error in log stream: {e}")
+            log_structured("error", "log stream error", error=str(e))
             error_data = {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
             yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
 

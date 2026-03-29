@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 
 from api.database import AsyncSessionFactory
+from api.observability import log_structured
 from api.redis_client import close_redis, get_redis
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ async def safe_redis_check():
         await close_redis()
         return True
     except Exception as e:
-        logger.warning(f"Redis health check failed: {e}")
+        log_structured("warning", "redis health check failed", error=str(e))
         return False
 
 
@@ -37,7 +38,7 @@ async def safe_database_check():
             await asyncio.wait_for(session.execute("SELECT 1"), timeout=2.0)
         return True
     except Exception as e:
-        logger.warning(f"Database health check failed: {e}")
+        log_structured("warning", "database health check failed", error=str(e))
         return False
 
 

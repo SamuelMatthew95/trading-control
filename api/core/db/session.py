@@ -13,6 +13,8 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from api.observability import log_structured
+
 logger = logging.getLogger(__name__)
 
 REQUIRED_TABLES: tuple[str, ...] = (
@@ -86,13 +88,13 @@ def ensure_database_ready(engine: Engine) -> bool:
             )
             raise DatabaseReadinessError(message)
 
-        logger.info("Database schema verification passed")
+        log_structured("info", "database schema verification passed")
         return True
     except SQLAlchemyError as exc:
         message = f"Database connection or inspection failed: {exc}"
         raise DatabaseReadinessError(message) from exc
     except DatabaseReadinessError as exc:
-        logger.error(str(exc))
+        log_structured("error", "database readiness error", error=str(exc))
         raise
 
 
@@ -101,13 +103,13 @@ def analyze_vector_table(engine: Engine) -> None:
     try:
         with engine.begin() as connection:
             connection.execute(text("ANALYZE vector_memory"))
-        logger.info("Vector table analyzed for index performance")
+        log_structured("info", "vector table analyzed for index performance")
     except SQLAlchemyError as exc:
-        logger.warning("Failed to analyze vector table: %s", exc)
+        log_structured("warning", "vector table analyze failed", error=str(exc))
 
 
 def safe_startup(engine: Engine) -> None:
     """Run all production startup database checks."""
     ensure_database_ready(engine)
     analyze_vector_table(engine)
-    logger.info("Production startup verification complete")
+    log_structured("info", "production startup verification complete")
