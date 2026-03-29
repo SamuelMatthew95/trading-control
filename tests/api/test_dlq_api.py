@@ -26,7 +26,9 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_get_dlq_empty(self, client):
         """Test GET /api/dlq with empty DLQ."""
-
+        # Import here to avoid module load issues
+        from api.main import app
+        
         # Mock DLQ manager
         mock_dlq = AsyncMock()
         mock_dlq.get_all.return_value = []
@@ -48,6 +50,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_get_dlq_with_items(self, client):
         """Test GET /api/dlq with items."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         # Mock DLQ manager with items (no datetime objects, just strings)
         mock_items = [
@@ -95,6 +99,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_replay_event_success(self, client):
         """Test POST /api/dlq/{event_id}/replay success."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         mock_dlq = AsyncMock()
         mock_dlq.replay.return_value = True
@@ -117,6 +123,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_replay_event_not_found(self, client):
         """Test POST /api/dlq/{event_id}/replay not found."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         mock_dlq = AsyncMock()
         mock_dlq.replay.return_value = False
@@ -138,6 +146,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_clear_event(self, client):
         """Test DELETE /api/dlq/{event_id}."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         mock_dlq = AsyncMock()
         mock_dlq.clear.return_value = None
@@ -160,6 +170,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_replay_all(self, client):
         """Test POST /api/dlq/replay-all."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         mock_items = [
             {"event_id": "abc123"},
@@ -191,6 +203,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_clear_all(self, client):
         """Test DELETE /api/dlq."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         mock_items = [
             {"event_id": "abc123"},
@@ -217,6 +231,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_dlq_unavailable_returns_503(self, client):
         """Test 503 when DLQ manager is not available."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         # Ensure dlq_manager doesn't exist
         if hasattr(app.state, "dlq_manager"):
@@ -242,6 +258,8 @@ class TestDLQAPI:
     @pytest.mark.asyncio
     async def test_dlq_route_registered(self, client):
         """Test that /api/dlq route is registered."""
+        # Import here to avoid module load issues
+        from api.main import app
 
         # Check if the route exists by trying to access it
         # Even if DLQ manager is None, it should return 503, not 404
