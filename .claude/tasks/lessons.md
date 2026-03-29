@@ -34,4 +34,12 @@ Then update CLAUDE.md if the lesson applies globally.
 **Anti-Pattern**: `logger.error(f"Failed to read from stream {stream}: {e}")`
 **Pattern**: `log_structured("error", "stream read failed", stream=stream, error=str(e))`
 
-**Status**: 77 remaining logger calls need migration across other files
+**Status**: 51 remaining logger calls need migration across other files
+
+**Priority Files Remaining**:
+- api/core/writer/safe_writer.py: 28 calls (critical database operations)
+- api/routes/system_health.py: 6 calls (health checks)
+- api/core/db/session.py: 5 calls (database sessions)
+- api/services/multi_agent_orchestrator.py: 3 calls (agent coordination)
+
+**Progress**: 26 logger calls migrated in this session (dashboard_v2, monitoring, metrics_aggregator)
