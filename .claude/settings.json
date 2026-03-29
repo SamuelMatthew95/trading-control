@@ -10,11 +10,32 @@
       "Bash(find:*)",
       "Bash(npm:*)",
       "Bash(python:*)",
-      "Bash(uvicorn:*)"
+      "Bash(python3:*)",
+      "Bash(uvicorn:*)",
+      "Bash(brew:*)",
+      "Bash(psql:*)",
+      "Bash(createdb:*)",
+      "Bash(pip:*)",
+      "Bash(source:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(touch:*)",
+      "Bash(chmod:*)",
+      "Bash(echo:*)",
+      "Bash(sleep:*)",
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "Bash(lsof:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(tee:*)"
     ],
     "deny": [
       "Bash(rm -rf:*)",
-      "Bash(drop:*)"
+      "Bash(drop table:*)",
+      "Bash(dropdb:*)"
     ]
   }
 }
