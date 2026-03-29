@@ -21,7 +21,7 @@ async def get_alerts() -> dict[str, Any]:
         return {"success": True, "alerts": alerts, "count": len(alerts)}
     except Exception as e:
         log_structured("error", "alerts failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/system-metrics")
@@ -33,7 +33,7 @@ async def get_system_metrics() -> dict[str, Any]:
         return {"success": True, "system_metrics": system_metrics}
     except Exception as e:
         log_structured("error", "system metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/performance-metrics")
@@ -45,7 +45,7 @@ async def get_performance_metrics() -> dict[str, Any]:
         return {"success": True, "performance_metrics": performance_metrics}
     except Exception as e:
         log_structured("error", "performance metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/agent-metrics")
@@ -57,7 +57,7 @@ async def get_agent_metrics() -> dict[str, Any]:
         return {"success": True, "agent_metrics": agent_metrics}
     except Exception as e:
         log_structured("error", "agent metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/data-metrics")
@@ -69,7 +69,7 @@ async def get_data_metrics() -> dict[str, Any]:
         return {"success": True, "data_metrics": data_metrics}
     except Exception as e:
         log_structured("error", "data metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/task-metrics")
@@ -81,7 +81,7 @@ async def get_task_metrics() -> dict[str, Any]:
         return {"success": True, "task_metrics": task_metrics}
     except Exception as e:
         log_structured("error", "task metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/summary")
@@ -108,7 +108,7 @@ async def get_monitoring_summary() -> dict[str, Any]:
         return {"success": True, "summary": summary}
     except Exception as e:
         log_structured("error", "monitoring summary failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/health")

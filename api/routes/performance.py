@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Annotated
 
+from api.services.learning_service import LearningService
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 

@@ -120,7 +120,7 @@ async def root() -> dict[str, Any]:
             ).model_dump(),
         ).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from None
 
 
 @router.get("/health")
@@ -236,4 +236,4 @@ async def system_health() -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"System health check failed: {str(e)}"
-        )
+        ) from None
