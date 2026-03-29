@@ -88,21 +88,58 @@ Rules:
   - Every endpoint must have a test in tests/api/test_{router_name}.py
 
 ===================================================================
-2. LINTING
+2. LINTING & CI/CD COMPLIANCE
 ===================================================================
 
-Run all linters and fix every warning before marking done:
+**CRITICAL: CI/CD Pipeline Requirements**
+The CI/CD pipeline runs these exact commands and ALL must pass:
 
-# Python — Ruff (fast linter + formatter)
-ruff check api/ tests/ --fix
-ruff format api/ tests/
+```bash
+# Step 1: Ruff linting (must show "All checks passed!")
+ruff check . --fix
 
-# Frontend — ESLint + Prettier (if frontend changes)
+# Step 2: Ruff formatting (must show "X files already formatted") 
+ruff format --check .
+
+# Step 3: Critical error checks (must show "All checks passed!")
+ruff check . --select=E9,F63,F7,F82
+```
+
+**Local Development Commands:**
+```bash
+# Fix all linting issues
+ruff check . --fix
+
+# Format all files (use ruff format, NOT black)
+ruff format .
+
+# Verify everything is CI-ready
+ruff check . --fix && ruff format --check . && ruff check . --select=E9,F63,F7,F82
+```
+
+**CI/CD Failure Patterns to Avoid:**
+- **A002**: Function argument shadowing Python builtin (rename `id` → `id_param`)
+- **B008**: Function call in default argument (use `Annotated[Type, Depends(...)]`)
+- **B904**: Raise without from inside except (add `from None` or `from err`)
+- **E722**: Bare except (specify exception types)
+- **F821**: Undefined name (add missing imports)
+- **UP006/UP035**: Deprecated typing (use `dict` not `Dict`)
+- **N806**: Variable in function should be lowercase
+- **I001**: Unsorted imports (run `ruff format .` to fix)
+
+**Redis/FakeRedis Compatibility:**
+- `redis.xgroup_create(stream, group, "$", mkstream=True)` ✅
+- `redis.xgroup_create(stream, group, id="$", mkstream=True)` ❌ (use positional, not keyword)
+
+**Logging Standards (CI/CD enforced):**
+- Use `exc_info=True` NOT `error=str(exc)` in log_structured calls
+- All error logging must include proper exception info
+
+**Frontend — ESLint + Prettier (if frontend changes):**
 cd frontend && npm run lint:fix && npm run format
 
-Run this to catch print statements:
+**Print Statement Check:**
   grep -rn "^[[:space:]]*print(" api/ --include="*.py" | grep -v ".pyc"
-
 Expected: empty
 
 ===================================================================
@@ -112,12 +149,18 @@ Expected: empty
 **Standard Logging Function**: Always use `log_structured()` from `api.observability`
 ```python
 from api.observability import log_structured
-log_structured("error", "operation failed", error=str(e), context=data)
+
+# For errors (CI/CD requirement):
+log_structured("error", "operation failed", exc_info=True, context=data)
+
+# For general logging:
+log_structured("info", "operation completed", key=value, other=data)
 ```
 
 Rules:
 - No logger.info/error/warning calls in new code
 - No print statements anywhere
+- All error logs MUST use `exc_info=True` (CI/CD enforced)
 - All logs must use structured key=value format
 - trace_id propagated: Any new agent code extracts trace_id from incoming event payload
 
@@ -137,7 +180,39 @@ Schema version on every insert:
   and source='<service_name>'. Manually verify any new INSERT statements.
 
 ===================================================================
-5. SYSTEM VERIFICATION
+5. CI/CD PIPELINE VERIFICATION
+===================================================================
+
+**Before pushing ANY changes, verify CI/CD will pass:**
+
+```bash
+# Run the EXACT CI/CD commands locally
+ruff check . --fix
+echo "Exit code: $?"  # Must be 0
+
+ruff format --check .
+echo "Exit code: $?"  # Must be 0
+
+ruff check . --select=E9,F63,F7,F82
+echo "Exit code: $?"  # Must be 0
+```
+
+**Expected Outputs:**
+- `ruff check . --fix` → "All checks passed!"
+- `ruff format --check .` → "X files already formatted" (no "Would reformat")
+- `ruff check . --select=E9,F63,F7,F82` → "All checks passed!"
+
+**If any command fails, DO NOT PUSH. Fix issues first.**
+
+**Common CI/CD Blockers:**
+- New imports not added (F821)
+- Exception handling missing `from None` (B904)  
+- FastAPI dependencies using old pattern (B008)
+- Redis calls using keyword arguments (test failures)
+- Logging using `error=str(exc)` instead of `exc_info=True`
+
+===================================================================
+6. SYSTEM VERIFICATION
 ===================================================================
 
 ### Redis Streams Verification
