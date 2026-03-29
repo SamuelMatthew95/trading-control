@@ -76,9 +76,7 @@ def check_database_url_format() -> bool:
     # Basic format validation
     parts = database_url.replace("postgresql://", "").split("@")
     if len(parts) != 2:
-        print(
-            "[FAIL] DATABASE_URL format: postgresql://user:password@host:port/database"
-        )
+        print("[FAIL] DATABASE_URL format: postgresql://user:password@host:port/database")
         return False
 
     return True

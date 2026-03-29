@@ -62,9 +62,7 @@ async def get_system_pulse():
         db_pool_status = await get_db_pool_status()
 
         # Calculate traffic light status
-        traffic_light = calculate_traffic_light(
-            stream_health, dlq_count, db_pool_status
-        )
+        traffic_light = calculate_traffic_light(stream_health, dlq_count, db_pool_status)
 
         await redis_client.close()
 
@@ -101,9 +99,7 @@ async def get_idempotency_audit():
             processed_count = await session.scalar(processed_query)
 
             # Count orders in last hour
-            orders_query = select(func.count(Order.id)).where(
-                Order.created_at >= hour_ago
-            )
+            orders_query = select(func.count(Order.id)).where(Order.created_at >= hour_ago)
             orders_count = await session.scalar(orders_query)
 
             # Calculate ratio
@@ -160,9 +156,7 @@ async def get_position_sync_status():
                             "symbol": symbol,
                             "fill_time": fill.created_at.isoformat(),
                             "position_exists": position is not None,
-                            "position_quantity": (
-                                float(position.quantity) if position else None
-                            ),
+                            "position_quantity": (float(position.quantity) if position else None),
                             "expected_quantity": fill_data.get("new_quantity"),
                             "sync_status": "synced" if position else "missing",
                             "alert_level": "red" if not position else "green",
@@ -172,9 +166,7 @@ async def get_position_sync_status():
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "total_fills": len(fill_events),
-                "synced_count": len(
-                    [s for s in sync_status if s["sync_status"] == "synced"]
-                ),
+                "synced_count": len([s for s in sync_status if s["sync_status"] == "synced"]),
                 "sync_status": sync_status,
             }
 
@@ -194,9 +186,7 @@ async def stream_agent_logs(
     async def log_generator():
         try:
             async with session_factory() as session:
-                query = (
-                    select(AgentLog).order_by(AgentLog.created_at.desc()).limit(limit)
-                )
+                query = select(AgentLog).order_by(AgentLog.created_at.desc()).limit(limit)
 
                 if agent_id:
                     query = query.where(AgentLog.agent_run_id == agent_id)
@@ -221,9 +211,7 @@ async def stream_agent_logs(
                     yield f"data: {json.dumps(log_data)}\n\n"
 
                 # Continue streaming new logs
-                last_timestamp = (
-                    logs[0].created_at if logs else datetime.now(timezone.utc)
-                )
+                last_timestamp = logs[0].created_at if logs else datetime.now(timezone.utc)
 
                 while True:
                     await asyncio.sleep(1)  # Health log streaming interval - allowed
@@ -236,9 +224,7 @@ async def stream_agent_logs(
                         )
 
                         if agent_id:
-                            new_logs_query = new_logs_query.where(
-                                AgentLog.agent_run_id == agent_id
-                            )
+                            new_logs_query = new_logs_query.where(AgentLog.agent_run_id == agent_id)
                         if level:
                             new_logs_query = new_logs_query.where(
                                 AgentLog.log_level == level.upper()
@@ -441,9 +427,7 @@ async def get_db_pool_status() -> dict[str, Any]:
         return {"status": "error", "error": str(e)}
 
 
-def calculate_traffic_light(
-    stream_health: dict, dlq_count: int, db_pool_status: dict
-) -> str:
+def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status: dict) -> str:
     """Calculate traffic light status."""
     # Check for critical conditions
     if db_pool_status.get("status") == "error":

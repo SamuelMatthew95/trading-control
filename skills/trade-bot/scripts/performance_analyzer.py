@@ -58,14 +58,8 @@ class PerformanceAnalyzer:
         winning_trades_list = [t for t in trades if t.get("pnl", 0) > 0]
         losing_trades_list = [t for t in trades if t.get("pnl", 0) < 0]
 
-        avg_win = (
-            np.mean([t["pnl"] for t in winning_trades_list])
-            if winning_trades_list
-            else 0
-        )
-        avg_loss = (
-            np.mean([t["pnl"] for t in losing_trades_list]) if losing_trades_list else 0
-        )
+        avg_win = np.mean([t["pnl"] for t in winning_trades_list]) if winning_trades_list else 0
+        avg_loss = np.mean([t["pnl"] for t in losing_trades_list]) if losing_trades_list else 0
 
         # Calculate profit factor
         total_wins = sum(t["pnl"] for t in winning_trades_list)
@@ -118,9 +112,7 @@ class PerformanceAnalyzer:
             "total_return_pct": (running_balance / account_balance - 1) * 100,
         }
 
-    def analyze_position_performance(
-        self, positions: dict[str, dict[str, Any]]
-    ) -> dict[str, Any]:
+    def analyze_position_performance(self, positions: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """
         Analyze current open positions performance
 
@@ -153,9 +145,7 @@ class PerformanceAnalyzer:
                 losing_positions += 1
 
             # Calculate position return
-            position_return = (
-                (current_price - entry_price) / entry_price if entry_price > 0 else 0
-            )
+            position_return = (current_price - entry_price) / entry_price if entry_price > 0 else 0
 
             position_details.append(
                 {
@@ -236,9 +226,7 @@ class PerformanceAnalyzer:
         downside_deviation = (
             np.std(downside_returns) * np.sqrt(252) if len(downside_returns) > 0 else 0
         )
-        sortino_ratio = (
-            annual_return / downside_deviation if downside_deviation > 0 else 0
-        )
+        sortino_ratio = annual_return / downside_deviation if downside_deviation > 0 else 0
 
         return {
             "volatility": volatility,
@@ -282,9 +270,7 @@ class PerformanceAnalyzer:
         rating = self._calculate_performance_rating(trade_performance, risk_metrics)
 
         # Recommendations
-        recommendations = self._generate_recommendations(
-            trade_performance, risk_metrics
-        )
+        recommendations = self._generate_recommendations(trade_performance, risk_metrics)
 
         return {
             "summary": {
@@ -408,8 +394,6 @@ class PerformanceAnalyzer:
             recommendations.append("Low risk-adjusted returns - improve risk/reward")
 
         if not recommendations:
-            recommendations.append(
-                "Performance metrics look good - continue current strategy"
-            )
+            recommendations.append("Performance metrics look good - continue current strategy")
 
         return recommendations

@@ -26,9 +26,7 @@ class AlpacaBroker:
             "Content-Type": "application/json",
         }
 
-    async def place_order(
-        self, symbol: str, side: str, qty: float, price: float
-    ) -> dict[str, Any]:
+    async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         """Place order via Alpaca paper trading API."""
         # Normalize symbol - Alpaca uses "AAPL" not "AAPL/USD"
         alpaca_symbol = symbol.replace("/USD", "").replace("/", "")
@@ -65,9 +63,7 @@ class AlpacaBroker:
                         status=resp.status,
                         error=body.get("message", "unknown"),
                     )
-                    raise RuntimeError(
-                        f"Alpaca order failed {resp.status}: {body.get('message')}"
-                    )
+                    raise RuntimeError(f"Alpaca order failed {resp.status}: {body.get('message')}")
 
         broker_order_id = body["id"]
         log_structured(

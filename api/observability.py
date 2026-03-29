@@ -27,9 +27,7 @@ def configure_logging(level: str = "INFO") -> None:
         timestamper,
     ]
 
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO), format="%(message)s"
-    )
+    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format="%(message)s")
     structlog.configure(
         processors=[
             *pre_chain,
@@ -47,12 +45,8 @@ logger = structlog.get_logger("trading-control")
 
 @dataclass
 class MetricsStore:
-    recent_events: deque[dict[str, Any]] = field(
-        default_factory=lambda: deque(maxlen=300)
-    )
-    request_latencies_ms: deque[float] = field(
-        default_factory=lambda: deque(maxlen=500)
-    )
+    recent_events: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=300))
+    request_latencies_ms: deque[float] = field(default_factory=lambda: deque(maxlen=500))
     total_requests: int = 0
     total_errors: int = 0
     agent_status: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -90,9 +84,7 @@ class MetricsStore:
             latency = list(self.request_latencies_ms)
             avg_latency = round(sum(latency) / len(latency), 2) if latency else 0.0
             p95 = (
-                round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2)
-                if latency
-                else 0.0
+                round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2) if latency else 0.0
             )
             return {
                 "uptime_seconds": int(time.time() - START_TIME),

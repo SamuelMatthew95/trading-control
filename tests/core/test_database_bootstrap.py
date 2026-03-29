@@ -18,9 +18,7 @@ async def test_init_database_uses_alembic_for_postgres(monkeypatch):
 
     await database_module.init_database()
 
-    assert calls == [
-        (database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")
-    ]
+    assert calls == [(database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")]
 
 
 @pytest.mark.asyncio

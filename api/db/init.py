@@ -13,9 +13,7 @@ async def init_database(database_url: str) -> None:
     Production PostgreSQL environments should run Alembic migrations instead of
     `metadata.create_all` to preserve schema history and migration safety.
     """
-    if database_url.startswith(
-        ("postgres://", "postgresql://", "postgresql+asyncpg://")
-    ):
+    if database_url.startswith(("postgres://", "postgresql://", "postgresql+asyncpg://")):
         raise RuntimeError(
             "PostgreSQL bootstrap must use Alembic migrations (do not call create_all in production)."
         )

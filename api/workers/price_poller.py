@@ -47,9 +47,7 @@ async def fetch_crypto_prices(
                 if symbol in quotes:
                     quote = quotes[symbol]
                     prices[symbol] = {
-                        "price": str(
-                            quote.bid_price if quote.bid_price else quote.ask_price
-                        ),
+                        "price": str(quote.bid_price if quote.bid_price else quote.ask_price),
                         "bid": str(quote.bid_price),
                         "ask": str(quote.ask_price),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -72,17 +70,9 @@ async def fetch_crypto_prices(
 
             # Check if it's a rate limit error
             error_msg = str(e).lower()
-            if (
-                "rate limit" in error_msg
-                or "429" in error_msg
-                or "too many requests" in error_msg
-            ):
-                delay = base_delay * (
-                    2**attempt
-                )  # Exponential backoff for rate limits - allowed
-                log_structured(
-                    "warning", "rate_limit_hit", delay=delay, attempt=attempt + 1
-                )
+            if "rate limit" in error_msg or "429" in error_msg or "too many requests" in error_msg:
+                delay = base_delay * (2**attempt)  # Exponential backoff for rate limits - allowed
+                log_structured("warning", "rate_limit_hit", delay=delay, attempt=attempt + 1)
                 await asyncio.sleep(delay)
             else:
                 # For other errors, short retry delay - allowed
@@ -108,9 +98,7 @@ async def fetch_stock_prices(
                 if symbol in quotes:
                     quote = quotes[symbol]
                     prices[symbol] = {
-                        "price": str(
-                            quote.bid_price if quote.bid_price else quote.ask_price
-                        ),
+                        "price": str(quote.bid_price if quote.bid_price else quote.ask_price),
                         "bid": str(quote.bid_price),
                         "ask": str(quote.ask_price),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -133,17 +121,9 @@ async def fetch_stock_prices(
 
             # Check if it's a rate limit error
             error_msg = str(e).lower()
-            if (
-                "rate limit" in error_msg
-                or "429" in error_msg
-                or "too many requests" in error_msg
-            ):
-                delay = base_delay * (
-                    2**attempt
-                )  # Exponential backoff for rate limits - allowed
-                log_structured(
-                    "warning", "rate_limit_hit", delay=delay, attempt=attempt + 1
-                )
+            if "rate limit" in error_msg or "429" in error_msg or "too many requests" in error_msg:
+                delay = base_delay * (2**attempt)  # Exponential backoff for rate limits - allowed
+                log_structured("warning", "rate_limit_hit", delay=delay, attempt=attempt + 1)
                 await asyncio.sleep(delay)
             else:
                 # For other errors, short retry delay - allowed
@@ -215,9 +195,7 @@ async def poll_prices():
 
             # Handle exceptions
             if isinstance(crypto_prices, Exception):
-                log_structured(
-                    "error", "crypto_prices_exception", exc_info=crypto_prices
-                )
+                log_structured("error", "crypto_prices_exception", exc_info=crypto_prices)
                 crypto_prices = {}
 
             if isinstance(stock_prices, Exception):

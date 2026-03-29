@@ -28,9 +28,7 @@ async def replay_dlq_event(event_id: str, request: Request):
     dlq = _get_dlq(request)
     success = await dlq.replay(event_id)
     if not success:
-        raise HTTPException(
-            status_code=404, detail=f"Event {event_id} not found in DLQ"
-        )
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found in DLQ")
     return {"replayed": True, "event_id": event_id}
 
 

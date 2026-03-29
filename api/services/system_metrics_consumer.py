@@ -46,9 +46,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         msg_id = self.extract_msg_id(data)
 
         # Parse timestamp, fallback to UTC now
-        timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(
-            timezone.utc
-        )
+        timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(timezone.utc)
 
         # Map input data to DB columns
         metric_name = data.get("metric_name")
@@ -69,9 +67,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         )
 
         # Log for observability
-        log_structured(
-            "info", "system metric processed", msg_id=msg_id, metric_name=metric_name
-        )
+        log_structured("info", "system metric processed", msg_id=msg_id, metric_name=metric_name)
 
     def safe_parse_dt(self, dt_str):
         """Safely parse ISO datetime strings."""
@@ -81,7 +77,5 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError) as e:
-            log_structured(
-                "warning", "datetime parse failed", dt_str=dt_str, error=str(e)
-            )
+            log_structured("warning", "datetime parse failed", dt_str=dt_str, error=str(e))
             return None

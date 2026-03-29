@@ -48,9 +48,7 @@ class OrderReconciler:
             )
             rows = result.mappings().all()
             for row in rows:
-                broker_status = await self.broker.get_order_status(
-                    str(row["broker_order_id"])
-                )
+                broker_status = await self.broker.get_order_status(str(row["broker_order_id"]))
                 discrepancy = self._build_discrepancy(row, broker_status)
                 if discrepancy is None:
                     continue
@@ -82,9 +80,7 @@ class OrderReconciler:
                 await self.run_once()
             except Exception:  # noqa: BLE001
                 log_structured("warning", "Order reconciliation failed", exc_info=True)
-            await asyncio.sleep(
-                self.interval_seconds
-            )  # Reconciliation polling interval - allowed
+            await asyncio.sleep(self.interval_seconds)  # Reconciliation polling interval - allowed
 
     def _build_discrepancy(
         self, order_row: dict[str, Any], broker_status: dict[str, Any] | None

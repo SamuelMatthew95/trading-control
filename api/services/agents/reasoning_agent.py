@@ -58,9 +58,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 )
             except Exception as exc:  # noqa: BLE001
                 fallback_reason = str(exc)
-                summary = await self._apply_fallback(
-                    data, trace_id, reason=fallback_reason
-                )
+                summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
                 tokens_used, cost_usd = 0, 0.0
 
         async with AsyncSessionFactory() as session:
@@ -72,15 +70,9 @@ class ReasoningAgent(BaseStreamConsumer):
                     fallback_reason is not None,
                     session=session,
                 )
-                await self._store_vector_memory(
-                    signal_summary, embedding, summary, session=session
-                )
-                await self._store_agent_log(
-                    trace_id, summary, fallback_reason, session=session
-                )
-                await self._store_cost_tracking(
-                    today, tokens_used, cost_usd, session=session
-                )
+                await self._store_vector_memory(signal_summary, embedding, summary, session=session)
+                await self._store_agent_log(trace_id, summary, fallback_reason, session=session)
+                await self._store_cost_tracking(today, tokens_used, cost_usd, session=session)
 
         log_structured(
             "info",
@@ -134,13 +126,9 @@ class ReasoningAgent(BaseStreamConsumer):
                     "strategy_id": data.get("strategy_id"),
                     "symbol": data.get("symbol"),
                     "side": action,
-                    "qty": max(
-                        float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))
-                    ),
+                    "qty": max(float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))),
                     "price": float(data.get("price", data.get("last_price", 0.0))),
-                    "timestamp": data.get(
-                        "timestamp", datetime.now(timezone.utc).isoformat()
-                    ),
+                    "timestamp": data.get("timestamp", datetime.now(timezone.utc).isoformat()),
                     "trace_id": trace_id,
                 },
             )
@@ -173,9 +161,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     json={"model": "text-embedding-3-small", "input": text_value},
                 ) as response:
                     if response.status >= 400:
-                        raise RuntimeError(
-                            f"Embedding API failed with status {response.status}"
-                        )
+                        raise RuntimeError(f"Embedding API failed with status {response.status}")
                     payload = await response.json()
                     return payload["data"][0]["embedding"]
         digest = hashlib.sha256(text_value.encode("utf-8")).digest()
@@ -187,9 +173,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     break
         return values
 
-    async def _search_vector_memory(
-        self, embedding: list[float]
-    ) -> list[dict[str, Any]]:
+    async def _search_vector_memory(self, embedding: list[float]) -> list[dict[str, Any]]:
         vector_literal = self._vector_literal(embedding)
         query = text(f"""
 SELECT id, content, metadata_, outcome,
@@ -222,9 +206,7 @@ LIMIT 5
     async def _call_reasoning_model(
         self, data: dict[str, Any], similar_trades: list[dict[str, Any]], trace_id: str
     ) -> tuple[dict[str, Any], int, float]:
-        prompt = json.dumps(
-            {"signal": data, "similar_trades": similar_trades}, default=str
-        )
+        prompt = json.dumps({"signal": data, "similar_trades": similar_trades}, default=str)
         return await call_llm(prompt, trace_id)
 
     async def _apply_fallback(
@@ -237,9 +219,7 @@ LIMIT 5
         elif settings.LLM_FALLBACK_MODE == "use_last_reflection":
             reflection = await self._get_last_reflection()
             # Extract proper action from reflection, not sizing_recommendation
-            action = (
-                reflection.get("action", base_action) if reflection else base_action
-            )
+            action = reflection.get("action", base_action) if reflection else base_action
             if action not in {"buy", "sell", "hold", "reject"}:
                 action = base_action if base_action not in {"none", ""} else "hold"
         else:
@@ -348,9 +328,7 @@ RETURNING id
             )
             result.scalar()
         except Exception:  # noqa: BLE001
-            log_structured(
-                "error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id
-            )
+            log_structured("error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id)
             raise
 
     async def _store_vector_memory(
@@ -429,9 +407,7 @@ RETURNING id
             )
             result.scalar()
         except Exception:  # noqa: BLE001
-            log_structured(
-                "error", "agent_log_insert_failed", exc_info=True, trace_id=trace_id
-            )
+            log_structured("error", "agent_log_insert_failed", exc_info=True, trace_id=trace_id)
             raise
 
     async def _store_cost_tracking(

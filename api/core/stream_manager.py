@@ -49,9 +49,7 @@ class StreamManager:
 
         # Pure logic components
         self.message_processor = message_processor or MessageProcessor()
-        self.backpressure_controller = (
-            backpressure_controller or BackpressureController()
-        )
+        self.backpressure_controller = backpressure_controller or BackpressureController()
 
         # Error tracking
         self.max_consecutive_errors = 5
@@ -70,9 +68,7 @@ class StreamManager:
         await self._ensure_consumer_groups()
 
         self.running = True
-        log_structured(
-            "info", "stream manager started", consumer_name=self.consumer_name
-        )
+        log_structured("info", "stream manager started", consumer_name=self.consumer_name)
 
     async def stop(self) -> None:
         """Graceful shutdown."""
@@ -82,9 +78,7 @@ class StreamManager:
         if self.redis_client:
             await self.redis_client.close()
 
-        log_structured(
-            "info", "stream manager stopped", consumer_name=self.consumer_name
-        )
+        log_structured("info", "stream manager stopped", consumer_name=self.consumer_name)
 
     def register_handler(self, stream: str, handler: Callable) -> None:
         """Register a message handler for a stream."""
@@ -136,9 +130,7 @@ class StreamManager:
         try:
             await self.redis_client.xack(stream, self.consumer_group, message_id)
         except Exception as e:
-            log_structured(
-                "error", "message ack failed", message_id=message_id, error=str(e)
-            )
+            log_structured("error", "message ack failed", message_id=message_id, error=str(e))
 
     async def _send_to_dlq(self, message: dict[str, Any], error: str) -> None:
         """Send message to dead-letter queue."""
@@ -188,13 +180,9 @@ class StreamManager:
                         # Get current lag info
                         stream_info = await self.redis_client.xinfo_stream(stream)
                         lag = float(
-                            stream_info.get("groups", {})
-                            .get(self.consumer_group, {})
-                            .get("lag", 0)
+                            stream_info.get("groups", {}).get(self.consumer_group, {}).get("lag", 0)
                         )
-                        asyncio.create_task(
-                            on_message_processed(self.event_bus, stream, lag)
-                        )
+                        asyncio.create_task(on_message_processed(self.event_bus, stream, lag))
                     except Exception:
                         pass  # Don't let monitoring break processing
 
@@ -217,9 +205,7 @@ class StreamManager:
 
     async def _consumer_loop(self) -> None:
         """Main consumer loop with backpressure and error handling."""
-        log_structured(
-            "info", "consumer loop started", consumer_name=self.consumer_name
-        )
+        log_structured("info", "consumer loop started", consumer_name=self.consumer_name)
 
         consecutive_errors = 0
 
@@ -228,9 +214,7 @@ class StreamManager:
                 # Read messages from all streams
                 read_tasks = []
                 for stream in self.handler_registry.keys():
-                    task = asyncio.create_task(
-                        self._read_messages(stream, count=5, block_ms=100)
-                    )
+                    task = asyncio.create_task(self._read_messages(stream, count=5, block_ms=100))
                     read_tasks.append(task)
 
                 results = await asyncio.gather(*read_tasks, return_exceptions=True)
@@ -246,8 +230,7 @@ class StreamManager:
                 # Process messages
                 if all_messages:
                     process_tasks = [
-                        asyncio.create_task(self._process_message(msg))
-                        for msg in all_messages
+                        asyncio.create_task(self._process_message(msg)) for msg in all_messages
                     ]
                     await asyncio.gather(*process_tasks, return_exceptions=True)
                 else:

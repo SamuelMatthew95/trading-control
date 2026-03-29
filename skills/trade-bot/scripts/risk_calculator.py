@@ -66,8 +66,7 @@ class RiskCalculator:
             "actual_risk_amount": actual_risk,
             "risk_pct_of_account": risk_pct_of_account,
             "stop_loss_amount": entry_price * stop_loss_pct,
-            "recommended": risk_pct_of_account
-            <= self.risk_limits["max_portfolio_risk"],
+            "recommended": risk_pct_of_account <= self.risk_limits["max_portfolio_risk"],
         }
 
     def calculate_stop_loss(
@@ -149,34 +148,24 @@ class RiskCalculator:
             total_unrealized_pnl += unrealized_pnl
 
             # Calculate concentration
-            concentration = (
-                position_value / account_balance if account_balance > 0 else 0
-            )
+            concentration = position_value / account_balance if account_balance > 0 else 0
             max_concentration = max(max_concentration, concentration)
 
         # Calculate portfolio metrics
-        portfolio_exposure = (
-            total_position_value / account_balance if account_balance > 0 else 0
-        )
+        portfolio_exposure = total_position_value / account_balance if account_balance > 0 else 0
         available_cash = account_balance - total_position_value
-        total_return = (
-            total_unrealized_pnl / account_balance if account_balance > 0 else 0
-        )
+        total_return = total_unrealized_pnl / account_balance if account_balance > 0 else 0
 
         # Risk assessment
         risk_alerts = []
         if portfolio_exposure > 0.95:
             risk_alerts.append("High portfolio exposure")
         if max_concentration > self.risk_limits["max_position_size"]:
-            risk_alerts.append(
-                f"High concentration in single position: {max_concentration:.2%}"
-            )
+            risk_alerts.append(f"High concentration in single position: {max_concentration:.2%}")
         if total_return < -self.risk_limits["max_drawdown"]:
             risk_alerts.append(f"Portfolio drawdown exceeded: {total_return:.2%}")
 
-        risk_level = (
-            "HIGH" if len(risk_alerts) > 2 else "MEDIUM" if risk_alerts else "LOW"
-        )
+        risk_level = "HIGH" if len(risk_alerts) > 2 else "MEDIUM" if risk_alerts else "LOW"
 
         return {
             "total_position_value": total_position_value,
@@ -209,9 +198,7 @@ class RiskCalculator:
         potential_loss = abs(entry_price - stop_loss)
 
         # Calculate risk/reward ratio
-        risk_reward_ratio = (
-            potential_profit / potential_loss if potential_loss > 0 else 0
-        )
+        risk_reward_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
 
         # Validate minimum ratio
         meets_minimum = risk_reward_ratio >= self.risk_limits["min_risk_reward"]

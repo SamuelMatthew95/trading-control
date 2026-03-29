@@ -77,9 +77,7 @@ async def test_all_streams_have_consumers(fake_redis):
     # Test consuming from each stream
     for stream in STREAMS:
         try:
-            messages = await event_bus.consume(
-                stream, DEFAULT_GROUP, f"test_consumer_{stream}"
-            )
+            messages = await event_bus.consume(stream, DEFAULT_GROUP, f"test_consumer_{stream}")
             assert isinstance(messages, list)  # Should return a list (empty is fine)
         except Exception as exc:
             pytest.fail(f"Failed to consume from {stream}: {exc}")
@@ -143,9 +141,7 @@ async def test_group_id_parameter(fake_redis):
     await event_bus.create_groups()
 
     # Add a message using EventBus.publish
-    message_id = await event_bus.publish(
-        "signals", {"signal": "BUY", "symbol": "ETH/USD"}
-    )
+    message_id = await event_bus.publish("signals", {"signal": "BUY", "symbol": "ETH/USD"})
     assert message_id is not None
 
     # Try to consume - should get the message since group was created before

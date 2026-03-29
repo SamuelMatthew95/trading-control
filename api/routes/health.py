@@ -55,7 +55,8 @@ async def _oldest_pending_score_age_seconds() -> float | None:
         from api.database import get_async_session
 
         async with get_async_session() as session:
-            table_result = await session.execute(text("""
+            table_result = await session.execute(
+                text("""
                     SELECT table_name
                     FROM information_schema.columns
                     WHERE table_schema = 'public'
@@ -68,7 +69,8 @@ async def _oldest_pending_score_age_seconds() -> float | None:
                         ELSE 99
                     END
                     LIMIT 1
-                    """))
+                    """)
+            )
             table_name = table_result.scalar()
             if not table_name:
                 return None
@@ -116,9 +118,7 @@ async def root() -> dict[str, Any]:
             ).model_dump(),
         ).model_dump()
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Internal server error: {str(e)}"
-        ) from None
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from None
 
 
 @router.get("/health")

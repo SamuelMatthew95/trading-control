@@ -60,9 +60,7 @@ class WebSocketBroadcaster:
         while self._running:
             try:
                 # Compatibility loop hook (kept intentionally minimal).
-                if self._redis_client is not None and hasattr(
-                    self._redis_client, "xread"
-                ):
+                if self._redis_client is not None and hasattr(self._redis_client, "xread"):
                     if not self._stream_offsets:
                         self._last_error = (
                             "No streams registered for websocket broadcaster xread loop"
@@ -111,8 +109,8 @@ class WebSocketBroadcaster:
                             broadcasts_attempted += len(self._connections)
 
                         *_, (last_id, _payload) = stream_messages
-                        self._stream_offsets[decoded_stream_name] = (
-                            self._decode_redis_value(last_id)
+                        self._stream_offsets[decoded_stream_name] = self._decode_redis_value(
+                            last_id
                         )
 
                     log_structured(
@@ -124,19 +122,13 @@ class WebSocketBroadcaster:
                         connected_clients=len(self._connections),
                     )
                 else:
-                    await asyncio.sleep(
-                        self._idle_sleep_seconds
-                    )  # WebSocket idle sleep - allowed
+                    await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 self._last_error = str(exc)
-                log_structured(
-                    "warning", "websocket_background_loop_error", exc_info=True
-                )
-                await asyncio.sleep(
-                    self._idle_sleep_seconds
-                )  # WebSocket idle sleep - allowed
+                log_structured("warning", "websocket_background_loop_error", exc_info=True)
+                await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
 
     @staticmethod
     def _decode_redis_value(value: Any) -> str:

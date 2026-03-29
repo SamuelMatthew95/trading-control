@@ -26,9 +26,7 @@ class SimpleConsumer(BaseStreamConsumer):
         stream: str,
         consumer_name: str,
     ):
-        super().__init__(
-            bus, dlq, stream=stream, group=DEFAULT_GROUP, consumer=consumer_name
-        )
+        super().__init__(bus, dlq, stream=stream, group=DEFAULT_GROUP, consumer=consumer_name)
         self.redis = redis_client
 
     async def process(self, data: dict[str, Any]) -> None:
@@ -154,9 +152,7 @@ class LearningEventsConsumer(SimpleConsumer):
     """Consumer for learning_events stream - writes vector memories to database."""
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis):
-        super().__init__(
-            bus, dlq, redis_client, "learning_events", "learning-events-logger"
-        )
+        super().__init__(bus, dlq, redis_client, "learning_events", "learning-events-logger")
         self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def process(self, data: dict[str, Any]) -> None:

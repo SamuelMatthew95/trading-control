@@ -145,9 +145,7 @@ class FakeSession:
                 pass
 
     # Query execution
-    async def execute(
-        self, statement: Any, params: dict[str, Any] | None = None
-    ) -> FakeResult:
+    async def execute(self, statement: Any, params: dict[str, Any] | None = None) -> FakeResult:
         """
         Execute a query statement.
 
@@ -330,9 +328,7 @@ def example_usage():
 
         # Transaction context manager
         async with session.begin():
-            await session.execute(
-                "INSERT INTO users (name) VALUES (?)", {"name": "test"}
-            )
+            await session.execute("INSERT INTO users (name) VALUES (?)", {"name": "test"})
             await session.flush()  # Can be awaited without error
 
         # Verify execution tracking

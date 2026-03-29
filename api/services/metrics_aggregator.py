@@ -59,9 +59,7 @@ class MetricsAggregator:
                     lag_metrics[stream] = {
                         "lag_ms": float(row.lag_ms or 0),
                         "lag_seconds": float(row.lag_ms or 0) / 1000,
-                        "timestamp": (
-                            row.timestamp.isoformat() if row.timestamp else None
-                        ),
+                        "timestamp": (row.timestamp.isoformat() if row.timestamp else None),
                         "tags": row.tags or {},
                     }
 
@@ -97,12 +95,8 @@ class MetricsAggregator:
                 is_stale = False
                 if timestamp_str:
                     try:
-                        timestamp = datetime.fromisoformat(
-                            timestamp_str.replace("Z", "+00:00")
-                        )
-                        age_seconds = (
-                            datetime.now(timezone.utc) - timestamp
-                        ).total_seconds()
+                        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
                         is_stale = age_seconds > STALE_THRESHOLD_SECONDS
                     except (ValueError, AttributeError):
                         is_stale = True
@@ -158,9 +152,9 @@ class MetricsAggregator:
 
             # Get today's PnL
             today = datetime.now(timezone.utc).date()
-            today_pnl_query = select(
-                func.coalesce(func.sum(TradePerformance.pnl), 0)
-            ).where(TradePerformance.created_at >= today)
+            today_pnl_query = select(func.coalesce(func.sum(TradePerformance.pnl), 0)).where(
+                TradePerformance.created_at >= today
+            )
             result = await self.session.execute(today_pnl_query)
             today_pnl = float(result.scalar() or 0)
 
@@ -235,9 +229,7 @@ class MetricsAggregator:
                 active_agents.append(
                     {
                         "agent_id": row.agent_run_id,
-                        "last_seen": (
-                            row.last_seen.isoformat() if row.last_seen else None
-                        ),
+                        "last_seen": (row.last_seen.isoformat() if row.last_seen else None),
                         "message_count_5min": int(row.message_count or 0),
                     }
                 )

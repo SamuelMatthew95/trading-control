@@ -261,9 +261,7 @@ class TestConsumerIntegration:
         bus = Mock()
         dlq = Mock()
         redis_client = Mock()
-        redis_client.get = AsyncMock(
-            return_value=None
-        )  # Kill switch off - must be awaitable
+        redis_client.get = AsyncMock(return_value=None)  # Kill switch off - must be awaitable
 
         # Create consumer
         consumer = SystemMetricsConsumer(bus, dlq, redis_client)

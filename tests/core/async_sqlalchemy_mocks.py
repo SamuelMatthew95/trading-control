@@ -99,9 +99,7 @@ class FakeSession:
     keeping handlers simple and testable.
     """
 
-    def __init__(
-        self, handler: Callable[[str, dict[str, Any]], FakeResult] | None = None
-    ):
+    def __init__(self, handler: Callable[[str, dict[str, Any]], FakeResult] | None = None):
         """
         Initialize FakeSession with optional query handler.
 
@@ -162,9 +160,7 @@ class FakeSession:
                 self.session.commits += 1
 
     # Query execution (matches AsyncSession.execute() API)
-    async def execute(
-        self, statement: Any, params: dict[str, Any] | None = None
-    ) -> FakeResult:
+    async def execute(self, statement: Any, params: dict[str, Any] | None = None) -> FakeResult:
         """
         Execute a query statement.
 

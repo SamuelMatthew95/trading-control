@@ -35,9 +35,7 @@ class TestLoggingSafety:
 
             for root, dirs, files in os.walk(source_dir):
                 # Skip hidden and cache directories
-                dirs[:] = [
-                    d for d in dirs if not d.startswith(".") and d != "__pycache__"
-                ]
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
 
                 for file in files:
                     if file.endswith(".py") and file != "test_logging_safety.py":
@@ -61,10 +59,7 @@ class TestLoggingSafety:
                                         or 'r"' in line
                                         or (
                                             "event=" in stripped
-                                            and (
-                                                "test" in file_path
-                                                or "example" in stripped
-                                            )
+                                            and ("test" in file_path or "example" in stripped)
                                         )
                                     ):
                                         continue
@@ -109,9 +104,7 @@ class TestLoggingSafety:
 
         # Test 2: event= kwarg is silently rejected
         try:
-            log_structured(
-                "info", "test message", event="should_be_removed", key="value"
-            )
+            log_structured("info", "test message", event="should_be_removed", key="value")
         except Exception as e:
             pytest.fail(f"log_structured should reject event= kwarg: {e}")
 

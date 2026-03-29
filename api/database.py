@@ -67,9 +67,7 @@ def _run_alembic_upgrade(url: str) -> None:
 database_url = _resolve_database_url()
 async_engine = create_async_engine(database_url, echo=False, pool_pre_ping=True)
 engine = async_engine
-AsyncSessionLocal = async_sessionmaker(
-    async_engine, class_=AsyncSession, expire_on_commit=False
-)
+AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 AsyncSessionFactory = AsyncSessionLocal
 Base = declarative_base()
 

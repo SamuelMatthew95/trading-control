@@ -19,9 +19,7 @@ class TestDLQAPI:
     async def client(self):
         """Create an async client for testing."""
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://localhost"
-        ) as client:
+        async with AsyncClient(transport=transport, base_url="http://localhost") as client:
             yield client
 
     @pytest.mark.asyncio
@@ -103,9 +101,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = await client.post(
-                "/api/dlq/abc123/replay", headers={"Host": "localhost"}
-            )
+            response = await client.post("/api/dlq/abc123/replay", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["replayed"] is True
@@ -125,9 +121,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = await client.post(
-                "/api/dlq/abc123/replay", headers={"Host": "localhost"}
-            )
+            response = await client.post("/api/dlq/abc123/replay", headers={"Host": "localhost"})
             assert response.status_code == 404
             data = response.json()
             assert "not found in DLQ" in data["detail"]
@@ -146,9 +140,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = await client.delete(
-                "/api/dlq/abc123", headers={"Host": "localhost"}
-            )
+            response = await client.delete("/api/dlq/abc123", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert data["cleared"] is True
@@ -175,9 +167,7 @@ class TestDLQAPI:
         # Set the dlq_manager on app.state
         app.state.dlq_manager = mock_dlq
         try:
-            response = await client.post(
-                "/api/dlq/replay-all", headers={"Host": "localhost"}
-            )
+            response = await client.post("/api/dlq/replay-all", headers={"Host": "localhost"})
             assert response.status_code == 200
             data = response.json()
             assert len(data["replayed"]) == 3
@@ -237,9 +227,9 @@ class TestDLQAPI:
 
         redis_source_code = inspect.getsource(redis_client)
 
-        assert (
-            "max_connections=30" in redis_source_code
-        ), "Redis client should have max_connections=30"
+        assert "max_connections=30" in redis_source_code, (
+            "Redis client should have max_connections=30"
+        )
 
     @pytest.mark.asyncio
     async def test_dlq_route_registered(self, client):
@@ -252,9 +242,9 @@ class TestDLQAPI:
             delattr(app.state, "dlq_manager")
 
         response = await client.get("/api/dlq", headers={"Host": "localhost"})
-        assert (
-            response.status_code == 503
-        ), "Route should be registered and return 503 when DLQ unavailable"
+        assert response.status_code == 503, (
+            "Route should be registered and return 503 when DLQ unavailable"
+        )
 
         # Also check that the route pattern exists in the app
         route_found = False

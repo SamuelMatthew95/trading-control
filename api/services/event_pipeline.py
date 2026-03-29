@@ -89,9 +89,7 @@ class EventPipeline:
                     await self._process_with_retry(stream, redis_id, event)
             await asyncio.sleep(0.05)  # Event processing throttle - allowed
 
-    async def _process_with_retry(
-        self, stream: str, redis_id: str, event: dict[str, Any]
-    ) -> None:
+    async def _process_with_retry(self, stream: str, redis_id: str, event: dict[str, Any]) -> None:
         event_type = str(event.get("type") or stream)
         msg_id = str(event.get("msg_id") or redis_id)
         ts = str(event.get("timestamp") or datetime.now(timezone.utc).isoformat())
@@ -200,11 +198,7 @@ class EventPipeline:
             "timestamp": ts,
         }
         if self.agent_state:
-            payload = (
-                event.get("payload")
-                if isinstance(event.get("payload"), dict)
-                else event
-            )
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else event
             agent_name = payload.get("agent_name") or payload.get("agent")
             if agent_name:
                 agent_status = self.agent_state.update(

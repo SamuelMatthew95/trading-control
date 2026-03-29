@@ -69,20 +69,16 @@ class TradingService:
         slippage_variance = abs(observed_price - trade.intended_price) / max(
             trade.intended_price, 1
         )
-        age_seconds = (datetime.now(timezone.utc) - trade.created_at) / timedelta(
-            seconds=1
+        age_seconds = (datetime.now(timezone.utc) - trade.created_at) / timedelta(seconds=1)
+        profitable = (observed_price > trade.intended_price and trade.decision == "LONG") or (
+            observed_price < trade.intended_price and trade.decision == "SHORT"
         )
-        profitable = (
-            observed_price > trade.intended_price and trade.decision == "LONG"
-        ) or (observed_price < trade.intended_price and trade.decision == "SHORT")
         return {
             "status": "evaluated",
             "symbol": symbol,
             "decision": trade.decision,
             "slippage_variance": round(slippage_variance, 6),
             "trajectory_similarity": 1.0 if profitable else 0.0,
-            "confidence_score": round(
-                (1 - min(slippage_variance, 1.0)) * trade.confidence, 4
-            ),
+            "confidence_score": round((1 - min(slippage_variance, 1.0)) * trade.confidence, 4),
             "age_seconds": int(age_seconds),
         }

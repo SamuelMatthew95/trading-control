@@ -155,9 +155,7 @@ class FakeSession:
                 pass
 
     # Query execution
-    async def execute(
-        self, statement: Any, params: dict[str, Any] | None = None
-    ) -> FakeResult:
+    async def execute(self, statement: Any, params: dict[str, Any] | None = None) -> FakeResult:
         """
         Execute a query statement.
 

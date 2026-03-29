@@ -19,9 +19,7 @@ class PaperBroker:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def place_order(
-        self, symbol: str, side: str, qty: float, price: float
-    ) -> dict[str, Any]:
+    async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         await self.redis.setnx(self.CASH_KEY, self.DEFAULT_CASH)
         normalized_side = side.lower()
         slippage = random.uniform(0.0001, 0.0005)
@@ -55,9 +53,7 @@ class PaperBroker:
             "fill_price": fill_price,
             "status": "filled",
         }
-        await self.redis.set(
-            f"{self.ORDER_KEY_PREFIX}{broker_order_id}", json.dumps(order_payload)
-        )
+        await self.redis.set(f"{self.ORDER_KEY_PREFIX}{broker_order_id}", json.dumps(order_payload))
         return order_payload
 
     async def get_position(self, symbol: str) -> dict[str, Any]:

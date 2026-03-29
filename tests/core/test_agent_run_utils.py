@@ -33,10 +33,7 @@ class TestAgentRun(AgentRun):
 
         # Pass all fields to parent constructor since they now exist in production model
         super().__init__(
-            task_id=task_id,
-            decision_json=decision_json,
-            trace_json=trace_json,
-            **kwargs
+            task_id=task_id, decision_json=decision_json, trace_json=trace_json, **kwargs
         )
 
 

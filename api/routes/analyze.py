@@ -29,15 +29,11 @@ async def analyze_trade(
         start = datetime.now(timezone.utc)
 
         async def _run_analysis():
-            return trading_service.analyze(
-                request.symbol, request.price, request.signals or []
-            )
+            return trading_service.analyze(request.symbol, request.price, request.signals or [])
 
         metrics_store.log_event("task_started", symbol=request.symbol, task="analyze")
         for agent in ["SIGNAL_AGENT", "CONSENSUS_AGENT", "RISK_AGENT", "SIZING_AGENT"]:
-            metrics_store.update_agent(
-                agent, "running", current_task=f"analyze {request.symbol}"
-            )
+            metrics_store.update_agent(agent, "running", current_task=f"analyze {request.symbol}")
 
         try:
             result = await with_retries(_run_analysis)
@@ -57,12 +53,8 @@ async def analyze_trade(
             metrics_store.log_event(
                 "task_failed", symbol=request.symbol, task="analyze", exc_info=True
             )
-            log_structured(
-                "error", "Trade analysis failed", symbol=request.symbol, exc_info=True
-            )
-            raise HTTPException(
-                status_code=500, detail="Trade analysis failed"
-            ) from exc
+            log_structured("error", "Trade analysis failed", symbol=request.symbol, exc_info=True)
+            raise HTTPException(status_code=500, detail="Trade analysis failed") from exc
 
         async with get_async_session():
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
@@ -92,9 +84,7 @@ async def analyze_trade(
             "task_completed",
             symbol=request.symbol,
             task="analyze",
-            latency_ms=round(
-                (datetime.now(timezone.utc) - start).total_seconds() * 1000, 2
-            ),
+            latency_ms=round((datetime.now(timezone.utc) - start).total_seconds() * 1000, 2),
             token_usage=estimated_tokens,
             cost_usd=estimated_cost_usd,
         )
@@ -113,9 +103,7 @@ async def analyze_trade(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Analysis failed: {str(e)}"
-        ) from None
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}") from None
 
 
 @router.post("/shadow/analyze")
@@ -127,24 +115,16 @@ async def shadow_analyze(
         if not request.symbol or not request.price:
             raise HTTPException(status_code=400, detail="Symbol and price are required")
 
-        metrics_store.log_event(
-            "task_started", symbol=request.symbol, task="shadow_analyze"
-        )
-        result = trading_service.run_shadow(
-            request.symbol, request.price, request.signals or []
-        )
-        metrics_store.log_event(
-            "task_completed", symbol=request.symbol, task="shadow_analyze"
-        )
+        metrics_store.log_event("task_started", symbol=request.symbol, task="shadow_analyze")
+        result = trading_service.run_shadow(request.symbol, request.price, request.signals or [])
+        metrics_store.log_event("task_completed", symbol=request.symbol, task="shadow_analyze")
         return StandardResponse(
             success=True, data={"mode": "shadow", "result": result}
         ).model_dump()
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Shadow analysis failed: {str(e)}"
-        ) from None
+        raise HTTPException(status_code=500, detail=f"Shadow analysis failed: {str(e)}") from None
 
 
 @router.get("/shadow/evaluate/{symbol}")
@@ -155,9 +135,7 @@ async def shadow_evaluate(
 ):
     try:
         if not symbol or observed_price <= 0:
-            raise HTTPException(
-                status_code=400, detail="Symbol and valid price are required"
-            )
+            raise HTTPException(status_code=400, detail="Symbol and valid price are required")
 
         result = trading_service.evaluate_shadow(symbol, observed_price)
         if result.get("status") == "no_data":
@@ -166,9 +144,7 @@ async def shadow_evaluate(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Shadow evaluation failed: {str(e)}"
-        ) from None
+        raise HTTPException(status_code=500, detail=f"Shadow evaluation failed: {str(e)}") from None
 
 
 @router.options("/analyze")

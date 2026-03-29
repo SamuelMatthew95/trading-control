@@ -34,9 +34,7 @@ class TestStructlogSafety:
 
             for root, dirs, files in os.walk(source_dir):
                 # Skip hidden and cache directories
-                dirs[:] = [
-                    d for d in dirs if not d.startswith(".") and d != "__pycache__"
-                ]
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
 
                 for file in files:
                     if file.endswith(".py"):
@@ -73,13 +71,14 @@ class TestStructlogSafety:
                             pass
 
         # Assert no issues found
-        assert (
-            not issues_found
-        ), f"Found {len(issues_found)} structlog event= usage issues:\n" + "\n".join(
-            [
-                f"  {issue['file']}:{issue['line']} - {issue['content']}"
-                for issue in issues_found
-            ]
+        assert not issues_found, (
+            f"Found {len(issues_found)} structlog event= usage issues:\n"
+            + "\n".join(
+                [
+                    f"  {issue['file']}:{issue['line']} - {issue['content']}"
+                    for issue in issues_found
+                ]
+            )
         )
 
     def test_log_structured_function_signature(self):

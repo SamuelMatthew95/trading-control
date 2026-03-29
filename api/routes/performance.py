@@ -43,11 +43,7 @@ async def get_all_performance(
 @router.get("/api/statistics")
 async def get_statistics(force_refresh: bool = False):
     now = time.time()
-    if (
-        not force_refresh
-        and _STATS_CACHE["payload"]
-        and now < float(_STATS_CACHE["expires_at"])
-    ):
+    if not force_refresh and _STATS_CACHE["payload"] and now < float(_STATS_CACHE["expires_at"]):
         return _STATS_CACHE["payload"]
 
     async with get_async_session() as session:
@@ -56,9 +52,7 @@ async def get_statistics(force_refresh: bool = False):
         ).scalar() or 0
         wins = (
             await session.execute(
-                select(func.count(TradePerformance.id)).where(
-                    TradePerformance.trade_type == "long"
-                )
+                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "long")
             )
         ).scalar() or 0
         losses = (
@@ -70,9 +64,7 @@ async def get_statistics(force_refresh: bool = False):
         ).scalar() or 0
         total_pnl = (
             await session.execute(
-                select(func.sum(TradePerformance.pnl)).where(
-                    TradePerformance.pnl.is_not(None)
-                )
+                select(func.sum(TradePerformance.pnl)).where(TradePerformance.pnl.is_not(None))
             )
         ).scalar() or 0
         payload = {

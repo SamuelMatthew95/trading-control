@@ -27,9 +27,7 @@ class TestSignalGenerator:
         return SignalGenerator(mock_bus, mock_dlq)
 
     @pytest.mark.asyncio
-    async def test_signal_generator_fires_every_n_ticks(
-        self, signal_generator, mock_bus
-    ):
+    async def test_signal_generator_fires_every_n_ticks(self, signal_generator, mock_bus):
         # Send 10 ticks for one symbol, should fire exactly 1 signal
         for i in range(10):
             await signal_generator.process(
@@ -76,9 +74,7 @@ class TestSignalGenerator:
         assert signal["symbol"] == "BTC/USD"
 
     @pytest.mark.asyncio
-    async def test_signal_generator_ignores_invalid_ticks(
-        self, signal_generator, mock_bus
-    ):
+    async def test_signal_generator_ignores_invalid_ticks(self, signal_generator, mock_bus):
         # Send invalid tick with price=0
         await signal_generator.process(
             {"symbol": "BTC/USD", "price": 0, "timestamp": "2024-01-01T00:00:00Z"}
@@ -88,13 +84,9 @@ class TestSignalGenerator:
         assert mock_bus.publish.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_signal_generator_ignores_missing_symbol(
-        self, signal_generator, mock_bus
-    ):
+    async def test_signal_generator_ignores_missing_symbol(self, signal_generator, mock_bus):
         # Send tick with no symbol
-        await signal_generator.process(
-            {"price": 50000.0, "timestamp": "2024-01-01T00:00:00Z"}
-        )
+        await signal_generator.process({"price": 50000.0, "timestamp": "2024-01-01T00:00:00Z"})
 
         # Should not have published any signal
         assert mock_bus.publish.call_count == 0
@@ -143,9 +135,7 @@ class TestLLMRouter:
 
     @pytest.mark.asyncio
     async def test_llm_router_missing_key_raises(self):
-        with patch.dict(
-            settings.__dict__, {"LLM_PROVIDER": "groq", "GROQ_API_KEY": ""}
-        ):
+        with patch.dict(settings.__dict__, {"LLM_PROVIDER": "groq", "GROQ_API_KEY": ""}):
             with pytest.raises(RuntimeError) as exc_info:
                 await call_llm("test prompt", "test-trace")
 
@@ -156,9 +146,7 @@ class TestLLMRouter:
     async def test_llm_router_calls_correct_provider(self):
         mock_call_groq = AsyncMock(return_value=({"action": "buy"}, 100, 0.0))
 
-        with patch.dict(
-            settings.__dict__, {"LLM_PROVIDER": "groq", "GROQ_API_KEY": "test-key"}
-        ):
+        with patch.dict(settings.__dict__, {"LLM_PROVIDER": "groq", "GROQ_API_KEY": "test-key"}):
             # Patch the _PROVIDERS dict to avoid groq import
             with patch("api.services.llm_router._PROVIDERS", {"groq": mock_call_groq}):
                 await call_llm("test prompt", "test-trace")

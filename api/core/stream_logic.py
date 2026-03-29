@@ -86,9 +86,7 @@ class MessageProcessor:
                 success=False, retryable=True, message=f"Processing error: {str(e)}"
             )
 
-    def process_execution_message(
-        self, msg_id: str, data: dict[str, Any]
-    ) -> ProcessResult:
+    def process_execution_message(self, msg_id: str, data: dict[str, Any]) -> ProcessResult:
         """Process execution message - pure business logic."""
         validation = self.validate_message(data)
         if not validation.success:
@@ -99,14 +97,10 @@ class MessageProcessor:
             status = data.get("status")
 
             if not order_id:
-                return ProcessResult(
-                    success=False, retryable=False, message="Missing order_id"
-                )
+                return ProcessResult(success=False, retryable=False, message="Missing order_id")
 
             if not status:
-                return ProcessResult(
-                    success=False, retryable=False, message="Missing status"
-                )
+                return ProcessResult(success=False, retryable=False, message="Missing status")
 
             valid_statuses = ["pending", "filled", "cancelled", "rejected"]
             if status not in valid_statuses:
