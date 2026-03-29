@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..core.config import get_settings
 from ..core.models import AgentLog, Event, Order, Position
+from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["system-health"])
@@ -74,7 +75,7 @@ async def get_system_pulse():
         }
 
     except Exception as e:
-        logger.error(f"Pulse API error: {e}")
+        log_structured("error", "pulse api error", error=str(e))
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "traffic_light": "red",
@@ -114,7 +115,7 @@ async def get_idempotency_audit():
             }
 
     except Exception as e:
-        logger.error(f"Idempotency audit error: {e}")
+        log_structured("error", "idempotency audit error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -168,7 +169,7 @@ async def get_position_sync_status():
             }
 
     except Exception as e:
-        logger.error(f"Position sync error: {e}")
+        log_structured("error", "position sync error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -243,7 +244,7 @@ async def stream_agent_logs(
                             last_timestamp = max(last_timestamp, log.created_at)
 
         except Exception as e:
-            logger.error(f"Log stream error: {e}")
+            log_structured("error", "log stream error", error=str(e))
             error_data = {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
             yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
 
@@ -281,7 +282,7 @@ async def pause_consumers():
         }
 
     except Exception as e:
-        logger.error(f"Pause command error: {e}")
+        log_structured("error", "pause command error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -308,7 +309,7 @@ async def resume_consumers():
         }
 
     except Exception as e:
-        logger.error(f"Resume command error: {e}")
+        log_structured("error", "resume command error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

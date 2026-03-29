@@ -116,7 +116,7 @@ class SafeWriter:
         try:
             return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
         except (ValueError, AttributeError) as e:
-            logger.warning(f"Failed to parse datetime '{dt_str}': {e}")
+            log_structured("warning", "datetime parse failed", dt_str=dt_str, error=str(e))
             return None
 
     async def _claim_message(self, session: AsyncSession, msg_id: str, stream: str) -> bool:
@@ -131,7 +131,7 @@ class SafeWriter:
             return result.scalar() is not None
         except IntegrityError:
             # Message already processed
-            logger.debug(f"Message {msg_id} already claimed")
+            log_structured("debug", "message already claimed", msg_id=msg_id)
             return False
 
     async def write_order(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -290,13 +290,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    f"[WRITE_SUCCESS] msg={msg_id} stream={stream} order_id={data['order_id']}"
-                )
+                log_structured("info", "write success", msg_id=msg_id, stream=stream, order_id=data['order_id'])
                 return True
 
             except Exception as e:
-                logger.error(f"[WRITE_ERROR] msg={msg_id} stream={stream} err={e}")
+                log_structured("error", "write error", msg_id=msg_id, stream=stream, error=str(e))
                 raise
 
     async def write_agent_log(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -318,15 +316,7 @@ class SafeWriter:
                 created_at = self.safe_parse_dt(timestamp_str)
 
                 if created_at is None:
-                    logger.warning(
-                        "timestamp_fallback_used",
-                        extra={
-                            "stream": stream,
-                            "msg_id": msg_id,
-                            "provided_timestamp": timestamp_str,
-                            "fallback_reason": "missing_or_invalid"
-                        }
-                    )
+                    log_structured("warning", "timestamp fallback used", stream=stream, msg_id=msg_id, provided_timestamp=timestamp_str, fallback_reason="missing_or_invalid")
                     created_at = datetime.now(timezone.utc)
 
                 log_data = {
@@ -357,13 +347,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.debug(
-                    f"[WRITE_SUCCESS] msg={msg_id} stream={stream} agent_run={data['agent_run_id']}"
-                )
+                log_structured("debug", "agent log write success", msg_id=msg_id, stream=stream, agent_run=data['agent_run_id'])
                 return True
 
             except Exception as e:
-                logger.error(f"[WRITE_ERROR] msg={msg_id} stream={stream} err={e}")
+                log_structured("error", "agent log write error", msg_id=msg_id, stream=stream, error=str(e))
                 raise
 
     async def write_system_metric(
@@ -397,10 +385,7 @@ class SafeWriter:
                     metric_value = 0.0  # Fallback to prevent NOT NULL violations
 
                 # Log operation with actual msg_id
-                logger.info(
-                    "[WRITE_AUDIT] operation=write_system_metric model=SystemMetrics id=%s",
-                    msg_id,
-                )
+                log_structured("info", "write audit", operation="write_system_metric", model="SystemMetrics", id=msg_id)
 
                 # Use PostgreSQL UPSERT for idempotent writes
                 stmt = pg_insert(SystemMetrics).values(
@@ -421,10 +406,7 @@ class SafeWriter:
 
                 # Check if insert was successful (not a duplicate)
                 if result.rowcount == 0:
-                    logger.info(
-                        "write_system_metric_duplicate",
-                        extra={"msg_id": msg_id, "metric_name": metric_name}
-                    )
+                    log_structured("info", "system metric duplicate", msg_id=msg_id, metric_name=metric_name)
 
                 await session.flush()
 
@@ -434,14 +416,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_system_metric_success",
-                    extra={"msg_id": msg_id, "metric": metric_name}
-                )
+                log_structured("info", "system metric write success", msg_id=msg_id, metric=metric_name)
                 return True
 
             except Exception as e:
-                logger.error("write_system_metric_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "system metric write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_trade_performance(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -465,15 +444,7 @@ class SafeWriter:
                 entry_time = self.safe_parse_dt(entry_time_str)
 
                 if entry_time is None:
-                    logger.warning(
-                        "timestamp_fallback_used",
-                        extra={
-                            "stream": stream,
-                            "msg_id": msg_id,
-                            "provided_timestamp": entry_time_str,
-                            "fallback_reason": "missing_or_invalid_entry_time"
-                        }
-                    )
+                    log_structured("warning", "timestamp fallback used", stream=stream, msg_id=msg_id, provided_timestamp=entry_time_str, fallback_reason="missing_or_invalid_entry_time")
                     entry_time = datetime.now(timezone.utc)
 
                 perf_data = {
@@ -508,16 +479,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_trade_performance_success",
-                    extra={"msg_id": msg_id, "trade_id": data['trade_id']}
-                )
+                log_structured("info", "trade performance write success", msg_id=msg_id, trade_id=data['trade_id'])
                 return True
 
             except Exception as e:
-                logger.error(
-                    "write_trade_performance_error", extra={"msg_id": msg_id, "error": str(e)}
-                )
+                log_structured("error", "trade performance write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_vector_memory(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -562,14 +528,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_vector_memory_success",
-                    extra={"msg_id": msg_id, "content_type": data['content_type']}
-                )
+                log_structured("info", "vector memory write success", msg_id=msg_id, content_type=data['content_type'])
                 return True
 
             except Exception as e:
-                logger.error("write_vector_memory_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "vector memory write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_risk_alert(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -595,14 +558,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_risk_alert_success",
-                    extra={"msg_id": msg_id, "alert_type": data.get('alert_type')}
-                )
+                log_structured("info", "risk alert write success", msg_id=msg_id, alert_type=data.get('alert_type'))
                 return True
 
             except Exception as e:
-                logger.error("write_risk_alert_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "risk alert write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_agent_grade(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -639,14 +599,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_agent_grade_success",
-                    extra={"msg_id": msg_id, "agent_id": data['agent_id'], "grade_type": data['grade_type']}
-                )
+                log_structured("info", "agent grade write success", msg_id=msg_id, agent_id=data['agent_id'], grade_type=data['grade_type'])
                 return True
 
             except Exception as e:
-                logger.error("write_agent_grade_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "agent grade write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_ic_weight(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -680,14 +637,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_ic_weight_success",
-                    extra={"msg_id": msg_id, "factor_name": data.get('factor_name')}
-                )
+                log_structured("info", "ic weight write success", msg_id=msg_id, factor_name=data.get('factor_name'))
                 return True
 
             except Exception as e:
-                logger.error("write_ic_weight_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "ic weight write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_reflection_output(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -731,14 +685,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_reflection_output_success",
-                    extra={"msg_id": msg_id, "agent_id": data.get('agent_id')}
-                )
+                log_structured("info", "reflection output write success", msg_id=msg_id, agent_id=data.get('agent_id'))
                 return True
 
             except Exception as e:
-                logger.error("write_reflection_output_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "reflection output write error", msg_id=msg_id, error=str(e))
                 raise
 
     async def write_strategy_proposal(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -772,15 +723,11 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_strategy_proposal_success",
-                    extra={"msg_id": msg_id, "proposal_type": data.get('proposal_type')}
-                )
+                log_structured("info", "strategy proposal write success", msg_id=msg_id, proposal_type=data.get('proposal_type'))
                 return True
 
             except Exception as e:
-                logger.error("write_strategy_proposal_error", extra={"msg_id": msg_id, "error": str(e)})
-                raise
+                log_structured("error", "strategy proposal write error", msg_id=msg_id, error=str(e))
 
     async def write_notification(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write notification with atomic claim-at-end pattern."""
@@ -813,12 +760,9 @@ class SafeWriter:
                         f"Message {msg_id} was already processed in this transaction"
                     )
 
-                logger.info(
-                    "write_notification_success",
-                    extra={"msg_id": msg_id, "notification_type": data.get('notification_type')}
-                )
+                log_structured("info", "notification write success", msg_id=msg_id, notification_type=data.get('notification_type'))
                 return True
 
             except Exception as e:
-                logger.error("write_notification_error", extra={"msg_id": msg_id, "error": str(e)})
+                log_structured("error", "notification write error", msg_id=msg_id, error=str(e))
                 raise

@@ -16,6 +16,8 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
+from api.observability import log_structured
+
 try:
     import anthropic
 except ImportError:  # pragma: no cover - dependency optional in tests
@@ -172,10 +174,7 @@ class AnthropicReasoningModel:
                 return json.loads(text)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                logger.warning(
-                    "reasoning_model_retry",
-                    extra={"attempt": attempt + 1, "error": str(exc)},
-                )
+                log_structured("warning", "reasoning model retry", attempt=attempt+1, error=str(exc))
                 time.sleep(0.2 * (attempt + 1))
         raise RuntimeError(f"Model call failed after retries: {last_error}")
 
@@ -701,4 +700,4 @@ if __name__ == "__main__":
     result = orchestrator.analyze_trade(
         "AAPL", "1D", {"total_value": 100000, "drawdown": -0.02}
     )
-    logger.info("[multi_agent_orchestrator] trade analysis result: " + json.dumps(result, indent=2))
+    log_structured("info", "trade analysis result", result=result)
