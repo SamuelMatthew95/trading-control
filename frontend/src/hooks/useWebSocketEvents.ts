@@ -65,7 +65,9 @@ export function useWebSocketEvents() {
   const handlePriceUpdate = useCallback((event: CustomEvent) => {
     const { symbol, price } = (event as any).detail || {}
     if (symbol && price && Number.isFinite(price)) {
-      store.updatePrice(symbol, price)
+      const currentPrice = store.prices[symbol]?.price || 0
+      const change = price - currentPrice
+      store.updatePrice(symbol, price, change)
       store.trackMarketTick(symbol)
     }
   }, [store])

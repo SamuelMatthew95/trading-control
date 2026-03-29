@@ -6,13 +6,11 @@ from api.services.trading import TradingService
 
 _trading_service: Optional[TradingService] = None
 
-
 def set_services(
     trading_service: TradingService,
 ) -> None:
     global _trading_service
     _trading_service = trading_service
-
 
 def get_trading_service() -> TradingService:
     if _trading_service is None:

@@ -3,34 +3,44 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from api.core.models import AgentRun, TradePerformance
 from api.database import get_async_session
-from api.main_state import get_learning_service
 
 router = APIRouter(prefix="/performance", tags=["performance"])
 _STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 
 @router.get("/{agent_name}")
-async def get_agent_performance(
-    agent_name: str, learning_service=Depends(get_learning_service)
-):
+async def get_agent_performance(agent_name: str):
     async with get_async_session() as session:
-        return await learning_service.get_agent_performance(agent_name, session)
+        # Simple query for agent performance data
+        result = await session.execute(
+            text("SELECT * FROM agent_performance WHERE agent_name = :agent_name ORDER BY created_at DESC LIMIT 100"),
+            {"agent_name": agent_name}
+        )
+        return [dict(row._mapping) for row in result]
 
 
 @router.get("/")
-async def get_all_performance(learning_service=Depends(get_learning_service)):
+async def get_all_performance():
     async with get_async_session() as session:
+        # Simple query for all agent performance
+        result = await session.execute(
+            text("SELECT DISTINCT agent_name FROM agent_performance ORDER BY agent_name")
+        )
+        agent_names = [row.agent_name for row in result]
+        
         output = {}
-        for agent_name in learning_service.agent_performance.keys():
+        for agent_name in agent_names:
             try:
-                output[agent_name] = await learning_service.get_agent_performance(
-                    agent_name, session
+                agent_result = await session.execute(
+                    text("SELECT * FROM agent_performance WHERE agent_name = :agent_name ORDER BY created_at DESC LIMIT 10"),
+                    {"agent_name": agent_name}
                 )
-            except HTTPException:
+                output[agent_name] = [dict(row._mapping) for row in agent_result]
+            except Exception:
                 continue
         return output
 

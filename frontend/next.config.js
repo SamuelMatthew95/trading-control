@@ -29,6 +29,7 @@ const nextConfig = {
   },
   experimental: {
     optimizePackageImports: ['lucide-react'],
+    forceSwcTransforms: true,
   },
 };
 
