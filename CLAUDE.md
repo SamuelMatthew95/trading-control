@@ -54,10 +54,14 @@ Never start implementation without a written plan for complex tasks.
 When you make a mistake and get corrected, immediately add a rule 
 to `.claude/tasks/lessons.md` in this format:
 
-## [date] — what went wrong
-- Mistake: what Claude did wrong
-- Fix: what the correct behavior is
-- Rule: the rule to follow going forward
+## [date] — [Component Name] failure
+- Mistake: [e.g., Agent generated a new UUID instead of propagating trace_id]
+- Fix: [e.g., Always pull trace_id from the Redis stream header]
+- Rule: **NEVER** use `uuid4()` inside an agent's `process_event` loop.
+
+**Anti-Pattern vs Pattern Documentation:**
+- **Anti-Pattern**: What NOT to do (the mistake)
+- **Pattern**: What TO do instead (the correct approach)
 
 Then update CLAUDE.md if the lesson applies globally.
 
@@ -125,11 +129,22 @@ Run this to catch print statements:
 3. LOGGING
 ===================================================================
 
+**Standard Logging Function**: Always use `log_structured()` from `api.observability`
+
+```python
+from api.observability import log_structured
+
+# Correct usage
+log_structured("info", "price fetched", symbol="BTC/USD", price=65234.50)
+log_structured("warning", "duplicate skipped", msg_id="1234-0", stream="market_events")
+log_structured("error", "agent_runs write failed", run_id="abc", error="UniqueViolation")
+```
+
 Every log line in the entire codebase must follow this format:
   [service_name] action: key=value key=value — outcome
 
 Verify log format compliance:
-  grep -rn "logger\." api/ --include="*.py" | head -30
+  grep -rn "log_structured\|logger\." api/ --include="*.py" | head -30
   Each line should have [service_name] prefix and key=value pairs.
 
 Rules:
@@ -139,11 +154,29 @@ Rules:
   - Always include symbol when processing price or signal data
   - Always include msg_id when reading from a Redis stream
   - Always include the outcome after a dash at the end
-  - Use the correct level:
-      logger.info    → normal operations, expected flow
-      logger.warning → degraded but continuing (timeout, skip, retry)
-      logger.error   → failure requiring attention, not crashing
-      logger.critical→ process must exit
+  - Use the correct level with log_structured:
+      log_structured("info", ...)    → normal operations, expected flow
+      log_structured("warning", ...) → degraded but continuing (timeout, skip, retry)
+      log_structured("error", ...)   → failure requiring attention, not crashing
+      log_structured("critical", ...)→ process must exit
+
+  Good examples:
+    log_structured("info", "BTC/USD fetched", price=65234.50, change=120.30, pct=0.18, ts=1234567890)
+    log_structured("info", "cycle complete", symbols=6, duration_ms=340)
+    log_structured("warning", "duplicate skipped", msg_id="1234-0", stream="market_events")
+    log_structured("error", "agent_runs write failed", run_id="abc", error="UniqueViolation", outcome="event still processed")
+    log_structured("info", "decision", action="BUY", symbol="BTC/USD", confidence=0.75, trace_id="abc-123")
+
+  Bad examples (fix these):
+    logger.info("Processing event")                    # no service name, no data
+    logger.error(f"Error: {e}")                        # no context, no outcome
+    logger.info(f"Done")                               # meaningless
+    print(f"BTC price: {price}")                       # print not allowed
+    log_structured("warning", "Something went wrong")  # not actionable
+
+trace_id propagated:
+  Any new agent code extracts trace_id from incoming event payload.
+  Confirm it is NOT generating a new uuid4() mid-chain.
 
 ===================================================================
 4. CODE QUALITY
@@ -164,10 +197,6 @@ No hardcoded credentials:
 Schema version on every insert:
   Any new INSERT to a versioned table includes schema_version='v2'
   and source='<service_name>'. Manually verify any new INSERT statements.
-
-trace_id propagated:
-  Any new agent code extracts trace_id from incoming event payload.
-  Confirm it is NOT generating a new uuid4() mid-chain.
 
 ===================================================================
 5. FINAL CHECKLIST — RUN THIS BEFORE SAYING DONE
