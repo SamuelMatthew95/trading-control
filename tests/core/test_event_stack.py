@@ -39,10 +39,10 @@ class FakeRedis:
         self.acks.append((stream, group, ids))
         return len(ids)
 
-    async def xgroup_create(self, stream, group, id="0", mkstream=True):
+    async def xgroup_create(self, stream, group, id_param="0", mkstream=True):
         if stream in self.busy_streams:
             raise ResponseError("BUSYGROUP Consumer Group name already exists")
-        self.groups_created.append((stream, group, id, mkstream))
+        self.groups_created.append((stream, group, id_param, mkstream))
         self.streams.setdefault(stream, [])
         return True
 

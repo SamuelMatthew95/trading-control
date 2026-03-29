@@ -325,11 +325,11 @@ def get_cross_database_defaults():
     try:
         from pgvector.sqlalchemy import Vector
         from sqlalchemy.dialects.postgresql.json import JSONB
-        POSTGRES_AVAILABLE = True
+        postgres_available = True
     except ImportError:
-        POSTGRES_AVAILABLE = False
+        postgres_available = False
 
-    if POSTGRES_AVAILABLE:
+    if postgres_available:
         return {
             'uuid_default': 'gen_random_uuid()::text',
             'datetime_default': 'now()',
