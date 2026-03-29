@@ -150,12 +150,37 @@ Expected: empty
 ```python
 from api.observability import log_structured
 
-# For errors (CI/CD requirement):
-log_structured("error", "operation failed", exc_info=True, context=data)
+# For errors (CI/CD REQUIREMENT - MUST use exc_info=True):
+try:
+    dangerous_operation()
+except Exception as exc:
+    log_structured("error", "operation failed", exc_info=True, context=data)
 
 # For general logging:
 log_structured("info", "operation completed", key=value, other=data)
+
+# For warnings with context:
+log_structured("warning", "retry attempt", attempt=3, max_attempts=5)
 ```
+
+**CRITICAL LOGGING RULES (CI/CD Enforced):**
+- ❌ **WRONG**: `log_structured("error", "failed", error=str(exc))`
+- ✅ **RIGHT**: `log_structured("error", "failed", exc_info=True)`
+- ❌ **WRONG**: `logger.error("message")` (old logging)
+- ✅ **RIGHT**: `log_structured("error", "message", exc_info=True)`
+- ❌ **WRONG**: `print("debug info")` (never use print)
+- ✅ **RIGHT**: `log_structured("info", "debug info", data=value)
+
+**Why exc_info=True is Required:**
+- Provides full exception traceback for debugging
+- CI/CD tests specifically check for this pattern
+- Enables proper error monitoring and alerting
+- Maintains structured logging consistency
+
+**Common Logging Mistakes We Fixed:**
+1. **api/core/db/session.py:94** - Changed `error=str(exc)` → `exc_info=True`
+2. **api/core/db/session.py:105** - Changed `error=str(exc)` → `exc_info=True`  
+3. **api/services/multi_agent_orchestrator.py:169** - Changed `error=str(exc)` → `exc_info=True`
 
 Rules:
 - No logger.info/error/warning calls in new code
@@ -205,14 +230,173 @@ echo "Exit code: $?"  # Must be 0
 **If any command fails, DO NOT PUSH. Fix issues first.**
 
 **Common CI/CD Blockers:**
-- New imports not added (F821)
-- Exception handling missing `from None` (B904)  
-- FastAPI dependencies using old pattern (B008)
-- Redis calls using keyword arguments (test failures)
-- Logging using `error=str(exc)` instead of `exc_info=True`
+- **New imports not added (F821)**: Always add imports for new types
+  ```python
+  # ❌ WRONG - F821 error
+  trading_service: Annotated[TradingService, Depends(get_trading_service)]
+  
+  # ✅ RIGHT - import added
+  from api.services.trading_service import TradingService
+  trading_service: Annotated[TradingService, Depends(get_trading_service)]
+  ```
+
+- **Exception handling missing `from None` (B904)**: Always chain exceptions properly
+  ```python
+  # ❌ WRONG - B904 error
+  except Exception as e:
+      raise HTTPException(status_code=500, detail=str(e))
+  
+  # ✅ RIGHT - proper exception chaining
+  except Exception as e:
+      raise HTTPException(status_code=500, detail=str(e)) from None
+  ```
+
+- **FastAPI dependencies using old pattern (B008)**: Use Annotated syntax
+  ```python
+  # ❌ WRONG - B008 error
+  async def endpoint(service=Depends(get_service)):
+  
+  # ✅ RIGHT - Annotated syntax
+  async def endpoint(service: Annotated[ServiceType, Depends(get_service)]):
+  ```
+
+- **Redis calls using keyword arguments (test failures)**: Use positional args
+  ```python
+  # ❌ WRONG - test failures
+  await redis.xgroup_create(stream, group, id="$", mkstream=True)
+  
+  # ✅ RIGHT - positional arguments
+  await redis.xgroup_create(stream, group, "$", mkstream=True)
+  ```
+
+- **Logging using `error=str(exc)` instead of `exc_info=True`**: CI/CD enforced
+  ```python
+  # ❌ WRONG - CI/CD failure
+  log_structured("error", "failed", error=str(exc))
+  
+  # ✅ RIGHT - CI/CD compliant
+  log_structured("error", "failed", exc_info=True)
+  ```
+
+**Recent Fixes Applied (Learning Examples):**
+1. **Redis xgroup_create calls** - Fixed 5 test failures by removing `id=` keyword
+2. **Logging patterns** - Fixed 3 CI/CD failures by using `exc_info=True`
+3. **Exception chaining** - Fixed 29 B904 errors by adding `from None`
+4. **FastAPI dependencies** - Fixed 12 B008 errors with `Annotated` syntax
+5. **Import issues** - Fixed 9 F821 errors by adding missing imports
 
 ===================================================================
-6. SYSTEM VERIFICATION
+7. COMMON MISTAKES & HOW WE FIXED THEM
+===================================================================
+
+This section documents the exact mistakes we encountered and their fixes.
+Use this as a reference to avoid repeating these issues.
+
+## Redis/FakeRedis Compatibility Issues
+
+**Mistake**: Using keyword arguments with `xgroup_create`
+```python
+# ❌ WHAT WE DID WRONG (5 test failures)
+await redis.xgroup_create(stream, DEFAULT_GROUP, id="$", mkstream=True)
+await redis.xgroup_create(stream, group, id="0", mkstream=True)
+```
+
+**Fix**: Use positional arguments
+```python
+# ✅ HOW WE FIXED IT
+await redis.xgroup_create(stream, DEFAULT_GROUP, "$", mkstream=True)
+await redis.xgroup_create(stream, group, "0", mkstream=True)
+```
+
+**Files Fixed**: `api/events/bus.py` (lines 255, 264)
+
+## Logging Pattern Violations
+
+**Mistake**: Using `error=str(exc)` instead of `exc_info=True`
+```python
+# ❌ WHAT WE DID WRONG (3 CI/CD failures)
+log_structured("error", "database readiness error", error=str(exc))
+log_structured("warning", "vector table analyze failed", error=str(exc))
+log_structured("warning", "reasoning model retry", error=str(exc))
+```
+
+**Fix**: Use `exc_info=True` for all error logging
+```python
+# ✅ HOW WE FIXED IT
+log_structured("error", "database readiness error", exc_info=True)
+log_structured("warning", "vector table analyze failed", exc_info=True)
+log_structured("warning", "reasoning model retry", exc_info=True)
+```
+
+**Files Fixed**: 
+- `api/core/db/session.py` (lines 94, 105)
+- `api/services/multi_agent_orchestrator.py` (line 169)
+
+## Exception Handling Anti-Patterns
+
+**Mistake**: Not chaining exceptions in except blocks
+```python
+# ❌ WHAT WE DID WRONG (29 B904 errors)
+except Exception as e:
+    raise HTTPException(status_code=500, detail=str(e))
+```
+
+**Fix**: Always use `from None` or `from err` for exception chaining
+```python
+# ✅ HOW WE FIXED IT
+except Exception as e:
+    raise HTTPException(status_code=500, detail=str(e)) from None
+```
+
+**Files Fixed**: Multiple route files and service files
+
+## FastAPI Dependency Injection
+
+**Mistake**: Using old `Depends()` in function defaults
+```python
+# ❌ WHAT WE DID WRONG (12 B008 errors)
+async def analyze_trade(request, trading_service=Depends(get_trading_service)):
+async def get_insights(limit=50, feedback_service=Depends(get_feedback_service)):
+```
+
+**Fix**: Use `Annotated` syntax
+```python
+# ✅ HOW WE FIXED IT
+async def analyze_trade(request, trading_service: Annotated[TradingService, Depends(get_trading_service)]):
+async def get_insights(feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)], limit=50):
+```
+
+**Files Fixed**: `api/routes/analyze.py`, `api/routes/feedback.py`, `api/routes/performance.py`, `api/routes/trades.py`
+
+## Missing Import Statements
+
+**Mistake**: Using types without importing them
+```python
+# ❌ WHAT WE DID WRONG (9 F821 errors)
+trading_service: Annotated[TradingService, Depends(get_trading_service)]  # TradingService not imported
+feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]  # FeedbackService not imported
+```
+
+**Fix**: Always add the missing imports
+```python
+# ✅ HOW WE FIXED IT
+from api.services.trading_service import TradingService
+from api.services.feedback_service import FeedbackService
+```
+
+**Files Fixed**: `api/routes/analyze.py`, `api/routes/feedback.py`, `api/routes/performance.py`
+
+## KEY TAKEAWAYS
+
+1. **Always run CI commands locally before pushing**
+2. **Use `exc_info=True` for all error logging**
+3. **Use positional arguments for Redis calls**
+4. **Chain exceptions with `from None`**
+5. **Use `Annotated` syntax for FastAPI dependencies**
+6. **Add imports for all types you use**
+
+===================================================================
+8. SYSTEM VERIFICATION
 ===================================================================
 
 ### Redis Streams Verification
