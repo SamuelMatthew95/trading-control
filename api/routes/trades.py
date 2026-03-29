@@ -21,7 +21,9 @@ async def get_safe_writer() -> SafeWriter:
 
 
 @router.get("/trades")
-async def get_trades(safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)]) -> dict[str, Any]:
+async def get_trades(
+    safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)],
+) -> dict[str, Any]:
     """Get all trades with standardized response format."""
     try:
         async with safe_writer.transaction() as session:
@@ -63,7 +65,7 @@ async def get_trades(safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)
 @router.post("/trades")
 async def save_trade(
     trade_data: dict[str, Any],
-    safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)]
+    safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)],
 ) -> dict[str, Any]:
     """Save a new trade using SafeWriter (only write path)."""
     try:
@@ -85,13 +87,13 @@ async def save_trade(
                 success=True,
                 data={"message": "Trade saved successfully", "msg_id": msg_id},
             ).model_dump()
-        raise HTTPException(
-            status_code=409, detail="Trade was already processed"
-        )
+        raise HTTPException(status_code=409, detail="Trade was already processed")
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to save trade: {str(exc)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save trade: {str(exc)}"
+        ) from None
 
 
 @router.options("/trades")

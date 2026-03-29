@@ -32,7 +32,7 @@ class StreamManager:
         settings: Any | None = None,
         message_processor: MessageProcessor | None = None,
         backpressure_controller: BackpressureController | None = None,
-        event_bus: Any | None = None
+        event_bus: Any | None = None,
     ):
         self.settings = settings or get_settings()
         self.redis_client = redis_client
@@ -49,7 +49,9 @@ class StreamManager:
 
         # Pure logic components
         self.message_processor = message_processor or MessageProcessor()
-        self.backpressure_controller = backpressure_controller or BackpressureController()
+        self.backpressure_controller = (
+            backpressure_controller or BackpressureController()
+        )
 
         # Error tracking
         self.max_consecutive_errors = 5
@@ -61,13 +63,16 @@ class StreamManager:
 
         if not self.safe_writer:
             from .db import AsyncSessionFactory
+
             self.safe_writer = SafeWriter(AsyncSessionFactory)
 
         # Ensure consumer groups exist
         await self._ensure_consumer_groups()
 
         self.running = True
-        log_structured("info", "stream manager started", consumer_name=self.consumer_name)
+        log_structured(
+            "info", "stream manager started", consumer_name=self.consumer_name
+        )
 
     async def stop(self) -> None:
         """Graceful shutdown."""
@@ -77,7 +82,9 @@ class StreamManager:
         if self.redis_client:
             await self.redis_client.close()
 
-        log_structured("info", "stream manager stopped", consumer_name=self.consumer_name)
+        log_structured(
+            "info", "stream manager stopped", consumer_name=self.consumer_name
+        )
 
     def register_handler(self, stream: str, handler: Callable) -> None:
         """Register a message handler for a stream."""
@@ -102,19 +109,21 @@ class StreamManager:
             messages = await self.redis_client.xreadgroup(
                 self.consumer_group,
                 self.consumer_name,
-                {stream: '>'},
+                {stream: ">"},
                 count=count,
-                block=block_ms
+                block=block_ms,
             )
 
             result = []
             for stream_name, message_list in messages:
                 for message_id, fields in message_list:
-                    result.append({
-                        'stream': stream_name,
-                        'message_id': message_id,
-                        'data': fields
-                    })
+                    result.append(
+                        {
+                            "stream": stream_name,
+                            "message_id": message_id,
+                            "data": fields,
+                        }
+                    )
 
             return result
 
@@ -127,28 +136,35 @@ class StreamManager:
         try:
             await self.redis_client.xack(stream, self.consumer_group, message_id)
         except Exception as e:
-            log_structured("error", "message ack failed", message_id=message_id, error=str(e))
+            log_structured(
+                "error", "message ack failed", message_id=message_id, error=str(e)
+            )
 
     async def _send_to_dlq(self, message: dict[str, Any], error: str) -> None:
         """Send message to dead-letter queue."""
         try:
             dlq_data = self.message_processor.create_dlq_entry(message, error)
 
-            await self.redis_client.xadd('dlq', dlq_data)
-            await self._atomic_ack(message['stream'], message['message_id'])
+            await self.redis_client.xadd("dlq", dlq_data)
+            await self._atomic_ack(message["stream"], message["message_id"])
 
-            log_structured("warning", "sent to dlq", message_id=message['message_id'])
+            log_structured("warning", "sent to dlq", message_id=message["message_id"])
 
         except Exception as e:
-            log_structured("error", "dlq send failed", message_id=message['message_id'], error=str(e))
+            log_structured(
+                "error",
+                "dlq send failed",
+                message_id=message["message_id"],
+                error=str(e),
+            )
 
     async def _process_message(self, message: dict[str, Any]) -> bool:
         """Process a single message with atomic guarantees."""
-        stream = message['stream']
-        message_id = message['message_id']
-        data = message['data']
-        msg_id = data.get('msg_id', message_id)
-        trace_id = data.get('trace_id', message_id)
+        stream = message["stream"]
+        message_id = message["message_id"]
+        data = message["data"]
+        msg_id = data.get("msg_id", message_id)
+        trace_id = data.get("trace_id", message_id)
 
         try:
             # Get handler
@@ -165,9 +181,10 @@ class StreamManager:
                 await self._atomic_ack(stream, message_id)
 
                 # Trigger event-driven monitoring (non-blocking)
-                if stream == 'orders':
+                if stream == "orders":
                     try:
                         from api.main import on_message_processed
+
                         # Get current lag info
                         stream_info = await self.redis_client.xinfo_stream(stream)
                         lag = float(
@@ -200,7 +217,9 @@ class StreamManager:
 
     async def _consumer_loop(self) -> None:
         """Main consumer loop with backpressure and error handling."""
-        log_structured("info", "consumer loop started", consumer_name=self.consumer_name)
+        log_structured(
+            "info", "consumer loop started", consumer_name=self.consumer_name
+        )
 
         consecutive_errors = 0
 
@@ -209,7 +228,9 @@ class StreamManager:
                 # Read messages from all streams
                 read_tasks = []
                 for stream in self.handler_registry.keys():
-                    task = asyncio.create_task(self._read_messages(stream, count=5, block_ms=100))
+                    task = asyncio.create_task(
+                        self._read_messages(stream, count=5, block_ms=100)
+                    )
                     read_tasks.append(task)
 
                 results = await asyncio.gather(*read_tasks, return_exceptions=True)
@@ -242,7 +263,11 @@ class StreamManager:
                 log_structured("error", "consumer loop error", error=str(e))
 
                 if consecutive_errors >= self.max_consecutive_errors:
-                    log_structured("error", "too many consecutive errors", consecutive_errors=consecutive_errors)
+                    log_structured(
+                        "error",
+                        "too many consecutive errors",
+                        consecutive_errors=consecutive_errors,
+                    )
                     break
 
                 # Exponential backoff for errors - this is allowed
@@ -250,6 +275,7 @@ class StreamManager:
 
     async def run(self) -> None:
         """Run the stream manager with signal handling."""
+
         def signal_handler(signum, frame):
             log_structured("info", "signal received", signal=signum)
             asyncio.create_task(self.stop())

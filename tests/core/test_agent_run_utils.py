@@ -72,6 +72,7 @@ class FakeSession:
 
     class _TransactionContext:
         """Inner class to handle transaction context management"""
+
         def __init__(self, session):
             self.session = session
             self._in_transaction = False
@@ -108,6 +109,7 @@ class FakeSession:
 
 class FakeResult:
     """Minimal fake result for FakeSession when no handler is provided"""
+
     def __init__(self, rows=None, first_row=None, mapping_rows=None):
         self._rows = rows or []
         self._first_row = first_row
@@ -133,6 +135,7 @@ class FakeResult:
 
 class FakeSessionFactory:
     """Factory for creating FakeSession instances"""
+
     def __init__(self, session=None):
         self.session = session or FakeSession()
 

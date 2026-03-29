@@ -27,14 +27,18 @@ class TestSignalGenerator:
         return SignalGenerator(mock_bus, mock_dlq)
 
     @pytest.mark.asyncio
-    async def test_signal_generator_fires_every_n_ticks(self, signal_generator, mock_bus):
+    async def test_signal_generator_fires_every_n_ticks(
+        self, signal_generator, mock_bus
+    ):
         # Send 10 ticks for one symbol, should fire exactly 1 signal
         for i in range(10):
-            await signal_generator.process({
-                "symbol": "BTC/USD",
-                "price": 50000.0 + i,
-                "timestamp": "2024-01-01T00:00:00Z"
-            })
+            await signal_generator.process(
+                {
+                    "symbol": "BTC/USD",
+                    "price": 50000.0 + i,
+                    "timestamp": "2024-01-01T00:00:00Z",
+                }
+            )
 
         # Should have published exactly 1 signal
         assert mock_bus.publish.call_count == 1
@@ -49,18 +53,22 @@ class TestSignalGenerator:
     async def test_signal_generator_tracks_per_symbol(self, signal_generator, mock_bus):
         # Send 10 ticks for symbol A and 5 for symbol B
         for i in range(10):
-            await signal_generator.process({
-                "symbol": "BTC/USD",
-                "price": 50000.0 + i,
-                "timestamp": "2024-01-01T00:00:00Z"
-            })
+            await signal_generator.process(
+                {
+                    "symbol": "BTC/USD",
+                    "price": 50000.0 + i,
+                    "timestamp": "2024-01-01T00:00:00Z",
+                }
+            )
 
         for i in range(5):
-            await signal_generator.process({
-                "symbol": "ETH/USD",
-                "price": 3000.0 + i,
-                "timestamp": "2024-01-01T00:00:00Z"
-            })
+            await signal_generator.process(
+                {
+                    "symbol": "ETH/USD",
+                    "price": 3000.0 + i,
+                    "timestamp": "2024-01-01T00:00:00Z",
+                }
+            )
 
         # Should have 1 signal for A, 0 for B
         assert mock_bus.publish.call_count == 1
@@ -68,24 +76,25 @@ class TestSignalGenerator:
         assert signal["symbol"] == "BTC/USD"
 
     @pytest.mark.asyncio
-    async def test_signal_generator_ignores_invalid_ticks(self, signal_generator, mock_bus):
+    async def test_signal_generator_ignores_invalid_ticks(
+        self, signal_generator, mock_bus
+    ):
         # Send invalid tick with price=0
-        await signal_generator.process({
-            "symbol": "BTC/USD",
-            "price": 0,
-            "timestamp": "2024-01-01T00:00:00Z"
-        })
+        await signal_generator.process(
+            {"symbol": "BTC/USD", "price": 0, "timestamp": "2024-01-01T00:00:00Z"}
+        )
 
         # Should not have published any signal
         assert mock_bus.publish.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_signal_generator_ignores_missing_symbol(self, signal_generator, mock_bus):
+    async def test_signal_generator_ignores_missing_symbol(
+        self, signal_generator, mock_bus
+    ):
         # Send tick with no symbol
-        await signal_generator.process({
-            "price": 50000.0,
-            "timestamp": "2024-01-01T00:00:00Z"
-        })
+        await signal_generator.process(
+            {"price": 50000.0, "timestamp": "2024-01-01T00:00:00Z"}
+        )
 
         # Should not have published any signal
         assert mock_bus.publish.call_count == 0
@@ -93,7 +102,7 @@ class TestSignalGenerator:
 
 class TestLLMRouter:
     def test_parse_response_strips_markdown(self):
-        text = "```json\n{\"action\": \"buy\", \"confidence\": 0.8}\n```"
+        text = '```json\n{"action": "buy", "confidence": 0.8}\n```'
         trace_id = "test-123"
 
         result = _parse_response(text, trace_id)
@@ -104,7 +113,7 @@ class TestLLMRouter:
         assert result["fallback"] is False
 
     def test_parse_response_plain_json(self):
-        text = "{\"action\": \"sell\", \"confidence\": 0.9}"
+        text = '{"action": "sell", "confidence": 0.9}'
         trace_id = "test-456"
 
         result = _parse_response(text, trace_id, cost_usd=0.001)
@@ -134,10 +143,9 @@ class TestLLMRouter:
 
     @pytest.mark.asyncio
     async def test_llm_router_missing_key_raises(self):
-        with patch.dict(settings.__dict__, {
-            "LLM_PROVIDER": "groq",
-            "GROQ_API_KEY": ""
-        }):
+        with patch.dict(
+            settings.__dict__, {"LLM_PROVIDER": "groq", "GROQ_API_KEY": ""}
+        ):
             with pytest.raises(RuntimeError) as exc_info:
                 await call_llm("test prompt", "test-trace")
 
@@ -148,12 +156,11 @@ class TestLLMRouter:
     async def test_llm_router_calls_correct_provider(self):
         mock_call_groq = AsyncMock(return_value=({"action": "buy"}, 100, 0.0))
 
-        with patch.dict(settings.__dict__, {
-            "LLM_PROVIDER": "groq",
-            "GROQ_API_KEY": "test-key"
-        }):
+        with patch.dict(
+            settings.__dict__, {"LLM_PROVIDER": "groq", "GROQ_API_KEY": "test-key"}
+        ):
             # Patch the _PROVIDERS dict to avoid groq import
-            with patch('api.services.llm_router._PROVIDERS', {'groq': mock_call_groq}):
+            with patch("api.services.llm_router._PROVIDERS", {"groq": mock_call_groq}):
                 await call_llm("test prompt", "test-trace")
 
         mock_call_groq.assert_called_once_with("test prompt", "test-trace")

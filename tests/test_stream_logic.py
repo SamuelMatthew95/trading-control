@@ -14,7 +14,7 @@ class TestMessageProcessor:
         processor = MessageProcessor()
 
         # Valid message
-        data = {'msg_id': 'test-123', 'symbol': 'AAPL'}
+        data = {"msg_id": "test-123", "symbol": "AAPL"}
         result = processor.validate_message(data)
 
         assert result.success is True
@@ -24,24 +24,24 @@ class TestMessageProcessor:
         processor = MessageProcessor()
 
         # Missing msg_id
-        data = {'symbol': 'AAPL'}
+        data = {"symbol": "AAPL"}
         result = processor.validate_message(data)
 
         assert result.success is False
         assert result.retryable is False
-        assert 'Missing required field' in result.message
+        assert "Missing required field" in result.message
 
     def test_process_order_message_success(self):
         processor = MessageProcessor()
 
         # Valid order
         data = {
-            'msg_id': 'test-123',
-            'symbol': 'AAPL',
-            'side': 'buy',
-            'quantity': '100'
+            "msg_id": "test-123",
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": "100",
         }
-        result = processor.process_order_message('test-123', data)
+        result = processor.process_order_message("test-123", data)
 
         assert result.success is True
         assert processor.processed_count == 1
@@ -51,48 +51,44 @@ class TestMessageProcessor:
 
         # Invalid side
         data = {
-            'msg_id': 'test-123',
-            'symbol': 'AAPL',
-            'side': 'invalid',
-            'quantity': '100'
+            "msg_id": "test-123",
+            "symbol": "AAPL",
+            "side": "invalid",
+            "quantity": "100",
         }
-        result = processor.process_order_message('test-123', data)
+        result = processor.process_order_message("test-123", data)
 
         assert result.success is False
         assert result.retryable is False
-        assert 'Invalid side' in result.message
+        assert "Invalid side" in result.message
 
     def test_process_order_message_invalid_quantity(self):
         processor = MessageProcessor()
 
         # Invalid quantity
         data = {
-            'msg_id': 'test-123',
-            'symbol': 'AAPL',
-            'side': 'buy',
-            'quantity': 'invalid'
+            "msg_id": "test-123",
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": "invalid",
         }
-        result = processor.process_order_message('test-123', data)
+        result = processor.process_order_message("test-123", data)
 
         assert result.success is False
         assert result.retryable is False
-        assert 'Invalid quantity' in result.message
+        assert "Invalid quantity" in result.message
 
     def test_create_dlq_entry(self):
         processor = MessageProcessor()
 
-        message = {
-            'stream': 'orders',
-            'message_id': '123',
-            'data': {'test': 'data'}
-        }
+        message = {"stream": "orders", "message_id": "123", "data": {"test": "data"}}
 
-        dlq_entry = processor.create_dlq_entry(message, 'Test error')
+        dlq_entry = processor.create_dlq_entry(message, "Test error")
 
-        assert dlq_entry['original_stream'] == 'orders'
-        assert dlq_entry['original_id'] == '123'
-        assert dlq_entry['error'] == 'Test error'
-        assert 'timestamp' in dlq_entry
+        assert dlq_entry["original_stream"] == "orders"
+        assert dlq_entry["original_id"] == "123"
+        assert dlq_entry["error"] == "Test error"
+        assert "timestamp" in dlq_entry
 
 
 class TestBackpressureController:

@@ -50,7 +50,7 @@ class SimpleConsumer(BaseStreamConsumer):
                 "msg_id": msg_id,
                 "consumer": self.consumer,
                 "payload": data,  # Log actual payload
-            }
+            },
         )
 
 
@@ -72,9 +72,7 @@ class ExecutionsConsumer(SimpleConsumer):
         try:
             # Write execution to database using SafeWriter
             success = await self.safe_writer.write_execution(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
 
             if success:
@@ -99,7 +97,7 @@ class ExecutionsConsumer(SimpleConsumer):
                 "execution_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise
 
@@ -122,9 +120,7 @@ class RiskAlertsConsumer(SimpleConsumer):
         try:
             # Write risk alert to database using SafeWriter
             success = await self.safe_writer.write_risk_alert(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
 
             if success:
@@ -149,7 +145,7 @@ class RiskAlertsConsumer(SimpleConsumer):
                 "risk_alert_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise
 
@@ -174,9 +170,7 @@ class LearningEventsConsumer(SimpleConsumer):
         try:
             # Write vector memory to database using SafeWriter
             success = await self.safe_writer.write_vector_memory(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
 
             if success:
@@ -201,7 +195,7 @@ class LearningEventsConsumer(SimpleConsumer):
                 "learning_event_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise
 
@@ -224,9 +218,7 @@ class AgentLogsConsumer(SimpleConsumer):
         try:
             # Write agent log to database using SafeWriter
             success = await self.safe_writer.write_agent_log(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
 
             if success:
@@ -251,6 +243,6 @@ class AgentLogsConsumer(SimpleConsumer):
                 "agent_log_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise

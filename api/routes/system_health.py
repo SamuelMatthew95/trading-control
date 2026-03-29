@@ -36,6 +36,7 @@ session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=Fal
 # BACKEND HEALTH APIS
 # ============================================================================
 
+
 @router.get("/pulse")
 async def get_system_pulse():
     """Real-time system pulse with traffic light status."""
@@ -45,7 +46,7 @@ async def get_system_pulse():
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             password=settings.REDIS_PASSWORD,
-            decode_responses=True
+            decode_responses=True,
         )
 
         # Get stream health metrics
@@ -61,7 +62,9 @@ async def get_system_pulse():
         db_pool_status = await get_db_pool_status()
 
         # Calculate traffic light status
-        traffic_light = calculate_traffic_light(stream_health, dlq_count, db_pool_status)
+        traffic_light = calculate_traffic_light(
+            stream_health, dlq_count, db_pool_status
+        )
 
         await redis_client.close()
 
@@ -71,7 +74,7 @@ async def get_system_pulse():
             "stream_health": stream_health,
             "worker_heartbeats": heartbeats,
             "dlq_count": dlq_count,
-            "db_pool_status": db_pool_status
+            "db_pool_status": db_pool_status,
         }
 
     except Exception as e:
@@ -79,7 +82,7 @@ async def get_system_pulse():
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "traffic_light": "red",
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -93,7 +96,7 @@ async def get_idempotency_audit():
 
             processed_query = select(func.count(Event.id)).where(
                 Event.created_at >= hour_ago,
-                Event.event_type.in_(['order.created', 'order.filled'])
+                Event.event_type.in_(["order.created", "order.filled"]),
             )
             processed_count = await session.scalar(processed_query)
 
@@ -111,7 +114,7 @@ async def get_idempotency_audit():
                 "processed_events_last_hour": processed_count,
                 "orders_last_hour": orders_count,
                 "ratio": round(ratio, 3),
-                "status": "healthy" if 0.8 <= ratio <= 1.2 else "warning"
+                "status": "healthy" if 0.8 <= ratio <= 1.2 else "warning",
             }
 
     except Exception as e:
@@ -127,10 +130,12 @@ async def get_position_sync_status():
             # Get recent fills that should have updated positions
             hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
 
-            fills_query = select(Event).where(
-                Event.event_type == 'order.filled',
-                Event.created_at >= hour_ago
-            ).order_by(Event.created_at.desc()).limit(50)
+            fills_query = (
+                select(Event)
+                .where(Event.event_type == "order.filled", Event.created_at >= hour_ago)
+                .order_by(Event.created_at.desc())
+                .limit(50)
+            )
 
             fills = await session.execute(fills_query)
             fill_events = fills.scalars().all()
@@ -139,33 +144,38 @@ async def get_position_sync_status():
             sync_status = []
             for fill in fill_events:
                 fill_data = fill.data
-                strategy_id = fill_data.get('strategy_id')
-                symbol = fill_data.get('symbol')
+                strategy_id = fill_data.get("strategy_id")
+                symbol = fill_data.get("symbol")
 
                 if strategy_id and symbol:
                     position_query = select(Position).where(
-                        Position.strategy_id == strategy_id,
-                        Position.symbol == symbol
+                        Position.strategy_id == strategy_id, Position.symbol == symbol
                     )
                     position = await session.scalar(position_query)
 
-                    sync_status.append({
-                        "fill_id": fill.id,
-                        "strategy_id": strategy_id,
-                        "symbol": symbol,
-                        "fill_time": fill.created_at.isoformat(),
-                        "position_exists": position is not None,
-                        "position_quantity": float(position.quantity) if position else None,
-                        "expected_quantity": fill_data.get('new_quantity'),
-                        "sync_status": "synced" if position else "missing",
-                        "alert_level": "red" if not position else "green"
-                    })
+                    sync_status.append(
+                        {
+                            "fill_id": fill.id,
+                            "strategy_id": strategy_id,
+                            "symbol": symbol,
+                            "fill_time": fill.created_at.isoformat(),
+                            "position_exists": position is not None,
+                            "position_quantity": (
+                                float(position.quantity) if position else None
+                            ),
+                            "expected_quantity": fill_data.get("new_quantity"),
+                            "sync_status": "synced" if position else "missing",
+                            "alert_level": "red" if not position else "green",
+                        }
+                    )
 
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "total_fills": len(fill_events),
-                "synced_count": len([s for s in sync_status if s["sync_status"] == "synced"]),
-                "sync_status": sync_status
+                "synced_count": len(
+                    [s for s in sync_status if s["sync_status"] == "synced"]
+                ),
+                "sync_status": sync_status,
             }
 
     except Exception as e:
@@ -177,14 +187,16 @@ async def get_position_sync_status():
 async def stream_agent_logs(
     limit: int = Query(50, description="Number of recent logs"),
     agent_id: str = Query(None, description="Filter by agent ID"),
-    level: str = Query(None, description="Filter by log level")
+    level: str = Query(None, description="Filter by log level"),
 ):
     """Stream agent logs with msg_id and trace_id for cross-reference."""
 
     async def log_generator():
         try:
             async with session_factory() as session:
-                query = select(AgentLog).order_by(AgentLog.created_at.desc()).limit(limit)
+                query = (
+                    select(AgentLog).order_by(AgentLog.created_at.desc()).limit(limit)
+                )
 
                 if agent_id:
                     query = query.where(AgentLog.agent_run_id == agent_id)
@@ -204,12 +216,14 @@ async def stream_agent_logs(
                         "message": log.message,
                         "step_name": log.step_name,
                         "step_data": log.step_data,
-                        "created_at": log.created_at.isoformat()
+                        "created_at": log.created_at.isoformat(),
                     }
                     yield f"data: {json.dumps(log_data)}\n\n"
 
                 # Continue streaming new logs
-                last_timestamp = logs[0].created_at if logs else datetime.now(timezone.utc)
+                last_timestamp = (
+                    logs[0].created_at if logs else datetime.now(timezone.utc)
+                )
 
                 while True:
                     await asyncio.sleep(1)  # Health log streaming interval - allowed
@@ -222,9 +236,13 @@ async def stream_agent_logs(
                         )
 
                         if agent_id:
-                            new_logs_query = new_logs_query.where(AgentLog.agent_run_id == agent_id)
+                            new_logs_query = new_logs_query.where(
+                                AgentLog.agent_run_id == agent_id
+                            )
                         if level:
-                            new_logs_query = new_logs_query.where(AgentLog.log_level == level.upper())
+                            new_logs_query = new_logs_query.where(
+                                AgentLog.log_level == level.upper()
+                            )
 
                         result = await session.execute(new_logs_query)
                         new_logs = result.scalars().all()
@@ -238,14 +256,17 @@ async def stream_agent_logs(
                                 "message": log.message,
                                 "step_name": log.step_name,
                                 "step_data": log.step_data,
-                                "created_at": log.created_at.isoformat()
+                                "created_at": log.created_at.isoformat(),
                             }
                             yield f"data: {json.dumps(log_data)}\n\n"
                             last_timestamp = max(last_timestamp, log.created_at)
 
         except Exception as e:
             log_structured("error", "log stream error", error=str(e))
-            error_data = {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+            error_data = {
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
             yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
 
     return StreamingResponse(
@@ -254,8 +275,8 @@ async def stream_agent_logs(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*"
-        }
+            "Access-Control-Allow-Origin": "*",
+        },
     )
 
 
@@ -267,7 +288,7 @@ async def pause_consumers():
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             password=settings.REDIS_PASSWORD,
-            decode_responses=True
+            decode_responses=True,
         )
 
         # Send pause signal to all workers
@@ -278,7 +299,7 @@ async def pause_consumers():
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "pause_signal_sent",
-            "message": "Pause signal sent to all consumers"
+            "message": "Pause signal sent to all consumers",
         }
 
     except Exception as e:
@@ -294,7 +315,7 @@ async def resume_consumers():
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             password=settings.REDIS_PASSWORD,
-            decode_responses=True
+            decode_responses=True,
         )
 
         # Send resume signal to all workers
@@ -305,7 +326,7 @@ async def resume_consumers():
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "resume_signal_sent",
-            "message": "Resume signal sent to all consumers"
+            "message": "Resume signal sent to all consumers",
         }
 
     except Exception as e:
@@ -317,20 +338,29 @@ async def resume_consumers():
 # HELPER FUNCTIONS
 # ============================================================================
 
+
 async def get_stream_health(redis_client) -> dict[str, Any]:
     """Get comprehensive stream health metrics."""
-    streams = ['orders', 'executions', 'agent_logs', 'system_metrics', 'trade_performance']
+    streams = [
+        "orders",
+        "executions",
+        "agent_logs",
+        "system_metrics",
+        "trade_performance",
+    ]
     health = {}
 
     for stream in streams:
         try:
             # Get stream info
             info = await redis_client.xinfo_stream(stream)
-            total_backlog = info.get('length', 0)
+            total_backlog = info.get("length", 0)
 
             # Get pending info
             try:
-                pending = await redis_client.xpending_range(stream, 'trading_workers', '-', '+', 1000)
+                pending = await redis_client.xpending_range(
+                    stream, "trading_workers", "-", "+", 1000
+                )
                 pending_ack = len(pending)
 
                 # Find oldest pending message
@@ -347,7 +377,7 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
                 "backlog": total_backlog,
                 "pending": pending_ack,
                 "oldest_pending_age_seconds": oldest_age,
-                "last_checked": datetime.now(timezone.utc).isoformat()
+                "last_checked": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -358,7 +388,7 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
                 "pending": 0,
                 "oldest_pending_age_seconds": 0,
                 "error": str(e),
-                "last_checked": datetime.now(timezone.utc).isoformat()
+                "last_checked": datetime.now(timezone.utc).isoformat(),
             }
 
     return health
@@ -373,13 +403,13 @@ async def get_worker_heartbeats(redis_client) -> dict[str, Any]:
         for worker_id, data in heartbeat_data.items():
             try:
                 parsed = json.loads(data)
-                last_seen = datetime.fromisoformat(parsed['last_seen'])
+                last_seen = datetime.fromisoformat(parsed["last_seen"])
                 age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
 
                 heartbeats[worker_id] = {
                     **parsed,
                     "age_seconds": age_seconds,
-                    "status": "alive" if age_seconds < 120 else "missing"
+                    "status": "alive" if age_seconds < 120 else "missing",
                 }
             except (json.JSONDecodeError, ValueError):
                 heartbeats[worker_id] = {"status": "invalid", "raw_data": data}
@@ -404,17 +434,16 @@ async def get_db_pool_status() -> dict[str, Any]:
                 "idle_connections": 35,
                 "total_connections": 50,
                 "pool_utilization_percent": 30,
-                "status": "healthy"
+                "status": "healthy",
             }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
 
 
-def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status: dict) -> str:
+def calculate_traffic_light(
+    stream_health: dict, dlq_count: int, db_pool_status: dict
+) -> str:
     """Calculate traffic light status."""
     # Check for critical conditions
     if db_pool_status.get("status") == "error":

@@ -17,7 +17,12 @@ from api.core.schemas import ErrorResponse
 from api.database import engine, get_settings_info, test_database_connection
 from api.events.bus import EventBus, create_redis_groups
 from api.events.dlq import DLQManager
-from api.observability import bind_request_context, configure_logging, log_structured, metrics_store
+from api.observability import (
+    bind_request_context,
+    configure_logging,
+    log_structured,
+    metrics_store,
+)
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
@@ -87,7 +92,9 @@ async def lifespan(app: FastAPI):
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
-        pipeline = EventPipeline(event_bus, broadcaster, dlq_manager, agent_state=agent_state)
+        pipeline = EventPipeline(
+            event_bus, broadcaster, dlq_manager, agent_state=agent_state
+        )
         await pipeline.start()
 
         app.state.event_bus = event_bus
@@ -155,7 +162,13 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
 
 
-app = FastAPI(title="Trading Bot API", version="2.0.0", docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
+app = FastAPI(
+    title="Trading Bot API",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
@@ -165,7 +178,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"])
+app.add_middleware(
+    TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.ALLOWED_HOSTS) or ["*"]
+)
 
 app.include_router(health_router)
 app.include_router(health_router, prefix="/api")

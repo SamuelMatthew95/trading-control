@@ -21,7 +21,8 @@ class StandardResponse(BaseModel):
 
 @router.post("/memory/annotations")
 async def create_annotation(
-    payload: AnnotationCreate, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]
+    payload: AnnotationCreate,
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
         row = await feedback_service.stage_annotation(session, payload.model_dump())
@@ -30,7 +31,8 @@ async def create_annotation(
 
 @router.post("/memory/negative")
 async def create_negative_memory(
-    payload: dict, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]
+    payload: dict,
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
         row = await feedback_service.create_negative_memory(session, payload)
@@ -40,7 +42,8 @@ async def create_negative_memory(
 @router.post("/feedback/reinforce")
 async def reinforce_feedback(
     payload: ReinforceRequest,
-    background_tasks: BackgroundTasks, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
+    background_tasks: BackgroundTasks,
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
         job = await feedback_service.create_feedback_job(session, payload.run_id)
@@ -56,7 +59,8 @@ async def reinforce_feedback(
 
 @router.get("/feedback/reinforce/{job_id}")
 async def get_reinforce_job(
-    job_id: str, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]
+    job_id: str,
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
         row = await feedback_service.get_feedback_job(session, job_id)
@@ -67,7 +71,8 @@ async def get_reinforce_job(
 
 @router.post("/insights/rebuild")
 async def rebuild_insights(
-    background_tasks: BackgroundTasks, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
+    background_tasks: BackgroundTasks,
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async def _run() -> None:
         async with get_async_session() as session:
@@ -80,7 +85,7 @@ async def rebuild_insights(
 @router.get("/insights")
 async def get_insights(
     feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
-    limit: int = 50
+    limit: int = 50,
 ):
     try:
         async with get_async_session() as session:
@@ -88,11 +93,15 @@ async def get_insights(
             insights_data = {"items": [entry.model_dump() for entry in insights]}
             return StandardResponse(success=True, data=insights_data).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get insights: {str(e)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get insights: {str(e)}"
+        ) from None
 
 
 @router.get("/runs/propose")
-async def propose_runs(feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]):
+async def propose_runs(
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
+):
     async with get_async_session() as session:
         items = await feedback_service.propose_runs(session)
         return {"stage": "Proposed", "items": [item.model_dump() for item in items]}
@@ -100,7 +109,8 @@ async def propose_runs(feedback_service: Annotated[FeedbackService, Depends(get_
 
 @router.post("/memory/positive")
 async def create_positive_memory(
-    payload: dict, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]
+    payload: dict,
+    feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
         payload = {**payload, "store_type": "few-shot"}

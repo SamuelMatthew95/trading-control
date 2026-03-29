@@ -108,8 +108,6 @@ async def test_error_handling_unexpected_redis_error(fake_redis):
     fake_redis.xgroup_create = original_xgroup_create
 
 
-
-
 @pytest.mark.asyncio
 async def test_stream_creation_with_messages(fake_redis):
     """Test that streams work correctly with actual messages."""
@@ -145,7 +143,9 @@ async def test_group_id_parameter(fake_redis):
     await event_bus.create_groups()
 
     # Add a message using EventBus.publish
-    message_id = await event_bus.publish("signals", {"signal": "BUY", "symbol": "ETH/USD"})
+    message_id = await event_bus.publish(
+        "signals", {"signal": "BUY", "symbol": "ETH/USD"}
+    )
     assert message_id is not None
 
     # Try to consume - should get the message since group was created before

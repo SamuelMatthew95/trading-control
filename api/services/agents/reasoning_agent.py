@@ -65,16 +65,28 @@ class ReasoningAgent(BaseStreamConsumer):
 
         async with AsyncSessionFactory() as session:
             async with session.begin():
-                await self._store_agent_run(data, summary, trace_id, fallback_reason is not None, session=session)
-                await self._store_vector_memory(signal_summary, embedding, summary, session=session)
-                await self._store_agent_log(trace_id, summary, fallback_reason, session=session)
-                await self._store_cost_tracking(today, tokens_used, cost_usd, session=session)
+                await self._store_agent_run(
+                    data,
+                    summary,
+                    trace_id,
+                    fallback_reason is not None,
+                    session=session,
+                )
+                await self._store_vector_memory(
+                    signal_summary, embedding, summary, session=session
+                )
+                await self._store_agent_log(
+                    trace_id, summary, fallback_reason, session=session
+                )
+                await self._store_cost_tracking(
+                    today, tokens_used, cost_usd, session=session
+                )
 
         log_structured(
             "info",
             "agent_transaction_success",
             trace_id=trace_id,
-            action=summary.get("action")
+            action=summary.get("action"),
         )
 
         await self.redis.incrby(budget_key, tokens_used)
@@ -84,6 +96,7 @@ class ReasoningAgent(BaseStreamConsumer):
         # This replaces polling - cost updates happen instantly when LLM is used
         try:
             from api.main import on_llm_cost_updated
+
             current_cost = float(await self.redis.get(f"llm:cost:{today}") or 0.0)
             await on_llm_cost_updated(self.bus, self.redis, current_cost)
         except Exception:
@@ -91,9 +104,7 @@ class ReasoningAgent(BaseStreamConsumer):
 
         # Cache updated budget to avoid redundant Redis calls
         updated_budget = int(await self.redis.get(budget_key) or 0)
-        if (
-            updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET
-        ):
+        if updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             await self.bus.publish(
                 "risk_alerts",
                 {
@@ -103,7 +114,15 @@ class ReasoningAgent(BaseStreamConsumer):
                     "limit": settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
                 },
             )
-        await self.bus.publish("agent_logs", {"type": "agent_log", "msg_id": str(uuid.uuid4()), "source": "reasoning", **summary})
+        await self.bus.publish(
+            "agent_logs",
+            {
+                "type": "agent_log",
+                "msg_id": str(uuid.uuid4()),
+                "source": "reasoning",
+                **summary,
+            },
+        )
         # Normalize action to lowercase for consistent comparison
         action = summary.get("action", "").lower()
         if action not in {"reject", "hold", "flat"}:
@@ -317,9 +336,7 @@ RETURNING id
                     "action": summary["action"],
                     "confidence": summary["confidence"],
                     "primary_edge": summary["primary_edge"],
-                    "risk_factors": json.dumps(
-                        summary["risk_factors"], default=str
-                    ),
+                    "risk_factors": json.dumps(summary["risk_factors"], default=str),
                     "size_pct": summary["size_pct"],
                     "stop_atr_x": summary["stop_atr_x"],
                     "rr_ratio": summary["rr_ratio"],
@@ -332,10 +349,7 @@ RETURNING id
             result.scalar()
         except Exception:  # noqa: BLE001
             log_structured(
-                "error",
-                "agent_run_insert_failed",
-                exc_info=True,
-                trace_id=trace_id
+                "error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id
             )
             raise
 
@@ -378,12 +392,16 @@ RETURNING id
                 "error",
                 "vector_memory_insert_failed",
                 exc_info=True,
-                trace_id=summary.get("trace_id")
+                trace_id=summary.get("trace_id"),
             )
             raise
 
     async def _store_agent_log(
-        self, trace_id: str, summary: dict[str, Any], fallback_reason: str | None, session
+        self,
+        trace_id: str,
+        summary: dict[str, Any],
+        fallback_reason: str | None,
+        session,
     ) -> None:
         query = text(f"""
 INSERT INTO agent_logs (
@@ -412,10 +430,7 @@ RETURNING id
             result.scalar()
         except Exception:  # noqa: BLE001
             log_structured(
-                "error",
-                "agent_log_insert_failed",
-                exc_info=True,
-                trace_id=trace_id
+                "error", "agent_log_insert_failed", exc_info=True, trace_id=trace_id
             )
             raise
 

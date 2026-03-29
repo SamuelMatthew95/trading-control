@@ -75,7 +75,7 @@ def _deserialize(value: str) -> Any:
         return False
 
     # Try JSON deserialization (for dicts and lists)
-    if value.startswith(("{", "[", "\"")):
+    if value.startswith(("{", "[", '"')):
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
@@ -104,7 +104,9 @@ class EventBus:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any], maxlen: int | None = None) -> str:
+    async def publish(
+        self, stream: str, event: dict[str, Any], maxlen: int | None = None
+    ) -> str:
         """Publish event to Redis stream with schema version."""
         # Bug fix: always include schema_version so consumer never sends to DLQ
         event.setdefault("schema_version", "v3")
@@ -123,7 +125,9 @@ class EventBus:
         for k, v in serialized_event.items():
             if isinstance(v, dict):
                 error_msg = f"UNSERIALIZED FIELD: {k}={v}"
-                log_structured("error", error_msg, stream=stream, event_keys=list(event.keys()))
+                log_structured(
+                    "error", error_msg, stream=stream, event_keys=list(event.keys())
+                )
                 raise ValueError(error_msg)
 
         try:
@@ -136,21 +140,27 @@ class EventBus:
 
             # Log successful publish
             log_structured(
-                "info", "event_published",
+                "info",
+                "event_published",
                 stream=stream,
                 message_id=str(message_id),
-                keys=list(serialized_event.keys())
+                keys=list(serialized_event.keys()),
             )
 
             return str(message_id)
 
         except (RedisConnectionError, RedisTimeoutError):
             log_structured(
-                "warning", "Redis connection error during publish", stream=stream, exc_info=True
+                "warning",
+                "Redis connection error during publish",
+                stream=stream,
+                exc_info=True,
             )
             return None
         except Exception:
-            log_structured("warning", "Redis publish failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "Redis publish failed", stream=stream, exc_info=True
+            )
             return None
 
     async def consume(
@@ -192,22 +202,28 @@ class EventBus:
             # Log successful consumption
             if result:
                 log_structured(
-                    "info", "event_consumed",
+                    "info",
+                    "event_consumed",
                     stream=stream,
                     group=group,
                     consumer=consumer,
-                    count=len(result)
+                    count=len(result),
                 )
 
             return result
 
         except (RedisConnectionError, RedisTimeoutError):
             log_structured(
-                "warning", "Redis connection error during consume", stream=stream, exc_info=True
+                "warning",
+                "Redis connection error during consume",
+                stream=stream,
+                exc_info=True,
             )
             return []
         except Exception:
-            log_structured("warning", "Redis consume failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "Redis consume failed", stream=stream, exc_info=True
+            )
             return []
 
     async def acknowledge(self, stream: str, group: str, *ids: str) -> int:
@@ -218,18 +234,25 @@ class EventBus:
             return int(await self.redis.xack(stream, group, *ids))
         except (RedisConnectionError, RedisTimeoutError):
             log_structured(
-                "warning", "Redis connection error during acknowledge", stream=stream, exc_info=True
+                "warning",
+                "Redis connection error during acknowledge",
+                stream=stream,
+                exc_info=True,
             )
             return 0
         except Exception:
-            log_structured("warning", "Redis acknowledge failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "Redis acknowledge failed", stream=stream, exc_info=True
+            )
             return 0
 
     async def create_stream(self, stream: str) -> None:
         """Create a stream if it doesn't exist using mkstream."""
         try:
             # Use xgroup_create with mkstream which creates stream if missing
-            await self.redis.xgroup_create(stream, "temp_init_group", id="0", mkstream=True)
+            await self.redis.xgroup_create(
+                stream, "temp_init_group", id="0", mkstream=True
+            )
             # Clean up the temp group
             await self.redis.xgroup_destroy(stream, "temp_init_group")
         except ResponseError:
@@ -264,7 +287,9 @@ class EventBus:
         try:
             groups = await self.redis.xinfo_groups(stream)
             stream_info = await self.redis.xinfo_stream(stream)
-            last_entry = stream_info.get("last-generated-id") or stream_info.get(b"last-generated-id")
+            last_entry = stream_info.get("last-generated-id") or stream_info.get(
+                b"last-generated-id"
+            )
             if not last_entry:
                 return
 
@@ -276,7 +301,9 @@ class EventBus:
                     continue
 
                 pending = int(group.get("pending") or group.get(b"pending") or 0)
-                last_delivered = group.get("last-delivered-id") or group.get(b"last-delivered-id")
+                last_delivered = group.get("last-delivered-id") or group.get(
+                    b"last-delivered-id"
+                )
                 if isinstance(last_delivered, bytes):
                     last_delivered = last_delivered.decode()
 
@@ -284,12 +311,15 @@ class EventBus:
                 if pending == 0 and last_delivered in ("0", "0-0", "0-1"):
                     await self.redis.xgroup_setid(stream, DEFAULT_GROUP, "$")
                     log_structured(
-                        "info", "consumer_group_fastforwarded",
+                        "info",
+                        "consumer_group_fastforwarded",
                         stream=stream,
-                        group=DEFAULT_GROUP
+                        group=DEFAULT_GROUP,
                     )
         except Exception:
-            log_structured("warning", "fastforward_check_failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "fastforward_check_failed", stream=stream, exc_info=True
+            )
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
         """Get stream statistics using XINFO GROUPS (Redis 6-7 compatible).
@@ -349,31 +379,41 @@ class EventBus:
             # Log successful reclaim
             if decoded:
                 log_structured(
-                    "info", "events_reclaimed",
+                    "info",
+                    "events_reclaimed",
                     stream=stream,
                     group=group,
                     consumer=consumer,
-                    count=len(decoded)
+                    count=len(decoded),
                 )
 
             return decoded
 
         except (RedisConnectionError, RedisTimeoutError):
             log_structured(
-                "warning", "Redis connection error during reclaim_stale",
-                stream=stream, group=group, exc_info=True
+                "warning",
+                "Redis connection error during reclaim_stale",
+                stream=stream,
+                group=group,
+                exc_info=True,
             )
             return []
         except ResponseError:
             log_structured(
-                "warning", "Redis response error during reclaim_stale",
-                stream=stream, group=group, exc_info=True
+                "warning",
+                "Redis response error during reclaim_stale",
+                stream=stream,
+                group=group,
+                exc_info=True,
             )
             return []
         except Exception:
             log_structured(
-                "error", "Unexpected error during reclaim_stale",
-                stream=stream, group=group, exc_info=True
+                "error",
+                "Unexpected error during reclaim_stale",
+                stream=stream,
+                group=group,
+                exc_info=True,
             )
             return []
 

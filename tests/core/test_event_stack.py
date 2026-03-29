@@ -173,14 +173,24 @@ async def test_base_stream_consumer_acks_success_and_dlqs_after_retries():
     dlq = DLQManager(redis, bus)
 
     ok_consumer = DummyConsumer(bus, dlq, should_fail=False)
-    await ok_consumer._handle_message("1-0", {"msg_id": "test-123", "ok": True, "schema_version": "v3"})
-    assert ok_consumer.processed == [{"msg_id": "test-123", "ok": True, "schema_version": "v3"}]
+    await ok_consumer._handle_message(
+        "1-0", {"msg_id": "test-123", "ok": True, "schema_version": "v3"}
+    )
+    assert ok_consumer.processed == [
+        {"msg_id": "test-123", "ok": True, "schema_version": "v3"}
+    ]
     assert redis.acks[-1] == ("signals", DEFAULT_GROUP, ("1-0",))
 
     failing = DummyConsumer(bus, dlq, should_fail=True)
-    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"})
-    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"})
-    await failing._handle_message("2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"})
+    await failing._handle_message(
+        "2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"}
+    )
+    await failing._handle_message(
+        "2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"}
+    )
+    await failing._handle_message(
+        "2-0", {"msg_id": "test-456", "bad": 1, "schema_version": "v3"}
+    )
 
     dlq_entry = json.loads(redis.hashes["dlq:signals"]["2-0"])
     assert dlq_entry["error"] == "boom"

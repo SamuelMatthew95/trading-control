@@ -29,7 +29,11 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             await register_result
     try:
         await websocket.send_json(
-            {"type": "system", "status": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
+            {
+                "type": "system",
+                "status": "connected",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
         )
     except Exception:
         # Continue loop; disconnect cleanup happens in finally block.
@@ -40,7 +44,13 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
             except asyncio.TimeoutError:
-                await websocket.send_json({"type": "system", "status": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()})
+                await websocket.send_json(
+                    {
+                        "type": "system",
+                        "status": "heartbeat",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
             except WebSocketDisconnect:
                 break
     except Exception:  # noqa: BLE001

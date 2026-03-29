@@ -46,7 +46,12 @@ async def get_redis() -> Redis:
 
         try:
             await _redis_client.ping()
-            log_structured("info", "redis_connected", event_name="redis_connected", url_masked=_mask_redis_url(redis_url))
+            log_structured(
+                "info",
+                "redis_connected",
+                event_name="redis_connected",
+                url_masked=_mask_redis_url(redis_url),
+            )
         except (RedisConnectionError, RedisTimeoutError):
             log_structured("error", "Redis connection failed", exc_info=True)
             await close_redis()

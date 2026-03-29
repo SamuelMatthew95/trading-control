@@ -142,12 +142,16 @@ async def shadow_analyze(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Shadow analysis failed: {str(e)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Shadow analysis failed: {str(e)}"
+        ) from None
 
 
 @router.get("/shadow/evaluate/{symbol}")
 async def shadow_evaluate(
-    symbol: str, observed_price: float, trading_service: Annotated[TradingService, Depends(get_trading_service)]
+    symbol: str,
+    observed_price: float,
+    trading_service: Annotated[TradingService, Depends(get_trading_service)],
 ):
     try:
         if not symbol or observed_price <= 0:

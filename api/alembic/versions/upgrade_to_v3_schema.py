@@ -5,12 +5,13 @@ Revises: (latest v2 migration)
 Create Date: 2026-03-25 13:39:00.000000
 
 """
+
 from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'upgrade_to_v3'
+revision: str = "upgrade_to_v3"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -46,8 +47,8 @@ def upgrade() -> None:
     # """)
 
     # Create indexes for better traceability
-    op.create_index('idx_agent_runs_trace_v3', 'agent_runs', ['trace_id'], unique=False)
-    op.create_index('idx_agent_logs_trace_v3', 'agent_logs', ['trace_id'], unique=False)
+    op.create_index("idx_agent_runs_trace_v3", "agent_runs", ["trace_id"], unique=False)
+    op.create_index("idx_agent_logs_trace_v3", "agent_logs", ["trace_id"], unique=False)
 
     # Add comment about v3 schema
     op.execute("""
@@ -84,8 +85,8 @@ def downgrade() -> None:
     """)
 
     # Drop v3 indexes
-    op.drop_index('idx_agent_runs_trace_v3', table_name='agent_runs')
-    op.drop_index('idx_agent_logs_trace_v3', table_name='agent_logs')
+    op.drop_index("idx_agent_runs_trace_v3", table_name="agent_runs")
+    op.drop_index("idx_agent_logs_trace_v3", table_name="agent_logs")
 
     # Update comments
     op.execute("""

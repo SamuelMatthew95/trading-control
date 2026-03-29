@@ -44,6 +44,7 @@ async def test_write_system_metric_logs_real_id(caplog, safe_writer, monkeypatch
         yield _FakeSession()
 
     safe_writer.transaction = fake_transaction
+
     async def _fake_claim(*args, **kwargs):
         return True
 

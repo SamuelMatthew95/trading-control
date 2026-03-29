@@ -17,14 +17,17 @@ _STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 @router.get("/api/performance/{agent_name}")
 async def get_agent_performance(
-    agent_name: str, learning_service: Annotated[LearningService, Depends(get_learning_service)]
+    agent_name: str,
+    learning_service: Annotated[LearningService, Depends(get_learning_service)],
 ):
     async with get_async_session() as session:
         return await learning_service.get_agent_performance(agent_name, session)
 
 
 @router.get("/api/performance")
-async def get_all_performance(learning_service: Annotated[LearningService, Depends(get_learning_service)]):
+async def get_all_performance(
+    learning_service: Annotated[LearningService, Depends(get_learning_service)],
+):
     async with get_async_session() as session:
         output = {}
         for agent_name in learning_service.agent_performance.keys():
@@ -53,17 +56,23 @@ async def get_statistics(force_refresh: bool = False):
         ).scalar() or 0
         wins = (
             await session.execute(
-                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "long")
+                select(func.count(TradePerformance.id)).where(
+                    TradePerformance.trade_type == "long"
+                )
             )
         ).scalar() or 0
         losses = (
             await session.execute(
-                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "short")
+                select(func.count(TradePerformance.id)).where(
+                    TradePerformance.trade_type == "short"
+                )
             )
         ).scalar() or 0
         total_pnl = (
             await session.execute(
-                select(func.sum(TradePerformance.pnl)).where(TradePerformance.pnl.is_not(None))
+                select(func.sum(TradePerformance.pnl)).where(
+                    TradePerformance.pnl.is_not(None)
+                )
             )
         ).scalar() or 0
         payload = {

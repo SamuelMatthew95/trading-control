@@ -51,7 +51,7 @@ async def get_stream_lag() -> dict[str, Any]:
             lag_metrics = await aggregator.get_stream_lag_metrics()
             return {
                 "stream_lag": lag_metrics,
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     except Exception as e:
@@ -141,7 +141,7 @@ async def get_prices() -> dict[str, Any]:
         return {
             "prices": prices,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "redis_cache"
+            "source": "redis_cache",
         }
 
     except Exception as e:
@@ -170,7 +170,7 @@ async def get_worker_health() -> dict[str, Any]:
             "status": "starting",
             "message": "Worker is warming up",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
 
     # After grace period, perform actual health checks
@@ -186,15 +186,17 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": "Redis connection timeout",
-                "check_time": now.isoformat()
+                "check_time": now.isoformat(),
             }
         except Exception as e:
-            log_structured("warning", "redis connection failed during health check", error=str(e))
+            log_structured(
+                "warning", "redis connection failed during health check", error=str(e)
+            )
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": str(e),
-                "check_time": now.isoformat()
+                "check_time": now.isoformat(),
             }
 
         # Get all price keys and heartbeat from Redis with timeout
@@ -207,15 +209,17 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": "Redis read timeout",
-                "check_time": now.isoformat()
+                "check_time": now.isoformat(),
             }
         except Exception as e:
-            log_structured("warning", "redis read failed during health check", error=str(e))
+            log_structured(
+                "warning", "redis read failed during health check", error=str(e)
+            )
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": str(e),
-                "check_time": now.isoformat()
+                "check_time": now.isoformat(),
             }
 
         # Extract heartbeat (last item)
@@ -232,7 +236,9 @@ async def get_worker_health() -> dict[str, Any]:
                     price_data = json.loads(cached_value)
                     timestamp_str = price_data.get("timestamp")
                     if timestamp_str:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        timestamp = datetime.fromisoformat(
+                            timestamp_str.replace("Z", "+00:00")
+                        )
                         timestamps.append(timestamp)
 
                         # Check if price is stale (older than 90 seconds)
@@ -248,7 +254,9 @@ async def get_worker_health() -> dict[str, Any]:
         heartbeat_status = "missing"
         if heartbeat_value:
             try:
-                heartbeat_time = datetime.fromisoformat(heartbeat_value.replace('Z', '+00:00'))
+                heartbeat_time = datetime.fromisoformat(
+                    heartbeat_value.replace("Z", "+00:00")
+                )
                 heartbeat_age = (now - heartbeat_time).total_seconds()
 
                 if heartbeat_age <= 10:
@@ -271,7 +279,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "total_symbols": len(symbols),
                 "fresh_symbols": 0,
                 "uptime_seconds": uptime_seconds,
-                "check_time": now.isoformat()
+                "check_time": now.isoformat(),
             }
             # Return 503 for unhealthy status
             raise HTTPException(status_code=503, detail=health_data)
@@ -305,7 +313,7 @@ async def get_worker_health() -> dict[str, Any]:
             "total_symbols": len(symbols),
             "fresh_symbols": len(symbols) - len(stale_symbols),
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
 
         # Return proper HTTP status for Render
@@ -323,6 +331,6 @@ async def get_worker_health() -> dict[str, Any]:
             "status": "error",
             "message": f"Health check failed: {str(e)}",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
         raise HTTPException(status_code=503, detail=error_data) from None

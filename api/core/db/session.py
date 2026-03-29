@@ -42,7 +42,9 @@ class DatabaseReadinessError(RuntimeError):
     """Raised when database schema validation fails."""
 
 
-def _collect_missing_tables(engine: Engine, required_tables: Iterable[str]) -> list[str]:
+def _collect_missing_tables(
+    engine: Engine, required_tables: Iterable[str]
+) -> list[str]:
     inspector = inspect(engine)
     return [table for table in required_tables if not inspector.has_table(table)]
 

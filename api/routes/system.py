@@ -42,8 +42,8 @@ async def get_system_status():
         agent_pulse_query = (
             select(
                 AgentLog.agent_run_id,
-                func.max(AgentLog.timestamp).label('last_seen'),
-                func.max(AgentLog.log_level).label('last_level')
+                func.max(AgentLog.timestamp).label("last_seen"),
+                func.max(AgentLog.log_level).label("last_level"),
             )
             .group_by(AgentLog.agent_run_id)
             .order_by(func.max(AgentLog.timestamp).desc())
@@ -55,7 +55,7 @@ async def get_system_status():
             {
                 "agent_id": row.agent_run_id,
                 "last_seen": row.last_seen.isoformat() if row.last_seen else None,
-                "last_level": row.last_level
+                "last_level": row.last_level,
             }
             for row in agent_result
         ]
@@ -64,10 +64,7 @@ async def get_system_status():
         hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
 
         order_stats_query = (
-            select(
-                Order.status,
-                func.count(Order.id).label('count')
-            )
+            select(Order.status, func.count(Order.id).label("count"))
             .where(Order.created_at >= hour_ago)
             .group_by(Order.status)
         )
@@ -75,8 +72,8 @@ async def get_system_status():
         order_result = await session.execute(order_stats_query)
         order_stats = {row.status: row.count for row in order_result}
 
-        pending_orders = order_stats.get('pending', 0)
-        filled_orders = order_stats.get('filled', 0)
+        pending_orders = order_stats.get("pending", 0)
+        filled_orders = order_stats.get("filled", 0)
 
         # Stream Lag calculation
         stream_lag = await get_stream_lag()
@@ -90,7 +87,7 @@ async def get_system_status():
                     "lag_seconds": data.get("lag_seconds", 0) or 0,
                     "head_id": data.get("head_id", ""),
                     "last_processed_id": data.get("last_processed_id", ""),
-                    "error": data.get("error")
+                    "error": data.get("error"),
                 }
             else:
                 sanitized_lag[stream] = data
@@ -101,9 +98,9 @@ async def get_system_status():
             "database_health": {
                 "pending_orders_last_hour": pending_orders,
                 "filled_orders_last_hour": filled_orders,
-                "total_orders_last_hour": pending_orders + filled_orders
+                "total_orders_last_hour": pending_orders + filled_orders,
             },
-            "stream_lag": sanitized_lag
+            "stream_lag": sanitized_lag,
         }
 
 
@@ -114,34 +111,34 @@ async def get_stream_lag() -> dict[str, Any]:
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             password=settings.REDIS_PASSWORD,
-            decode_responses=True
+            decode_responses=True,
         )
 
-        streams = ['orders', 'executions', 'agent_logs', 'system_metrics']
+        streams = ["orders", "executions", "agent_logs", "system_metrics"]
         lag_info = {}
 
         for stream in streams:
             try:
                 # Get stream info (head ID)
                 info = await redis_client.xinfo_stream(stream)
-                head_id = info.get('last-generated-id', '0-0')
+                head_id = info.get("last-generated-id", "0-0")
 
                 # Get last processed ID from consumer group
                 try:
                     groups = await redis_client.xinfo_groups(stream)
                     for group in groups:
-                        if group.get('name') == 'trading_workers':
-                            last_delivered = group.get('last-delivered-id', '0-0')
+                        if group.get("name") == "trading_workers":
+                            last_delivered = group.get("last-delivered-id", "0-0")
                             # Calculate lag (simplified - just comparing timestamps)
-                            head_timestamp = int(head_id.split('-')[0])
-                            last_timestamp = int(last_delivered.split('-')[0])
-                            lag_ms = (head_timestamp - last_timestamp)
+                            head_timestamp = int(head_id.split("-")[0])
+                            last_timestamp = int(last_delivered.split("-")[0])
+                            lag_ms = head_timestamp - last_timestamp
 
                             lag_info[stream] = {
                                 "head_id": head_id,
                                 "last_processed_id": last_delivered,
                                 "lag_ms": lag_ms,
-                                "lag_seconds": lag_ms / 1000
+                                "lag_seconds": lag_ms / 1000,
                             }
                             break
                     else:
@@ -164,7 +161,7 @@ async def get_stream_lag() -> dict[str, Any]:
 async def stream_agent_logs(
     agent_id: str = Query(None, description="Filter by agent ID"),
     level: str = Query(None, description="Filter by log level"),
-    limit: int = Query(100, description="Maximum number of recent logs to stream")
+    limit: int = Query(100, description="Maximum number of recent logs to stream"),
 ):
     """Stream agent logs using Server-Sent Events."""
 
@@ -173,7 +170,9 @@ async def stream_agent_logs(
         try:
             # Get initial logs
             async with session_factory() as session:
-                query = select(AgentLog).order_by(AgentLog.timestamp.desc()).limit(limit)
+                query = (
+                    select(AgentLog).order_by(AgentLog.timestamp.desc()).limit(limit)
+                )
 
                 if agent_id:
                     query = query.where(AgentLog.agent_run_id == agent_id)
@@ -192,12 +191,14 @@ async def stream_agent_logs(
                         "message": log.message,
                         "step_name": log.step_name,
                         "step_data": log.step_data,
-                        "timestamp": log.timestamp.isoformat()
+                        "timestamp": log.timestamp.isoformat(),
                     }
                     yield f"data: {json.dumps(log_data)}\n\n"
 
                 # Continue streaming new logs
-                last_timestamp = logs[0].timestamp if logs else datetime.now(timezone.utc)
+                last_timestamp = (
+                    logs[0].timestamp if logs else datetime.now(timezone.utc)
+                )
 
                 while True:
                     await asyncio.sleep(1)  # Log streaming interval - allowed
@@ -210,9 +211,13 @@ async def stream_agent_logs(
                         )
 
                         if agent_id:
-                            new_logs_query = new_logs_query.where(AgentLog.agent_run_id == agent_id)
+                            new_logs_query = new_logs_query.where(
+                                AgentLog.agent_run_id == agent_id
+                            )
                         if level:
-                            new_logs_query = new_logs_query.where(AgentLog.log_level == level.upper())
+                            new_logs_query = new_logs_query.where(
+                                AgentLog.log_level == level.upper()
+                            )
 
                         result = await session.execute(new_logs_query)
                         new_logs = result.scalars().all()
@@ -225,14 +230,17 @@ async def stream_agent_logs(
                                 "message": log.message,
                                 "step_name": log.step_name,
                                 "step_data": log.step_data,
-                                "timestamp": log.timestamp.isoformat()
+                                "timestamp": log.timestamp.isoformat(),
                             }
                             yield f"data: {json.dumps(log_data)}\n\n"
                             last_timestamp = max(last_timestamp, log.timestamp)
 
         except Exception as e:
             log_structured("error", "log stream error", error=str(e))
-            error_data = {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+            error_data = {
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
             yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
 
     return StreamingResponse(
@@ -241,15 +249,15 @@ async def stream_agent_logs(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*"
-        }
+            "Access-Control-Allow-Origin": "*",
+        },
     )
 
 
 @router.get("/metrics")
 async def get_system_metrics(
     metric_name: str = Query(None, description="Filter by metric name"),
-    hours: int = Query(1, description="Hours of history to fetch")
+    hours: int = Query(1, description="Hours of history to fetch"),
 ):
     """Get system metrics for monitoring."""
 
@@ -270,14 +278,16 @@ async def get_system_metrics(
             "metrics": [
                 {
                     "metric_name": m.metric_name,
-                    "metric_value": float(m.metric_value or 0),  # Guard against NaN/None
+                    "metric_value": float(
+                        m.metric_value or 0
+                    ),  # Guard against NaN/None
                     "metric_unit": m.metric_unit,
                     "tags": m.tags or {},  # Guard against None
-                    "timestamp": m.timestamp.isoformat()
+                    "timestamp": m.timestamp.isoformat(),
                 }
                 for m in metrics
             ],
-            "count": len(metrics)
+            "count": len(metrics),
         }
 
 
@@ -294,7 +304,7 @@ async def health_check():
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             password=settings.REDIS_PASSWORD,
-            decode_responses=True
+            decode_responses=True,
         )
         await redis_client.ping()
         await redis_client.close()
@@ -303,12 +313,12 @@ async def health_check():
             "status": "healthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "database": "connected",
-            "redis": "connected"
+            "redis": "connected",
         }
 
     except Exception as e:
         return {
             "status": "unhealthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "error": str(e)
+            "error": str(e),
         }

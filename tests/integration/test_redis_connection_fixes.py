@@ -39,8 +39,9 @@ class TestRedisConnectionFixes:
     @pytest.mark.asyncio
     async def test_get_redis_with_health_check(self):
         """Test Redis client creation with health check interval."""
-        with patch('api.redis_client.ConnectionPool') as mock_pool_class, \
-             patch('api.redis_client.Redis') as mock_redis_class:
+        with patch("api.redis_client.ConnectionPool") as mock_pool_class, patch(
+            "api.redis_client.Redis"
+        ) as mock_redis_class:
 
             mock_pool = AsyncMock()
             mock_redis = AsyncMock()
@@ -48,7 +49,7 @@ class TestRedisConnectionFixes:
             mock_redis_class.return_value = mock_redis
 
             # Mock settings
-            with patch('api.redis_client.settings') as mock_settings:
+            with patch("api.redis_client.settings") as mock_settings:
                 mock_settings.REDIS_URL = "redis://localhost:6379/0"
 
                 await get_redis()
@@ -57,19 +58,22 @@ class TestRedisConnectionFixes:
                 mock_pool_class.from_url.assert_called_once()
                 call_kwargs = mock_pool_class.from_url.call_args[1]
 
-                assert call_kwargs['max_connections'] == 30
-                assert call_kwargs['health_check_interval'] == 30
-                assert call_kwargs['socket_timeout'] == 5
-                assert call_kwargs['socket_connect_timeout'] == 5
-                assert call_kwargs['retry_on_timeout'] is True
+                assert call_kwargs["max_connections"] == 30
+                assert call_kwargs["health_check_interval"] == 30
+                assert call_kwargs["socket_timeout"] == 5
+                assert call_kwargs["socket_connect_timeout"] == 5
+                assert call_kwargs["retry_on_timeout"] is True
 
     @pytest.mark.asyncio
     async def test_get_redis_connection_error_handling(self):
         """Test Redis connection error handling."""
-        with patch('api.redis_client.ConnectionPool'), \
-             patch('api.redis_client.Redis') as mock_redis_class, \
-             patch('api.redis_client.log_structured') as mock_log, \
-             patch('api.redis_client.close_redis') as mock_close:
+        with patch("api.redis_client.ConnectionPool"), patch(
+            "api.redis_client.Redis"
+        ) as mock_redis_class, patch(
+            "api.redis_client.log_structured"
+        ) as mock_log, patch(
+            "api.redis_client.close_redis"
+        ) as mock_close:
 
             mock_redis = AsyncMock()
             mock_redis.ping.side_effect = RedisConnectionError("Connection failed")
@@ -77,10 +81,11 @@ class TestRedisConnectionFixes:
 
             # Reset global state
             import api.redis_client
+
             api.redis_client._redis_client = None
             api.redis_client._redis_pool = None
 
-            with patch('api.redis_client.settings') as mock_settings:
+            with patch("api.redis_client.settings") as mock_settings:
                 mock_settings.REDIS_URL = "redis://localhost:6379/0"
 
                 # Should not raise due to cleanup in get_redis
@@ -88,15 +93,17 @@ class TestRedisConnectionFixes:
                     await get_redis()
 
                 # Verify error was logged and cleanup called
-                mock_log.assert_called_with("error", "Redis connection failed", exc_info=True)
+                mock_log.assert_called_with(
+                    "error", "Redis connection failed", exc_info=True
+                )
                 mock_close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_redis_graceful_cleanup(self):
         """Test Redis client and pool cleanup on close."""
-        with patch('api.redis_client._redis_client') as mock_client, \
-             patch('api.redis_client._redis_pool') as mock_pool, \
-             patch('api.redis_client.log_structured') as mock_log:
+        with patch("api.redis_client._redis_client") as mock_client, patch(
+            "api.redis_client._redis_pool"
+        ) as mock_pool, patch("api.redis_client.log_structured") as mock_log:
 
             mock_client.aclose = AsyncMock()
             mock_pool.aclose = AsyncMock()
@@ -113,19 +120,27 @@ class TestRedisConnectionFixes:
     @pytest.mark.asyncio
     async def test_close_redis_error_handling(self):
         """Test Redis cleanup error handling."""
-        with patch('api.redis_client._redis_client') as mock_client, \
-             patch('api.redis_client._redis_pool') as mock_pool, \
-             patch('api.redis_client.log_structured') as mock_log:
+        with patch("api.redis_client._redis_client") as mock_client, patch(
+            "api.redis_client._redis_pool"
+        ) as mock_pool, patch("api.redis_client.log_structured") as mock_log:
 
-            mock_client.aclose = AsyncMock(side_effect=RedisConnectionError("Close failed"))
-            mock_pool.aclose = AsyncMock(side_effect=RedisTimeoutError("Pool close failed"))
+            mock_client.aclose = AsyncMock(
+                side_effect=RedisConnectionError("Close failed")
+            )
+            mock_pool.aclose = AsyncMock(
+                side_effect=RedisTimeoutError("Pool close failed")
+            )
 
             # Should not raise exception despite errors
             await close_redis()
 
             # Verify errors were logged but didn't crash
-            mock_log.assert_any_call("warning", "Error closing Redis client", exc_info=True)
-            mock_log.assert_any_call("warning", "Error closing Redis pool", exc_info=True)
+            mock_log.assert_any_call(
+                "warning", "Error closing Redis client", exc_info=True
+            )
+            mock_log.assert_any_call(
+                "warning", "Error closing Redis pool", exc_info=True
+            )
 
 
 class TestWebSocketBroadcaster:
@@ -149,12 +164,16 @@ class TestWebSocketBroadcaster:
         await broadcaster.start(mock_redis_client)
 
         assert broadcaster._running is True
-        assert broadcaster._broadcast_task is not None  # [OK] Now uses dashboard broadcast loop
+        assert (
+            broadcaster._broadcast_task is not None
+        )  # [OK] Now uses dashboard broadcast loop
 
         await broadcaster.stop()
 
         assert broadcaster._running is False
-        assert broadcaster._broadcast_task is None  # [OK] Only dashboard task exists now
+        assert (
+            broadcaster._broadcast_task is None
+        )  # [OK] Only dashboard task exists now
 
     @pytest.mark.asyncio
     async def test_add_remove_connections(self, broadcaster):
@@ -241,7 +260,9 @@ class TestWebSocketBroadcaster:
         await broadcaster.stop()
 
     @pytest.mark.asyncio
-    async def test_dashboard_loop_reads_default_streams_on_start(self, broadcaster, mock_redis_client):
+    async def test_dashboard_loop_reads_default_streams_on_start(
+        self, broadcaster, mock_redis_client
+    ):
         """The dashboard loop should read from hardcoded default streams on start."""
         await broadcaster.start(mock_redis_client)
 
@@ -262,7 +283,9 @@ class TestWebSocketBroadcaster:
         await broadcaster.stop()
 
     @pytest.mark.asyncio
-    async def test_dashboard_loop_reads_registered_streams(self, broadcaster, mock_redis_client):
+    async def test_dashboard_loop_reads_registered_streams(
+        self, broadcaster, mock_redis_client
+    ):
         """Registered streams should be passed to Redis xread."""
         broadcaster.register_stream("orders", "0-0")
         await broadcaster.start(mock_redis_client)
@@ -308,7 +331,7 @@ class TestEventBusErrorHandling:
         """Test publish handles connection errors gracefully."""
         mock_redis_client.xadd.side_effect = RedisConnectionError("Connection failed")
 
-        with patch('api.events.bus.log_structured') as mock_log:
+        with patch("api.events.bus.log_structured") as mock_log:
             result = await event_bus.publish("test_stream", {"data": "test"})
 
             assert result is None
@@ -316,7 +339,7 @@ class TestEventBusErrorHandling:
                 "warning",
                 "Redis connection error during publish",
                 stream="test_stream",
-                exc_info=True
+                exc_info=True,
             )
 
     @pytest.mark.asyncio
@@ -324,7 +347,7 @@ class TestEventBusErrorHandling:
         """Test consume handles timeout errors gracefully."""
         mock_redis_client.xreadgroup.side_effect = RedisTimeoutError("Timeout")
 
-        with patch('api.events.bus.log_structured') as mock_log:
+        with patch("api.events.bus.log_structured") as mock_log:
             result = await event_bus.consume("test_stream", "group", "consumer")
 
             assert result == []
@@ -332,16 +355,18 @@ class TestEventBusErrorHandling:
                 "warning",
                 "Redis connection error during consume",
                 stream="test_stream",
-                exc_info=True
+                exc_info=True,
             )
 
     @pytest.mark.asyncio
     async def test_reclaim_stale_error_handling(self, event_bus, mock_redis_client):
         """Test reclaim_stale handles all error types gracefully."""
         # Test RedisConnectionError
-        mock_redis_client.xautoclaim.side_effect = RedisConnectionError("Connection failed")
+        mock_redis_client.xautoclaim.side_effect = RedisConnectionError(
+            "Connection failed"
+        )
 
-        with patch('api.events.bus.log_structured') as mock_log:
+        with patch("api.events.bus.log_structured") as mock_log:
             result = await event_bus.reclaim_stale("test_stream", "group", "consumer-1")
 
             assert result == []
@@ -350,13 +375,13 @@ class TestEventBusErrorHandling:
                 "Redis connection error during reclaim_stale",
                 stream="test_stream",
                 group="group",
-                exc_info=True
+                exc_info=True,
             )
 
         # Test ResponseError
         mock_redis_client.xautoclaim.side_effect = Exception("Other error")
 
-        with patch('api.events.bus.log_structured') as mock_log:
+        with patch("api.events.bus.log_structured") as mock_log:
             result = await event_bus.reclaim_stale("test_stream", "group", "consumer-1")
 
             assert result == []
@@ -365,7 +390,7 @@ class TestEventBusErrorHandling:
                 "Unexpected error during reclaim_stale",
                 stream="test_stream",
                 group="group",
-                exc_info=True
+                exc_info=True,
             )
 
     @pytest.mark.asyncio
@@ -373,7 +398,7 @@ class TestEventBusErrorHandling:
         """Test acknowledge handles errors gracefully."""
         mock_redis_client.xack.side_effect = RedisConnectionError("Connection failed")
 
-        with patch('api.events.bus.log_structured') as mock_log:
+        with patch("api.events.bus.log_structured") as mock_log:
             result = await event_bus.acknowledge("test_stream", "group", "msg1")
 
             assert result == 0
@@ -381,7 +406,7 @@ class TestEventBusErrorHandling:
                 "warning",
                 "Redis connection error during acknowledge",
                 stream="test_stream",
-                exc_info=True
+                exc_info=True,
             )
 
 
@@ -409,11 +434,14 @@ class TestConsumerShutdownFixes:
     @pytest.fixture
     def consumer(self, mock_bus, mock_dlq):
         """Create test consumer."""
+
         class TestConsumer(BaseStreamConsumer):
             async def process(self, data):
                 pass
 
-        return TestConsumer(mock_bus, mock_dlq, "test_stream", "test_group", "test_consumer")
+        return TestConsumer(
+            mock_bus, mock_dlq, "test_stream", "test_group", "test_consumer"
+        )
 
     @pytest.mark.asyncio
     async def test_consumer_graceful_shutdown(self, consumer):
@@ -431,6 +459,7 @@ class TestConsumerShutdownFixes:
     @pytest.mark.asyncio
     async def test_consumer_shutdown_timeout(self, consumer):
         """Test consumer shutdown timeout handling."""
+
         # Create a consumer that takes too long to shut down
         class SlowConsumer(BaseStreamConsumer):
             async def process(self, data):
@@ -440,15 +469,18 @@ class TestConsumerShutdownFixes:
                 while self._running:
                     await asyncio.sleep(0.1)
 
-        slow_consumer = SlowConsumer(consumer.bus, consumer.dlq, "test", "group", "consumer")
+        slow_consumer = SlowConsumer(
+            consumer.bus, consumer.dlq, "test", "group", "consumer"
+        )
         await slow_consumer.start()
 
         # Mock the task to take longer than timeout
-        with patch.object(slow_consumer._task, 'cancel') as mock_cancel, \
-             patch('api.events.consumer.log_structured') as mock_log:
+        with patch.object(slow_consumer._task, "cancel") as mock_cancel, patch(
+            "api.events.consumer.log_structured"
+        ) as mock_log:
 
             # Simulate timeout by making wait_for raise TimeoutError
-            with patch('asyncio.wait_for', side_effect=asyncio.TimeoutError()):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
                 await slow_consumer.stop()
 
             # Should have attempted to cancel the task
@@ -456,9 +488,7 @@ class TestConsumerShutdownFixes:
 
             # Should have logged timeout warning
             mock_log.assert_any_call(
-                "warning",
-                "Consumer task timeout, cancelling",
-                stream="test"
+                "warning", "Consumer task timeout, cancelling", stream="test"
             )
 
     @pytest.mark.asyncio
@@ -467,7 +497,9 @@ class TestConsumerShutdownFixes:
         import asyncio
 
         # Mock reclaim_stale to raise timeout error
-        consumer.bus.reclaim_stale = AsyncMock(side_effect=asyncio.TimeoutError("Timeout"))
+        consumer.bus.reclaim_stale = AsyncMock(
+            side_effect=asyncio.TimeoutError("Timeout")
+        )
 
         # Should handle timeout and return empty list
         result = await consumer._safe_reclaim_stale()
@@ -480,11 +512,12 @@ class TestConsumerShutdownFixes:
         # First call fails, second succeeds
         consumer.bus.consume.side_effect = [
             RedisConnectionError("Connection failed"),
-            [("msg1", {"data": "test"})]
+            [("msg1", {"data": "test"})],
         ]
 
-        with patch('api.events.consumer.log_structured') as mock_log, \
-             patch.object(consumer, '_handle_message'):
+        with patch("api.events.consumer.log_structured") as mock_log, patch.object(
+            consumer, "_handle_message"
+        ):
 
             await consumer.start()
 
@@ -498,5 +531,5 @@ class TestConsumerShutdownFixes:
                 "warning",
                 "Redis connection error in consumer loop",
                 stream="test_stream",
-                exc_info=True
+                exc_info=True,
             )

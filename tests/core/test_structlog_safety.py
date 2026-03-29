@@ -19,13 +19,13 @@ class TestStructlogSafety:
 
         # Patterns that indicate problematic structlog usage
         problematic_patterns = [
-            r'log_structured\([^)]*\)\s*,\s*[^,]*\bevent\s*=\s*[^,\)]*\)',
-            r'logger\.\w+\([^)]*event\s*=\s*[^,\)]*\)',
-            r'\.bind\(.*event\s*=',
+            r"log_structured\([^)]*\)\s*,\s*[^,]*\bevent\s*=\s*[^,\)]*\)",
+            r"logger\.\w+\([^)]*event\s*=\s*[^,\)]*\)",
+            r"\.bind\(.*event\s*=",
         ]
 
         # Directories to scan (exclude venv, __pycache__, etc.)
-        source_dirs = ['api/', 'tests/', 'scripts/']
+        source_dirs = ["api/", "tests/", "scripts/"]
         issues_found = []
 
         for source_dir in source_dirs:
@@ -34,41 +34,52 @@ class TestStructlogSafety:
 
             for root, dirs, files in os.walk(source_dir):
                 # Skip hidden and cache directories
-                dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+                dirs[:] = [
+                    d for d in dirs if not d.startswith(".") and d != "__pycache__"
+                ]
 
                 for file in files:
-                    if file.endswith('.py'):
+                    if file.endswith(".py"):
                         file_path = os.path.join(root, file)
 
                         try:
-                            with open(file_path, encoding='utf-8') as f:
+                            with open(file_path, encoding="utf-8") as f:
                                 content = f.read()
-                                lines = content.split('\n')
+                                lines = content.split("\n")
 
                                 for i, line in enumerate(lines, 1):
                                     # Skip comments and docstrings
                                     stripped = line.strip()
-                                    if stripped.startswith('#') or stripped.startswith('"""') or stripped.startswith("'''"):
+                                    if (
+                                        stripped.startswith("#")
+                                        or stripped.startswith('"""')
+                                        or stripped.startswith("'''")
+                                    ):
                                         continue
 
                                     for pattern in problematic_patterns:
                                         if re.search(pattern, line):
-                                            issues_found.append({
-                                                'file': file_path,
-                                                'line': i,
-                                                'content': line.strip(),
-                                                'pattern': pattern
-                                            })
+                                            issues_found.append(
+                                                {
+                                                    "file": file_path,
+                                                    "line": i,
+                                                    "content": line.strip(),
+                                                    "pattern": pattern,
+                                                }
+                                            )
 
                         except Exception:
                             # Ignore files that can't be read (e.g., binary files)
                             pass
 
         # Assert no issues found
-        assert not issues_found, (
-            f"Found {len(issues_found)} structlog event= usage issues:\n" +
-            "\n".join([f"  {issue['file']}:{issue['line']} - {issue['content']}"
-                      for issue in issues_found])
+        assert (
+            not issues_found
+        ), f"Found {len(issues_found)} structlog event= usage issues:\n" + "\n".join(
+            [
+                f"  {issue['file']}:{issue['line']} - {issue['content']}"
+                for issue in issues_found
+            ]
         )
 
     def test_log_structured_function_signature(self):
@@ -101,5 +112,3 @@ class TestStructlogSafety:
             log_structured("error", "Error message", exception_type="ValueError")
         except Exception as e:
             pytest.fail(f"Correct structlog usage should work: {e}")
-
-

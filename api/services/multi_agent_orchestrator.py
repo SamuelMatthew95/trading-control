@@ -73,9 +73,7 @@ class MemoryGuard:
     def __init__(self, threshold: float = 0.82):
         self.threshold = threshold
 
-    def check(
-        self, tool_name: str, payload: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    def check(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         db_url = _to_sync_db_url(
             os.getenv("DATABASE_URL", "sqlite:///./trading-control.db")
         )
@@ -174,7 +172,12 @@ class AnthropicReasoningModel:
                 return json.loads(text)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                log_structured("warning", "reasoning model retry", attempt=attempt+1, error=str(exc))
+                log_structured(
+                    "warning",
+                    "reasoning model retry",
+                    attempt=attempt + 1,
+                    error=str(exc),
+                )
                 time.sleep(0.2 * (attempt + 1))
         raise RuntimeError(f"Model call failed after retries: {last_error}")
 

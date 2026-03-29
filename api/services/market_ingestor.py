@@ -36,8 +36,12 @@ class AlpacaProvider(MarketDataProvider):
                 "ALPACA_API_KEY and ALPACA_SECRET_KEY are required when MARKET_DATA_PROVIDER=alpaca. "
                 "Set both env vars before starting the API."
             )
-        stock_stream = StockDataStream(settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY)
-        crypto_stream = CryptoDataStream(settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY)
+        stock_stream = StockDataStream(
+            settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY
+        )
+        crypto_stream = CryptoDataStream(
+            settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY
+        )
 
         async def enqueue_tick(payload: dict[str, Any]) -> None:
             try:
@@ -54,14 +58,24 @@ class AlpacaProvider(MarketDataProvider):
                     "symbol": symbol,
                     "price": str(getattr(bar, "close", "0")),
                     "volume": str(getattr(bar, "volume", "0")),
-                    "timestamp": str(getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())),
+                    "timestamp": str(
+                        getattr(
+                            bar, "timestamp", datetime.now(timezone.utc).isoformat()
+                        )
+                    ),
                     "source": "alpaca",
                     "msg_id": str(uuid.uuid4()),
                 }
             )
 
         async def on_crypto_bar(bar: Any) -> None:
-            symbol = str(getattr(bar, "symbol", "")).upper().replace("BTCUSD", "BTC/USD").replace("ETHUSD", "ETH/USD").replace("SOLUSD", "SOL/USD")
+            symbol = (
+                str(getattr(bar, "symbol", ""))
+                .upper()
+                .replace("BTCUSD", "BTC/USD")
+                .replace("ETHUSD", "ETH/USD")
+                .replace("SOLUSD", "SOL/USD")
+            )
             if symbol not in {"BTC/USD", "ETH/USD", "SOL/USD"}:
                 return
             await enqueue_tick(
@@ -69,7 +83,11 @@ class AlpacaProvider(MarketDataProvider):
                     "symbol": symbol,
                     "price": str(getattr(bar, "close", "0")),
                     "volume": str(getattr(bar, "volume", "0")),
-                    "timestamp": str(getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())),
+                    "timestamp": str(
+                        getattr(
+                            bar, "timestamp", datetime.now(timezone.utc).isoformat()
+                        )
+                    ),
                     "source": "alpaca",
                     "msg_id": str(uuid.uuid4()),
                 }
@@ -85,7 +103,9 @@ class AlpacaProvider(MarketDataProvider):
             await asyncio.to_thread(crypto_stream.run)
 
         stock_task = asyncio.create_task(run_stock_stream(), name="alpaca-stock-bars")
-        crypto_task = asyncio.create_task(run_crypto_stream(), name="alpaca-crypto-bars")
+        crypto_task = asyncio.create_task(
+            run_crypto_stream(), name="alpaca-crypto-bars"
+        )
 
         try:
             while True:
@@ -101,7 +121,9 @@ class AlpacaProvider(MarketDataProvider):
 
 class PolygonProvider(MarketDataProvider):
     async def stream_ticks(self) -> AsyncIterator[dict[str, Any]]:
-        raise NotImplementedError("PolygonProvider is reserved for future implementation")
+        raise NotImplementedError(
+            "PolygonProvider is reserved for future implementation"
+        )
 
 
 class MarketDataIngestor:
@@ -123,7 +145,9 @@ class MarketDataIngestor:
             return
         self._running = True
         self._task = asyncio.create_task(self._run(), name="market-data-ingestor")
-        log_structured("info", "market_data_ingestor_started", symbols=list(SUPPORTED_SYMBOLS))
+        log_structured(
+            "info", "market_data_ingestor_started", symbols=list(SUPPORTED_SYMBOLS)
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -164,4 +188,3 @@ class MarketDataIngestor:
 
 class MarketIngestor(MarketDataIngestor):
     """Backward compatible alias for legacy imports."""
-

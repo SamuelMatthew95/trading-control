@@ -1,4 +1,5 @@
 """LLM provider router - switch via LLM_PROVIDER + matching API key."""
+
 from __future__ import annotations
 
 import json
@@ -11,6 +12,7 @@ SYSTEM_PROMPT = (
     "risk_factors, size_pct, stop_atr_x, rr_ratio, latency_ms, cost_usd, "
     "trace_id, fallback. action must be one of: buy, sell, hold, reject."
 )
+
 
 def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
     text = text.strip()
@@ -54,6 +56,7 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
             "cost_usd": cost_usd,
         }
 
+
 def _get_provider_key(provider: str) -> str:
     keys = {
         "groq": settings.GROQ_API_KEY,
@@ -62,8 +65,10 @@ def _get_provider_key(provider: str) -> str:
     }
     return keys.get(provider, "")
 
+
 async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     from groq import AsyncGroq
+
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
@@ -77,12 +82,15 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     text = response.choices[0].message.content
     tokens = (
         response.usage.prompt_tokens + response.usage.completion_tokens
-        if response.usage else 0
+        if response.usage
+        else 0
     )
     return _parse_response(text, trace_id, 0.0), tokens, 0.0
 
+
 async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     import aiohttp
+
     payload = {
         "model": settings.ANTHROPIC_MODEL,
         "max_tokens": 300,
@@ -104,18 +112,18 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
                 raise RuntimeError(f"anthropic_status_{resp.status}")
             body = await resp.json()
     text = "".join(
-        b.get("text", "") for b in body.get("content", [])
-        if b.get("type") == "text"
+        b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"
     )
-    tokens = (
-        int(body.get("usage", {}).get("input_tokens", 0)) +
-        int(body.get("usage", {}).get("output_tokens", 0))
+    tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
+        body.get("usage", {}).get("output_tokens", 0)
     )
     cost_usd = round(tokens * 0.000003, 6)
     return _parse_response(text, trace_id, cost_usd), tokens, cost_usd
 
+
 async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     from openai import AsyncOpenAI
+
     client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
@@ -140,6 +148,7 @@ _PROVIDERS = {
     "openai": _call_openai,
 }
 
+
 async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     """
     Call configured LLM provider.
@@ -150,8 +159,7 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     provider = settings.LLM_PROVIDER.lower().strip()
     if provider not in _PROVIDERS:
         raise RuntimeError(
-            f"unknown_provider: '{provider}' - "
-            f"supported: {list(_PROVIDERS.keys())}"
+            f"unknown_provider: '{provider}' - " f"supported: {list(_PROVIDERS.keys())}"
         )
     api_key = _get_provider_key(provider)
     if not api_key:
@@ -166,9 +174,11 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     except Exception as exc:
         error_str = str(exc).lower()
         if "rate" in error_str or "429" in error_str or "limit" in error_str:
-            log_structured("warning", "LLM rate limit hit",
-                          provider=provider, exc_info=True)
+            log_structured(
+                "warning", "LLM rate limit hit", provider=provider, exc_info=True
+            )
         else:
-            log_structured("warning", "LLM call failed",
-                          provider=provider, exc_info=True)
+            log_structured(
+                "warning", "LLM call failed", provider=provider, exc_info=True
+            )
         raise

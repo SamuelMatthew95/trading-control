@@ -1,4 +1,5 @@
 """Signal generator - bridges market_ticks -> signals stream."""
+
 from __future__ import annotations
 
 import uuid
@@ -21,7 +22,8 @@ class SignalGenerator(BaseStreamConsumer):
 
     def __init__(self, bus: EventBus, dlq: DLQManager):
         super().__init__(
-            bus, dlq,
+            bus,
+            dlq,
             stream="market_ticks",
             group=DEFAULT_GROUP,
             consumer="signal-generator",
@@ -60,6 +62,9 @@ class SignalGenerator(BaseStreamConsumer):
 
         await self.bus.publish("signals", signal)
         log_structured(
-            "info", "Signal generated",
-            symbol=symbol, price=price, tick_count=count,
+            "info",
+            "Signal generated",
+            symbol=symbol,
+            price=price,
+            tick_count=count,
         )

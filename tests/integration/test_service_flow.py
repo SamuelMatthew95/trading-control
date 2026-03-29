@@ -56,6 +56,7 @@ class FakeSession:
 
     class _TransactionContext:
         """Inner class to handle transaction context management"""
+
         def __init__(self, session):
             self.session = session
             self._in_transaction = False

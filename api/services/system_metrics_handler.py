@@ -31,4 +31,6 @@ async def handle_system_metric(
     This function is kept only for test compatibility.
     """
     # Hard disable legacy handler to prevent accidental usage
-    raise RuntimeError("LEGACY_HANDLER_SHOULD_NOT_BE_USED - Use SystemMetricsConsumer instead")
+    raise RuntimeError(
+        "LEGACY_HANDLER_SHOULD_NOT_BE_USED - Use SystemMetricsConsumer instead"
+    )

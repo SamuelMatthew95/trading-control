@@ -18,7 +18,9 @@ ACCEPTED_SCHEMA_VERSIONS = {"v3", "legacy", None, ""}
 
 
 class BaseStreamConsumer(ABC):
-    def __init__(self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str):
+    def __init__(
+        self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str
+    ):
         self.bus = bus
         self.dlq = dlq
         self.stream = stream
@@ -41,7 +43,9 @@ class BaseStreamConsumer(ABC):
         self._backoff = 1  # Reset backoff
 
         self._task = asyncio.create_task(self._run(), name=f"consumer:{self.stream}")
-        log_structured("info", "Consumer started", stream=self.stream, consumer=self.consumer)
+        log_structured(
+            "info", "Consumer started", stream=self.stream, consumer=self.consumer
+        )
 
     async def stop(self) -> None:
         """Stop the consumer with immediate shutdown and task cleanup."""
@@ -55,7 +59,9 @@ class BaseStreamConsumer(ABC):
         try:
             await asyncio.wait_for(self._task, timeout=2.0)
         except asyncio.TimeoutError:
-            log_structured("warning", "Consumer task timeout, cancelling", stream=self.stream)
+            log_structured(
+                "warning", "Consumer task timeout, cancelling", stream=self.stream
+            )
             # Cancel the task
             self._task.cancel()
             with suppress(asyncio.CancelledError):
@@ -64,7 +70,9 @@ class BaseStreamConsumer(ABC):
             # Expected when task is cancelled
             pass
         except Exception:
-            log_structured("warning", "Redis connection error during consume", stream=self.stream)
+            log_structured(
+                "warning", "Redis connection error during consume", stream=self.stream
+            )
         finally:
             self._task = None
             log_structured("info", "Consumer stopped", stream=self.stream)
@@ -103,7 +111,11 @@ class BaseStreamConsumer(ABC):
         # Try to consume new messages with non-blocking call
         try:
             messages = await self.bus.consume(
-                self.stream, self.group, self.consumer, count=10, block_ms=0  # Non-blocking
+                self.stream,
+                self.group,
+                self.consumer,
+                count=10,
+                block_ms=0,  # Non-blocking
             )
             for msg_id, data in messages:
                 if not self._running:
@@ -162,7 +174,9 @@ class BaseStreamConsumer(ABC):
                 log_structured("info", "Consumer loop cancelled", stream=self.stream)
                 break
             except Exception:
-                log_structured("error", "Unexpected error in consumer loop", stream=self.stream)
+                log_structured(
+                    "error", "Unexpected error in consumer loop", stream=self.stream
+                )
                 break
 
         log_structured("info", "Consumer loop ended", stream=self.stream)
@@ -176,7 +190,7 @@ class BaseStreamConsumer(ABC):
             "info",
             "Consumer backing off",
             stream=self.stream,
-            backoff_seconds=self._backoff
+            backoff_seconds=self._backoff,
         )
 
         # Wait for backoff with shutdown check
@@ -196,7 +210,8 @@ class BaseStreamConsumer(ABC):
         """Safely reclaim stale messages with timeout and error handling."""
         try:
             return await asyncio.wait_for(
-                self.bus.reclaim_stale(self.stream, self.group, self.consumer), timeout=3.0
+                self.bus.reclaim_stale(self.stream, self.group, self.consumer),
+                timeout=3.0,
             )
         except asyncio.TimeoutError:
             log_structured("warning", "Reclaim stale timeout", stream=self.stream)
@@ -225,7 +240,7 @@ class BaseStreamConsumer(ABC):
                 msg_id,
                 data,
                 error=f"Invalid schema version: {schema_version}",
-                retries=0
+                retries=0,
             )
             await self.bus.acknowledge(self.stream, self.group, msg_id)
             log_structured(
@@ -233,7 +248,7 @@ class BaseStreamConsumer(ABC):
                 "Invalid schema version sent to DLQ",
                 stream=self.stream,
                 message_id=msg_id,
-                schema_version=schema_version
+                schema_version=schema_version,
             )
             return
 
@@ -246,7 +261,7 @@ class BaseStreamConsumer(ABC):
                 "Message processed and acknowledged",
                 stream=self.stream,
                 message_id=msg_id,
-                trace_id=data.get("trace_id")
+                trace_id=data.get("trace_id"),
             )
         except Exception as exc:  # noqa: BLE001
             try:
@@ -254,7 +269,9 @@ class BaseStreamConsumer(ABC):
                 if send_to_dlq:
                     retries_key = f"dlq:retries:{msg_id}"
                     retries = int(await self.dlq.redis.get(retries_key) or 0)
-                    await self.dlq.push(self.stream, msg_id, data, error=str(exc), retries=retries)
+                    await self.dlq.push(
+                        self.stream, msg_id, data, error=str(exc), retries=retries
+                    )
                     await self.bus.acknowledge(self.stream, self.group, msg_id)
                     log_structured(
                         "warning",
@@ -262,7 +279,7 @@ class BaseStreamConsumer(ABC):
                         stream=self.stream,
                         message_id=msg_id,
                         retries=retries,
-                        trace_id=data.get("trace_id")
+                        trace_id=data.get("trace_id"),
                     )
                 else:
                     log_structured(
@@ -270,7 +287,7 @@ class BaseStreamConsumer(ABC):
                         "Message processing failed, will retry",
                         stream=self.stream,
                         message_id=msg_id,
-                        trace_id=data.get("trace_id")
+                        trace_id=data.get("trace_id"),
                     )
             except (RedisConnectionError, RedisTimeoutError):
                 log_structured(
@@ -296,5 +313,5 @@ class BaseStreamConsumer(ABC):
                     message_id=msg_id,
                     exc_info=True,
                     dlq_sent=send_to_dlq,
-                    trace_id=data.get("trace_id")
+                    trace_id=data.get("trace_id"),
                 )

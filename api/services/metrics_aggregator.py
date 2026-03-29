@@ -59,8 +59,10 @@ class MetricsAggregator:
                     lag_metrics[stream] = {
                         "lag_ms": float(row.lag_ms or 0),
                         "lag_seconds": float(row.lag_ms or 0) / 1000,
-                        "timestamp": row.timestamp.isoformat() if row.timestamp else None,
-                        "tags": row.tags or {}
+                        "timestamp": (
+                            row.timestamp.isoformat() if row.timestamp else None
+                        ),
+                        "tags": row.tags or {},
                     }
 
             return lag_metrics
@@ -80,7 +82,7 @@ class MetricsAggregator:
             health = {
                 "overall_status": "healthy",
                 "streams_status": {},
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
             # Get stream lag metrics
@@ -95,8 +97,12 @@ class MetricsAggregator:
                 is_stale = False
                 if timestamp_str:
                     try:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                        timestamp = datetime.fromisoformat(
+                            timestamp_str.replace("Z", "+00:00")
+                        )
+                        age_seconds = (
+                            datetime.now(timezone.utc) - timestamp
+                        ).total_seconds()
                         is_stale = age_seconds > STALE_THRESHOLD_SECONDS
                     except (ValueError, AttributeError):
                         is_stale = True
@@ -116,7 +122,7 @@ class MetricsAggregator:
                 health["streams_status"][stream] = {
                     "status": status,
                     "lag_ms": lag_ms,
-                    "is_stale": is_stale
+                    "is_stale": is_stale,
                 }
 
                 # Update overall status
@@ -134,7 +140,7 @@ class MetricsAggregator:
             return {
                 "overall_status": "error",
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_pnl_metrics(self) -> dict[str, Any]:
@@ -179,7 +185,7 @@ class MetricsAggregator:
                 "winning_trades": winning_trades,
                 "win_rate_percent": win_rate,
                 "status": "healthy" if total_trades > 0 else "no_trades",
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -187,7 +193,7 @@ class MetricsAggregator:
             log_structured(
                 "warning",
                 "Trade performance table unavailable - using fallback",
-                error=str(e)
+                error=str(e),
             )
             return {
                 "total_pnl": 0.0,
@@ -197,7 +203,7 @@ class MetricsAggregator:
                 "win_rate_percent": 0.0,
                 "status": "table_missing",
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_agent_metrics(self) -> dict[str, Any]:
@@ -211,29 +217,35 @@ class MetricsAggregator:
             # Get recent agent activity
             five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
 
-            agent_activity_query = select(
-                AgentLog.agent_run_id,
-                func.max(AgentLog.timestamp).label('last_seen'),
-                func.count(AgentLog.id).label('message_count')
-            ).where(
-                AgentLog.timestamp >= five_min_ago
-            ).group_by(AgentLog.agent_run_id)
+            agent_activity_query = (
+                select(
+                    AgentLog.agent_run_id,
+                    func.max(AgentLog.timestamp).label("last_seen"),
+                    func.count(AgentLog.id).label("message_count"),
+                )
+                .where(AgentLog.timestamp >= five_min_ago)
+                .group_by(AgentLog.agent_run_id)
+            )
 
             result = await self.session.execute(agent_activity_query)
             rows = result.fetchall()
 
             active_agents = []
             for row in rows:
-                active_agents.append({
-                    "agent_id": row.agent_run_id,
-                    "last_seen": row.last_seen.isoformat() if row.last_seen else None,
-                    "message_count_5min": int(row.message_count or 0)
-                })
+                active_agents.append(
+                    {
+                        "agent_id": row.agent_run_id,
+                        "last_seen": (
+                            row.last_seen.isoformat() if row.last_seen else None
+                        ),
+                        "message_count_5min": int(row.message_count or 0),
+                    }
+                )
 
             return {
                 "active_agents": active_agents,
                 "active_agent_count": len(active_agents),
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -242,7 +254,7 @@ class MetricsAggregator:
                 "active_agents": [],
                 "active_agent_count": 0,
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_order_metrics(self) -> dict[str, Any]:
@@ -256,12 +268,11 @@ class MetricsAggregator:
             # Get order counts by status in last hour
             hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
 
-            order_stats_query = select(
-                Order.status,
-                func.count(Order.id).label('count')
-            ).where(
-                Order.created_at >= hour_ago
-            ).group_by(Order.status)
+            order_stats_query = (
+                select(Order.status, func.count(Order.id).label("count"))
+                .where(Order.created_at >= hour_ago)
+                .group_by(Order.status)
+            )
 
             result = await self.session.execute(order_stats_query)
             rows = result.fetchall()
@@ -273,14 +284,14 @@ class MetricsAggregator:
                 total_orders += order_stats[row.status]
 
             # Get fill rate
-            filled_orders = order_stats.get('filled', 0)
+            filled_orders = order_stats.get("filled", 0)
             fill_rate = (filled_orders / total_orders * 100) if total_orders > 0 else 0
 
             return {
                 "orders_last_hour": order_stats,
                 "total_orders_last_hour": total_orders,
                 "fill_rate_percent": fill_rate,
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -290,7 +301,7 @@ class MetricsAggregator:
                 "total_orders_last_hour": 0,
                 "fill_rate_percent": 0,
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat()
+                "last_update": datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_dashboard_snapshot(self) -> dict[str, Any]:
@@ -315,12 +326,11 @@ class MetricsAggregator:
                 "system_health": system_health,
                 "pnl": pnl_metrics,
                 "agents": agent_metrics,
-                "orders": order_metrics
+                "orders": order_metrics,
             }
 
             # Ensure no NaN values - replace with 0 or null
             return self._sanitize_snapshot(snapshot)
-
 
         except Exception as e:
             log_structured("error", "dashboard snapshot failed", error=str(e))
@@ -331,7 +341,7 @@ class MetricsAggregator:
                 "system_health": {"overall_status": "error"},
                 "pnl": {"total_pnl": 0, "today_pnl": 0},
                 "agents": {"active_agents": [], "active_agent_count": 0},
-                "orders": {"orders_last_hour": {}, "total_orders_last_hour": 0}
+                "orders": {"orders_last_hour": {}, "total_orders_last_hour": 0},
             }
 
     def _sanitize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:

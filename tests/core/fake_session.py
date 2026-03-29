@@ -2,6 +2,7 @@
 Simple FakeSession and FakeResult for async testing compatibility.
 """
 
+
 class FakeResult:
     def __init__(self, value=None):
         self._value = value

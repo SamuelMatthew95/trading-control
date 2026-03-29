@@ -50,9 +50,7 @@ async def test_init_database_uses_metadata_create_all_for_sqlite(monkeypatch):
         def begin(self):
             return FakeBegin(fake_conn)
 
-    monkeypatch.setattr(
-        database_module, "database_url", "sqlite+aiosqlite:///:memory:"
-    )
+    monkeypatch.setattr(database_module, "database_url", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setattr(database_module, "async_engine", FakeEngine())
 
     await database_module.init_database()

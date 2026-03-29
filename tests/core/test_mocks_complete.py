@@ -40,7 +40,7 @@ class FakeResult:
         scalar: Any = None,
         first_row: Any = None,
         rows: list[Any] = None,
-        mapping_rows: list[dict[str, Any]] = None
+        mapping_rows: list[dict[str, Any]] = None,
     ):
         """
         Initialize FakeResult with test data.
@@ -156,9 +156,7 @@ class FakeSession:
 
     # Query execution
     async def execute(
-        self,
-        statement: Any,
-        params: dict[str, Any] | None = None
+        self, statement: Any, params: dict[str, Any] | None = None
     ) -> FakeResult:
         """
         Execute a query statement.
@@ -221,6 +219,7 @@ class FakeSessionFactory:
 # BACKWARD-COMPATIBLE AGENT RUN TEST LAYER
 # ============================================================================
 
+
 class TestAgentRun(AgentRun):
     """
     Backward-compatible AgentRun subclass for test compatibility.
@@ -243,7 +242,7 @@ class TestAgentRun(AgentRun):
         task_id: str | None = None,
         decision_json: str | None = None,
         trace_json: str | None = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize TestAgentRun with legacy fields.
@@ -312,6 +311,7 @@ def create_test_agent_run(**kwargs) -> TestAgentRun:
 # CROSS-DATABASE COMPATIBILITY HELPERS
 # ============================================================================
 
+
 def get_cross_database_defaults():
     """
     Get database-appropriate defaults for cross-database compatibility.
@@ -325,31 +325,32 @@ def get_cross_database_defaults():
     try:
         from pgvector.sqlalchemy import Vector
         from sqlalchemy.dialects.postgresql.json import JSONB
+
         postgres_available = True
     except ImportError:
         postgres_available = False
 
     if postgres_available:
         return {
-            'uuid_default': 'gen_random_uuid()::text',
-            'datetime_default': 'now()',
-            'json_type': JSONB,
-            'vector_type': Vector(1536)
+            "uuid_default": "gen_random_uuid()::text",
+            "datetime_default": "now()",
+            "json_type": JSONB,
+            "vector_type": Vector(1536),
         }
     return {
-        'uuid_default': None,  # Use Python-side default
-        'datetime_default': None,  # Use Python-side default
-        'json_type': 'TEXT',
-        'vector_type': 'TEXT'
+        "uuid_default": None,  # Use Python-side default
+        "datetime_default": None,  # Use Python-side default
+        "json_type": "TEXT",
+        "vector_type": "TEXT",
     }
 
 
 # Export the main classes for easy importing
 __all__ = [
-    'FakeResult',
-    'FakeSession',
-    'FakeSessionFactory',
-    'TestAgentRun',
-    'create_test_agent_run',
-    'get_cross_database_defaults',
+    "FakeResult",
+    "FakeSession",
+    "FakeSessionFactory",
+    "TestAgentRun",
+    "create_test_agent_run",
+    "get_cross_database_defaults",
 ]

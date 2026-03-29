@@ -54,7 +54,7 @@ async def health_check():
             "status": "starting",
             "message": "Service is warming up",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
 
     # Check dependencies with graceful degradation
@@ -67,7 +67,7 @@ async def health_check():
             "redis": "ok",
             "postgres": "ok",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
     return {
         "status": "degraded",
@@ -75,5 +75,5 @@ async def health_check():
         "redis": "ok" if redis_ok else "unavailable",
         "postgres": "ok" if db_ok else "unavailable",
         "uptime_seconds": uptime_seconds,
-        "check_time": now.isoformat()
+        "check_time": now.isoformat(),
     }

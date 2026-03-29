@@ -82,7 +82,9 @@ class OrderReconciler:
                 await self.run_once()
             except Exception:  # noqa: BLE001
                 log_structured("warning", "Order reconciliation failed", exc_info=True)
-            await asyncio.sleep(self.interval_seconds)  # Reconciliation polling interval - allowed
+            await asyncio.sleep(
+                self.interval_seconds
+            )  # Reconciliation polling interval - allowed
 
     def _build_discrepancy(
         self, order_row: dict[str, Any], broker_status: dict[str, Any] | None

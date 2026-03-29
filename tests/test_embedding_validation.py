@@ -21,15 +21,15 @@ class TestEmbeddingValidation:
         # We'll test this indirectly through write_vector_memory validation
 
         data = {
-            'schema_version': 'v2',
-            'source': 'test',
-            'content': 'test content',
-            'content_type': 'text',
-            'embedding': valid_embedding
+            "schema_version": "v2",
+            "source": "test",
+            "content": "test content",
+            "content_type": "text",
+            "embedding": valid_embedding,
         }
 
         # Should not raise exception during validation
-        writer._validate_schema_v2(data, 'VectorMemory')
+        writer._validate_schema_v2(data, "VectorMemory")
 
     def test_validate_embedding_wrong_length(self):
         """Test embedding validation fails with wrong length."""
@@ -39,20 +39,20 @@ class TestEmbeddingValidation:
         wrong_embedding = [0.1] * 1000  # Only 1000 elements
 
         data = {
-            'schema_version': 'v2',
-            'source': 'test',
-            'content': 'test content',
-            'content_type': 'text',
-            'embedding': wrong_embedding
+            "schema_version": "v2",
+            "source": "test",
+            "content": "test content",
+            "content_type": "text",
+            "embedding": wrong_embedding,
         }
 
         # Schema validation passes
-        writer._validate_schema_v2(data, 'VectorMemory')
+        writer._validate_schema_v2(data, "VectorMemory")
 
         # But embedding validation should fail
         with pytest.raises(ValueError) as exc_info:
             # Simulate the embedding validation from write_vector_memory
-            embedding = data['embedding']
+            embedding = data["embedding"]
             if not isinstance(embedding, list) or len(embedding) != 1536:
                 raise ValueError("embedding must be 1536-length list")
 
@@ -66,20 +66,20 @@ class TestEmbeddingValidation:
         wrong_embedding = ["not", "numeric"] * 768  # Strings, not numbers
 
         data = {
-            'schema_version': 'v2',
-            'source': 'test',
-            'content': 'test content',
-            'content_type': 'text',
-            'embedding': wrong_embedding
+            "schema_version": "v2",
+            "source": "test",
+            "content": "test content",
+            "content_type": "text",
+            "embedding": wrong_embedding,
         }
 
         # Schema validation passes
-        writer._validate_schema_v2(data, 'VectorMemory')
+        writer._validate_schema_v2(data, "VectorMemory")
 
         # But embedding validation should fail
         with pytest.raises(ValueError) as exc_info:
             # Simulate the embedding validation from write_vector_memory
-            embedding = data['embedding']
+            embedding = data["embedding"]
             if not isinstance(embedding, list) or len(embedding) != 1536:
                 raise ValueError("embedding must be 1536-length list")
 
@@ -96,20 +96,20 @@ class TestEmbeddingValidation:
         not_list_embedding = "not a list"
 
         data = {
-            'schema_version': 'v2',
-            'source': 'test',
-            'content': 'test content',
-            'content_type': 'text',
-            'embedding': not_list_embedding
+            "schema_version": "v2",
+            "source": "test",
+            "content": "test content",
+            "content_type": "text",
+            "embedding": not_list_embedding,
         }
 
         # Schema validation passes
-        writer._validate_schema_v2(data, 'VectorMemory')
+        writer._validate_schema_v2(data, "VectorMemory")
 
         # But embedding validation should fail
         with pytest.raises(ValueError) as exc_info:
             # Simulate the embedding validation from write_vector_memory
-            embedding = data['embedding']
+            embedding = data["embedding"]
             if not isinstance(embedding, list) or len(embedding) != 1536:
                 raise ValueError("embedding must be 1536-length list")
 

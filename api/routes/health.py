@@ -55,9 +55,7 @@ async def _oldest_pending_score_age_seconds() -> float | None:
         from api.database import get_async_session
 
         async with get_async_session() as session:
-            table_result = await session.execute(
-                text(
-                    """
+            table_result = await session.execute(text("""
                     SELECT table_name
                     FROM information_schema.columns
                     WHERE table_schema = 'public'
@@ -70,9 +68,7 @@ async def _oldest_pending_score_age_seconds() -> float | None:
                         ELSE 99
                     END
                     LIMIT 1
-                    """
-                )
-            )
+                    """))
             table_name = table_result.scalar()
             if not table_name:
                 return None
@@ -120,7 +116,9 @@ async def root() -> dict[str, Any]:
             ).model_dump(),
         ).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from None
 
 
 @router.get("/health")
@@ -134,7 +132,7 @@ async def health_check(request: Request) -> dict[str, Any]:
             "status": "starting",
             "message": "Service is warming up",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
 
     # Check dependencies
@@ -154,7 +152,9 @@ async def health_check(request: Request) -> dict[str, Any]:
         "database": "connected" if db_ready else "disconnected",
         "redis": "connected" if redis_ready else "disconnected",
         "pipeline_running": bool(pipeline and pipeline.status().get("running")),
-        "active_ws_connections": getattr(broadcaster, "active_connections", 0) if broadcaster else 0,
+        "active_ws_connections": (
+            getattr(broadcaster, "active_connections", 0) if broadcaster else 0
+        ),
         "last_error": pipeline.status().get("last_error") if pipeline else None,
         "recent_activity": pipeline.status().get("recent", [])[:5] if pipeline else [],
         "uptime_seconds": uptime_seconds,
@@ -173,7 +173,7 @@ async def readiness_check(request: Request, response: Response) -> dict[str, Any
             "status": "starting",
             "message": "Service is warming up",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
 
     db_ready = await _database_ready(request)
@@ -185,7 +185,7 @@ async def readiness_check(request: Request, response: Response) -> dict[str, Any
             "database": "connected",
             "redis": "connected",
             "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
+            "check_time": now.isoformat(),
         }
     # Return degraded status instead of HTTP 503
     return {
@@ -194,7 +194,7 @@ async def readiness_check(request: Request, response: Response) -> dict[str, Any
         "database": "connected" if db_ready else "disconnected",
         "redis": "connected" if redis_ready else "disconnected",
         "uptime_seconds": uptime_seconds,
-        "check_time": now.isoformat()
+        "check_time": now.isoformat(),
     }
 
 

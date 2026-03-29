@@ -39,7 +39,7 @@ class FakeResult:
         scalar: Any = None,
         first_row: Any = None,
         rows: list[Any] = None,
-        mapping_rows: list[dict[str, Any]] = None
+        mapping_rows: list[dict[str, Any]] = None,
     ):
         """
         Initialize FakeResult with test data.
@@ -146,9 +146,7 @@ class FakeSession:
 
     # Query execution
     async def execute(
-        self,
-        statement: Any,
-        params: dict[str, Any] | None = None
+        self, statement: Any, params: dict[str, Any] | None = None
     ) -> FakeResult:
         """
         Execute a query statement.
@@ -209,6 +207,7 @@ class FakeSessionFactory:
 # BACKWARD-COMPATIBLE AGENT RUN TEST LAYER
 # ============================================================================
 
+
 class TestAgentRun(AgentRun):
     """
     Backward-compatible AgentRun subclass for test compatibility.
@@ -228,7 +227,7 @@ class TestAgentRun(AgentRun):
         task_id: str | None = None,
         decision_json: str | None = None,
         trace_json: str | None = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize TestAgentRun with legacy fields.
@@ -297,6 +296,7 @@ def create_test_agent_run(**kwargs) -> TestAgentRun:
 # USAGE EXAMPLES
 # ============================================================================
 
+
 def example_usage():
     """
     Examples demonstrating how to use the mock setup in tests.
@@ -312,7 +312,7 @@ def example_usage():
         if "SELECT *" in sql:
             return FakeResult(
                 rows=[{"id": 1, "name": "test"}],
-                mapping_rows=[{"id": 1, "name": "test"}]
+                mapping_rows=[{"id": 1, "name": "test"}],
             )
         return FakeResult()
 
@@ -330,7 +330,9 @@ def example_usage():
 
         # Transaction context manager
         async with session.begin():
-            await session.execute("INSERT INTO users (name) VALUES (?)", {"name": "test"})
+            await session.execute(
+                "INSERT INTO users (name) VALUES (?)", {"name": "test"}
+            )
             await session.flush()  # Can be awaited without error
 
         # Verify execution tracking
@@ -346,19 +348,19 @@ def example_usage():
             task_id="consensus:run-2",
             decision_json='{"action": "buy", "confidence": 0.8}',
             trace_json='[{"step": "analyze", "result": "bullish"}]',
-            trace_id="trace_123"
+            trace_id="trace_123",
         )
 
         # Factory function (recommended approach)
         run2 = create_test_agent_run(
             task_id="factory_test",
             decision_json='{"action": "sell"}',
-            trace_json='[]',
+            trace_json="[]",
             trace_id="trace_456",
             strategy_id="momentum_v1",
             symbol="AAPL",
             action="sell",
-            confidence=0.7
+            confidence=0.7,
         )
 
         # Access both legacy and production fields
@@ -385,9 +387,9 @@ def example_usage():
 
 # Export the main classes for easy importing
 __all__ = [
-    'FakeResult',
-    'FakeSession',
-    'FakeSessionFactory',
-    'TestAgentRun',
-    'create_test_agent_run',
+    "FakeResult",
+    "FakeSession",
+    "FakeSessionFactory",
+    "TestAgentRun",
+    "create_test_agent_run",
 ]

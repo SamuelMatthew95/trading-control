@@ -1,4 +1,5 @@
 """Alpaca broker - live paper trading with real market prices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -41,7 +42,8 @@ class AlpacaBroker:
         }
 
         log_structured(
-            "info", "Placing Alpaca order",
+            "info",
+            "Placing Alpaca order",
             symbol=alpaca_symbol,
             side=payload["side"],
             qty=qty,
@@ -57,7 +59,8 @@ class AlpacaBroker:
 
                 if resp.status >= 400:
                     log_structured(
-                        "error", "Alpaca order rejected",
+                        "error",
+                        "Alpaca order rejected",
                         symbol=alpaca_symbol,
                         status=resp.status,
                         error=body.get("message", "unknown"),
@@ -68,7 +71,8 @@ class AlpacaBroker:
 
         broker_order_id = body["id"]
         log_structured(
-            "info", "Alpaca order placed, waiting for fill",
+            "info",
+            "Alpaca order placed, waiting for fill",
             broker_order_id=broker_order_id,
             symbol=alpaca_symbol,
         )
@@ -91,7 +95,8 @@ class AlpacaBroker:
             if status == "filled" and filled_avg_price:
                 fill_price = float(filled_avg_price)
                 log_structured(
-                    "info", "Alpaca order filled",
+                    "info",
+                    "Alpaca order filled",
                     broker_order_id=broker_order_id,
                     symbol=alpaca_symbol,
                     fill_price=fill_price,
@@ -100,7 +105,8 @@ class AlpacaBroker:
                 break
             if status in {"canceled", "expired", "rejected"}:
                 log_structured(
-                    "warning", "Alpaca order terminal state",
+                    "warning",
+                    "Alpaca order terminal state",
                     broker_order_id=broker_order_id,
                     symbol=alpaca_symbol,
                     status=status,
@@ -108,7 +114,8 @@ class AlpacaBroker:
                 break
 
             log_structured(
-                "debug", "Waiting for Alpaca fill",
+                "debug",
+                "Waiting for Alpaca fill",
                 broker_order_id=broker_order_id,
                 status=status,
                 attempt=attempt + 1,

@@ -123,7 +123,14 @@ def bind_request_context(request_id: str) -> None:
 
 
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
-    if level.lower() not in {"debug", "info", "warning", "error", "exception", "critical"}:
+    if level.lower() not in {
+        "debug",
+        "info",
+        "warning",
+        "error",
+        "exception",
+        "critical",
+    }:
         level = "info"
 
     if "event" in extra_data:

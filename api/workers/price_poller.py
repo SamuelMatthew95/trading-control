@@ -16,7 +16,7 @@ from api.redis_client import get_redis
 
 SYMBOLS = {
     "crypto": ["BTC/USD", "ETH/USD", "SOL/USD"],
-    "stocks": ["AAPL", "TSLA", "SPY"]
+    "stocks": ["AAPL", "TSLA", "SPY"],
 }
 
 # Map symbol names to Alpaca format
@@ -26,11 +26,13 @@ ALPACA_SYMBOL_MAP = {
     "SOL/USD": "SOL/USD",
     "AAPL": "AAPL",
     "TSLA": "TSLA",
-    "SPY": "SPY"
+    "SPY": "SPY",
 }
 
 
-async def fetch_crypto_prices(client: CryptoHistoricalDataClient, symbols: list[str]) -> dict[str, dict]:
+async def fetch_crypto_prices(
+    client: CryptoHistoricalDataClient, symbols: list[str]
+) -> dict[str, dict]:
     """Fetch latest crypto prices from Alpaca with rate limit protection."""
     max_retries = 3
     base_delay = 1.0
@@ -45,11 +47,13 @@ async def fetch_crypto_prices(client: CryptoHistoricalDataClient, symbols: list[
                 if symbol in quotes:
                     quote = quotes[symbol]
                     prices[symbol] = {
-                        "price": str(quote.bid_price if quote.bid_price else quote.ask_price),
+                        "price": str(
+                            quote.bid_price if quote.bid_price else quote.ask_price
+                        ),
                         "bid": str(quote.bid_price),
                         "ask": str(quote.ask_price),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "source": "alpaca"
+                        "source": "alpaca",
                     }
                 else:
                     log_structured("warning", "crypto_quote_missing", symbol=symbol)
@@ -58,14 +62,27 @@ async def fetch_crypto_prices(client: CryptoHistoricalDataClient, symbols: list[
 
         except Exception as e:
             if attempt == max_retries - 1:
-                log_structured("error", "crypto_price_fetch_failed", exc_info=True, attempt=attempt + 1)
+                log_structured(
+                    "error",
+                    "crypto_price_fetch_failed",
+                    exc_info=True,
+                    attempt=attempt + 1,
+                )
                 return {}
 
             # Check if it's a rate limit error
             error_msg = str(e).lower()
-            if "rate limit" in error_msg or "429" in error_msg or "too many requests" in error_msg:
-                delay = base_delay * (2 ** attempt)  # Exponential backoff for rate limits - allowed
-                log_structured("warning", "rate_limit_hit", delay=delay, attempt=attempt + 1)
+            if (
+                "rate limit" in error_msg
+                or "429" in error_msg
+                or "too many requests" in error_msg
+            ):
+                delay = base_delay * (
+                    2**attempt
+                )  # Exponential backoff for rate limits - allowed
+                log_structured(
+                    "warning", "rate_limit_hit", delay=delay, attempt=attempt + 1
+                )
                 await asyncio.sleep(delay)
             else:
                 # For other errors, short retry delay - allowed
@@ -74,7 +91,9 @@ async def fetch_crypto_prices(client: CryptoHistoricalDataClient, symbols: list[
     return {}
 
 
-async def fetch_stock_prices(client: StockHistoricalDataClient, symbols: list[str]) -> dict[str, dict]:
+async def fetch_stock_prices(
+    client: StockHistoricalDataClient, symbols: list[str]
+) -> dict[str, dict]:
     """Fetch latest stock prices from Alpaca with rate limit protection."""
     max_retries = 3
     base_delay = 1.0
@@ -89,11 +108,13 @@ async def fetch_stock_prices(client: StockHistoricalDataClient, symbols: list[st
                 if symbol in quotes:
                     quote = quotes[symbol]
                     prices[symbol] = {
-                        "price": str(quote.bid_price if quote.bid_price else quote.ask_price),
+                        "price": str(
+                            quote.bid_price if quote.bid_price else quote.ask_price
+                        ),
                         "bid": str(quote.bid_price),
                         "ask": str(quote.ask_price),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "source": "alpaca"
+                        "source": "alpaca",
                     }
                 else:
                     log_structured("warning", "stock_quote_missing", symbol=symbol)
@@ -102,14 +123,27 @@ async def fetch_stock_prices(client: StockHistoricalDataClient, symbols: list[st
 
         except Exception as e:
             if attempt == max_retries - 1:
-                log_structured("error", "stock_price_fetch_failed", exc_info=True, attempt=attempt + 1)
+                log_structured(
+                    "error",
+                    "stock_price_fetch_failed",
+                    exc_info=True,
+                    attempt=attempt + 1,
+                )
                 return {}
 
             # Check if it's a rate limit error
             error_msg = str(e).lower()
-            if "rate limit" in error_msg or "429" in error_msg or "too many requests" in error_msg:
-                delay = base_delay * (2 ** attempt)  # Exponential backoff for rate limits - allowed
-                log_structured("warning", "rate_limit_hit", delay=delay, attempt=attempt + 1)
+            if (
+                "rate limit" in error_msg
+                or "429" in error_msg
+                or "too many requests" in error_msg
+            ):
+                delay = base_delay * (
+                    2**attempt
+                )  # Exponential backoff for rate limits - allowed
+                log_structured(
+                    "warning", "rate_limit_hit", delay=delay, attempt=attempt + 1
+                )
                 await asyncio.sleep(delay)
             else:
                 # For other errors, short retry delay - allowed
@@ -132,7 +166,7 @@ async def cache_prices(redis_client, prices: dict[str, dict]) -> None:
             "type": "price_update",
             "symbol": symbol,
             "timestamp": price_data["timestamp"],
-            **price_data
+            **price_data,
         }
         pipe.publish("prices", json.dumps(message))
 
@@ -146,24 +180,28 @@ async def cache_prices(redis_client, prices: dict[str, dict]) -> None:
 async def poll_prices():
     """Main price polling loop."""
     if not settings.ALPACA_API_KEY or not settings.ALPACA_SECRET_KEY:
-        log_structured("error", "alpaca_credentials_missing",
-                       message="ALPACA_API_KEY and ALPACA_SECRET_KEY required")
+        log_structured(
+            "error",
+            "alpaca_credentials_missing",
+            message="ALPACA_API_KEY and ALPACA_SECRET_KEY required",
+        )
         return
 
     # Initialize Alpaca clients
     crypto_client = CryptoHistoricalDataClient(
-        api_key=settings.ALPACA_API_KEY,
-        secret_key=settings.ALPACA_SECRET_KEY
+        api_key=settings.ALPACA_API_KEY, secret_key=settings.ALPACA_SECRET_KEY
     )
     stock_client = StockHistoricalDataClient(
-        api_key=settings.ALPACA_API_KEY,
-        secret_key=settings.ALPACA_SECRET_KEY
+        api_key=settings.ALPACA_API_KEY, secret_key=settings.ALPACA_SECRET_KEY
     )
 
     redis_client = await get_redis()
-    log_structured("info", "price_poller_started",
-                   crypto_symbols=SYMBOLS["crypto"],
-                   stock_symbols=SYMBOLS["stocks"])
+    log_structured(
+        "info",
+        "price_poller_started",
+        crypto_symbols=SYMBOLS["crypto"],
+        stock_symbols=SYMBOLS["stocks"],
+    )
 
     while True:
         try:
@@ -172,14 +210,14 @@ async def poll_prices():
             stock_prices_task = fetch_stock_prices(stock_client, SYMBOLS["stocks"])
 
             crypto_prices, stock_prices = await asyncio.gather(
-                crypto_prices_task,
-                stock_prices_task,
-                return_exceptions=True
+                crypto_prices_task, stock_prices_task, return_exceptions=True
             )
 
             # Handle exceptions
             if isinstance(crypto_prices, Exception):
-                log_structured("error", "crypto_prices_exception", exc_info=crypto_prices)
+                log_structured(
+                    "error", "crypto_prices_exception", exc_info=crypto_prices
+                )
                 crypto_prices = {}
 
             if isinstance(stock_prices, Exception):
