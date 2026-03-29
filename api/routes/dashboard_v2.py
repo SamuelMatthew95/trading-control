@@ -38,7 +38,7 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
             return await aggregator.get_dashboard_snapshot()
 
     except Exception as e:
-        logger.error(f"Error getting dashboard snapshot: {e}")
+        log_structured("error", "dashboard snapshot failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -55,7 +55,7 @@ async def get_stream_lag() -> dict[str, Any]:
             }
 
     except Exception as e:
-        logger.error(f"Error getting stream lag: {e}")
+        log_structured("error", "stream lag failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -68,7 +68,7 @@ async def get_system_health() -> dict[str, Any]:
             return await aggregator.get_system_health()
 
     except Exception as e:
-        logger.error(f"Error getting system health: {e}")
+        log_structured("error", "system health failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -81,7 +81,7 @@ async def get_pnl_metrics() -> dict[str, Any]:
             return await aggregator.get_pnl_metrics()
 
     except Exception as e:
-        logger.error(f"Error getting PnL metrics: {e}")
+        log_structured("error", "pnl metrics failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -94,7 +94,7 @@ async def get_agent_metrics() -> dict[str, Any]:
             return await aggregator.get_agent_metrics()
 
     except Exception as e:
-        logger.error(f"Error getting agent metrics: {e}")
+        log_structured("error", "agent metrics failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -107,7 +107,7 @@ async def get_order_metrics() -> dict[str, Any]:
             return await aggregator.get_order_metrics()
 
     except Exception as e:
-        logger.error(f"Error getting order metrics: {e}")
+        log_structured("error", "order metrics failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -133,7 +133,7 @@ async def get_prices() -> dict[str, Any]:
                 try:
                     prices[symbol] = json.loads(cached_value)
                 except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON for price {symbol}")
+                    log_structured("warning", "invalid price json", symbol=symbol)
                     prices[symbol] = None
             else:
                 prices[symbol] = None
@@ -145,7 +145,7 @@ async def get_prices() -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error(f"Error getting prices from cache: {e}")
+        log_structured("error", "price cache failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -181,7 +181,7 @@ async def get_worker_health() -> dict[str, Any]:
         try:
             redis_client = await asyncio.wait_for(get_redis(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("Redis connection timeout during health check")
+            log_structured("warning", "redis timeout during health check")
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -189,7 +189,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "check_time": now.isoformat()
             }
         except Exception as e:
-            logger.warning(f"Redis connection failed during health check: {e}")
+            log_structured("warning", "redis connection failed during health check", error=str(e))
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -202,7 +202,7 @@ async def get_worker_health() -> dict[str, Any]:
         try:
             cached_values = await asyncio.wait_for(redis_client.mget(keys), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("Redis mget timeout during health check")
+            log_structured("warning", "redis mget timeout during health check")
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -210,7 +210,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "check_time": now.isoformat()
             }
         except Exception as e:
-            logger.warning(f"Redis read failed during health check: {e}")
+            log_structured("warning", "redis read failed during health check", error=str(e))
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -318,7 +318,7 @@ async def get_worker_health() -> dict[str, Any]:
         # Re-raise HTTP exceptions (our health check failures)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in worker health check: {e}")
+        log_structured("error", "worker health check failed", error=str(e))
         error_data = {
             "status": "error",
             "message": f"Health check failed: {str(e)}",

@@ -66,7 +66,7 @@ class MetricsAggregator:
             return lag_metrics
 
         except Exception as e:
-            logger.error(f"Error fetching stream lag metrics: {e}")
+            log_structured("error", "stream lag metrics failed", error=str(e))
             return {}
 
     async def get_system_health(self) -> dict[str, Any]:
@@ -130,7 +130,7 @@ class MetricsAggregator:
             return health
 
         except Exception as e:
-            logger.error(f"Error computing system health: {e}")
+            log_structured("error", "system health computation failed", error=str(e))
             return {
                 "overall_status": "error",
                 "error": str(e),
@@ -237,7 +237,7 @@ class MetricsAggregator:
             }
 
         except Exception as e:
-            logger.error(f"Error fetching agent metrics: {e}")
+            log_structured("error", "agent metrics failed", error=str(e))
             return {
                 "active_agents": [],
                 "active_agent_count": 0,
@@ -284,7 +284,7 @@ class MetricsAggregator:
             }
 
         except Exception as e:
-            logger.error(f"Error fetching order metrics: {e}")
+            log_structured("error", "order metrics failed", error=str(e))
             return {
                 "orders_last_hour": {},
                 "total_orders_last_hour": 0,
@@ -323,7 +323,7 @@ class MetricsAggregator:
 
 
         except Exception as e:
-            logger.error(f"Error generating dashboard snapshot: {e}")
+            log_structured("error", "dashboard snapshot failed", error=str(e))
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
