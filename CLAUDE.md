@@ -12,11 +12,14 @@ Trading Control is an event-driven algorithmic trading platform.
 
 - **Backend**: FastAPI (Python 3.10+) on Render
 - **Frontend**: Next.js 14 (TypeScript) on Vercel  
-- **Database**: PostgreSQL on Render (schema version v2)
-- **Cache/Streams**: Redis on Render
+- **Database**: PostgreSQL 15+ with pgvector extension on Render
+- **Cache/Streams**: Redis 5.0+ on Render
 - **Market Data**: Alpaca API (paper trading mode)
 - **Repo**: https://github.com/SamuelMatthew95/trading-control
 - **Live App**: https://trading-control-khaki.vercel.app/dashboard
+- **Schema Version**: v3 (upgraded from v2)
+- **Python Version**: 3.10+ (target-version in ruff.toml)
+- **Linting**: Ruff (line-length 100, target-version "py310")
 
 ---
 
@@ -401,128 +404,126 @@ from api.services.feedback_service import FeedbackService
 
 ## Agent System Overview
 
-The system has 8 agents that communicate exclusively through Redis Streams. 
-Agents never call each other directly - this enables independent restarts, 
-versioning, and scaling.
+The system has a streamlined agent architecture focused on signal processing and reasoning. Current implementation includes core agents that communicate through Redis Streams.
 
-### Agent Pool Tiers
+### Current Implemented Agents
 
-| Tier           | Receives                            | Rules                                                                 |
-| -------------- | ----------------------------------- | --------------------------------------------------------------------- |
-| **Active**     | Live signals → real orders          | Demoted to Challenger if beaten for CHALLENGER_WIN_DAYS consecutive   |
-| **Challenger** | Paper signals only → no real orders | Promoted to Active when it beats Active for CHALLENGER_WIN_DAYS cycles |
-| **Retired**    | Nothing — archived forever          | Never deleted. Cannot be reinstated automatically.                    |
-
-### The 8 Agents
-
-**SignalGenerator** - Bridges market_ticks → signals stream
+**SignalGenerator** - Generates periodic signals from market ticks
 - Listens: `market_ticks` | Publishes: `signals`
-- Triggers: Every SIGNAL_EVERY_N_TICKS ticks per symbol
-- Hard rule: No artificial delays, timing controlled by tick rate
+- Triggers: Every SIGNAL_EVERY_N_TICKS ticks per symbol (default: 10)
+- Located: `api/services/signal_generator.py`
 
 **ReasoningAgent** - Makes trading decisions using LLM reasoning
-- Listens: `signals` | Publishes: `orders`, `agent_logs`
+- Listens: `signals` | Publishes: structured reasoning outputs
 - Returns structured JSON only, never raw LLM output
-- Challenger versions receive paper signals only
-- Tracks token spend against daily budget with circuit breaker
+- Features: Token budget tracking, fallback modes, vector memory search
+- Located: `api/services/agents/reasoning_agent.py`
 
-**GradeAgent** - Scores agents across 4 dimensions after fills
-- Listens: `executions`, `trade_performance` | Publishes: `agent_grades`, `proposals`
-- Score formula: accuracy×0.35 + ic×0.30 + cost_eff×0.20 + latency×0.15
-- Automatic actions based on grade thresholds (A-F)
+**Pipeline Agents** - Additional stream processing agents
+- **GradeAgent** - Scores agent performance across multiple dimensions
+- **ICUpdater** - Updates Information Coefficient weights for factors
+- **ReflectionAgent** - Analyzes trade patterns and generates insights
+- **StrategyProposer** - Creates proposals from reflection hypotheses
+- **NotificationAgent** - Classifies and routes system notifications
+- Located: `api/services/agents/pipeline_agents.py`
 
-**ICUpdater** - Reweights alpha factors based on predictive performance
-- Listens: `trade_performance` | Publishes: `ic_weights`, `factor_ic_history`
-- Computes Spearman correlation, zeros out factors below threshold
-- Normalizes remaining weights to sum to 1.0
+### Agent State Registry
 
-**ReflectionAgent** - Finds patterns in recent trades, generates hypotheses
-- Listens: `trade_performance`, `agent_grades`, `factor_ic_history`
-- Publishes: `reflection_outputs`, `notifications`
-- Never modifies system directly, only generates analysis
+Current active agents tracked in `AGENT_NAMES`:
+- SIGNAL_AGENT
+- RISK_AGENT  
+- CONSENSUS_AGENT
+- SIZING_AGENT
 
-**StrategyProposer** - Turns reflection hypotheses into concrete proposals
-- Listens: `reflection_outputs` | Publishes: `proposals`, `notifications`, GitHub PRs
-- Every proposal requires explicit approval before application
+Located: `api/services/agent_state.py`
 
-**HistoryAgent** - Mines historical data for patterns invisible in single trades
-- Reads: `trade_performance` (full history), `vector_memory`, `agent_grades`
-- Publishes: `historical_insights`, `proposals`, `notifications`
-- Trigger: HISTORY_AGENT_SCHEDULE_CRON (default: Sunday 02:00 UTC)
+### Agent Architecture Patterns
 
-**NotificationAgent** - Classifies and routes all system events
-- Listens: All output streams | Publishes: `notifications` table + WebSocket
-- Severity levels: CRITICAL, URGENT, WARNING, INFO
-- Deduplication: same event type within 60s merged
+All agents follow these patterns:
+1. **Event-Driven**: Communicate via Redis Streams, never direct calls
+2. **Traceability**: Every operation carries a `trace_id`
+3. **Structured Logging**: Use `log_structured()` with `exc_info=True` for errors
+4. **Idempotency**: Handle duplicate events gracefully
+5. **Circuit Breaking**: Token budget limits and fallback modes
 
 ## Database Schema Overview
+
+**Current Schema Version: v3** (upgraded from v2)
 
 ### Core Tables
 
 **strategies** - Strategy definitions and configuration
 - Primary key: UUID | Unique name field
-- Contains: config JSONB, schema_version, source, status
-- Relationships: orders, positions, trade_performance, vector_memory
+- Contains: rules JSONB, risk_limits JSONB, is_active boolean
+- Default strategy: "BTC_MOMENTUM_V3" with momentum-based rules
+- Relationships: orders, positions, agent_runs, strategy_metrics
 
 **orders** - All submitted trading orders and lifecycle state
-- Idempotency: TEXT NOT NULL UNIQUE prevents duplicate orders
+- Idempotency: idempotency_key TEXT NOT NULL UNIQUE prevents duplicate orders
+- Fields: strategy_id (FK), symbol, side, qty, price, status, broker_order_id
 - Lifecycle: pending → filled/cancelled/rejected
-- Relationships: strategy, events, trade_performance
+- Relationships: trade_performance, order_reconciliation
 
 **positions** - Current exposure per strategy/symbol pair
-- Unique constraint: (strategy_id, symbol)
-- Fields: quantity, avg_cost, market_value, unrealized_pnl
-- Operational meaning: Primary read model for dashboard/risk views
+- Fields: strategy_id (FK), symbol, side, qty, entry_price, current_price, unrealised_pnl
+- No unique constraint on (strategy_id, symbol) in current schema
+- Operational meaning: Current position tracking
 
 **trade_performance** - Trade-level outcome data for analysis
-- Analytics use: win rate, average return, hold time, regime segmentation
-- Fields: entry/exit times, prices, pnl, holding_period, regime
-- Unique: (strategy_id, trade_id)
+- Fields: order_id (FK), symbol, pnl, holding_secs, entry_price, exit_price
+- Contains: market_context JSONB, factor_attribution JSONB
+- Relationships: Links to orders for performance analysis
 
 ### Agent Tables
 
-**agent_pool** - Registry of available agents
-- Fields: name, agent_type, config, capabilities, status, version
-- Types: 'analysis' | 'execution' | 'learning' | 'monitoring'
-
 **agent_runs** - Each execution of an agent
-- Traceability: trace_id links to logs, memory, performance
-- Lifecycle: running → completed/failed/cancelled
-- Fields: input_data, output_data, execution_time_ms, tokens_used, cost_usd
+- Fields: strategy_id (FK), symbol, signal_data JSONB, action, confidence
+- Contains: primary_edge, risk_factors JSONB, size_pct, stop_atr_x, rr_ratio
+- Technical: latency_ms, cost_usd, trace_id, fallback boolean
+- Schema: v3 with traceability indexes
 
 **agent_logs** - Structured logs for each agent run
-- Step-level tracking with structured metadata
-- Always queryable by trace_id
-- Fields: log_level, message, step_name, step_data
-
-**agent_grades** - Performance evaluation results
-- Multi-dimensional scoring with automatic action triggers
-- Score range: 0.00-99.99 with consistent scale across types
-- Types: accuracy, efficiency, safety, overall
+- Fields: trace_id, log_type, payload JSONB
+- Schema: v3 with traceability indexes
+- Purpose: Step-level execution tracking
 
 **vector_memory** - Embeddings and semantic memory
 - pgvector extension: VECTOR(1536) for embeddings
-- Content types: 'insight' | 'memory' | 'feedback' | 'note'
-- Indexing: ivfflat with vector_cosine_ops
+- Fields: content TEXT, embedding VECTOR(1536), metadata_ JSONB, outcome JSONB
+- Indexing: ivfflat with vector_cosine_ops (lists = 100)
 
-### Event & Audit Tables
+### Supporting Tables
 
-**events** - Durable domain events with deduplication
-- Event types: 'order.created', 'order.filled', 'agent.run_started', etc.
-- Idempotency: TEXT NOT NULL UNIQUE prevents duplicate events
-- Indexing: BRIN on created_at for time-series queries
+**strategy_metrics** - Performance metrics per strategy
+- Fields: strategy_id (FK, unique), win_rate, avg_pnl, sharpe, max_drawdown
+- Updated: timestamp field for last calculation
 
-**processed_events** - Exactly-once processing guarantees
-- Primary key: msg_id (from Redis stream)
-- Purpose: Prevent reprocessing of same message/stream item
+**factor_ic_history** - Information Coefficient tracking
+- Fields: factor_name, ic_score, computed_at
+- Purpose: Track predictive performance of factors over time
+
+**system_metrics** - Operational and performance metrics
+- Fields: metric_name, value, labels JSONB, timestamp
+- Indexing: (metric_name, timestamp DESC) for time-series queries
 
 **audit_log** - Immutable audit trail for business changes
-- Append-only with old_values/new_values JSONB
-- Forensic review, compliance, human-readable change history
+- Fields: event_type, payload JSONB, created_at
+- Indexing: created_at DESC for recent events lookup
 
-**schema_write_audit** - Evidence of schema-governed writes
-- Diagnostic evidence for schema compliance
-- Tracks: table_name, schema_version, source, operation
+**order_reconciliation** - Order discrepancy tracking
+- Fields: order_id (FK), discrepancy JSONB, resolved boolean
+- Purpose: Track and resolve order execution issues
+
+**llm_cost_tracking** - LLM usage cost tracking
+- Fields: date, tokens_used, cost_usd
+- Purpose: Budget management and cost optimization
+
+### Schema Versioning
+
+- **v2**: Initial schema with basic tables
+- **v3**: Added traceability indexes and strict schema validation
+- **Constraints**: schema_version CHECK constraints on agent tables
+- **Indexes**: trace_id indexes for agent_runs and agent_logs
 
 ## System Guarantees
 
@@ -684,7 +685,7 @@ async def create_business_record(data: dict[str, Any]) -> UUID:
         record_id = await writer.write(
             table="orders",
             data=data,
-            schema_version="v2",
+            schema_version="v3",
             source="order_service"
         )
         
@@ -692,7 +693,7 @@ async def create_business_record(data: dict[str, Any]) -> UUID:
 ```
 
 ### Schema Requirements
-- **schema_version**: Always "v2" for new writes
+- **schema_version**: Always "v3" for new writes (upgraded from "v2")
 - **source**: Service name that created the record
 - **trace_id**: Include for traceable operations
 - **idempotency_key**: For operations that must be exactly-once
@@ -763,7 +764,7 @@ async def test_safe_writer_idempotency():
         table="orders",
         data=data,
         idempotency_key=idempotency_key,
-        schema_version="v2",
+        schema_version="v3",
         source="test"
     )
     
@@ -772,7 +773,7 @@ async def test_safe_writer_idempotency():
         table="orders", 
         data=data,
         idempotency_key=idempotency_key,
-        schema_version="v2",
+        schema_version="v3",
         source="test"
     )
     
@@ -783,38 +784,86 @@ async def test_safe_writer_idempotency():
 
 ### Environment Variables
 ```bash
-# Agent Configuration
+# Agent Configuration (from api/config.py)
 SIGNAL_EVERY_N_TICKS=10
-GRADE_EVERY_N_FILLS=50
-CHALLENGER_WIN_DAYS=7
+GRADE_EVERY_N_FILLS=5
+IC_UPDATE_EVERY_N_FILLS=10
+REFLECT_EVERY_N_FILLS=10
+REFLECTION_TRADE_THRESHOLD=20
 
 # LLM Configuration  
 LLM_PROVIDER=groq
-LLM_TIMEOUT_SECONDS=30
-ANTHROPIC_DAILY_TOKEN_BUDGET=100000
+LLM_TIMEOUT_SECONDS=15
+LLM_MAX_RETRIES=2
+LLM_FALLBACK_MODE=skip_reasoning
+ANTHROPIC_DAILY_TOKEN_BUDGET=5000000
+ANTHROPIC_COST_ALERT_USD=5.0
+
+# Market Data Configuration
+MARKET_DATA_PROVIDER=alpaca
+MARKET_TICK_INTERVAL_SECONDS=10.0
+
+# Alpaca Trading Configuration
+ALPACA_API_KEY=your_api_key
+ALPACA_SECRET_KEY=your_secret_key
+ALPACA_PAPER=true
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
 
 # Redis Configuration
 REDIS_URL=redis://localhost:6379
-STREAM_CONSUMER_GROUP=analysis_agents
 
 # Database Configuration
 DATABASE_URL=postgresql://user:pass@localhost/db
+
+# Application Configuration
+FRONTEND_URL=http://localhost:3000
+BROKER_MODE=paper
+MAX_CONSUMER_LAG_ALERT=5000
+
+# Groq Configuration
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
 
 ### Configuration Validation
 ```python
 from pydantic import BaseSettings
 
-class AgentConfig(BaseSettings):
-    signal_every_n_ticks: int = 10
-    grade_every_n_fills: int = 50
-    challenger_win_days: int = 7
+# Actual configuration from api/config.py
+class Settings(BaseSettings):
+    DATABASE_URL: PostgresDsn | None = Field(default=None)
+    REDIS_URL: str | None = Field(default=None)
+    ANTHROPIC_API_KEY: str | None = Field(default=None)
+    ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
+    LLM_FALLBACK_MODE: str = "skip_reasoning"
+    BROKER_MODE: str = "paper"
+    LLM_TIMEOUT_SECONDS: int = 15
+    LLM_MAX_RETRIES: int = 2
+    REFLECTION_TRADE_THRESHOLD: int = 20
+    MAX_CONSUMER_LAG_ALERT: int = 5_000
+    ANTHROPIC_COST_ALERT_USD: float = 5.0
+    FRONTEND_URL: str = "http://localhost:3000"
     
-    llm_provider: str = "groq"
-    llm_timeout_seconds: int = 30
+    # Market data
+    MARKET_DATA_PROVIDER: str = "alpaca"
+    MARKET_TICK_INTERVAL_SECONDS: float = 10.0
     
-    class Config:
-        env_prefix = "AGENT_"
+    # Agent trigger thresholds
+    SIGNAL_EVERY_N_TICKS: int = 10
+    GRADE_EVERY_N_FILLS: int = 5
+    IC_UPDATE_EVERY_N_FILLS: int = 10
+    REFLECT_EVERY_N_FILLS: int = 10
+    
+    # LLM provider routing
+    LLM_PROVIDER: str = "groq"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    
+    # Alpaca configuration
+    ALPACA_API_KEY: str = ""
+    ALPACA_SECRET_KEY: str = ""
+    ALPACA_PAPER: bool = True
+    ALPACA_BASE_URL: str = "https://paper-api.alpaca.markets"
 ```
 
 ## Error Handling Patterns
@@ -867,21 +916,39 @@ class CircuitBreaker:
 ### Redis Streams Verification
 ```bash
 redis-cli xlen signals                       # > 0 within 30s of poller starting
-redis-cli xlen decisions                     # > 0 shortly after
+redis-cli xlen decisions                     # > 0 shortly after  
 redis-cli xlen graded_decisions              # > 0 shortly after
-redis-cli keys "agent:status:*"              # should show all 7 agents
+redis-cli keys "agent:status:*"              # should show current agents
 ```
 
 ### Database Verification
 ```bash
-# Check database health
-psql $DATABASE_URL -c "SELECT agent_name, status, event_count, last_seen FROM agent_heartbeats;"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_runs WHERE status='completed';"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM processed_events;"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_pool;"  # should be 7
+# Check database health and schema version
+psql $DATABASE_URL -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public';"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_runs WHERE schema_version='v3';"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM vector_memory;"  # should show embeddings
+psql $DATABASE_URL -c "SELECT name, is_active FROM strategies;"  # should show BTC_MOMENTUM_V3
+```
+
+### Application Structure Verification
+```bash
+# Verify key directories exist
+ls api/services/agents/          # Should have reasoning_agent.py, pipeline_agents.py
+ls api/routes/                   # Should have 13 route files
+ls api/alembic/versions/         # Should have 3 migration files
+ls tests/                       # Should have comprehensive test suite
 ```
 
 ### CI/CD Testing
+```bash
+# Run the exact CI/CD pipeline commands locally
+ruff check . --fix               # Must show "All checks passed!"
+ruff format --check .           # Must show "112 files already formatted"  
+ruff check . --select=E9,F63,F7,F82  # Must show "All checks passed!"
+
+# Run test suite
+pytest tests/ -v --tb=short    # All tests should pass
+```
 The pipeline will automatically run:
 - **Backend**: ruff check/format, mypy, pytest (unit + integration)
 - **Frontend**: ESLint, TypeScript check, build, tests with coverage
