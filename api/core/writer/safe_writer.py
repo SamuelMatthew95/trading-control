@@ -185,7 +185,7 @@ class SafeWriter:
                         raise ValueError(
                             f"IntegrityError but no existing order found "
                             f"for idempotency_key={idempotency_key}"
-                        )
+                        ) from None
 
                     # Get the existing order's ID
                     existing_order = existing.scalar_one()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
 from sqlalchemy import func, select
 
 from api.core.models import AgentRun, TradePerformance
@@ -15,14 +16,14 @@ _STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 @router.get("/api/performance/{agent_name}")
 async def get_agent_performance(
-    agent_name: str, learning_service=Depends(get_learning_service)
+    agent_name: str, learning_service: Annotated[LearningService, Depends(get_learning_service)]
 ):
     async with get_async_session() as session:
         return await learning_service.get_agent_performance(agent_name, session)
 
 
 @router.get("/api/performance")
-async def get_all_performance(learning_service=Depends(get_learning_service)):
+async def get_all_performance(learning_service: Annotated[LearningService, Depends(get_learning_service)]):
     async with get_async_session() as session:
         output = {}
         for agent_name in learning_service.agent_performance.keys():

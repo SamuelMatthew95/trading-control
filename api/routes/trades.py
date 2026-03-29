@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +21,7 @@ async def get_safe_writer() -> SafeWriter:
 
 
 @router.get("/trades")
-async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> dict[str, Any]:
+async def get_trades(safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)]) -> dict[str, Any]:
     """Get all trades with standardized response format."""
     try:
         async with safe_writer.transaction() as session:
@@ -63,7 +63,7 @@ async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> dict
 @router.post("/trades")
 async def save_trade(
     trade_data: dict[str, Any],
-    safe_writer: SafeWriter = Depends(get_safe_writer)
+    safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)]
 ) -> dict[str, Any]:
     """Save a new trade using SafeWriter (only write path)."""
     try:

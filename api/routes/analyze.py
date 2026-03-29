@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -18,7 +19,7 @@ router = APIRouter(tags=["analysis"])
 @router.post("/analyze")
 async def analyze_trade(
     request: TradeRequest,
-    trading_service=Depends(get_trading_service),
+    trading_service: Annotated[TradingService, Depends(get_trading_service)],
 ):
     try:
         if not request.symbol or not request.price:
@@ -111,13 +112,15 @@ async def analyze_trade(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis failed: {str(e)}"
+        ) from None
 
 
 @router.post("/shadow/analyze")
 async def shadow_analyze(
     request: TradeRequest,
-    trading_service=Depends(get_trading_service),
+    trading_service: Annotated[TradingService, Depends(get_trading_service)],
 ):
     try:
         if not request.symbol or not request.price:
@@ -138,12 +141,12 @@ async def shadow_analyze(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Shadow analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Shadow analysis failed: {str(e)}") from None
 
 
 @router.get("/shadow/evaluate/{symbol}")
 async def shadow_evaluate(
-    symbol: str, observed_price: float, trading_service=Depends(get_trading_service)
+    symbol: str, observed_price: float, trading_service: Annotated[TradingService, Depends(get_trading_service)]
 ):
     try:
         if not symbol or observed_price <= 0:
@@ -160,7 +163,7 @@ async def shadow_evaluate(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Shadow evaluation failed: {str(e)}"
-        )
+        ) from None
 
 
 @router.options("/analyze")
