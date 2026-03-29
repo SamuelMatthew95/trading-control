@@ -1,0 +1,7 @@
+# Claude Code security - prevent sensitive files from being accessed
+.claude/settings.local.json
+.env
+.env.local
+.env.production
+*.token
+*.secret

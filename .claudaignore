@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+htmlcov/
+.coverage
+*.log
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# Environment — never let Claude read real secrets
+.env
+.env.local
+.env.production
+.env.staging
+
+# Database
+*.sqlite
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Alembic compiled
+alembic/__pycache__/
+
+# Large data / ML artifacts
+*.pkl
+*.parquet
+*.csv
+data/
+embeddings/
