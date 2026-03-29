@@ -5,6 +5,8 @@ import { SpeedInsights } from '@vercel/speed-insights/next'
 import '../styles/globals.css'
 import { WebSocketProvider } from '@/components/WebSocketProvider'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Trading Control',
   description: 'AI Trading Control Dashboard',

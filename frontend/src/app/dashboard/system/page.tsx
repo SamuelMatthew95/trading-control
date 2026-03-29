@@ -1,9 +1,9 @@
 'use client'
 
-import DashboardPageWrapper from '@/components/DashboardPageWrapper'
+import SimpleDashboardPage from '@/components/SimpleDashboardPage'
 
 export const dynamic = 'force-dynamic'
 
 export default function SystemPage() {
-  return <DashboardPageWrapper section="system" />
+  return <SimpleDashboardPage section="system" />
 }
