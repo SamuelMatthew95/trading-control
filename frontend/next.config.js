@@ -31,6 +31,8 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react'],
     forceSwcTransforms: true,
   },
+  trailingSlash: false,
+  generateEtags: false,
 };
 
 module.exports = nextConfig;

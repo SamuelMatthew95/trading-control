@@ -11,8 +11,6 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react'
-import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket'
-import { useWebSocketEvents } from '@/hooks/useWebSocketEvents'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { LiveMarketPrices } from '@/components/dashboard/LiveMarketPrices'
 import { AgentMatrix } from '@/components/dashboard/AgentMatrix'
@@ -168,8 +166,7 @@ function MobileNavigation({ section }: { section: Section }) {
 }
 
 export function DashboardView({ section }: { section: Section }) {
-  useGlobalWebSocket() // Use for connection management
-  useWebSocketEvents() // Set up WebSocket event handlers non-realtime components
+  // WebSocket hooks are now handled in DashboardPageWrapper
   const {
     orders = [],
     positions = [],

@@ -1,9 +1,9 @@
 'use client'
 
-import { DashboardView } from '../DashboardView'
+import DashboardPageWrapper from '@/components/DashboardPageWrapper'
 
 export const dynamic = 'force-dynamic'
 
 export default function LearningPage() {
-  return <DashboardView section="learning" />
+  return <DashboardPageWrapper section="learning" />
 }
