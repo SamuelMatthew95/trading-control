@@ -396,7 +396,472 @@ from api.services.feedback_service import FeedbackService
 6. **Add imports for all types you use**
 
 ===================================================================
-8. SYSTEM VERIFICATION
+9. SYSTEM ARCHITECTURE
+===================================================================
+
+## Agent System Overview
+
+The system has 8 agents that communicate exclusively through Redis Streams. 
+Agents never call each other directly - this enables independent restarts, 
+versioning, and scaling.
+
+### Agent Pool Tiers
+
+| Tier           | Receives                            | Rules                                                                 |
+| -------------- | ----------------------------------- | --------------------------------------------------------------------- |
+| **Active**     | Live signals → real orders          | Demoted to Challenger if beaten for CHALLENGER_WIN_DAYS consecutive   |
+| **Challenger** | Paper signals only → no real orders | Promoted to Active when it beats Active for CHALLENGER_WIN_DAYS cycles |
+| **Retired**    | Nothing — archived forever          | Never deleted. Cannot be reinstated automatically.                    |
+
+### The 8 Agents
+
+**SignalGenerator** - Bridges market_ticks → signals stream
+- Listens: `market_ticks` | Publishes: `signals`
+- Triggers: Every SIGNAL_EVERY_N_TICKS ticks per symbol
+- Hard rule: No artificial delays, timing controlled by tick rate
+
+**ReasoningAgent** - Makes trading decisions using LLM reasoning
+- Listens: `signals` | Publishes: `orders`, `agent_logs`
+- Returns structured JSON only, never raw LLM output
+- Challenger versions receive paper signals only
+- Tracks token spend against daily budget with circuit breaker
+
+**GradeAgent** - Scores agents across 4 dimensions after fills
+- Listens: `executions`, `trade_performance` | Publishes: `agent_grades`, `proposals`
+- Score formula: accuracy×0.35 + ic×0.30 + cost_eff×0.20 + latency×0.15
+- Automatic actions based on grade thresholds (A-F)
+
+**ICUpdater** - Reweights alpha factors based on predictive performance
+- Listens: `trade_performance` | Publishes: `ic_weights`, `factor_ic_history`
+- Computes Spearman correlation, zeros out factors below threshold
+- Normalizes remaining weights to sum to 1.0
+
+**ReflectionAgent** - Finds patterns in recent trades, generates hypotheses
+- Listens: `trade_performance`, `agent_grades`, `factor_ic_history`
+- Publishes: `reflection_outputs`, `notifications`
+- Never modifies system directly, only generates analysis
+
+**StrategyProposer** - Turns reflection hypotheses into concrete proposals
+- Listens: `reflection_outputs` | Publishes: `proposals`, `notifications`, GitHub PRs
+- Every proposal requires explicit approval before application
+
+**HistoryAgent** - Mines historical data for patterns invisible in single trades
+- Reads: `trade_performance` (full history), `vector_memory`, `agent_grades`
+- Publishes: `historical_insights`, `proposals`, `notifications`
+- Trigger: HISTORY_AGENT_SCHEDULE_CRON (default: Sunday 02:00 UTC)
+
+**NotificationAgent** - Classifies and routes all system events
+- Listens: All output streams | Publishes: `notifications` table + WebSocket
+- Severity levels: CRITICAL, URGENT, WARNING, INFO
+- Deduplication: same event type within 60s merged
+
+## Database Schema Overview
+
+### Core Tables
+
+**strategies** - Strategy definitions and configuration
+- Primary key: UUID | Unique name field
+- Contains: config JSONB, schema_version, source, status
+- Relationships: orders, positions, trade_performance, vector_memory
+
+**orders** - All submitted trading orders and lifecycle state
+- Idempotency: TEXT NOT NULL UNIQUE prevents duplicate orders
+- Lifecycle: pending → filled/cancelled/rejected
+- Relationships: strategy, events, trade_performance
+
+**positions** - Current exposure per strategy/symbol pair
+- Unique constraint: (strategy_id, symbol)
+- Fields: quantity, avg_cost, market_value, unrealized_pnl
+- Operational meaning: Primary read model for dashboard/risk views
+
+**trade_performance** - Trade-level outcome data for analysis
+- Analytics use: win rate, average return, hold time, regime segmentation
+- Fields: entry/exit times, prices, pnl, holding_period, regime
+- Unique: (strategy_id, trade_id)
+
+### Agent Tables
+
+**agent_pool** - Registry of available agents
+- Fields: name, agent_type, config, capabilities, status, version
+- Types: 'analysis' | 'execution' | 'learning' | 'monitoring'
+
+**agent_runs** - Each execution of an agent
+- Traceability: trace_id links to logs, memory, performance
+- Lifecycle: running → completed/failed/cancelled
+- Fields: input_data, output_data, execution_time_ms, tokens_used, cost_usd
+
+**agent_logs** - Structured logs for each agent run
+- Step-level tracking with structured metadata
+- Always queryable by trace_id
+- Fields: log_level, message, step_name, step_data
+
+**agent_grades** - Performance evaluation results
+- Multi-dimensional scoring with automatic action triggers
+- Score range: 0.00-99.99 with consistent scale across types
+- Types: accuracy, efficiency, safety, overall
+
+**vector_memory** - Embeddings and semantic memory
+- pgvector extension: VECTOR(1536) for embeddings
+- Content types: 'insight' | 'memory' | 'feedback' | 'note'
+- Indexing: ivfflat with vector_cosine_ops
+
+### Event & Audit Tables
+
+**events** - Durable domain events with deduplication
+- Event types: 'order.created', 'order.filled', 'agent.run_started', etc.
+- Idempotency: TEXT NOT NULL UNIQUE prevents duplicate events
+- Indexing: BRIN on created_at for time-series queries
+
+**processed_events** - Exactly-once processing guarantees
+- Primary key: msg_id (from Redis stream)
+- Purpose: Prevent reprocessing of same message/stream item
+
+**audit_log** - Immutable audit trail for business changes
+- Append-only with old_values/new_values JSONB
+- Forensic review, compliance, human-readable change history
+
+**schema_write_audit** - Evidence of schema-governed writes
+- Diagnostic evidence for schema compliance
+- Tracks: table_name, schema_version, source, operation
+
+## System Guarantees
+
+### Determinism
+- All writes go through SafeWriter (only authorized path)
+- No hidden side effects or async background mutations
+- Same input → same output, every time
+
+### Idempotency
+- Orders: idempotency_key prevents duplicate orders
+- Events: idempotency_key prevents duplicate events  
+- Streams: processed_events table ensures exactly-once processing
+
+### Traceability
+- trace_id spans entire system: Event → AgentRun → AgentLog → VectorMemory
+- Any execution reconstructable from single trace ID
+- Immutable audit_log for permanent change history
+
+### Replayability (🔥 Critical Guarantee)
+- Entire system rebuildable from events table
+- Events contain all necessary data (no side-channel info)
+- Disaster recovery = replay events + restore current positions
+
+### Consistency Model
+```
+PostgreSQL (Source of Truth) → Redis Streams (Delivery) → Agents (Derived)
+```
+- Database = canonical state
+- Streams = transport/fan-out, not storage
+- Agents = consumers, never modify source truth
+
+### Failure Isolation
+| Component     | Failure Impact | Recovery Method            |
+| ------------- | -------------- | -------------------------- |
+| SafeWriter    | No new writes  | Restart service            |
+| Redis Streams | No processing  | Replay events from DB      |
+| Agent Service | No analysis    | Restart, reprocess pending |
+| PostgreSQL    | System down    | Restore backup + replay    |
+
+### Formal Invariants
+1. Event Ordering: events.created_at monotonic per entity
+2. Idempotency: idempotency_key unique across domain
+3. Traceability: All trace_id values are valid UUIDs
+4. Atomicity: Business write + event emit succeed/fail together
+5. Immunity: audit_log and agent_runs never updated
+
+## WebSocket Events
+
+### Connection
+```
+URL: wss://your-app.onrender.com/ws/dashboard
+Auth: None required in paper mode
+Auto-reconnect with exponential backoff (1s → 30s cap)
+```
+
+### Message Envelope
+```typescript
+interface WsEnvelope {
+  type: string;           // event type - determines routing
+  timestamp: string;      // ISO 8601 UTC
+  data: Record<string, unknown>;
+}
+```
+
+### Event Types
+- **market_tick** - Live price updates (~250ms per symbol)
+- **signal** - New trading signal passed rule pipeline
+- **order_update** - Order lifecycle changes (created, filled, cancelled)
+- **agent_log** - Structured reasoning from ReasoningAgent
+- **risk_alert** - Risk threshold crossed (drawdown, stream_lag, etc.)
+- **regime_change** - Market regime changed (risk_on/risk_off/crisis)
+- **notification** - System notifications (CRITICAL must be acknowledged)
+- **learning_event** - Learning layer updates (IC weights, reflection, grading)
+- **system_metric** - Health metrics (stream_lag, llm_cost, kill_switch_state)
+
+===================================================================
+10. DEVELOPMENT PATTERNS
+===================================================================
+
+## Agent Development Patterns
+
+### New Agent Template
+```python
+from __future__ import annotations
+import uuid
+from typing import Any
+from api.observability import log_structured
+from api.events.bus import EventBus
+
+class NewAgent:
+    """Template for new agents with required patterns."""
+    
+    def __init__(self, redis_client: EventBus):
+        self.redis = redis_client
+        self.agent_id = "NewAgent"  # Must match agent_pool.name
+        
+    async def process_event(self, event_data: dict[str, Any]) -> None:
+        """Main agent processing method."""
+        trace_id = str(uuid.uuid4())
+        
+        try:
+            # 1. Extract trace_id from incoming event if available
+            incoming_trace_id = event_data.get("trace_id")
+            
+            # 2. Log start of processing
+            log_structured("info", "agent processing started", 
+                          agent=self.agent_id, 
+                          trace_id=trace_id,
+                          incoming_trace_id=incoming_trace_id)
+            
+            # 3. Process the event
+            result = await self._do_work(event_data, trace_id)
+            
+            # 4. Publish results if needed
+            if result:
+                await self.redis.publish("output_stream", {
+                    "type": "agent_result",
+                    "data": result,
+                    "trace_id": trace_id,
+                    "agent_id": self.agent_id
+                })
+                
+            log_structured("info", "agent processing completed", 
+                          agent=self.agent_id, 
+                          trace_id=trace_id)
+                          
+        except Exception as exc:
+            log_structured("error", "agent processing failed", 
+                          agent=self.agent_id, 
+                          trace_id=trace_id,
+                          exc_info=True)
+            raise
+            
+    async def _do_work(self, event_data: dict[str, Any], trace_id: str) -> dict[str, Any]:
+        """Override this method with agent-specific logic."""
+        return {"status": "processed", "trace_id": trace_id}
+```
+
+### Required Agent Patterns
+1. **Trace ID Propagation**: Always extract and propagate trace_id
+2. **Structured Logging**: Use log_structured with exc_info=True for errors
+3. **Event-Driven**: Never call other agents directly, use Redis streams
+4. **Idempotency**: Handle duplicate events gracefully
+5. **Error Handling**: Never swallow exceptions, always log with exc_info=True
+
+## Database Development Patterns
+
+### SafeWriter Usage
+```python
+from api.core.writer.safe_writer import SafeWriter
+from api.database import get_async_session
+
+async def create_business_record(data: dict[str, Any]) -> UUID:
+    """Correct pattern for database writes."""
+    async with get_async_session() as session:
+        writer = SafeWriter(session)
+        
+        # SafeWriter handles validation, idempotency, and audit
+        record_id = await writer.write(
+            table="orders",
+            data=data,
+            schema_version="v2",
+            source="order_service"
+        )
+        
+        return record_id
+```
+
+### Schema Requirements
+- **schema_version**: Always "v2" for new writes
+- **source**: Service name that created the record
+- **trace_id**: Include for traceable operations
+- **idempotency_key**: For operations that must be exactly-once
+
+## Redis Stream Patterns
+
+### Publishing Events
+```python
+# Correct: Use positional arguments for xgroup_create
+await redis.xgroup_create(stream, group, "$", mkstream=True)
+
+# Correct: Include trace_id in all events
+await redis.publish("stream_name", {
+    "type": "event_type",
+    "data": event_data,
+    "trace_id": trace_id,
+    "timestamp": datetime.now(timezone.utc).isoformat()
+})
+```
+
+### Consumer Groups
+- **analysis_agents**: Signal generation, risk assessment
+- **execution_agents**: Order execution and position management  
+- **learning_agents**: Performance analysis and optimization
+- **monitoring_agents**: Health monitoring and alerting
+
+## Testing Patterns
+
+### Agent Testing
+```python
+import pytest
+from api.events.bus import EventBus
+from api.services.new_agent import NewAgent
+
+@pytest.fixture
+async def agent():
+    redis = EventBus()
+    return NewAgent(redis)
+
+async def test_agent_processes_event(agent):
+    """Test agent with trace ID propagation."""
+    event_data = {
+        "type": "test_event",
+        "data": {"symbol": "BTC/USD"},
+        "trace_id": "test-trace-123"
+    }
+    
+    result = await agent.process_event(event_data)
+    
+    # Verify trace ID was preserved
+    assert result["trace_id"] == "test-trace-123"
+```
+
+### Database Testing
+```python
+from tests.core.fake_session import FakeAsyncSession
+
+async def test_safe_writer_idempotency():
+    """Test that duplicate writes are handled correctly."""
+    session = FakeAsyncSession()
+    writer = SafeWriter(session)
+    
+    data = {"symbol": "BTC/USD", "side": "buy"}
+    idempotency_key = "unique-key-123"
+    
+    # First write succeeds
+    record_id_1 = await writer.write(
+        table="orders",
+        data=data,
+        idempotency_key=idempotency_key,
+        schema_version="v2",
+        source="test"
+    )
+    
+    # Second write returns same ID
+    record_id_2 = await writer.write(
+        table="orders", 
+        data=data,
+        idempotency_key=idempotency_key,
+        schema_version="v2",
+        source="test"
+    )
+    
+    assert record_id_1 == record_id_2
+```
+
+## Configuration Management
+
+### Environment Variables
+```bash
+# Agent Configuration
+SIGNAL_EVERY_N_TICKS=10
+GRADE_EVERY_N_FILLS=50
+CHALLENGER_WIN_DAYS=7
+
+# LLM Configuration  
+LLM_PROVIDER=groq
+LLM_TIMEOUT_SECONDS=30
+ANTHROPIC_DAILY_TOKEN_BUDGET=100000
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379
+STREAM_CONSUMER_GROUP=analysis_agents
+
+# Database Configuration
+DATABASE_URL=postgresql://user:pass@localhost/db
+```
+
+### Configuration Validation
+```python
+from pydantic import BaseSettings
+
+class AgentConfig(BaseSettings):
+    signal_every_n_ticks: int = 10
+    grade_every_n_fills: int = 50
+    challenger_win_days: int = 7
+    
+    llm_provider: str = "groq"
+    llm_timeout_seconds: int = 30
+    
+    class Config:
+        env_prefix = "AGENT_"
+```
+
+## Error Handling Patterns
+
+### Structured Error Response
+```python
+from fastapi import HTTPException
+
+async def api_endpoint():
+    try:
+        result = await some_operation()
+        return {"status": "success", "data": result}
+    except ValueError as exc:
+        log_structured("error", "validation failed", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except Exception as exc:
+        log_structured("error", "unexpected error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error") from None
+```
+
+### Circuit Breaker Pattern
+```python
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5):
+        self.failure_threshold = failure_threshold
+        self.failure_count = 0
+        self.last_failure_time = None
+        
+    async def call(self, func, *args, **kwargs):
+        if self.is_open():
+            raise Exception("Circuit breaker is open")
+            
+        try:
+            result = await func(*args, **kwargs)
+            self.reset()
+            return result
+        except Exception as exc:
+            self.record_failure()
+            raise
+            
+    def is_open(self) -> bool:
+        return (self.failure_count >= self.failure_threshold and 
+                time.time() - self.last_failure_time < 60)
+```
+
+===================================================================
+11. SYSTEM VERIFICATION
 ===================================================================
 
 ### Redis Streams Verification
