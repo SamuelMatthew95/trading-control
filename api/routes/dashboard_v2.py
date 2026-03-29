@@ -56,7 +56,7 @@ async def get_stream_lag() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "stream lag failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/system-health")
@@ -69,7 +69,7 @@ async def get_system_health() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "system health failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/pnl")
@@ -82,7 +82,7 @@ async def get_pnl_metrics() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "pnl metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/agents")
@@ -95,7 +95,7 @@ async def get_agent_metrics() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "agent metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/orders")
@@ -108,7 +108,7 @@ async def get_order_metrics() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "order metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/prices")
@@ -325,4 +325,4 @@ async def get_worker_health() -> dict[str, Any]:
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
-        raise HTTPException(status_code=503, detail=error_data)
+        raise HTTPException(status_code=503, detail=error_data) from None
