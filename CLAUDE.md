@@ -343,29 +343,26 @@ If any step fails, the PR cannot be merged.
 
 ---
 
-## API Documentation (Fern)
+## API & Documentation (Fern)
 
-Live docs: https://matthew.docs.buildwithfern.com/
-Fern source: private GitHub repo — accessible via GitHub MCP tool.
+**Live Docs**: https://matthew.docs.buildwithfern.com/
+**Private Repo**: https://github.com/fern-support/matthew
 
-### Reading the docs
-When you need to understand current API structure, use the GitHub MCP
-tool to read the Fern definition files from the private repo before
-making any endpoint changes.
+### Sync Requirements
+**ANY change to api/ endpoints requires an update to the Fern definition** in the private fern-support/matthew repo.
 
-### Keeping docs in sync
-When you add or change any API endpoint, you must:
-1. Make the code change in this repo
-2. Use the GitHub MCP tool to read the current Fern definition
-3. Update the Fern definition file in the private repo to match
-4. Commit both changes — code change here, docs change in Fern repo
-5. Note both changes in CHANGELOG.md
+### Sync Flow
+1. **Code Change**: Modify endpoint in this repo
+2. **Update Fern YAML**: Edit the Fern definition in fern-support/matthew repo  
+3. **Commit Both**: Commit code change here AND docs change in Fern repo
+4. **Update CHANGELOG.md**: Document both changes in this repo's CHANGELOG.md
 
-Never merge a PR that adds or changes an endpoint without a matching
-Fern definition update.
+### Before Making Endpoint Changes
+Use the GitHub MCP tool to read the current Fern definition files from fern-support/matthew to understand the current documented state.
 
-### Fern repo details
-- Repo name: fern-support/matthew
-- Repo URL: https://github.com/fern-support/matthew/
-- Definition files location: [add path once confirmed e.g. fern/definition/]
-- To verify changes published: check https://matthew.docs.buildwithfern.com/
+### After Making Endpoint Changes
+1. Use the GitHub MCP tool to update the Fern definition in fern-support/matthew to match
+2. Commit both changes - code change here, docs change in Fern repo
+3. Update CHANGELOG.md with both changes
+
+**Never merge a PR that adds or changes an endpoint without a matching Fern definition update.**
