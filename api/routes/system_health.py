@@ -116,7 +116,7 @@ async def get_idempotency_audit():
 
     except Exception as e:
         log_structured("error", "idempotency audit error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/position-sync")
@@ -170,7 +170,7 @@ async def get_position_sync_status():
 
     except Exception as e:
         log_structured("error", "position sync error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/logs")
@@ -283,7 +283,7 @@ async def pause_consumers():
 
     except Exception as e:
         log_structured("error", "pause command error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.post("/resume")
@@ -310,7 +310,7 @@ async def resume_consumers():
 
     except Exception as e:
         log_structured("error", "resume command error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 # ============================================================================

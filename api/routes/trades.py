@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -57,7 +57,7 @@ async def get_trades(safe_writer: Annotated[SafeWriter, Depends(get_safe_writer)
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch trades: {str(exc)}"
-        )
+        ) from None
 
 
 @router.post("/trades")
@@ -91,7 +91,7 @@ async def save_trade(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to save trade: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save trade: {str(exc)}") from None
 
 
 @router.options("/trades")
@@ -128,7 +128,7 @@ async def start_trading_bot() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to start trading bot: {str(exc)}"
-        )
+        ) from None
 
 
 @router.post("/trading/stop")
@@ -155,7 +155,7 @@ async def stop_trading_bot() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to stop trading bot: {str(exc)}"
-        )
+        ) from None
 
 
 @router.get("/trading/status")
@@ -183,7 +183,7 @@ async def get_trading_status() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to get trading status: {str(exc)}"
-        )
+        ) from None
 
 
 @router.post("/trading/emergency-stop")
@@ -210,7 +210,7 @@ async def emergency_stop_all() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to execute emergency stop: {str(exc)}"
-        )
+        ) from None
 
 
 @router.get("/trading/bots")
@@ -249,7 +249,7 @@ async def get_bots_status() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to get bots status: {str(exc)}"
-        )
+        ) from None
 
 
 @router.options("/trading/start")

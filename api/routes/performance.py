@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import time
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Annotated
 from sqlalchemy import func, select
 
 from api.core.models import AgentRun, TradePerformance
