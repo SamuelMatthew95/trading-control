@@ -26,7 +26,7 @@ router = APIRouter(prefix="/health", tags=["system-health"])
 settings = get_settings()
 
 # Database connection
-database_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+database_url = (settings.DATABASE_URL or "sqlite+aiosqlite:///./trading-control.db").replace("postgresql://", "postgresql+asyncpg://")
 engine = create_async_engine(database_url, pool_size=10, max_overflow=20)
 session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

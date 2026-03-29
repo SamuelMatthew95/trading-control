@@ -26,16 +26,20 @@ router = APIRouter(prefix="/system", tags=["system"])
 
 settings = get_settings()
 
-# Database connection
-database_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-engine = create_async_engine(database_url, pool_size=10, max_overflow=20)
-session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# Database connection - defer to avoid aiosqlite issues
+def get_engine():
+    database_url = (settings.DATABASE_URL or "sqlite+aiosqlite:///./trading-control.db").replace("postgresql://", "postgresql+asyncpg://")
+    return create_async_engine(database_url, pool_size=10, max_overflow=20)
+
+def get_session_factory():
+    return sessionmaker(get_engine(), class_=AsyncSession, expire_on_commit=False)
 
 
 @router.get("/status")
 async def get_system_status():
     """Aggregate system status including stream lag, agent pulse, and database health."""
     
+    session_factory = get_session_factory()
     async with session_factory() as session:
         # Agent Pulse - last created_at for each agent type
         agent_pulse_query = (
