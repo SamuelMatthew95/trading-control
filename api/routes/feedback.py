@@ -93,7 +93,9 @@ async def get_insights(
             insights_data = {"items": [entry.model_dump() for entry in insights]}
             return StandardResponse(success=True, data=insights_data).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get insights: {str(e)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get insights: {str(e)}"
+        ) from None
 
 
 @router.get("/runs/propose")

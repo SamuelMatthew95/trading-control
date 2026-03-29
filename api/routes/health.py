@@ -116,7 +116,9 @@ async def root() -> dict[str, Any]:
             ).model_dump(),
         ).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from None
 
 
 @router.get("/health")

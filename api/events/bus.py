@@ -104,7 +104,9 @@ class EventBus:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any], maxlen: int | None = None) -> str:
+    async def publish(
+        self, stream: str, event: dict[str, Any], maxlen: int | None = None
+    ) -> str:
         """Publish event to Redis stream with schema version."""
         # Bug fix: always include schema_version so consumer never sends to DLQ
         event.setdefault("schema_version", "v3")
@@ -123,7 +125,9 @@ class EventBus:
         for k, v in serialized_event.items():
             if isinstance(v, dict):
                 error_msg = f"UNSERIALIZED FIELD: {k}={v}"
-                log_structured("error", error_msg, stream=stream, event_keys=list(event.keys()))
+                log_structured(
+                    "error", error_msg, stream=stream, event_keys=list(event.keys())
+                )
                 raise ValueError(error_msg)
 
         try:
@@ -154,7 +158,9 @@ class EventBus:
             )
             return None
         except Exception:
-            log_structured("warning", "Redis publish failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "Redis publish failed", stream=stream, exc_info=True
+            )
             return None
 
     async def consume(
@@ -215,7 +221,9 @@ class EventBus:
             )
             return []
         except Exception:
-            log_structured("warning", "Redis consume failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "Redis consume failed", stream=stream, exc_info=True
+            )
             return []
 
     async def acknowledge(self, stream: str, group: str, *ids: str) -> int:
@@ -233,14 +241,18 @@ class EventBus:
             )
             return 0
         except Exception:
-            log_structured("warning", "Redis acknowledge failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "Redis acknowledge failed", stream=stream, exc_info=True
+            )
             return 0
 
     async def create_stream(self, stream: str) -> None:
         """Create a stream if it doesn't exist using mkstream."""
         try:
             # Use xgroup_create with mkstream which creates stream if missing
-            await self.redis.xgroup_create(stream, "temp_init_group", id="0", mkstream=True)
+            await self.redis.xgroup_create(
+                stream, "temp_init_group", id="0", mkstream=True
+            )
             # Clean up the temp group
             await self.redis.xgroup_destroy(stream, "temp_init_group")
         except ResponseError:
@@ -261,7 +273,9 @@ class EventBus:
         """Create all predefined streams and consumer groups."""
         for stream in STREAMS:
             try:
-                await self.redis.xgroup_create(stream, DEFAULT_GROUP, id="$", mkstream=True)
+                await self.redis.xgroup_create(
+                    stream, DEFAULT_GROUP, id="$", mkstream=True
+                )
             except ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     raise
@@ -287,7 +301,9 @@ class EventBus:
                     continue
 
                 pending = int(group.get("pending") or group.get(b"pending") or 0)
-                last_delivered = group.get("last-delivered-id") or group.get(b"last-delivered-id")
+                last_delivered = group.get("last-delivered-id") or group.get(
+                    b"last-delivered-id"
+                )
                 if isinstance(last_delivered, bytes):
                     last_delivered = last_delivered.decode()
 
@@ -301,7 +317,9 @@ class EventBus:
                         group=DEFAULT_GROUP,
                     )
         except Exception:
-            log_structured("warning", "fastforward_check_failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning", "fastforward_check_failed", stream=stream, exc_info=True
+            )
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
         """Get stream statistics using XINFO GROUPS (Redis 6-7 compatible).

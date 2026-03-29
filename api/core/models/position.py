@@ -21,7 +21,9 @@ from .base import Base
 class Position(Base):
     __tablename__ = "positions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     strategy_id = Column(
         UUID(as_uuid=True),
         ForeignKey("strategies.id", ondelete="CASCADE"),
@@ -41,7 +43,9 @@ class Position(Base):
     )
     schema_version = Column(String, nullable=False, index=True)
     source = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

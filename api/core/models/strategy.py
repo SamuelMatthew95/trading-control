@@ -13,7 +13,9 @@ from .base import Base
 class Strategy(Base):
     __tablename__ = "strategies"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     name = Column(String, unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     config = Column(
@@ -30,7 +32,9 @@ class Strategy(Base):
         index=True,
     )
     created_by = Column(String, nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

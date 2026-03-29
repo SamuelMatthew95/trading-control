@@ -92,7 +92,9 @@ async def lifespan(app: FastAPI):
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
-        pipeline = EventPipeline(event_bus, broadcaster, dlq_manager, agent_state=agent_state)
+        pipeline = EventPipeline(
+            event_bus, broadcaster, dlq_manager, agent_state=agent_state
+        )
         await pipeline.start()
 
         app.state.event_bus = event_bus

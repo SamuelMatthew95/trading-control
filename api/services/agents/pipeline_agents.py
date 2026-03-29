@@ -66,7 +66,9 @@ class MultiStreamAgent:
                         await self.process(stream, redis_id, data)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
                     except Exception as exc:  # noqa: BLE001
-                        await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
+                        await self.dlq.push(
+                            stream, redis_id, data, error=str(exc), retries=1
+                        )
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
             await asyncio.sleep(0.05)  # Agent processing throttle - allowed
 
@@ -84,7 +86,10 @@ class GradeAgent(MultiStreamAgent):
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == "executions":
             self._fills += 1
-        if self._fills == 0 or self._fills % max(int(settings.GRADE_EVERY_N_FILLS), 1) != 0:
+        if (
+            self._fills == 0
+            or self._fills % max(int(settings.GRADE_EVERY_N_FILLS), 1) != 0
+        ):
             return
         grade = {
             "msg_id": str(uuid.uuid4()),
@@ -152,7 +157,10 @@ class ReflectionAgent(MultiStreamAgent):
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == "trade_performance":
             self._fills += 1
-        if self._fills == 0 or self._fills % max(int(settings.REFLECT_EVERY_N_FILLS), 1) != 0:
+        if (
+            self._fills == 0
+            or self._fills % max(int(settings.REFLECT_EVERY_N_FILLS), 1) != 0
+        ):
             return
         reflection = {
             "msg_id": str(uuid.uuid4()),
@@ -175,7 +183,9 @@ class ReflectionAgent(MultiStreamAgent):
 
 class StrategyProposer(MultiStreamAgent):
     def __init__(self, bus: EventBus, dlq: DLQManager) -> None:
-        super().__init__(bus, dlq, streams=["reflection_outputs"], consumer="strategy-proposer")
+        super().__init__(
+            bus, dlq, streams=["reflection_outputs"], consumer="strategy-proposer"
+        )
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         proposal = {
@@ -245,4 +255,6 @@ class NotificationAgent(MultiStreamAgent):
             notification["msg_id"], "notifications", notification
         )
         await self.bus.publish("notifications", notification)
-        log_structured("debug", "notification_forwarded", stream=stream, observed_msg_id=msg_id)
+        log_structured(
+            "debug", "notification_forwarded", stream=stream, observed_msg_id=msg_id
+        )

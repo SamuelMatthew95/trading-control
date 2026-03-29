@@ -76,12 +76,18 @@ async def debug_streams(
     data: dict[str, list[dict[str, Any]]] = {}
     for stream in STREAMS:
         try:
-            messages = await redis_client.xrevrange(stream, max="+", min="-", count=limit)
+            messages = await redis_client.xrevrange(
+                stream, max="+", min="-", count=limit
+            )
             parsed: list[dict[str, Any]] = []
             for msg_id, fields in messages:
                 parsed.append(
                     {
-                        "msg_id": (msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)),
+                        "msg_id": (
+                            msg_id.decode()
+                            if isinstance(msg_id, bytes)
+                            else str(msg_id)
+                        ),
                         "fields": {
                             (k.decode() if isinstance(k, bytes) else str(k)): (
                                 v.decode() if isinstance(v, bytes) else v
@@ -92,7 +98,9 @@ async def debug_streams(
                 )
             data[stream] = parsed
         except Exception as exc:  # noqa: BLE001
-            log_structured("error", "debug_stream_read_failed", stream=stream, exc_info=True)
+            log_structured(
+                "error", "debug_stream_read_failed", stream=stream, exc_info=True
+            )
             data[stream] = [{"error": str(exc)}]
 
     return {
@@ -149,12 +157,16 @@ async def debug_dlq_stats(request: Request) -> dict[str, Any]:
     if dlq is None:
         raise HTTPException(status_code=503, detail="DLQ manager unavailable")
     stats = await dlq.stats()
-    stats["recent_activity"] = pipeline.status().get("recent_failures", [])[:10] if pipeline else []
+    stats["recent_activity"] = (
+        pipeline.status().get("recent_failures", [])[:10] if pipeline else []
+    )
     return stats
 
 
 @router.post("/publish-test-event")
-async def publish_test_event(request: Request, payload: TestEventRequest) -> dict[str, Any]:
+async def publish_test_event(
+    request: Request, payload: TestEventRequest
+) -> dict[str, Any]:
     bus = getattr(request.app.state, "event_bus", None)
     if bus is None:
         raise HTTPException(status_code=503, detail="Event bus unavailable")

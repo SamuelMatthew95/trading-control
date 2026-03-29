@@ -18,7 +18,9 @@ ACCEPTED_SCHEMA_VERSIONS = {"v3", "legacy", None, ""}
 
 
 class BaseStreamConsumer(ABC):
-    def __init__(self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str):
+    def __init__(
+        self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str
+    ):
         self.bus = bus
         self.dlq = dlq
         self.stream = stream
@@ -41,7 +43,9 @@ class BaseStreamConsumer(ABC):
         self._backoff = 1  # Reset backoff
 
         self._task = asyncio.create_task(self._run(), name=f"consumer:{self.stream}")
-        log_structured("info", "Consumer started", stream=self.stream, consumer=self.consumer)
+        log_structured(
+            "info", "Consumer started", stream=self.stream, consumer=self.consumer
+        )
 
     async def stop(self) -> None:
         """Stop the consumer with immediate shutdown and task cleanup."""
@@ -55,7 +59,9 @@ class BaseStreamConsumer(ABC):
         try:
             await asyncio.wait_for(self._task, timeout=2.0)
         except asyncio.TimeoutError:
-            log_structured("warning", "Consumer task timeout, cancelling", stream=self.stream)
+            log_structured(
+                "warning", "Consumer task timeout, cancelling", stream=self.stream
+            )
             # Cancel the task
             self._task.cancel()
             with suppress(asyncio.CancelledError):
@@ -64,7 +70,9 @@ class BaseStreamConsumer(ABC):
             # Expected when task is cancelled
             pass
         except Exception:
-            log_structured("warning", "Redis connection error during consume", stream=self.stream)
+            log_structured(
+                "warning", "Redis connection error during consume", stream=self.stream
+            )
         finally:
             self._task = None
             log_structured("info", "Consumer stopped", stream=self.stream)
@@ -166,7 +174,9 @@ class BaseStreamConsumer(ABC):
                 log_structured("info", "Consumer loop cancelled", stream=self.stream)
                 break
             except Exception:
-                log_structured("error", "Unexpected error in consumer loop", stream=self.stream)
+                log_structured(
+                    "error", "Unexpected error in consumer loop", stream=self.stream
+                )
                 break
 
         log_structured("info", "Consumer loop ended", stream=self.stream)
@@ -259,7 +269,9 @@ class BaseStreamConsumer(ABC):
                 if send_to_dlq:
                     retries_key = f"dlq:retries:{msg_id}"
                     retries = int(await self.dlq.redis.get(retries_key) or 0)
-                    await self.dlq.push(self.stream, msg_id, data, error=str(exc), retries=retries)
+                    await self.dlq.push(
+                        self.stream, msg_id, data, error=str(exc), retries=retries
+                    )
                     await self.bus.acknowledge(self.stream, self.group, msg_id)
                     log_structured(
                         "warning",

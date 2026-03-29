@@ -170,7 +170,9 @@ async def stream_agent_logs(
         try:
             # Get initial logs
             async with session_factory() as session:
-                query = select(AgentLog).order_by(AgentLog.timestamp.desc()).limit(limit)
+                query = (
+                    select(AgentLog).order_by(AgentLog.timestamp.desc()).limit(limit)
+                )
 
                 if agent_id:
                     query = query.where(AgentLog.agent_run_id == agent_id)
@@ -194,7 +196,9 @@ async def stream_agent_logs(
                     yield f"data: {json.dumps(log_data)}\n\n"
 
                 # Continue streaming new logs
-                last_timestamp = logs[0].timestamp if logs else datetime.now(timezone.utc)
+                last_timestamp = (
+                    logs[0].timestamp if logs else datetime.now(timezone.utc)
+                )
 
                 while True:
                     await asyncio.sleep(1)  # Log streaming interval - allowed
@@ -207,7 +211,9 @@ async def stream_agent_logs(
                         )
 
                         if agent_id:
-                            new_logs_query = new_logs_query.where(AgentLog.agent_run_id == agent_id)
+                            new_logs_query = new_logs_query.where(
+                                AgentLog.agent_run_id == agent_id
+                            )
                         if level:
                             new_logs_query = new_logs_query.where(
                                 AgentLog.log_level == level.upper()
@@ -272,7 +278,9 @@ async def get_system_metrics(
             "metrics": [
                 {
                     "metric_name": m.metric_name,
-                    "metric_value": float(m.metric_value or 0),  # Guard against NaN/None
+                    "metric_value": float(
+                        m.metric_value or 0
+                    ),  # Guard against NaN/None
                     "metric_unit": m.metric_unit,
                     "tags": m.tags or {},  # Guard against None
                     "timestamp": m.timestamp.isoformat(),

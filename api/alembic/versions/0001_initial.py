@@ -54,8 +54,12 @@ def upgrade() -> None:
         _uuid_column(),
         sa.Column("name", sa.String(length=255), nullable=False, unique=True),
         sa.Column("rules", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("risk_limits", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column(
+            "risk_limits", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column(
+            "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
+        ),
         _timestamp_column(),
     )
 
@@ -73,7 +77,9 @@ def upgrade() -> None:
         sa.Column("qty", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("idempotency_key", sa.String(length=255), nullable=False, unique=True),
+        sa.Column(
+            "idempotency_key", sa.String(length=255), nullable=False, unique=True
+        ),
         sa.Column("broker_order_id", sa.String(length=255), nullable=True),
         _timestamp_column(),
         sa.Column("filled_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
@@ -112,18 +118,24 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("symbol", sa.String(length=64), nullable=False),
-        sa.Column("signal_data", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "signal_data", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column("action", sa.String(length=32), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=False),
         sa.Column("primary_edge", sa.String(length=255), nullable=False),
-        sa.Column("risk_factors", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "risk_factors", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column("size_pct", sa.Float(), nullable=False),
         sa.Column("stop_atr_x", sa.Float(), nullable=False),
         sa.Column("rr_ratio", sa.Float(), nullable=False),
         sa.Column("latency_ms", sa.Integer(), nullable=False),
         sa.Column("cost_usd", sa.Float(), nullable=False),
         sa.Column("trace_id", sa.String(length=255), nullable=False),
-        sa.Column("fallback", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "fallback", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
         _timestamp_column(),
     )
 
@@ -164,7 +176,9 @@ def upgrade() -> None:
         sa.Column("holding_secs", sa.Integer(), nullable=False),
         sa.Column("entry_price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("exit_price", sa.Numeric(precision=18, scale=8), nullable=False),
-        sa.Column("market_context", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "market_context", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column(
             "factor_attribution",
             postgresql.JSONB(astext_type=sa.Text()),
@@ -239,8 +253,12 @@ def upgrade() -> None:
             sa.ForeignKey("orders.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("discrepancy", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "discrepancy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column(
+            "resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
         _timestamp_column(),
     )
 
@@ -253,7 +271,9 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.execute("CREATE INDEX audit_log_created_at_desc_idx ON audit_log (created_at DESC)")
+    op.execute(
+        "CREATE INDEX audit_log_created_at_desc_idx ON audit_log (created_at DESC)"
+    )
     op.execute(
         "CREATE INDEX system_metrics_metric_name_timestamp_desc_idx ON system_metrics (metric_name, timestamp DESC)"
     )

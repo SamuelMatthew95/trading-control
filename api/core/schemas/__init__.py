@@ -95,14 +95,18 @@ class TradeRequest(BaseModel):
 
     symbol: str = Field(..., description="Trading symbol")
     price: float = Field(..., gt=0, description="Current price")
-    signals: dict[str, Any] | None = Field(default_factory=list, description="Trading signals")
+    signals: dict[str, Any] | None = Field(
+        default_factory=list, description="Trading signals"
+    )
 
 
 class TradeDecision(BaseModel):
     """Trade analysis decision."""
 
     symbol: str = Field(..., description="Trading symbol")
-    decision: str = Field(..., pattern="^(LONG|SHORT|FLAT)$", description="Trading decision")
+    decision: str = Field(
+        ..., pattern="^(LONG|SHORT|FLAT)$", description="Trading decision"
+    )
     confidence: float = Field(..., ge=0, le=1, description="Confidence score")
     reasoning: str = Field(..., description="Decision reasoning")
     timestamp: datetime = Field(..., description="Decision timestamp")

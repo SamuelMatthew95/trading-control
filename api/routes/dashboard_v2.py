@@ -189,7 +189,9 @@ async def get_worker_health() -> dict[str, Any]:
                 "check_time": now.isoformat(),
             }
         except Exception as e:
-            log_structured("warning", "redis connection failed during health check", error=str(e))
+            log_structured(
+                "warning", "redis connection failed during health check", error=str(e)
+            )
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -210,7 +212,9 @@ async def get_worker_health() -> dict[str, Any]:
                 "check_time": now.isoformat(),
             }
         except Exception as e:
-            log_structured("warning", "redis read failed during health check", error=str(e))
+            log_structured(
+                "warning", "redis read failed during health check", error=str(e)
+            )
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -232,7 +236,9 @@ async def get_worker_health() -> dict[str, Any]:
                     price_data = json.loads(cached_value)
                     timestamp_str = price_data.get("timestamp")
                     if timestamp_str:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                        timestamp = datetime.fromisoformat(
+                            timestamp_str.replace("Z", "+00:00")
+                        )
                         timestamps.append(timestamp)
 
                         # Check if price is stale (older than 90 seconds)
@@ -248,7 +254,9 @@ async def get_worker_health() -> dict[str, Any]:
         heartbeat_status = "missing"
         if heartbeat_value:
             try:
-                heartbeat_time = datetime.fromisoformat(heartbeat_value.replace("Z", "+00:00"))
+                heartbeat_time = datetime.fromisoformat(
+                    heartbeat_value.replace("Z", "+00:00")
+                )
                 heartbeat_age = (now - heartbeat_time).total_seconds()
 
                 if heartbeat_age <= 10:

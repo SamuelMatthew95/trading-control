@@ -60,7 +60,9 @@ class SafeWriter:
             "TradePerformance",
         ]:
             if "source" not in data or not data["source"]:
-                raise ValueError(f"{model_name}: Source field is required and cannot be empty")
+                raise ValueError(
+                    f"{model_name}: Source field is required and cannot be empty"
+                )
 
         # Trace ID validation for v3
         if "trace_id" not in data or not data["trace_id"]:
@@ -77,12 +79,16 @@ class SafeWriter:
                 f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v2'"
             )
 
-    def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
+    def _log_write_operation(
+        self, operation: str, model_name: str, entity_id: str
+    ) -> None:
         """Log write operations with proper context."""
         if not entity_id:
             raise ValueError("entity_id is required for audit logging")
 
-        log_structured("info", "write audit", operation=operation, model=model_name, id=entity_id)
+        log_structured(
+            "info", "write audit", operation=operation, model=model_name, id=entity_id
+        )
 
     @asynccontextmanager
     async def transaction(self):
@@ -117,10 +123,14 @@ class SafeWriter:
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError) as e:
-            log_structured("warning", "datetime parse failed", dt_str=dt_str, error=str(e))
+            log_structured(
+                "warning", "datetime parse failed", dt_str=dt_str, error=str(e)
+            )
             return None
 
-    async def _claim_message(self, session: AsyncSession, msg_id: str, stream: str) -> bool:
+    async def _claim_message(
+        self, session: AsyncSession, msg_id: str, stream: str
+    ) -> bool:
         """Atomically claim message with RETURNING to check success."""
         try:
             result = await session.execute(
@@ -153,7 +163,9 @@ class SafeWriter:
                 # Require idempotency_key (fix NULL dedup issue)
                 idempotency_key = data.get("idempotency_key")
                 if not idempotency_key:
-                    raise ValueError("idempotency_key is required for order deduplication")
+                    raise ValueError(
+                        "idempotency_key is required for order deduplication"
+                    )
 
                 # Log the operation
                 self._log_write_operation("write_order", "Order", msg_id)
@@ -235,7 +247,9 @@ class SafeWriter:
                 )
                 raise
 
-    async def write_execution(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_execution(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write execution with atomic claim-at-end and order existence check."""
         if not msg_id:
             raise ValueError("msg_id is required for write_execution")
@@ -272,7 +286,9 @@ class SafeWriter:
                 )
 
                 if result.rowcount == 0:
-                    raise ValueError(f"Order {data['order_id']} not found for execution")
+                    raise ValueError(
+                        f"Order {data['order_id']} not found for execution"
+                    )
 
                 # Upsert position with on_conflict_do_update
                 position_stmt = (
@@ -311,7 +327,9 @@ class SafeWriter:
                 )
 
                 if claim_result.scalar() is None:
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -323,10 +341,14 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "write error", msg_id=msg_id, stream=stream, error=str(e))
+                log_structured(
+                    "error", "write error", msg_id=msg_id, stream=stream, error=str(e)
+                )
                 raise
 
-    async def write_agent_log(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_agent_log(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write agent log with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_agent_log")
@@ -379,7 +401,9 @@ class SafeWriter:
                 )
 
                 if claim_result.scalar() is None:
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "debug",
@@ -469,7 +493,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, "system_metrics"):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -480,10 +506,14 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "system metric write error", msg_id=msg_id, error=str(e))
+                log_structured(
+                    "error", "system metric write error", msg_id=msg_id, error=str(e)
+                )
                 raise
 
-    async def write_trade_performance(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_trade_performance(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write trade performance with validation."""
         if not msg_id:
             raise ValueError("msg_id is required for write_trade_performance")
@@ -498,7 +528,9 @@ class SafeWriter:
                 )
 
                 # Log the operation
-                self._log_write_operation("write_trade_performance", "TradePerformance", msg_id)
+                self._log_write_operation(
+                    "write_trade_performance", "TradePerformance", msg_id
+                )
 
                 # Handle timestamps with explicit fallback logging
                 entry_time_str = data["entry_time"]
@@ -543,7 +575,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -562,7 +596,9 @@ class SafeWriter:
                 )
                 raise
 
-    async def write_vector_memory(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_vector_memory(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write vector memory with embedding validation."""
         if not msg_id:
             raise ValueError("msg_id is required for write_vector_memory")
@@ -588,7 +624,9 @@ class SafeWriter:
                     "content": data["content"],
                     "content_type": data["content_type"],
                     "embedding": data["embedding"],  # Validated to be 1536 floats
-                    "vector_metadata": data.get("metadata", {}),  # Map metadata to vector_metadata
+                    "vector_metadata": data.get(
+                        "metadata", {}
+                    ),  # Map metadata to vector_metadata
                     "agent_id": data.get("agent_id"),
                     "strategy_id": data.get("strategy_id"),
                     "schema_version": data.get("schema_version", "v2"),
@@ -600,7 +638,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -611,10 +651,14 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "vector memory write error", msg_id=msg_id, error=str(e))
+                log_structured(
+                    "error", "vector memory write error", msg_id=msg_id, error=str(e)
+                )
                 raise
 
-    async def write_risk_alert(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_risk_alert(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write risk alert as event."""
         if not msg_id:
             raise ValueError("msg_id is required for write_risk_alert")
@@ -633,7 +677,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -644,10 +690,14 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "risk alert write error", msg_id=msg_id, error=str(e))
+                log_structured(
+                    "error", "risk alert write error", msg_id=msg_id, error=str(e)
+                )
                 raise
 
-    async def write_agent_grade(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_agent_grade(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write agent grade with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_agent_grade")
@@ -656,7 +706,9 @@ class SafeWriter:
             try:
                 # Strict V3 schema validation
                 self._validate_schema_v3(data, "AgentGrades")
-                self.validate_payload(data, ["agent_id", "agent_run_id", "grade_type", "score"])
+                self.validate_payload(
+                    data, ["agent_id", "agent_run_id", "grade_type", "score"]
+                )
 
                 # Log the operation
                 self._log_write_operation("write_agent_grade", "AgentGrades", msg_id)
@@ -677,7 +729,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -689,10 +743,14 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "agent grade write error", msg_id=msg_id, error=str(e))
+                log_structured(
+                    "error", "agent grade write error", msg_id=msg_id, error=str(e)
+                )
                 raise
 
-    async def write_ic_weight(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_ic_weight(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write IC weight with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_ic_weight")
@@ -719,7 +777,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -730,10 +790,14 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "ic weight write error", msg_id=msg_id, error=str(e))
+                log_structured(
+                    "error", "ic weight write error", msg_id=msg_id, error=str(e)
+                )
                 raise
 
-    async def write_reflection_output(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_reflection_output(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write reflection output with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_reflection_output")
@@ -745,13 +809,17 @@ class SafeWriter:
                 self.validate_payload(data, ["agent_id", "reflection_type", "insights"])
 
                 # Log the operation
-                self._log_write_operation("write_reflection_output", "ReflectionOutput", msg_id)
+                self._log_write_operation(
+                    "write_reflection_output", "ReflectionOutput", msg_id
+                )
 
                 # Insert as vector memory for semantic search
                 vector_data = {
                     "content": data.get("insights", ""),
                     "content_type": "reflection",
-                    "embedding": data.get("embedding", [0.0] * 1536),  # Placeholder embedding
+                    "embedding": data.get(
+                        "embedding", [0.0] * 1536
+                    ),  # Placeholder embedding
                     "vector_metadata": {
                         "reflection_type": data.get("reflection_type"),
                         "agent_id": data.get("agent_id"),
@@ -770,7 +838,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -789,7 +859,9 @@ class SafeWriter:
                 )
                 raise
 
-    async def write_strategy_proposal(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_strategy_proposal(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write strategy proposal with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_strategy_proposal")
@@ -801,7 +873,9 @@ class SafeWriter:
                 self.validate_payload(data, ["proposal_type", "content"])
 
                 # Log the operation
-                self._log_write_operation("write_strategy_proposal", "StrategyProposal", msg_id)
+                self._log_write_operation(
+                    "write_strategy_proposal", "StrategyProposal", msg_id
+                )
 
                 # Insert as event for now (can be extended to dedicated table later)
                 event_data = {
@@ -816,7 +890,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -834,7 +910,9 @@ class SafeWriter:
                     error=str(e),
                 )
 
-    async def write_notification(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
+    async def write_notification(
+        self, msg_id: str, stream: str, data: dict[str, Any]
+    ) -> bool:
         """Write notification with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_notification")
@@ -861,7 +939,9 @@ class SafeWriter:
 
                 # CLAIM LAST with RETURNING
                 if not await self._claim_message(session, msg_id, stream):
-                    raise ValueError(f"Message {msg_id} was already processed in this transaction")
+                    raise ValueError(
+                        f"Message {msg_id} was already processed in this transaction"
+                    )
 
                 log_structured(
                     "info",
@@ -872,5 +952,7 @@ class SafeWriter:
                 return True
 
             except Exception as e:
-                log_structured("error", "notification write error", msg_id=msg_id, error=str(e))
+                log_structured(
+                    "error", "notification write error", msg_id=msg_id, error=str(e)
+                )
                 raise

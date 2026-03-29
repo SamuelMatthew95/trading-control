@@ -25,7 +25,9 @@ from .base import Base
 class TradePerformance(Base):
     __tablename__ = "trade_performance"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     strategy_id = Column(
         UUID(as_uuid=True),
         ForeignKey("strategies.id", ondelete="CASCADE"),
@@ -51,7 +53,9 @@ class TradePerformance(Base):
     max_drawdown = Column(Numeric(18, 8), nullable=True)
     max_runup = Column(Numeric(18, 8), nullable=True)
     sharpe_ratio = Column(Numeric(18, 8), nullable=True)
-    trade_type = Column(Enum("long", "short", name="trade_type"), nullable=False, index=True)
+    trade_type = Column(
+        Enum("long", "short", name="trade_type"), nullable=False, index=True
+    )
     exit_reason = Column(String, nullable=True)
     regime = Column(String, nullable=True, index=True)
     hour_utc = Column(Integer, nullable=True, index=True)
@@ -60,7 +64,9 @@ class TradePerformance(Base):
     )
     schema_version = Column(String, nullable=False, server_default="v2", index=True)
     source = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         Index("idx_trade_performance_agent_created", "agent_id", "created_at"),
@@ -69,14 +75,18 @@ class TradePerformance(Base):
         Index("idx_trade_strategy_time", "strategy_id", "entry_time"),
         Index("idx_trade_unique", "strategy_id", "trade_id", unique=True),
         Index("idx_trade_performance_schema_version", "schema_version"),
-        CheckConstraint("schema_version = 'v2'", name="check_trade_performance_schema_v2"),
+        CheckConstraint(
+            "schema_version = 'v2'", name="check_trade_performance_schema_v2"
+        ),
     )
 
 
 class VectorMemory(Base):
     __tablename__ = "vector_memory"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     agent_id = Column(
         UUID(as_uuid=True),
         ForeignKey("agent_pool.id", ondelete="CASCADE"),
@@ -95,7 +105,9 @@ class VectorMemory(Base):
         nullable=False,
         index=True,
     )
-    embedding = Column(VECTOR(1536), nullable=False)  # Vector embeddings for search - required
+    embedding = Column(
+        VECTOR(1536), nullable=False
+    )  # Vector embeddings for search - required
     vector_metadata = Column(
         MutableDict.as_mutable(JSONB), default=dict, server_default=text("'{}'::jsonb")
     )
@@ -104,7 +116,9 @@ class VectorMemory(Base):
     )
     schema_version = Column(String, nullable=False, server_default="v2", index=True)
     source = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         Index("idx_vector_memory_agent_type", "agent_id", "content_type"),
@@ -124,14 +138,20 @@ class VectorMemory(Base):
 class SystemMetrics(Base):
     __tablename__ = "system_metrics"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     metric_name = Column(String, nullable=False, index=True)
     metric_value = Column(Numeric(18, 8), nullable=False)
     metric_unit = Column(String, nullable=True)
-    tags = Column(MutableDict.as_mutable(JSONB), default=dict, server_default=text("'{}'::jsonb"))
+    tags = Column(
+        MutableDict.as_mutable(JSONB), default=dict, server_default=text("'{}'::jsonb")
+    )
     schema_version = Column(String, nullable=False, server_default="v2", index=True)
     source = Column(String, nullable=False, index=True)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    timestamp = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         Index("idx_metrics_name_timestamp", "metric_name", "timestamp"),

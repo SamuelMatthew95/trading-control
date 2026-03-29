@@ -49,13 +49,17 @@ async def get_trades(
                 for t in trades
             ]
 
-            return StandardResponse(success=True, data={"trades": trades_data}).model_dump()
+            return StandardResponse(
+                success=True, data={"trades": trades_data}
+            ).model_dump()
     except (OperationalError, ProgrammingError):
         # In degraded environments (fresh DB / local sqlite without migrations),
         # return an empty payload instead of failing the endpoint.
         return StandardResponse(success=True, data={"trades": []}).model_dump()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch trades: {str(exc)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch trades: {str(exc)}"
+        ) from None
 
 
 @router.post("/trades")
@@ -67,7 +71,9 @@ async def save_trade(
     try:
         # Validate input data
         if not trade_data.get("symbol") or not trade_data.get("trade_type"):
-            raise HTTPException(status_code=400, detail="Symbol and trade_type are required")
+            raise HTTPException(
+                status_code=400, detail="Symbol and trade_type are required"
+            )
 
         # Generate unique message ID for exactly-once semantics
         msg_id = str(uuid4())
@@ -85,7 +91,9 @@ async def save_trade(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to save trade: {str(exc)}") from None
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save trade: {str(exc)}"
+        ) from None
 
 
 @router.options("/trades")
@@ -168,7 +176,9 @@ async def get_trading_status() -> dict[str, Any]:
                 "risk_exposure": bot_state["risk_exposure"],
                 "total_trades": bot_state["total_trades"],
                 "performance": (
-                    bot_state["performance"][-30:] if bot_state["performance"] else [0] * 30
+                    bot_state["performance"][-30:]
+                    if bot_state["performance"]
+                    else [0] * 30
                 ),
             },
         ).model_dump()
@@ -219,7 +229,9 @@ async def get_bots_status() -> dict[str, Any]:
                 "status": "running" if bot_state["running"] else "stopped",
                 "uptime": str(bot_state["uptime_minutes"]),
                 "performance": (
-                    bot_state["performance"][-30:] if bot_state["performance"] else [0] * 30
+                    bot_state["performance"][-30:]
+                    if bot_state["performance"]
+                    else [0] * 30
                 ),
                 "active_position": bot_state.get("active_position"),
                 "risk_exposure": bot_state["risk_exposure"],

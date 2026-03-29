@@ -42,7 +42,9 @@ class DatabaseReadinessError(RuntimeError):
     """Raised when database schema validation fails."""
 
 
-def _collect_missing_tables(engine: Engine, required_tables: Iterable[str]) -> list[str]:
+def _collect_missing_tables(
+    engine: Engine, required_tables: Iterable[str]
+) -> list[str]:
     inspector = inspect(engine)
     return [table for table in required_tables if not inspector.has_table(table)]
 
@@ -82,7 +84,10 @@ def ensure_database_ready(engine: Engine) -> bool:
 
         missing_indexes = _collect_missing_indexes(engine, CRITICAL_INDEXES)
         if missing_indexes:
-            message = "Critical indexes missing: " f"{missing_indexes}. Run 'alembic upgrade head'."
+            message = (
+                "Critical indexes missing: "
+                f"{missing_indexes}. Run 'alembic upgrade head'."
+            )
             raise DatabaseReadinessError(message)
 
         log_structured("info", "database schema verification passed")

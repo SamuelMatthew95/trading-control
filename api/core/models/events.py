@@ -13,7 +13,9 @@ from .base import Base
 class Event(Base):
     __tablename__ = "events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     event_type = Column(String, nullable=False, index=True)
     entity_type = Column(String, nullable=False, index=True)
     entity_id = Column(String, nullable=False, index=True)
@@ -26,7 +28,9 @@ class Event(Base):
     )
     schema_version = Column(String, nullable=False, index=True)
     source = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         Index("idx_events_entity_created", "entity_type", "entity_id", "created_at"),
@@ -45,6 +49,10 @@ class ProcessedEvent(Base):
 
     msg_id = Column(String, primary_key=True)
     stream = Column(String, nullable=False, index=True)
-    processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    processed_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
-    __table_args__ = (Index("idx_processed_events_stream_time", "stream", "processed_at"),)
+    __table_args__ = (
+        Index("idx_processed_events_stream_time", "stream", "processed_at"),
+    )
