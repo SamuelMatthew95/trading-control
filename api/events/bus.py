@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
-from redis.exceptions import ConnectionError, ResponseError, TimeoutError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ResponseError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.observability import log_structured
 
@@ -142,7 +144,7 @@ class EventBus:
 
             return str(message_id)
 
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured(
                 "warning", "Redis connection error during publish", stream=stream, exc_info=True
             )
@@ -199,7 +201,7 @@ class EventBus:
 
             return result
 
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured(
                 "warning", "Redis connection error during consume", stream=stream, exc_info=True
             )
@@ -214,7 +216,7 @@ class EventBus:
             return 0
         try:
             return int(await self.redis.xack(stream, group, *ids))
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured(
                 "warning", "Redis connection error during acknowledge", stream=stream, exc_info=True
             )
@@ -356,7 +358,7 @@ class EventBus:
 
             return decoded
 
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured(
                 "warning", "Redis connection error during reclaim_stale",
                 stream=stream, group=group, exc_info=True

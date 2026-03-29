@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from redis.asyncio import ConnectionPool, Redis
-from redis.exceptions import ConnectionError, TimeoutError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
 from api.observability import log_structured
@@ -39,14 +40,14 @@ async def get_redis() -> Redis:
             socket_timeout=5,
             health_check_interval=30,
             retry_on_timeout=True,
-            retry_on_error=[ConnectionError],
+            retry_on_error=[RedisConnectionError],
         )
         _redis_client = Redis(connection_pool=_redis_pool)
 
         try:
             await _redis_client.ping()
             log_structured("info", "redis_connected", event_name="redis_connected", url_masked=_mask_redis_url(redis_url))
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured("error", "Redis connection failed", exc_info=True)
             await close_redis()
             raise
@@ -59,7 +60,7 @@ async def close_redis() -> None:
         try:
             await _redis_client.aclose()
             log_structured("info", "Redis client closed")
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured("warning", "Error closing Redis client", exc_info=True)
         finally:
             _redis_client = None
@@ -68,7 +69,7 @@ async def close_redis() -> None:
         try:
             await _redis_pool.aclose()
             log_structured("info", "Redis connection pool closed")
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured("warning", "Error closing Redis pool", exc_info=True)
         finally:
             _redis_pool = None

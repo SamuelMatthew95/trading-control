@@ -14,6 +14,7 @@ from typing import Any
 import redis.asyncio as redis
 
 from api.observability import log_structured
+
 from .config import get_settings
 from .stream_logic import BackpressureController, MessageProcessor
 from .writer.safe_writer import SafeWriter

@@ -7,7 +7,8 @@ from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
 
-from redis.exceptions import ConnectionError, TimeoutError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -145,7 +146,7 @@ class BaseStreamConsumer(ABC):
                         break
                     await self._handle_message(msg_id, data)
 
-            except (ConnectionError, TimeoutError):
+            except (RedisConnectionError, RedisTimeoutError):
                 log_structured(
                     "warning",
                     "Redis connection error in consumer loop",
@@ -200,7 +201,7 @@ class BaseStreamConsumer(ABC):
         except asyncio.TimeoutError:
             log_structured("warning", "Reclaim stale timeout", stream=self.stream)
             return []
-        except (ConnectionError, TimeoutError):
+        except (RedisConnectionError, RedisTimeoutError):
             log_structured(
                 "warning",
                 "Redis connection error during reclaim",
@@ -271,7 +272,7 @@ class BaseStreamConsumer(ABC):
                         message_id=msg_id,
                         trace_id=data.get("trace_id")
                     )
-            except (ConnectionError, TimeoutError):
+            except (RedisConnectionError, RedisTimeoutError):
                 log_structured(
                     "error",
                     "Redis error during DLQ handling",

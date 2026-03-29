@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.observability import log_structured
+
 from ..models import (
     AgentGrades,
     AgentLog,

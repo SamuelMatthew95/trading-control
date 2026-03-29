@@ -5,7 +5,6 @@ Validates all required environment variables before starting FastAPI app
 
 import os
 import sys
-from typing import Dict, List
 
 
 def validate_required_env() -> bool:
