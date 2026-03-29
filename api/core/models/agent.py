@@ -24,9 +24,7 @@ from .base import Base
 class AgentPool(Base):
     __tablename__ = "agent_pool"
 
-    id = Column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
-    )
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     name = Column(String, unique=True, nullable=False, index=True)
     agent_type = Column(
         Enum("analysis", "execution", "learning", "monitoring", name="agent_type"),
@@ -34,9 +32,7 @@ class AgentPool(Base):
         index=True,
     )
     description = Column(Text, nullable=True)
-    config = Column(
-        MutableDict.as_mutable(JSONB), default=dict, server_default=text("'{}'::jsonb")
-    )
+    config = Column(MutableDict.as_mutable(JSONB), default=dict, server_default=text("'{}'::jsonb"))
     capabilities = Column(
         MutableDict.as_mutable(JSONB), default=dict, server_default=text("'[]'::jsonb")
     )
@@ -47,9 +43,7 @@ class AgentPool(Base):
         index=True,
     )
     version = Column(String, nullable=False, default="1.0.0")
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -63,9 +57,7 @@ class AgentPool(Base):
 class AgentRun(Base):
     __tablename__ = "agent_runs"
 
-    id = Column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
-    )
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     agent_id = Column(
         UUID(as_uuid=True),
         ForeignKey("agent_pool.id", ondelete="CASCADE"),
@@ -97,9 +89,7 @@ class AgentRun(Base):
     execution_time_ms = Column(Integer, nullable=True)
     tokens_used = Column(Integer, server_default="0", nullable=False)
     cost_usd = Column(Numeric(18, 8), server_default="0", nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -118,9 +108,7 @@ class AgentRun(Base):
 class AgentLog(Base):
     __tablename__ = "agent_logs"
 
-    id = Column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
-    )
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     agent_run_id = Column(
         UUID(as_uuid=True),
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -144,9 +132,7 @@ class AgentLog(Base):
     timestamp = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )  # Add timestamp field
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("idx_agent_logs_run_created", "agent_run_id", "created_at"),
@@ -159,9 +145,7 @@ class AgentLog(Base):
 class AgentGrades(Base):
     __tablename__ = "agent_grades"
 
-    id = Column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
-    )
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     agent_id = Column(
         UUID(as_uuid=True),
         ForeignKey("agent_pool.id", ondelete="CASCADE"),
@@ -186,9 +170,7 @@ class AgentGrades(Base):
     feedback = Column(Text, nullable=True)
     schema_version = Column(String, nullable=False, index=True)
     source = Column(String, nullable=False, index=True)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("idx_agent_grades_agent_type", "agent_id", "grade_type"),

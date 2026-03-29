@@ -58,9 +58,7 @@ class Settings(BaseSettings):
     API_SECRET_KEY: str | None = Field(default=None)
     NODE_ENV: str = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
-    ALLOWED_ORIGINS: str = (
-        "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
-    )
+    ALLOWED_ORIGINS: str = "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,*.vercel.app,*.onrender.com"
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3

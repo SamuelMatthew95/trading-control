@@ -30,9 +30,7 @@ class DLQManager:
             "retries": retries,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        await self.redis.hset(
-            f"dlq:{stream}", event_id, json.dumps(record, default=str)
-        )
+        await self.redis.hset(f"dlq:{stream}", event_id, json.dumps(record, default=str))
 
     async def should_dlq(self, event_id: str) -> bool:
         retries_key = f"dlq:retries:{event_id}"

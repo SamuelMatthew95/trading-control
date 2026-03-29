@@ -53,9 +53,7 @@ def upgrade() -> None:
     op.add_column("agent_runs", sa.Column("latency_ms", sa.Integer(), nullable=True))
     op.add_column("agent_runs", sa.Column("cost_usd", sa.Float(), nullable=True))
     op.add_column("agent_runs", sa.Column("trace_id", sa.String(255), nullable=True))
-    op.add_column(
-        "agent_runs", sa.Column("fallback", sa.Boolean(), server_default="false")
-    )
+    op.add_column("agent_runs", sa.Column("fallback", sa.Boolean(), server_default="false"))
     op.create_index("ix_agent_runs_trace_id", "agent_runs", ["trace_id"])
 
     # Remove old unused columns from agent_runs

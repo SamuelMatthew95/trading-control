@@ -96,9 +96,7 @@ async def get_monitoring_summary() -> dict[str, Any]:
             "overall_status": health_score.get("status", "unknown"),
             "health_score": health_score.get("score", 0),
             "active_alerts": len(alerts),
-            "critical_alerts": len(
-                [a for a in alerts if a.get("severity") == "critical"]
-            ),
+            "critical_alerts": len([a for a in alerts if a.get("severity") == "critical"]),
             "system_load": metrics.get("performance", {}).get("system_load", 0),
             "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
             "agents_active": metrics.get("agents", {}).get("agents_active", 0),
