@@ -9,8 +9,6 @@ import pytest_asyncio
 
 from api.core.writer.safe_writer import SafeWriter
 
-os.environ.setdefault("ENABLE_SIGNAL_SCHEDULER", "false")
-
 TEST_REFERENCE_DT = datetime(2024, 6, 15, 12, 0, 0)
 
 

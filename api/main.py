@@ -20,6 +20,7 @@ from api.events.dlq import DLQManager
 from api.observability import bind_request_context, configure_logging, log_structured, metrics_store
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
+from api.routes.api_v1 import router as api_v1_router
 from api.routes.health import router as health_router
 from api.routes.dlq import router as dlq_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
@@ -28,7 +29,8 @@ from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
 from api.services.market_ingestor import MarketDataIngestor
 from api.services.signal_generator import SignalGenerator
-from api.services.agents.reasoning_agent import ReasoningAgent
+from api.services.agents.signal_agent import SignalAgent
+from api.services.agents.reasoning_agent_v2 import ReasoningAgent
 from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
@@ -97,13 +99,12 @@ async def lifespan(app: FastAPI):
         app.state.agent_state = agent_state
 
         agents = [
-            MarketDataIngestor(event_bus),
-            SignalGenerator(event_bus, dlq_manager),
+            SignalAgent(event_bus, dlq_manager, redis_client),
             ReasoningAgent(event_bus, dlq_manager, redis_client),
-            GradeAgent(event_bus, dlq_manager),
+            GradeAgent(event_bus, dlq_manager, redis_client),
             ICUpdater(event_bus, dlq_manager, redis_client),
-            ReflectionAgent(event_bus, dlq_manager),
-            StrategyProposer(event_bus, dlq_manager),
+            ReflectionAgent(event_bus, dlq_manager, redis_client),
+            StrategyProposer(event_bus, dlq_manager, redis_client),
             NotificationAgent(event_bus, dlq_manager, redis_client),
         ]
         for agent in agents:
@@ -126,7 +127,7 @@ async def lifespan(app: FastAPI):
             pipeline="started",
             websocket="ready",
             agents_connected=len(app.state.agents),
-            agents=list(AGENT_NAMES),
+            agents=["SIGNAL_AGENT", "REASONING_AGENT", "GRADE_AGENT", "IC_UPDATER", "REFLECTION_AGENT", "STRATEGY_PROPOSER", "NOTIFICATION_AGENT"],
             msg_id="none",
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -169,6 +170,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_csv_env(settings.A
 
 app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
+app.include_router(api_v1_router)
 app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
 app.include_router(dashboard_v2_router, prefix="/api")

@@ -34,9 +34,9 @@ services:
     plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python -m api.workers.price_poller
-    healthCheckPath: /api/dashboard/health/worker
     autoDeploy: true
     dependsOn:
+      - trading-control-db
       - trading-control-redis
     restartPolicy:
       type: always
@@ -48,7 +48,19 @@ services:
       - key: REDIS_URL
         fromService:
           name: trading-control-redis
-          type: ps
+          type: redis
+      - key: DATABASE_URL
+        fromService:
+          name: trading-control-db
+          type: pserv
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      - key: ALPACA_BASE_URL
+        value: https://paper-api.alpaca.markets
+      - key: MARKET_DATA_PROVIDER
+        value: alpaca
 
   # PostgreSQL
   - type: ps

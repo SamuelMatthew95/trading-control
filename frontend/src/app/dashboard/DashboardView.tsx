@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import {
   Activity,
@@ -12,6 +11,9 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react'
+import { useCodexStore } from '@/stores/useCodexStore'
+import { LiveMarketPrices } from '@/components/dashboard/LiveMarketPrices'
+import { AgentMatrix } from '@/components/dashboard/AgentMatrix'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -179,56 +181,27 @@ function MobileNavigation({ section }: { section: Section }) {
 }
 
 export function DashboardView({ section }: { section: Section }) {
+  // Legacy data for non-realtime components
   const {
-    agentLogs = [],
-    learningEvents = [],
     orders = [],
-    prices = {},
     positions = [],
     systemMetrics = [],
     dashboardData,
-    marketTickCount,
-    lastMarketSymbol,
-    streamStats,
-    wsMessageCount,
-    wsLastMessageTimestamp,
-    recentEvents,
-    wsConnected,
-    fetchPrices,
+    learningEvents = [],
+    agentLogs = [],
+    marketTickCount = 0,
+    lastMarketSymbol = null,
+    streamStats = {},
+    wsMessageCount = 0,
+    wsLastMessageTimestamp = null,
+    recentEvents = [],
+    wsConnected = false,
   } = useCodexStore()
 
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
-  const [pricesLoading, setPricesLoading] = useState(true)
-
-  // Fetch initial prices on component mount
-  useEffect(() => {
-    const loadPrices = async () => {
-      setPricesLoading(true)
-      await fetchPrices()
-      setPricesLoading(false)
-    }
-    loadPrices()
-  }, [fetchPrices])
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
-  const summary = useMemo(() => {
-    const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
-    const wins = orders.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
-    const winRate = orders.length > 0 ? (wins / orders.length) * 100 : null
-    const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
-    const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
-    const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
-    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard
-
-    return {
-      dailyPnlNumeric,
-      winRate,
-      activePositions,
-      dailyChange,
-      hasOrders: orders.length > 0,
-    }
-  }, [orders, positions, systemMetrics, dashboardData])
-
+  
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { count: number; lastSeen: Date | null }>>((acc, log) => {
       const name = sanitizeValue(log?.agent_name || log?.agent)
@@ -265,18 +238,23 @@ export function DashboardView({ section }: { section: Section }) {
     return Array.from(normalizedByName.values())
   }, [agentLogs])
 
-  useEffect(() => {
-    if (!wsConnected || agentLogs.length > 0) {
-      setShowNoAgentDataMessage(false)
-      return
+  const summary = useMemo(() => {
+    const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
+    const wins = orders.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
+    const winRate = orders.length > 0 ? (wins / orders.length) * 100 : null
+    const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
+    const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
+    const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
+    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard
+
+    return {
+      dailyPnlNumeric,
+      winRate,
+      activePositions,
+      dailyChange,
+      hasOrders: orders.length > 0,
     }
-    const timer = setTimeout(() => {
-      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
-        setShowNoAgentDataMessage(true)
-      }
-    }, 10000)
-    return () => clearTimeout(timer)
-  }, [agentLogs.length, wsConnected])
+  }, [orders, positions, systemMetrics, dashboardData])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -306,10 +284,6 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [learningEvents, orders])
 
-  const tickerEntries = useMemo(
-    () => TICKER_SYMBOLS.map((symbol) => [symbol, prices[symbol]] as const),
-    [prices]
-  )
 
   const contentBySection = (
     <>
@@ -340,104 +314,11 @@ export function DashboardView({ section }: { section: Section }) {
               <EquityCurve orders={orders} />
             </div>
             <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
-              <div className="mb-3 flex items-center justify-between">
-                <p className={sectionTitleClass}>Agent Matrix</p>
-                <p className={mutedClass}>{sanitizeValue(realAgents.length)}</p>
-              </div>
-              {realAgents.length === 0 ? (
-                <EmptyState message="No agent data available" icon={Activity} />
-              ) : (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {realAgents.map((agent) => (
-                    <div
-                      key={agent.name}
-                      className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
-                        <div className="flex items-center gap-2">
-                          <span className={cn('h-2 w-2 rounded-full', 
-                            agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 
-                            agent.status === 'IDLE' ? 'bg-amber-500' : 'bg-slate-500'
-                          )} />
-                          <span className={cn('text-xs font-sans font-medium',
-                            agent.status === 'ACTIVE' ? 'text-emerald-500' : 
-                            agent.status === 'IDLE' ? 'text-amber-500' : 'text-slate-500'
-                          )}>{agent.status}</span>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between">
-                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                          {agent.count} events
-                        </p>
-                        <p className={mutedClass}>
-                          {agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'Never'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <AgentMatrix />
             </div>
           </div>
 
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Live Market Prices</p>
-              <div className="flex items-center gap-2">
-                {pricesLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                    <span className="text-xs font-sans text-amber-500">Loading</span>
-                  </div>
-                ) : Object.keys(prices).length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-sans text-emerald-500">Live</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-slate-500" />
-                    <span className="text-xs font-sans text-slate-500">No Data</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {pricesLoading ? (
-                // Show loading skeletons
-                Array.from({ length: 6 }).map((_, index) => <PriceCardSkeleton key={`skeleton-${index}`} />)
-              ) : (
-                tickerEntries.map(([symbol, priceData]) => {
-                  const price = toFiniteNumber(priceData?.price)
-                  const previous = toFiniteNumber(priceData?.previousPrice)
-                  const change = price != null && previous != null ? price - previous : null
-                  const isPositive = (change ?? 0) >= 0
-                  const hasData = price != null && !isNaN(price)
-                  
-                  return (
-                    <div key={symbol} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                      <div className="flex items-center justify-between">
-                        <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
-                        <div className={cn('h-2 w-2 rounded-full', hasData ? 'bg-emerald-500' : 'bg-slate-500')} />
-                      </div>
-                      <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                        {hasData ? formatUSD(price) : '--'}
-                      </p>
-                      <div className="mt-2 flex items-center justify-between">
-                        <p className={cn('text-xs font-mono tabular-nums', 
-                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500'
-                        )}>
-                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
-                        </p>
-                        <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </div>
+          <LiveMarketPrices />
         </div>
       )}
 
