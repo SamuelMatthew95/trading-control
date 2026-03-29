@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(pytest:*)",
+      "Bash(alembic:*)",
+      "Bash(redis-cli:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(npm:*)",
+      "Bash(python:*)",
+      "Bash(uvicorn:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(drop:*)"
+    ]
+  }
+}
