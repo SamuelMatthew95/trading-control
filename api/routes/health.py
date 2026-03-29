@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from api.core.schemas import HealthResponse
 from api.database import test_database_connection
-from api.observability import metrics_store
+from api.observability import log_structured, metrics_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -33,7 +33,7 @@ async def _database_ready(request: Request) -> bool:
             await asyncio.wait_for(connection.execute(text("SELECT 1")), timeout=2.0)
         return True
     except Exception as e:
-        logger.warning(f"Database health check failed: {e}")
+        log_structured("warning", "database health check failed", error=str(e))
         return False
 
 
@@ -45,7 +45,7 @@ async def _redis_ready(request: Request) -> bool:
         result = await asyncio.wait_for(redis_client.ping(), timeout=2.0)
         return bool(result)
     except Exception as e:
-        logger.warning(f"Redis health check failed: {e}")
+        log_structured("warning", "redis health check failed", error=str(e))
         return False
 
 
