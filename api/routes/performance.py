@@ -9,11 +9,11 @@ from api.core.models import AgentRun, TradePerformance
 from api.database import get_async_session
 from api.main_state import get_learning_service
 
-router = APIRouter(tags=["performance"])
+router = APIRouter(prefix="/performance", tags=["performance"])
 _STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 
-@router.get("/api/performance/{agent_name}")
+@router.get("/{agent_name}")
 async def get_agent_performance(
     agent_name: str, learning_service=Depends(get_learning_service)
 ):
@@ -21,7 +21,7 @@ async def get_agent_performance(
         return await learning_service.get_agent_performance(agent_name, session)
 
 
-@router.get("/api/performance")
+@router.get("/")
 async def get_all_performance(learning_service=Depends(get_learning_service)):
     async with get_async_session() as session:
         output = {}

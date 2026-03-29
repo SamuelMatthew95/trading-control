@@ -12,7 +12,7 @@ from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionLocal
 from api.core.schemas import StandardResponse
 
-router = APIRouter(tags=["trades"])
+router = APIRouter(prefix="/trades", tags=["trades"])
 
 
 async def get_safe_writer() -> SafeWriter:
@@ -20,7 +20,7 @@ async def get_safe_writer() -> SafeWriter:
     return SafeWriter(AsyncSessionLocal)
 
 
-@router.get("/trades")
+@router.get("/")
 async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> Dict[str, Any]:
     """Get all trades with standardized response format."""
     try:

@@ -9,7 +9,7 @@ from api.core.models import AnnotationCreate, ReinforceRequest
 from api.database import get_async_session
 from api.main_state import get_feedback_service
 
-router = APIRouter(tags=["feedback"])
+router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
 class StandardResponse(BaseModel):

@@ -25,6 +25,11 @@ from api.routes.health import router as health_router
 from api.routes.dlq import router as dlq_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.ws import router as ws_router
+from api.routes.monitoring import router as monitoring_router
+from api.routes.performance import router as performance_router
+from api.routes.system import router as system_router
+from api.routes.trades import router as trades_router
+from api.routes.feedback import router as feedback_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.event_pipeline import EventPipeline
 from api.services.market_ingestor import MarketDataIngestor
@@ -175,6 +180,11 @@ app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
 app.include_router(dashboard_v2_router, prefix="/api")
 app.include_router(ws_router)
+app.include_router(monitoring_router, prefix="/api")
+app.include_router(performance_router, prefix="/api")
+app.include_router(system_router, prefix="/api")
+app.include_router(trades_router, prefix="/api")
+app.include_router(feedback_router, prefix="/api")
 
 
 @app.get("/")
