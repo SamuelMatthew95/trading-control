@@ -28,5 +28,5 @@ export default function DashboardPageWrapper({ section }: { section: string }) {
     )
   }
   
-  return <DashboardView section={section as any} />
+  return <DashboardView section={section as 'overview' | 'agents' | 'learning' | 'system' | 'trading'} />
 }

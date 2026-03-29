@@ -15,5 +15,5 @@ const DashboardView = dynamic(() => import('@/app/dashboard/DashboardView').then
 })
 
 export default function SimpleDashboardPage({ section }: { section: string }) {
-  return <DashboardView section={section as any} />
+  return <DashboardView section={section as 'overview' | 'agents' | 'learning' | 'system' | 'trading'} />
 }

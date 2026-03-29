@@ -1,15 +1,26 @@
 'use client'
 import { useEffect, useCallback } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
+import type {
+  DashboardUpdateData,
+  SystemMetricData,
+  SignalData,
+  OrderData,
+  NotificationData,
+  AgentEventData,
+  SystemEventData,
+  AgentLogsData,
+  CustomEventType
+} from '@/types/websocket'
 
 // Hook to handle WebSocket events and update store
 export function useWebSocketEvents() {
   const store = useCodexStore((state) => state)
 
-  const handleDashboardUpdate = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleDashboardUpdate = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as DashboardUpdateData
     if (data) {
-      store.hydrateDashboard(data)
+      store.hydrateDashboard(data as Parameters<typeof store.hydrateDashboard>[0])
       
       // Handle agent logs
       if (Array.isArray(data.agent_logs)) {
@@ -47,8 +58,8 @@ export function useWebSocketEvents() {
     }
   }, [store])
 
-  const handleSystemMetric = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleSystemMetric = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as SystemMetricData
     if (data) {
       const norm = {
         metric_name: data.metric_name || data.name || 'unknown',
@@ -62,8 +73,8 @@ export function useWebSocketEvents() {
     }
   }, [store])
 
-  const handlePriceUpdate = useCallback((event: CustomEvent) => {
-    const { symbol, price } = (event as any).detail || {}
+  const handlePriceUpdate = useCallback((event: CustomEventType) => {
+    const { symbol, price } = event.detail || {}
     if (symbol && price && Number.isFinite(price)) {
       const currentPrice = store.prices[symbol]?.price || 0
       const change = price - currentPrice
@@ -72,8 +83,8 @@ export function useWebSocketEvents() {
     }
   }, [store])
 
-  const handleSignalReceived = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleSignalReceived = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as SignalData
     if (data) {
       store.addSignal({
         ...data,
@@ -82,22 +93,22 @@ export function useWebSocketEvents() {
     }
   }, [store])
 
-  const handleOrderUpdate = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleOrderUpdate = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as OrderData
     if (data) {
-      store.updateOrder(data)
+      store.updateOrder(data as Parameters<typeof store.updateOrder>[0])
     }
   }, [store])
 
-  const handleNotificationReceived = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleNotificationReceived = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as NotificationData
     if (data) {
       store.addRiskAlert(data)
     }
   }, [store])
 
-  const handleAgentEvent = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleAgentEvent = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as AgentEventData
     if (data) {
       const norm = {
         agent_name: data.name || data.agent_name || 'Unknown',
@@ -115,12 +126,12 @@ export function useWebSocketEvents() {
     }
   }, [store])
 
-  const handleSystemEvent = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleSystemEvent = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as SystemEventData
     if (data) {
       // Handle various system events
       if (data.type === 'agent_logs') {
-        for (const log of data.data || []) {
+        for (const log of (data.data as AgentLogsData[]) || []) {
           const norm = {
             agent_name: log.agent_name || log.agent || log.source_agent || 'Unknown',
             event_type: log.action || log.type || 'processed',
@@ -133,19 +144,19 @@ export function useWebSocketEvents() {
             message_id: log.message_id,
             data: log.data
           }
-          store.addAgentLog(norm)
+          store.addAgentLog(norm as Parameters<typeof store.addAgentLog>[0])
         }
       }
     }
   }, [store])
 
-  const handleAgentLogs = useCallback((event: CustomEvent) => {
-    const data = (event as any).detail?.data
+  const handleAgentLogs = useCallback((event: CustomEventType) => {
+    const data = event.detail?.data as AgentLogsData
     if (data) {
-      const source = data as any
+      const source = data
       const payloadObj = source.payload || {}
       const norm = {
-        agent_name: source.agent || source.source || payloadObj.agent || source['agent_name'],
+        agent_name: source.agent || source.source || payloadObj.agent || source.agent_name,
         event_type: source.action || source.type || 'processed',
         timestamp: source.timestamp || source.created_at || new Date().toISOString(),
         symbol: source.symbol,
@@ -156,7 +167,7 @@ export function useWebSocketEvents() {
         message_id: source.message_id,
         data: source.data
       }
-      store.addAgentLog(norm)
+      store.addAgentLog(norm as Parameters<typeof store.addAgentLog>[0])
     }
   }, [store])
 
