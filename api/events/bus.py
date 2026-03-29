@@ -33,10 +33,10 @@ DEFAULT_GROUP = "workers"
 
 def _serialize(value: Any) -> str:
     """Strict Redis-safe serialization (Valkey 8 safe).
-    
+
     Redis Streams (XADD) ONLY accepts: str, bytes, int, float
     NOT dict, NOT list, NOT None
-    
+
     Handles:
     - None -> ""
     - str/int/float -> str(value)
@@ -44,10 +44,10 @@ def _serialize(value: Any) -> str:
     """
     if value is None:
         return ""
-    
+
     if isinstance(value, (str, int, float)):
         return str(value)
-    
+
     # EVERYTHING else -> JSON (dicts, lists, booleans, objects)
     try:
         return json.dumps(value)
@@ -58,27 +58,27 @@ def _serialize(value: Any) -> str:
 
 def _deserialize(value: str) -> Any:
     """Deserialize Redis string to Python value.
-    
+
     Handles: "true"/"false" -> bool, JSON strings -> Python objects,
     other -> str
     """
     if not isinstance(value, str):
         return value
-    
+
     # Handle booleans
     lower = value.lower()
     if lower == "true":
         return True
     if lower == "false":
         return False
-    
+
     # Try JSON deserialization (for dicts and lists)
     if value.startswith(("{", "[", "\"")):
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             pass
-    
+
     return value
 
 
@@ -91,14 +91,14 @@ def _decode_bytes(value: Any) -> str:
 
 class EventBus:
     """Redis Streams event bus for Valkey 8.1.4 / Redis 6-7 compatibility.
-    
+
     Uses only Redis 6-7 era APIs:
     - XADD, XREADGROUP, XACK
     - XINFO STREAM, XINFO GROUPS (only 'pending' field)
     - XGROUP CREATE with mkstream
     - XAUTOCLAIM (Redis 6.2+)
     """
-    
+
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
@@ -107,7 +107,7 @@ class EventBus:
         # Bug fix: always include schema_version so consumer never sends to DLQ
         event.setdefault("schema_version", "v3")
         event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
-        
+
         # Serialize all values to strings with defensive fallback
         serialized_event = {}
         for k, v in event.items():
@@ -116,32 +116,32 @@ class EventBus:
             except Exception:
                 # NEVER allow raw values through
                 serialized_event[k] = str(v)
-        
+
         # EXTRA SAFETY: catch any unserialized dicts (bugs early)
         for k, v in serialized_event.items():
             if isinstance(v, dict):
                 error_msg = f"UNSERIALIZED FIELD: {k}={v}"
                 log_structured("error", error_msg, stream=stream, event_keys=list(event.keys()))
                 raise ValueError(error_msg)
-        
+
         try:
             kwargs = {}
             if maxlen:
                 kwargs["maxlen"] = maxlen
                 kwargs["approximate"] = True
-                
+
             message_id = await self.redis.xadd(stream, serialized_event, **kwargs)
-            
+
             # Log successful publish
             log_structured(
-                "info", "event_published", 
-                stream=stream, 
+                "info", "event_published",
+                stream=stream,
                 message_id=str(message_id),
                 keys=list(serialized_event.keys())
             )
-            
+
             return str(message_id)
-            
+
         except (ConnectionError, TimeoutError):
             log_structured(
                 "warning", "Redis connection error during publish", stream=stream, exc_info=True
@@ -160,7 +160,7 @@ class EventBus:
         block_ms: int = 500,
     ) -> list[tuple[str, dict[str, Any]]]:
         """Consume messages from Redis stream using XREADGROUP.
-        
+
         Returns list of (message_id, message_data) tuples.
         """
         try:
@@ -171,22 +171,22 @@ class EventBus:
                 count=count,
                 block=block_ms,
             )
-            
+
             result = []
-            for stream_name, stream_messages in messages:
+            for _stream_name, stream_messages in messages:
                 for msg_id, fields in stream_messages:
                     # Decode message ID
                     decoded_id = _decode_bytes(msg_id)
-                    
+
                     # Decode and deserialize all fields
                     decoded_fields = {}
                     for k, v in fields.items():
                         key = _decode_bytes(k)
                         value_str = _decode_bytes(v)
                         decoded_fields[key] = _deserialize(value_str)
-                    
+
                     result.append((decoded_id, decoded_fields))
-                    
+
             # Log successful consumption
             if result:
                 log_structured(
@@ -196,9 +196,9 @@ class EventBus:
                     consumer=consumer,
                     count=len(result)
                 )
-            
+
             return result
-            
+
         except (ConnectionError, TimeoutError):
             log_structured(
                 "warning", "Redis connection error during consume", stream=stream, exc_info=True
@@ -282,35 +282,35 @@ class EventBus:
                 if pending == 0 and last_delivered in ("0", "0-0", "0-1"):
                     await self.redis.xgroup_setid(stream, DEFAULT_GROUP, "$")
                     log_structured(
-                        "info", "consumer_group_fastforwarded", 
-                        stream=stream, 
+                        "info", "consumer_group_fastforwarded",
+                        stream=stream,
                         group=DEFAULT_GROUP
                     )
-        except Exception as exc:
+        except Exception:
             log_structured("warning", "fastforward_check_failed", stream=stream, exc_info=True)
 
     async def get_stream_info(self) -> dict[str, dict[str, int]]:
         """Get stream statistics using XINFO GROUPS (Redis 6-7 compatible).
-        
+
         Uses only 'pending' field (Redis 6-7 compatible), not 'lag' (Redis 7+).
         """
         info: dict[str, dict[str, int]] = {}
         for stream in STREAMS:
             try:
                 length = int(await self.redis.xlen(stream))
-                
+
                 try:
                     groups = await self.redis.xinfo_groups(stream)
                 except ResponseError:
                     groups = []
-                    
+
                 # Calculate lag from 'pending' field only (Redis 6-7 compatible)
                 # Note: 'lag' field is Redis 7+, we use 'pending' for compatibility
                 lag = 0
                 for g in groups:
                     pending = g.get("pending") or g.get(b"pending") or 0
                     lag = max(lag, int(pending))
-                    
+
                 info[stream] = {
                     "length": length,
                     "lag": lag,
@@ -319,22 +319,22 @@ class EventBus:
             except Exception:
                 # If stream doesn't exist or other error
                 info[stream] = {"length": 0, "lag": 0, "groups": 0}
-                
+
         return info
 
     async def reclaim_stale(
         self, stream: str, group: str, consumer: str, min_idle_ms: int = 60000
     ) -> list[tuple[str, dict[str, Any]]]:
         """Reclaim stale messages using XAUTOCLAIM (Redis 6.2+).
-        
+
         XAUTOCLAIM is available in Redis 6.2+ and Valkey 8.1.4.
-        
+
         Args:
             stream: Redis stream name
             group: Consumer group name
             consumer: Name of consumer to claim messages for (required)
             min_idle_ms: Minimum idle time in milliseconds (default: 60000 = 60s)
-            
+
         Returns:
             List of (message_id, message_data) tuples for claimed messages
         """
@@ -343,7 +343,7 @@ class EventBus:
                 stream, group, consumer, min_idle_ms, start_id="0-0"
             )
             decoded = self._decode_autoclaim(result)
-            
+
             # Log successful reclaim
             if decoded:
                 log_structured(
@@ -353,9 +353,9 @@ class EventBus:
                     consumer=consumer,
                     count=len(decoded)
                 )
-            
+
             return decoded
-            
+
         except (ConnectionError, TimeoutError):
             log_structured(
                 "warning", "Redis connection error during reclaim_stale",
@@ -377,39 +377,39 @@ class EventBus:
 
     def _decode_autoclaim(self, reclaimed: Any) -> list[tuple[str, dict[str, Any]]]:
         """Decode XAUTOCLAIM result to list of (id, data) tuples.
-        
+
         Handles both tuple format (Redis 7+) and list format (Redis 6.2).
         """
         if not reclaimed:
             return []
-            
+
         if isinstance(reclaimed, tuple):
             # Newer Redis versions return (next_id, messages, deleted_messages)
             _, messages = reclaimed[:2]
         else:
             # Older versions may return list format
             messages = reclaimed[1] if len(reclaimed) > 1 else []
-            
+
         return self._decode_entries(messages)
 
     def _decode_entries(self, entries: Any) -> list[tuple[str, dict[str, Any]]]:
         """Decode raw Redis entries to Python objects.
-        
+
         Handles all fields in the message with proper deserialization.
         Compatible with Redis 6-7 XREADGROUP and XAUTOCLAIM output formats.
         """
         decoded: list[tuple[str, dict[str, Any]]] = []
-        
+
         if not entries:
             return decoded
-            
+
         for entry in entries:
             if not isinstance(entry, (list, tuple)) or len(entry) < 2:
                 continue
-                
+
             msg_id = str(entry[0])
             fields_data = entry[1]
-            
+
             # Handle different field formats from Redis
             if isinstance(fields_data, dict):
                 fields_dict = fields_data
@@ -420,16 +420,16 @@ class EventBus:
                     fields_dict[fields_data[i]] = fields_data[i + 1]
             else:
                 fields_dict = {}
-            
+
             # Decode and deserialize all fields
             decoded_fields = {}
             for k, v in fields_dict.items():
                 key = _decode_bytes(k)
                 value_str = _decode_bytes(v)
                 decoded_fields[key] = _deserialize(value_str)
-            
+
             decoded.append((msg_id, decoded_fields))
-            
+
         return decoded
 
 

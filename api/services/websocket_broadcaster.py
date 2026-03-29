@@ -64,7 +64,7 @@ class WebSocketBroadcaster:
                         if self._xread_streams_state != "empty":
                             log_structured("error", "websocket_xread_streams_empty")
                             self._xread_streams_state = "empty"
-                        await asyncio.sleep(self._idle_sleep_seconds)
+                        await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
                         continue
 
                     if self._xread_streams_state != "ready":
@@ -73,7 +73,7 @@ class WebSocketBroadcaster:
 
                     messages = await self._redis_client.xread(dict(self._stream_offsets), block=100, count=100)
                     if not messages:
-                        await asyncio.sleep(self._idle_sleep_seconds)
+                        await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
                         continue
 
                     messages_read = 0
@@ -106,13 +106,13 @@ class WebSocketBroadcaster:
                         connected_clients=len(self._connections),
                     )
                 else:
-                    await asyncio.sleep(self._idle_sleep_seconds)
+                    await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 self._last_error = str(exc)
                 log_structured("warning", "websocket_background_loop_error", exc_info=True)
-                await asyncio.sleep(self._idle_sleep_seconds)
+                await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
 
     @staticmethod
     def _decode_redis_value(value: Any) -> str:

@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -104,7 +104,7 @@ async def _oldest_pending_score_age_seconds() -> float | None:
 
 
 @router.get("/")
-async def root() -> Dict[str, Any]:
+async def root() -> dict[str, Any]:
     """Root endpoint with standardized response format."""
     try:
         return StandardResponse(
@@ -124,9 +124,9 @@ async def root() -> Dict[str, Any]:
 
 
 @router.get("/health")
-async def health_check(request: Request) -> Dict[str, Any]:
+async def health_check(request: Request) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
-    
+
     # Check startup grace period (60 seconds)
     uptime_seconds = (now - PROCESS_START_TIME).total_seconds()
     if uptime_seconds < 60:
@@ -136,19 +136,19 @@ async def health_check(request: Request) -> Dict[str, Any]:
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
-    
+
     # Check dependencies
     db_ready = await _database_ready(request)
     redis_ready = await _redis_ready(request)
     pipeline = getattr(request.app.state, "event_pipeline", None)
     broadcaster = getattr(request.app.state, "websocket_broadcaster", None)
-    
+
     # Determine overall status
     if db_ready and redis_ready:
         status = "healthy"
     else:
         status = "degraded"
-    
+
     return {
         "status": status,
         "database": "connected" if db_ready else "disconnected",
@@ -163,9 +163,9 @@ async def health_check(request: Request) -> Dict[str, Any]:
 
 
 @router.get("/readiness")
-async def readiness_check(request: Request, response: Response) -> Dict[str, Any]:
+async def readiness_check(request: Request, response: Response) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
-    
+
     # Check startup grace period (60 seconds)
     uptime_seconds = (now - PROCESS_START_TIME).total_seconds()
     if uptime_seconds < 60:
@@ -175,7 +175,7 @@ async def readiness_check(request: Request, response: Response) -> Dict[str, Any
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
-    
+
     db_ready = await _database_ready(request)
     redis_ready = await _redis_ready(request)
 
@@ -187,20 +187,19 @@ async def readiness_check(request: Request, response: Response) -> Dict[str, Any
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
-    else:
-        # Return degraded status instead of HTTP 503
-        return {
-            "status": "degraded",
-            "message": "Some dependencies are not ready",
-            "database": "connected" if db_ready else "disconnected",
-            "redis": "connected" if redis_ready else "disconnected",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
-        }
+    # Return degraded status instead of HTTP 503
+    return {
+        "status": "degraded",
+        "message": "Some dependencies are not ready",
+        "database": "connected" if db_ready else "disconnected",
+        "redis": "connected" if redis_ready else "disconnected",
+        "uptime_seconds": uptime_seconds,
+        "check_time": now.isoformat()
+    }
 
 
 @router.options("/health")
-async def health_options() -> Dict[str, Any]:
+async def health_options() -> dict[str, Any]:
     """OPTIONS method for health endpoint."""
     return StandardResponse(
         success=True, data={"message": "Health endpoint supports GET and OPTIONS"}
@@ -208,7 +207,7 @@ async def health_options() -> Dict[str, Any]:
 
 
 @router.get("/system/health")
-async def system_health() -> Dict[str, Any]:
+async def system_health() -> dict[str, Any]:
     """System health endpoint for system monitoring."""
     try:
         db_healthy = await test_database_connection()

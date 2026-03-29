@@ -8,17 +8,24 @@ PostgreSQL upserts for safe concurrent writes.
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import insert, update, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, insert, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
-    Event, Order, Position, AgentLog, SystemMetrics, TradePerformance,
-    VectorMemory, ProcessedEvent, AgentGrades
+    AgentGrades,
+    AgentLog,
+    Event,
+    Order,
+    Position,
+    ProcessedEvent,
+    SystemMetrics,
+    TradePerformance,
+    VectorMemory,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,52 +33,52 @@ logger = logging.getLogger(__name__)
 
 class SafeWriter:
     """Atomic database writer with claim-first pattern and validation."""
-    
+
     def __init__(self, session_factory):
         self.session_factory = session_factory
-    
-    def _validate_schema_v3(self, data: Dict[str, Any], model_name: str) -> None:
+
+    def _validate_schema_v3(self, data: dict[str, Any], model_name: str) -> None:
         """Strict V3 schema validation - centralized enforcement."""
         # All models must have schema_version
         if 'schema_version' not in data:
             raise ValueError(
                 f"{model_name}: Missing required field 'schema_version'"
             )
-        
+
         if data['schema_version'] != 'v3':
             raise ValueError(
                 f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v3'"
             )
-        
+
         # Source field validation for models that have it
         if model_name in [
-            'Order', 'Event', 'VectorMemory', 'AgentLog', 
+            'Order', 'Event', 'VectorMemory', 'AgentLog',
             'SystemMetrics', 'TradePerformance'
         ]:
             if 'source' not in data or not data['source']:
                 raise ValueError(
                     f"{model_name}: Source field is required and cannot be empty"
                 )
-        
+
         # Trace ID validation for v3
         if 'trace_id' not in data or not data['trace_id']:
             raise ValueError(
                 f"{model_name}: trace_id field is required for v3 events"
             )
-    
-    def _validate_schema_v2(self, data: Dict[str, Any], model_name: str) -> None:
+
+    def _validate_schema_v2(self, data: dict[str, Any], model_name: str) -> None:
         """V2 schema validation for backward compatibility."""
         # All models must have schema_version
         if 'schema_version' not in data:
             raise ValueError(
                 f"{model_name}: Missing required field 'schema_version'"
             )
-        
+
         if data['schema_version'] != 'v2':
             raise ValueError(
                 f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v2'"
             )
-    
+
     def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
         """Log write operations with proper context."""
         if not entity_id:
@@ -94,24 +101,24 @@ class SafeWriter:
                 yield session
 
     def validate_payload(
-        self, data: Dict[str, Any], required_fields: List[str], operation: str = ""
+        self, data: dict[str, Any], required_fields: list[str], operation: str = ""
     ) -> None:
         """Validate required fields exist and have correct types."""
         for field in required_fields:
             if field not in data or data[field] is None:
                 raise ValueError(f"Missing required field: {field}")
-        
+
         # Validate idempotency_key for financial operations
         financial_operations = ['write_order', 'write_execution', 'write_trade_performance']
         if operation in financial_operations:
             if 'idempotency_key' not in data or not data['idempotency_key']:
                 raise ValueError(f"idempotency_key is required for {operation}")
 
-    def safe_parse_dt(self, dt_str: Optional[str]) -> Optional[datetime]:
+    def safe_parse_dt(self, dt_str: str | None) -> datetime | None:
         """Safely parse ISO datetime strings."""
         if not dt_str:
             return None
-        
+
         try:
             return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
         except (ValueError, AttributeError) as e:
@@ -133,11 +140,11 @@ class SafeWriter:
             logger.debug(f"Message {msg_id} already claimed")
             return False
 
-    async def write_order(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_order(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write order with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_order")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -167,7 +174,7 @@ class SafeWriter:
                     exchange=data.get('exchange'),
                     order_metadata=data.get('metadata', {})
                 )
-                
+
                 # Handle upsert with race condition protection
                 try:
                     session.add(order)
@@ -184,7 +191,7 @@ class SafeWriter:
                             f"IntegrityError but no existing order found "
                             f"for idempotency_key={idempotency_key}"
                         )
-                    
+
                     # Get the existing order's ID
                     existing_order = existing.scalar_one()
                     order_id = existing_order.id
@@ -208,19 +215,19 @@ class SafeWriter:
                 claim = ProcessedEvent(msg_id=msg_id, stream=stream)
                 session.add(claim)
                 await session.flush()  # Final flush before commit
-                
+
                 logger.info(f"[WRITE_ORDER] msg={msg_id} stream={stream} symbol={data['symbol']}")
                 return True
-                
+
             except Exception as e:
                 logger.error(f"[WRITE_ERROR] msg={msg_id} stream={stream} err={e}")
                 raise
 
-    async def write_execution(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_execution(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write execution with atomic claim-at-end and order existence check."""
         if not msg_id:
             raise ValueError("msg_id is required for write_execution")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -267,14 +274,14 @@ class SafeWriter:
                     metadata=data.get('metadata', {})
                 ).on_conflict_do_update(
                     index_elements=['strategy_id', 'symbol'],
-                    set_=dict(
-                        quantity=data.get('new_quantity'),
-                        avg_cost=data.get('new_avg_cost'),
-                        market_value=data.get('market_value'),
-                        unrealized_pnl=data.get('unrealized_pnl', 0),
-                        last_price=data.get('filled_price'),
-                        updated_at=func.now()
-                    )
+                    set_={
+                        'quantity': data.get('new_quantity'),
+                        'avg_cost': data.get('new_avg_cost'),
+                        'market_value': data.get('market_value'),
+                        'unrealized_pnl': data.get('unrealized_pnl', 0),
+                        'last_price': data.get('filled_price'),
+                        'updated_at': func.now()
+                    }
                 )
 
                 await session.execute(position_stmt)
@@ -286,12 +293,12 @@ class SafeWriter:
                     .on_conflict_do_nothing()
                     .returning(ProcessedEvent.msg_id)
                 )
-                
+
                 if claim_result.scalar() is None:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     f"[WRITE_SUCCESS] msg={msg_id} stream={stream} order_id={data['order_id']}"
                 )
@@ -301,11 +308,11 @@ class SafeWriter:
                 logger.error(f"[WRITE_ERROR] msg={msg_id} stream={stream} err={e}")
                 raise
 
-    async def write_agent_log(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_agent_log(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write agent log with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_agent_log")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -318,7 +325,7 @@ class SafeWriter:
                 # Handle timestamp with explicit fallback logging
                 timestamp_str = data.get('timestamp')
                 created_at = self.safe_parse_dt(timestamp_str)
-                
+
                 if created_at is None:
                     logger.warning(
                         "timestamp_fallback_used",
@@ -353,12 +360,12 @@ class SafeWriter:
                     .on_conflict_do_nothing()
                     .returning(ProcessedEvent.msg_id)
                 )
-                
+
                 if claim_result.scalar() is None:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.debug(
                     f"[WRITE_SUCCESS] msg={msg_id} stream={stream} agent_run={data['agent_run_id']}"
                 )
@@ -385,19 +392,19 @@ class SafeWriter:
             raise ValueError("msg_id must be string UUID")
         if not msg_id.replace('-', '').replace('_', '').isalnum():
             raise ValueError(f"Invalid msg_id format: {msg_id}")
-            
+
         async with self.transaction() as session:
             try:
                 # Validate required parameters
                 if not msg_id:
                     raise ValueError("msg_id is required for idempotent writes")
-                
+
                 if not metric_name:
                     raise ValueError("metric_name is required")
-                
+
                 if metric_value is None:
                     metric_value = 0.0  # Fallback to prevent NOT NULL violations
-                
+
                 # Log operation with actual msg_id
                 logger.info(
                     "[WRITE_AUDIT] operation=write_system_metric model=SystemMetrics id=%s",
@@ -415,19 +422,19 @@ class SafeWriter:
                     source=source,
                     timestamp=timestamp,
                 )
-                
+
                 # Enforce idempotency - ignore duplicates
                 stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
-                
+
                 result = await session.execute(stmt)
-                
+
                 # Check if insert was successful (not a duplicate)
                 if result.rowcount == 0:
                     logger.info(
                         "write_system_metric_duplicate",
                         extra={"msg_id": msg_id, "metric_name": metric_name}
                     )
-                
+
                 await session.flush()
 
                 # CLAIM LAST with RETURNING
@@ -435,7 +442,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_system_metric_success",
                     extra={"msg_id": msg_id, "metric": metric_name}
@@ -446,11 +453,11 @@ class SafeWriter:
                 logger.error("write_system_metric_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_trade_performance(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_trade_performance(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write trade performance with validation."""
         if not msg_id:
             raise ValueError("msg_id is required for write_trade_performance")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -465,7 +472,7 @@ class SafeWriter:
                 # Handle timestamps with explicit fallback logging
                 entry_time_str = data['entry_time']
                 entry_time = self.safe_parse_dt(entry_time_str)
-                
+
                 if entry_time is None:
                     logger.warning(
                         "timestamp_fallback_used",
@@ -509,7 +516,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_trade_performance_success",
                     extra={"msg_id": msg_id, "trade_id": data['trade_id']}
@@ -522,11 +529,11 @@ class SafeWriter:
                 )
                 raise
 
-    async def write_vector_memory(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_vector_memory(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write vector memory with embedding validation."""
         if not msg_id:
             raise ValueError("msg_id is required for write_vector_memory")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -537,7 +544,7 @@ class SafeWriter:
                 embedding = data['embedding']
                 if not isinstance(embedding, list) or len(embedding) != 1536:
                     raise ValueError("embedding must be 1536-length list")
-                
+
                 if not all(isinstance(x, (int, float)) for x in embedding):
                     raise ValueError("embedding must be numeric")
 
@@ -563,7 +570,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_vector_memory_success",
                     extra={"msg_id": msg_id, "content_type": data['content_type']}
@@ -574,11 +581,11 @@ class SafeWriter:
                 logger.error("write_vector_memory_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_risk_alert(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_risk_alert(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write risk alert as event."""
         if not msg_id:
             raise ValueError("msg_id is required for write_risk_alert")
-            
+
         async with self.transaction() as session:
             try:
                 event_data = {
@@ -596,7 +603,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_risk_alert_success",
                     extra={"msg_id": msg_id, "alert_type": data.get('alert_type')}
@@ -607,11 +614,11 @@ class SafeWriter:
                 logger.error("write_risk_alert_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_agent_grade(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_agent_grade(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write agent grade with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_agent_grade")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -640,7 +647,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_agent_grade_success",
                     extra={"msg_id": msg_id, "agent_id": data['agent_id'], "grade_type": data['grade_type']}
@@ -651,11 +658,11 @@ class SafeWriter:
                 logger.error("write_agent_grade_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_ic_weight(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_ic_weight(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write IC weight with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_ic_weight")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -681,7 +688,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_ic_weight_success",
                     extra={"msg_id": msg_id, "factor_name": data.get('factor_name')}
@@ -692,11 +699,11 @@ class SafeWriter:
                 logger.error("write_ic_weight_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_reflection_output(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_reflection_output(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write reflection output with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_reflection_output")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -732,7 +739,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_reflection_output_success",
                     extra={"msg_id": msg_id, "agent_id": data.get('agent_id')}
@@ -743,11 +750,11 @@ class SafeWriter:
                 logger.error("write_reflection_output_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_strategy_proposal(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_strategy_proposal(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write strategy proposal with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_strategy_proposal")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -773,7 +780,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_strategy_proposal_success",
                     extra={"msg_id": msg_id, "proposal_type": data.get('proposal_type')}
@@ -784,11 +791,11 @@ class SafeWriter:
                 logger.error("write_strategy_proposal_error", extra={"msg_id": msg_id, "error": str(e)})
                 raise
 
-    async def write_notification(self, msg_id: str, stream: str, data: Dict[str, Any]) -> bool:
+    async def write_notification(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write notification with atomic claim-at-end pattern."""
         if not msg_id:
             raise ValueError("msg_id is required for write_notification")
-            
+
         async with self.transaction() as session:
             try:
                 # Strict V3 schema validation
@@ -814,7 +821,7 @@ class SafeWriter:
                     raise ValueError(
                         f"Message {msg_id} was already processed in this transaction"
                     )
-                
+
                 logger.info(
                     "write_notification_success",
                     extra={"msg_id": msg_id, "notification_type": data.get('notification_type')}

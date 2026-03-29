@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
@@ -20,13 +20,13 @@ class VirtualTrade:
 
 
 class TradingService:
-    def __init__(self, orchestrator: Optional[MultiAgentOrchestrator]):
+    def __init__(self, orchestrator: MultiAgentOrchestrator | None):
         self.orchestrator = orchestrator
-        self.virtual_trades: List[VirtualTrade] = []
+        self.virtual_trades: list[VirtualTrade] = []
 
     def analyze(
-        self, symbol: str, price: float, extra_signals: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, symbol: str, price: float, extra_signals: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         if not self.orchestrator:
             from api.observability import log_structured
 
@@ -47,8 +47,8 @@ class TradingService:
         return self.orchestrator.process_trade_signals(signals)
 
     def run_shadow(
-        self, symbol: str, price: float, extra_signals: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, symbol: str, price: float, extra_signals: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         result = self.analyze(symbol, price, extra_signals)
         self.virtual_trades.append(
             VirtualTrade(
@@ -61,7 +61,7 @@ class TradingService:
         )
         return result
 
-    def evaluate_shadow(self, symbol: str, observed_price: float) -> Dict[str, Any]:
+    def evaluate_shadow(self, symbol: str, observed_price: float) -> dict[str, Any]:
         candidates = [trade for trade in self.virtual_trades if trade.symbol == symbol]
         if not candidates:
             return {"status": "no_data"}

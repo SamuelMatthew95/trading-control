@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import types
-
 import pytest
 
 
@@ -13,7 +11,7 @@ async def test_init_database_uses_alembic_for_postgres(monkeypatch):
 
     async def fake_to_thread(func, url):
         calls.append((func, url))
-        return None
+        return
 
     monkeypatch.setattr(database_module, "database_url", "postgresql+asyncpg://db/test")
     monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)

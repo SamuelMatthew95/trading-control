@@ -62,24 +62,24 @@ class ReasoningAgent(BaseStreamConsumer):
                     data, trace_id, reason=fallback_reason
                 )
                 tokens_used, cost_usd = 0, 0.0
-        
+
         async with AsyncSessionFactory() as session:
             async with session.begin():
                 await self._store_agent_run(data, summary, trace_id, fallback_reason is not None, session=session)
                 await self._store_vector_memory(signal_summary, embedding, summary, session=session)
                 await self._store_agent_log(trace_id, summary, fallback_reason, session=session)
                 await self._store_cost_tracking(today, tokens_used, cost_usd, session=session)
-        
+
         log_structured(
             "info",
             "agent_transaction_success",
             trace_id=trace_id,
             action=summary.get("action")
         )
-        
+
         await self.redis.incrby(budget_key, tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
-        
+
         # Event-driven: trigger cost update immediately
         # This replaces polling - cost updates happen instantly when LLM is used
         try:
@@ -88,7 +88,7 @@ class ReasoningAgent(BaseStreamConsumer):
             await on_llm_cost_updated(self.bus, self.redis, current_cost)
         except Exception:
             pass  # Don't let monitoring break processing
-        
+
         # Cache updated budget to avoid redundant Redis calls
         updated_budget = int(await self.redis.get(budget_key) or 0)
         if (
@@ -192,7 +192,7 @@ LIMIT 5
                     }
                     for row in result.mappings().all()
                 ]
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             log_structured(
                 "error",
                 "vector_memory_search_failed",
@@ -254,7 +254,7 @@ LIMIT 5
                 if isinstance(payload, str):
                     return json.loads(payload)
                 return payload or {}
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             log_structured(
                 "error",
                 "get_last_reflection_failed",
@@ -329,8 +329,8 @@ RETURNING id
                     "fallback": fallback,
                 },
             )
-            row_id = result.scalar()
-        except Exception as exc:  # noqa: BLE001
+            result.scalar()
+        except Exception:  # noqa: BLE001
             log_structured(
                 "error",
                 "agent_run_insert_failed",
@@ -372,8 +372,8 @@ RETURNING id
                     ),
                 },
             )
-            row_id = result.scalar()
-        except Exception as exc:  # noqa: BLE001
+            result.scalar()
+        except Exception:  # noqa: BLE001
             log_structured(
                 "error",
                 "vector_memory_insert_failed",
@@ -409,8 +409,8 @@ RETURNING id
                     ),
                 },
             )
-            row_id = result.scalar()
-        except Exception as exc:  # noqa: BLE001
+            result.scalar()
+        except Exception:  # noqa: BLE001
             log_structured(
                 "error",
                 "agent_log_insert_failed",
@@ -429,8 +429,8 @@ RETURNING id
                 ),
                 {"date": today, "tokens_used": tokens_used, "cost_usd": cost_usd},
             )
-            row_id = result.scalar()
-        except Exception as exc:  # noqa: BLE001
+            result.scalar()
+        except Exception:  # noqa: BLE001
             log_structured(
                 "error",
                 "cost_tracking_insert_failed",

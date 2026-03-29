@@ -1,22 +1,17 @@
 """Monitoring system endpoints for production dashboard."""
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import delete, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.core.models import AgentRun, VectorMemory, SystemMetrics
-from api.database import AsyncSessionLocal, init_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
 @router.get("/alerts")
-async def get_alerts() -> Dict[str, Any]:
+async def get_alerts() -> dict[str, Any]:
     """Get system alerts"""
     try:
         # Mock implementation for now
@@ -28,7 +23,7 @@ async def get_alerts() -> Dict[str, Any]:
 
 
 @router.get("/system-metrics")
-async def get_system_metrics() -> Dict[str, Any]:
+async def get_system_metrics() -> dict[str, Any]:
     """Get detailed system metrics"""
     try:
         # Mock implementation for now
@@ -40,7 +35,7 @@ async def get_system_metrics() -> Dict[str, Any]:
 
 
 @router.get("/performance-metrics")
-async def get_performance_metrics() -> Dict[str, Any]:
+async def get_performance_metrics() -> dict[str, Any]:
     """Get performance metrics"""
     try:
         # Mock implementation for now
@@ -52,7 +47,7 @@ async def get_performance_metrics() -> Dict[str, Any]:
 
 
 @router.get("/agent-metrics")
-async def get_agent_metrics() -> Dict[str, Any]:
+async def get_agent_metrics() -> dict[str, Any]:
     """Get agent-related metrics"""
     try:
         # Mock implementation for now
@@ -64,7 +59,7 @@ async def get_agent_metrics() -> Dict[str, Any]:
 
 
 @router.get("/data-metrics")
-async def get_data_metrics() -> Dict[str, Any]:
+async def get_data_metrics() -> dict[str, Any]:
     """Get data-related metrics"""
     try:
         # Mock implementation for now
@@ -76,7 +71,7 @@ async def get_data_metrics() -> Dict[str, Any]:
 
 
 @router.get("/task-metrics")
-async def get_task_metrics() -> Dict[str, Any]:
+async def get_task_metrics() -> dict[str, Any]:
     """Get task-related metrics"""
     try:
         # Mock implementation for now
@@ -88,7 +83,7 @@ async def get_task_metrics() -> Dict[str, Any]:
 
 
 @router.get("/summary")
-async def get_monitoring_summary() -> Dict[str, Any]:
+async def get_monitoring_summary() -> dict[str, Any]:
     """Get monitoring summary"""
     try:
         # Mock implementation for now
@@ -115,7 +110,7 @@ async def get_monitoring_summary() -> Dict[str, Any]:
 
 
 @router.get("/health")
-async def monitoring_health_check() -> Dict[str, Any]:
+async def monitoring_health_check() -> dict[str, Any]:
     """Simple health check for monitoring system"""
     try:
         return {

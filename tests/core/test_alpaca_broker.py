@@ -1,7 +1,8 @@
 """Tests for AlpacaBroker functionality."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from api.config import settings
 from api.services.execution.brokers.alpaca import AlpacaBroker
@@ -29,11 +30,11 @@ class TestAlpacaBroker:
         # Test the normalization logic directly
         test_cases = [
             ("AAPL/USD", "AAPL"),
-            ("BTC/USD", "BTC"), 
+            ("BTC/USD", "BTC"),
             ("SPY", "SPY"),
             ("ETH/USD", "ETH"),
         ]
-        
+
         for input_symbol, expected in test_cases:
             normalized = input_symbol.replace("/USD", "").replace("/", "")
             assert normalized == expected
@@ -46,10 +47,10 @@ class TestAlpacaBroker:
         mock_settings.ALPACA_SECRET_KEY = "test_secret"
         mock_settings.ALPACA_PAPER = True
         mock_settings.ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
-        
+
         from api.services.execution.brokers.alpaca import AlpacaBroker
         broker = AlpacaBroker()
-        
+
         assert broker.base_url == "https://paper-api.alpaca.markets"
         assert broker.headers["APCA-API-KEY-ID"] == "test_key"
         assert broker.headers["APCA-API-SECRET-KEY"] == "test_secret"
@@ -59,7 +60,7 @@ class TestAlpacaBroker:
         """Test PaperBroker logic when no Alpaca key is provided."""
         mock_settings.BROKER_MODE = "live"
         mock_settings.ALPACA_API_KEY = ""  # Empty key
-        
+
         # This test verifies the logic in main.py, not AlpacaBroker directly
         # The condition should be: settings.BROKER_MODE == "paper" or not settings.ALPACA_API_KEY
         assert not mock_settings.ALPACA_API_KEY

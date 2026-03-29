@@ -244,6 +244,25 @@ Expected output:
 - HARDCODED URLS: 0
 - ENV STAGED: 0
 
+### Linting Philosophy
+This project uses ruff as the primary linter with a pragmatic approach:
+
+**Critical Errors (FAIL)**: Syntax errors, undefined variables, import issues
+- These block commits and must be fixed immediately
+- Checked in CI/CD with `ruff check --select=E9,F63,F7,F82`
+
+**Style & Code Quality (WARN)**: Formatting, unused imports, naming conventions
+- These are warnings, not blockers
+- Auto-fixed with `ruff check --fix` and `ruff format`
+- Reviewed during PR but won't block deployment
+
+**Allowed Sleeps**: Not all sleeps are defensive - these are explicitly allowed:
+- `await asyncio.sleep(5)` - Price poller interval (core business logic)
+- Rate limit backoffs - API retry logic
+- Error recovery delays - Fault tolerance
+- WebSocket idle sleeps - Resource management
+- Agent processing throttles - Performance control
+
 ### Running the Application Locally
 ```bash
 # Backend (Terminal 1)

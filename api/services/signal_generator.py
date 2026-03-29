@@ -1,8 +1,8 @@
 """Signal generator - bridges market_ticks -> signals stream."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from api.config import settings

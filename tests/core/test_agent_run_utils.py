@@ -8,7 +8,7 @@ remains clean and focused on production-ready fields only.
 The TestAgentRun class extends AgentRun with temporary fields that were removed
 from production but are still expected by existing tests:
 - decision_json: Legacy field for decision data
-- trace_json: Legacy field for trace data  
+- trace_json: Legacy field for trace data
 - task_id: Legacy field for task identification
 
 This approach allows:
@@ -18,7 +18,6 @@ This approach allows:
 4. Cross-database compatibility (SQLite/Postgres)
 """
 
-from typing import Optional
 from api.core.models import AgentRun
 
 
@@ -31,7 +30,7 @@ class TestAgentRun(AgentRun):
             trace_json = "[]"
         if task_id is None:
             task_id = ""
-            
+
         # Pass all fields to parent constructor since they now exist in production model
         super().__init__(
             task_id=task_id,
@@ -49,12 +48,12 @@ def create_test_agent_run(**kwargs):
 class FakeSession:
     """
     Enhanced FakeSession that supports async context managers and transactions.
-    
+
     This mock session properly implements the async context manager protocol
     and supports the begin() method for transaction testing, making it compatible
     with modern SQLAlchemy async patterns used in production code.
     """
-    
+
     def __init__(self, handler=None):
         self.handler = handler
         self.executed = []
@@ -101,7 +100,7 @@ class FakeSession:
 
     async def commit(self):
         self.commits += 1
-        return None
+        return
 
     async def rollback(self):
         return None

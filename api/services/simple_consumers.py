@@ -1,17 +1,16 @@
 """Simple consumers for all missing streams - UUID-safe exactly-once processing."""
 
 import logging
-import uuid
 from typing import Any
 
 from redis.asyncio import Redis
 
+from api.core.writer.safe_writer import SafeWriter
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.database import AsyncSessionFactory
-from api.core.writer.safe_writer import SafeWriter
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +76,7 @@ class ExecutionsConsumer(SimpleConsumer):
                 stream=self.stream,
                 data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -93,7 +92,7 @@ class ExecutionsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
@@ -127,7 +126,7 @@ class RiskAlertsConsumer(SimpleConsumer):
                 stream=self.stream,
                 data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -143,7 +142,7 @@ class RiskAlertsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
@@ -179,7 +178,7 @@ class LearningEventsConsumer(SimpleConsumer):
                 stream=self.stream,
                 data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -195,7 +194,7 @@ class LearningEventsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
@@ -229,7 +228,7 @@ class AgentLogsConsumer(SimpleConsumer):
                 stream=self.stream,
                 data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -245,7 +244,7 @@ class AgentLogsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",

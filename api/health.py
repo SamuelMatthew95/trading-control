@@ -7,8 +7,9 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from api.redis_client import get_redis, close_redis
+
 from api.database import AsyncSessionFactory
+from api.redis_client import close_redis, get_redis
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -44,7 +45,7 @@ async def safe_database_check():
 async def health_check():
     """Health check for container orchestrators."""
     now = datetime.now(timezone.utc)
-    
+
     # Check startup grace period (60 seconds)
     uptime_seconds = (now - PROCESS_START_TIME).total_seconds()
     if uptime_seconds < 60:
@@ -54,11 +55,11 @@ async def health_check():
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
-    
+
     # Check dependencies with graceful degradation
     redis_ok = await safe_redis_check()
     db_ok = await safe_database_check()
-    
+
     if redis_ok and db_ok:
         return {
             "status": "healthy",
@@ -67,12 +68,11 @@ async def health_check():
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat()
         }
-    else:
-        return {
-            "status": "degraded",
-            "message": "Some dependencies are unavailable",
-            "redis": "ok" if redis_ok else "unavailable",
-            "postgres": "ok" if db_ok else "unavailable",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat()
-        }
+    return {
+        "status": "degraded",
+        "message": "Some dependencies are unavailable",
+        "redis": "ok" if redis_ok else "unavailable",
+        "postgres": "ok" if db_ok else "unavailable",
+        "uptime_seconds": uptime_seconds,
+        "check_time": now.isoformat()
+    }

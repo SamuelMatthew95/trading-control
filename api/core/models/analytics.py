@@ -2,21 +2,29 @@
 Analytics models - clean architecture.
 """
 
+from pgvector.sqlalchemy import VECTOR  # Required for production
 from sqlalchemy import (
-    Column, String, DateTime, Integer, Float, Index,
-    Numeric, ForeignKey, Enum, CheckConstraint, Text
+    CheckConstraint,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.sql import func, text
-from pgvector.sqlalchemy import VECTOR  # Required for production
 
 from .base import Base
 
 
 class TradePerformance(Base):
     __tablename__ = 'trade_performance'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     strategy_id = Column(
         UUID(as_uuid=True),
@@ -55,7 +63,7 @@ class TradePerformance(Base):
     schema_version = Column(String, nullable=False, server_default="v2", index=True)
     source = Column(String, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
+
     __table_args__ = (
         Index('idx_trade_performance_agent_created', 'agent_id', 'created_at'),
         Index('idx_trade_performance_symbol_created', 'symbol', 'created_at'),
@@ -69,7 +77,7 @@ class TradePerformance(Base):
 
 class VectorMemory(Base):
     __tablename__ = 'vector_memory'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     agent_id = Column(UUID(as_uuid=True), ForeignKey('agent_pool.id', ondelete='CASCADE'), nullable=True, index=True)
     strategy_id = Column(UUID(as_uuid=True), ForeignKey('strategies.id', ondelete='CASCADE'), nullable=True, index=True)
@@ -81,12 +89,12 @@ class VectorMemory(Base):
     schema_version = Column(String, nullable=False, server_default="v2", index=True)
     source = Column(String, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
+
     __table_args__ = (
         Index('idx_vector_memory_agent_type', 'agent_id', 'content_type'),
         Index('idx_vector_memory_symbol', 'strategy_id'),
         Index('idx_vector_memory_schema_version', 'schema_version'),
-        Index('idx_vector_memory_embedding', 'embedding', postgresql_using='ivfflat', 
+        Index('idx_vector_memory_embedding', 'embedding', postgresql_using='ivfflat',
               postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_with={'lists': 100}),
         CheckConstraint('schema_version = \'v2\'', name='check_vector_memory_schema_v2'),
     )
@@ -94,7 +102,7 @@ class VectorMemory(Base):
 
 class SystemMetrics(Base):
     __tablename__ = 'system_metrics'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     metric_name = Column(String, nullable=False, index=True)
     metric_value = Column(Numeric(18, 8), nullable=False)
@@ -103,7 +111,7 @@ class SystemMetrics(Base):
     schema_version = Column(String, nullable=False, server_default="v2", index=True)
     source = Column(String, nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
+
     __table_args__ = (
         Index('idx_metrics_name_timestamp', 'metric_name', 'timestamp'),
         Index('idx_metrics_schema_version', 'schema_version'),

@@ -20,15 +20,11 @@ from api.events.dlq import DLQManager
 from api.observability import bind_request_context, configure_logging, log_structured, metrics_store
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
-from api.routes.health import router as health_router
-from api.routes.dlq import router as dlq_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
+from api.routes.dlq import router as dlq_router
+from api.routes.health import router as health_router
 from api.routes.ws import router as ws_router
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
-from api.services.event_pipeline import EventPipeline
-from api.services.market_ingestor import MarketDataIngestor
-from api.services.signal_generator import SignalGenerator
-from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
@@ -36,6 +32,10 @@ from api.services.agents.pipeline_agents import (
     ReflectionAgent,
     StrategyProposer,
 )
+from api.services.agents.reasoning_agent import ReasoningAgent
+from api.services.event_pipeline import EventPipeline
+from api.services.market_ingestor import MarketDataIngestor
+from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
 
 configure_logging(settings.LOG_LEVEL)
@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI):
             config_source=get_settings_info().get("config_source"),
         )
         yield
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log_structured(
             "error",
             "startup_failed",

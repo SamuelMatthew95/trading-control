@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from api.core.models import TradePerformance
+from api.core.schemas import StandardResponse
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionLocal
-from api.core.schemas import StandardResponse
 
 router = APIRouter(tags=["trades"])
 
@@ -21,7 +21,7 @@ async def get_safe_writer() -> SafeWriter:
 
 
 @router.get("/trades")
-async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> Dict[str, Any]:
+async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> dict[str, Any]:
     """Get all trades with standardized response format."""
     try:
         async with safe_writer.transaction() as session:
@@ -62,9 +62,9 @@ async def get_trades(safe_writer: SafeWriter = Depends(get_safe_writer)) -> Dict
 
 @router.post("/trades")
 async def save_trade(
-    trade_data: Dict[str, Any], 
+    trade_data: dict[str, Any],
     safe_writer: SafeWriter = Depends(get_safe_writer)
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Save a new trade using SafeWriter (only write path)."""
     try:
         # Validate input data
@@ -76,19 +76,18 @@ async def save_trade(
         # Generate unique message ID for exactly-once semantics
         msg_id = str(uuid4())
         stream = "trade_api"
-        
+
         # Use SafeWriter - the ONLY write path
         success = await safe_writer.write_trade_performance(msg_id, stream, trade_data)
-        
+
         if success:
             return StandardResponse(
                 success=True,
                 data={"message": "Trade saved successfully", "msg_id": msg_id},
             ).model_dump()
-        else:
-            raise HTTPException(
-                status_code=409, detail="Trade was already processed"
-            )
+        raise HTTPException(
+            status_code=409, detail="Trade was already processed"
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -96,7 +95,7 @@ async def save_trade(
 
 
 @router.options("/trades")
-async def trades_options() -> Dict[str, Any]:
+async def trades_options() -> dict[str, Any]:
     """OPTIONS method for trades endpoint."""
     return StandardResponse(
         success=True,
@@ -106,7 +105,7 @@ async def trades_options() -> Dict[str, Any]:
 
 # Bot Control Endpoints
 @router.post("/trading/start")
-async def start_trading_bot() -> Dict[str, Any]:
+async def start_trading_bot() -> dict[str, Any]:
     """Start the trading bot with standardized response format."""
     try:
         bot_state.update(
@@ -133,7 +132,7 @@ async def start_trading_bot() -> Dict[str, Any]:
 
 
 @router.post("/trading/stop")
-async def stop_trading_bot() -> Dict[str, Any]:
+async def stop_trading_bot() -> dict[str, Any]:
     """Stop the trading bot with standardized response format."""
     try:
         bot_state.update(
@@ -160,7 +159,7 @@ async def stop_trading_bot() -> Dict[str, Any]:
 
 
 @router.get("/trading/status")
-async def get_trading_status() -> Dict[str, Any]:
+async def get_trading_status() -> dict[str, Any]:
     """Get current trading bot status with standardized response format."""
     try:
 
@@ -188,7 +187,7 @@ async def get_trading_status() -> Dict[str, Any]:
 
 
 @router.post("/trading/emergency-stop")
-async def emergency_stop_all() -> Dict[str, Any]:
+async def emergency_stop_all() -> dict[str, Any]:
     """Emergency stop all trading activities with standardized response format."""
     try:
         bot_state.update(
@@ -215,7 +214,7 @@ async def emergency_stop_all() -> Dict[str, Any]:
 
 
 @router.get("/trading/bots")
-async def get_bots_status() -> Dict[str, Any]:
+async def get_bots_status() -> dict[str, Any]:
     """Get status of all bots for dashboard with standardized response format."""
     try:
 
@@ -258,7 +257,7 @@ async def get_bots_status() -> Dict[str, Any]:
 @router.options("/trading/status")
 @router.options("/trading/emergency-stop")
 @router.options("/bots/status")
-async def trading_options() -> Dict[str, Any]:
+async def trading_options() -> dict[str, Any]:
     """OPTIONS method for trading endpoints."""
     return StandardResponse(
         success=True,

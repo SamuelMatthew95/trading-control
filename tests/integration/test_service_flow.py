@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import FastAPI
 
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
-from api.routes.ws import router as ws_router
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -286,7 +283,6 @@ async def test_reasoning_agent_fallback_publishes_logs_and_orders(monkeypatch):
 async def test_execution_engine_updates_existing_short_position_with_signed_math(
     monkeypatch,
 ):
-    import api.services.execution.execution_engine as execution_module
 
     class CaptureSession(FakeSession):
         pass

@@ -64,7 +64,7 @@ class MultiStreamAgent:
                     except Exception as exc:  # noqa: BLE001
                         await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # Agent processing throttle - allowed
 
 
 class GradeAgent(MultiStreamAgent):

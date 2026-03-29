@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
 
+from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
-from api.core.writer.safe_writer import SafeWriter
 
 logger = logging.getLogger(__name__)
 

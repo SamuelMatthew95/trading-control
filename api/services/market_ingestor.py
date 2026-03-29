@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from typing import Any
 
 from alpaca.data.live.crypto import CryptoDataStream
 from alpaca.data.live.stock import StockDataStream

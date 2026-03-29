@@ -77,7 +77,7 @@ class AlpacaBroker:
         fill_price = price  # fallback to signal price
         status = "pending"
         for attempt in range(10):
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)  # Order fill polling - allowed
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"{self.base_url}/v2/orders/{broker_order_id}",
@@ -98,7 +98,7 @@ class AlpacaBroker:
                     attempt=attempt + 1,
                 )
                 break
-            elif status in {"canceled", "expired", "rejected"}:
+            if status in {"canceled", "expired", "rejected"}:
                 log_structured(
                     "warning", "Alpaca order terminal state",
                     broker_order_id=broker_order_id,

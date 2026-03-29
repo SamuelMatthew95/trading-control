@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from unittest.mock import AsyncMock
 
 # Import the FastAPI app
 from api.main import app
-from api.observability import bind_request_context
 
 
 class TestDLQAPI:
@@ -232,6 +232,7 @@ class TestDLQAPI:
     async def test_redis_max_connections_is_20(self):
         """Test that Redis client configures max_connections=30."""
         import inspect
+
         from api import redis_client
 
         redis_source_code = inspect.getsource(redis_client)

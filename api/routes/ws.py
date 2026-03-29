@@ -43,7 +43,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "system", "status": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()})
             except WebSocketDisconnect:
                 break
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log_structured(
             "error",
             "ws_connection_error",

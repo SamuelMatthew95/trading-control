@@ -2,16 +2,17 @@
 Position model - clean architecture.
 """
 
-from sqlalchemy import Column, String, DateTime, Index, Numeric, ForeignKey, CheckConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Numeric, String
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.sql import func, text
 
 from .base import Base
 
+
 class Position(Base):
     __tablename__ = 'positions'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     strategy_id = Column(UUID(as_uuid=True), ForeignKey('strategies.id', ondelete='CASCADE'), nullable=False, index=True)
     symbol = Column(String, nullable=False, index=True)
@@ -25,7 +26,7 @@ class Position(Base):
     source = Column(String, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
+
     __table_args__ = (
         Index('idx_positions_strategy_symbol', 'strategy_id', 'symbol', unique=True),
         Index('idx_positions_schema_version', 'schema_version'),

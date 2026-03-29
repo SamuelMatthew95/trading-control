@@ -1,13 +1,13 @@
 """Tests for signal pipeline components."""
 
-import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from api.config import settings
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
-from api.services.llm_router import call_llm, _parse_response, _get_provider_key
+from api.services.llm_router import _get_provider_key, _parse_response, call_llm
 from api.services.signal_generator import SignalGenerator
 
 
@@ -35,7 +35,7 @@ class TestSignalGenerator:
                 "price": 50000.0 + i,
                 "timestamp": "2024-01-01T00:00:00Z"
             })
-        
+
         # Should have published exactly 1 signal
         assert mock_bus.publish.call_count == 1
         call_args = mock_bus.publish.call_args
@@ -54,14 +54,14 @@ class TestSignalGenerator:
                 "price": 50000.0 + i,
                 "timestamp": "2024-01-01T00:00:00Z"
             })
-        
+
         for i in range(5):
             await signal_generator.process({
-                "symbol": "ETH/USD", 
+                "symbol": "ETH/USD",
                 "price": 3000.0 + i,
                 "timestamp": "2024-01-01T00:00:00Z"
             })
-        
+
         # Should have 1 signal for A, 0 for B
         assert mock_bus.publish.call_count == 1
         signal = mock_bus.publish.call_args[0][1]
@@ -75,7 +75,7 @@ class TestSignalGenerator:
             "price": 0,
             "timestamp": "2024-01-01T00:00:00Z"
         })
-        
+
         # Should not have published any signal
         assert mock_bus.publish.call_count == 0
 
@@ -86,7 +86,7 @@ class TestSignalGenerator:
             "price": 50000.0,
             "timestamp": "2024-01-01T00:00:00Z"
         })
-        
+
         # Should not have published any signal
         assert mock_bus.publish.call_count == 0
 
@@ -95,9 +95,9 @@ class TestLLMRouter:
     def test_parse_response_strips_markdown(self):
         text = "```json\n{\"action\": \"buy\", \"confidence\": 0.8}\n```"
         trace_id = "test-123"
-        
+
         result = _parse_response(text, trace_id)
-        
+
         assert result["action"] == "buy"
         assert result["confidence"] == 0.8
         assert result["trace_id"] == trace_id
@@ -106,9 +106,9 @@ class TestLLMRouter:
     def test_parse_response_plain_json(self):
         text = "{\"action\": \"sell\", \"confidence\": 0.9}"
         trace_id = "test-456"
-        
+
         result = _parse_response(text, trace_id, cost_usd=0.001)
-        
+
         assert result["action"] == "sell"
         assert result["confidence"] == 0.9
         assert result["trace_id"] == trace_id
@@ -118,7 +118,7 @@ class TestLLMRouter:
         # Test existing provider
         key = _get_provider_key("groq")
         assert key == settings.GROQ_API_KEY
-        
+
         # Test non-existent provider
         key = _get_provider_key("nonexistent")
         assert key == ""
@@ -128,7 +128,7 @@ class TestLLMRouter:
         with patch.dict(settings.__dict__, {"LLM_PROVIDER": "invalid"}):
             with pytest.raises(RuntimeError) as exc_info:
                 await call_llm("test prompt", "test-trace")
-            
+
             assert "unknown_provider" in str(exc_info.value)
             assert "invalid" in str(exc_info.value)
 
@@ -140,14 +140,14 @@ class TestLLMRouter:
         }):
             with pytest.raises(RuntimeError) as exc_info:
                 await call_llm("test prompt", "test-trace")
-            
+
             assert "missing_api_key" in str(exc_info.value)
             assert "GROQ_API_KEY" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_llm_router_calls_correct_provider(self):
         mock_call_groq = AsyncMock(return_value=({"action": "buy"}, 100, 0.0))
-        
+
         with patch.dict(settings.__dict__, {
             "LLM_PROVIDER": "groq",
             "GROQ_API_KEY": "test-key"
@@ -155,16 +155,16 @@ class TestLLMRouter:
             # Patch the _PROVIDERS dict to avoid groq import
             with patch('api.services.llm_router._PROVIDERS', {'groq': mock_call_groq}):
                 await call_llm("test prompt", "test-trace")
-        
+
         mock_call_groq.assert_called_once_with("test prompt", "test-trace")
 
 
 class TestMarketIngestor:
     def test_market_ingestor_uses_config_interval(self):
-        from api.services.market_ingestor import MarketIngestor
         from api.events.bus import EventBus
-        
+        from api.services.market_ingestor import MarketIngestor
+
         mock_bus = AsyncMock(spec=EventBus)
         ingestor = MarketIngestor(mock_bus)
-        
+
         assert ingestor.interval == settings.MARKET_TICK_INTERVAL_SECONDS

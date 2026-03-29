@@ -2,15 +2,16 @@
 Audit models - clean architecture.
 """
 
-from sqlalchemy import Column, String, DateTime, Text, Index, Boolean
+from sqlalchemy import Column, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func, text
 
 from .base import Base
 
+
 class AuditLog(Base):
     __tablename__ = 'audit_log'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     entity_type = Column(String, nullable=False, index=True)
     entity_id = Column(String, nullable=False, index=True)
@@ -21,7 +22,7 @@ class AuditLog(Base):
     ip_address = Column(String, nullable=True)
     user_agent = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
+
     __table_args__ = (
         Index('idx_audit_created', 'created_at'),
         Index('idx_audit_entity', 'entity_type', 'entity_id'),

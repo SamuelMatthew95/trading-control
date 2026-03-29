@@ -6,6 +6,7 @@ import pytest
 from redis.exceptions import ResponseError
 
 from api.constants import (
+    STREAM_AGENT_LOGS,
     STREAM_EXECUTIONS,
     STREAM_LEARNING_EVENTS,
     STREAM_MARKET_TICKS,
@@ -13,9 +14,8 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
-    STREAM_AGENT_LOGS,
 )
-from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
+from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 
 
 @pytest.mark.asyncio

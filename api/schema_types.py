@@ -2,7 +2,7 @@
 TypedDict definitions for inter-service communication.
 """
 
-from typing import TypedDict, List, Dict, Any
+from typing import Any, TypedDict
 
 
 class MarketTickEvent(TypedDict):
@@ -22,15 +22,15 @@ class SignalEvent(TypedDict):
     qty: float
     price: float
     composite_score: float
-    factor_attribution: Dict[str, float]
-    signal_data: Dict[str, Any]
+    factor_attribution: dict[str, float]
+    signal_data: dict[str, Any]
 
 
 class AgentSummary(TypedDict):
     action: str
     confidence: float
     primary_edge: str
-    risk_factors: List[str]
+    risk_factors: list[str]
     size_pct: float
     stop_atr_x: float
     rr_ratio: float
@@ -47,16 +47,16 @@ class TradePerformanceRecord(TypedDict):
     holding_secs: int
     entry_price: float
     exit_price: float
-    market_context: Dict[str, Any]
-    factor_attribution: Dict[str, float]
+    market_context: dict[str, Any]
+    factor_attribution: dict[str, float]
 
 
 class ReflectionPayload(TypedDict):
-    winning_factors: List[str]
-    losing_factors: List[str]
+    winning_factors: list[str]
+    losing_factors: list[str]
     regime_edge: str
     sizing_recommendation: str
-    new_hypotheses: List[str]
+    new_hypotheses: list[str]
     summary: str
 
 
@@ -87,12 +87,12 @@ class RiskAlertEvent(TypedDict):
     message: str
     symbol: str | None
     timestamp: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class LearningEvent(TypedDict):
     event_type: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: str
 
 
@@ -101,4 +101,4 @@ class SystemMetricEvent(TypedDict):
     value: float | str
     unit: str | None
     timestamp: str
-    tags: Dict[str, str] | None
+    tags: dict[str, str] | None

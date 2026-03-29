@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # In Vercel, /var/task is the root, so we need to add current directory to path
 # to import main.py directly from the same directory

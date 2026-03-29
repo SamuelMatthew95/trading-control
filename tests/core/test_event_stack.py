@@ -6,7 +6,7 @@ from unittest.mock import ANY
 import pytest
 from redis.exceptions import ResponseError
 
-from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
+from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 

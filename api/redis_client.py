@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import ConnectionError, TimeoutError
 
 from api.config import settings
 from api.observability import log_structured
 
-_redis_client: Optional[Redis] = None
-_redis_pool: Optional[ConnectionPool] = None
+_redis_client: Redis | None = None
+_redis_pool: ConnectionPool | None = None
 
 
 def _mask_redis_url(url: str) -> str:

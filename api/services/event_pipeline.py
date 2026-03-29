@@ -87,7 +87,7 @@ class EventPipeline:
                 )
                 for redis_id, event in messages:
                     await self._process_with_retry(stream, redis_id, event)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # Event processing throttle - allowed
 
     async def _process_with_retry(self, stream: str, redis_id: str, event: dict[str, Any]) -> None:
         event_type = str(event.get("type") or stream)

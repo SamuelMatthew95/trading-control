@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
-from api.core.schemas import TradeDecision, TradeRequest, StandardResponse
+from api.core.schemas import StandardResponse, TradeDecision, TradeRequest
 from api.database import get_async_session
 from api.main_state import (
     get_trading_service,
@@ -64,7 +62,7 @@ async def analyze_trade(
                 status_code=500, detail="Trade analysis failed"
             ) from exc
 
-        async with get_async_session() as session:
+        async with get_async_session():
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             for agent in [
                 "SIGNAL_AGENT",
