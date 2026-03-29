@@ -101,6 +101,7 @@ If any step fails, the PR cannot be merged.
 
 **Live Docs**: https://matthew.docs.buildwithfern.com/
 **Private Repo**: https://github.com/fern-support/matthew
+**Repository**: fern-support/matthew (accessible via GitHub MCP tool)
 
 ### Sync Requirements
 **ANY change to api/ endpoints requires an update to the Fern definition** in the private fern-support/matthew repo.
@@ -118,5 +119,18 @@ Use the GitHub MCP tool to read the current Fern definition files from fern-supp
 1. Use the GitHub MCP tool to update the Fern definition in fern-support/matthew to match
 2. Commit both changes - code change here, docs change in Fern repo
 3. Update CHANGELOG.md with both changes
+
+### Fern Repo Access
+- **Repository Name**: fern-support/matthew
+- **Full URL**: https://github.com/fern-support/matthew
+- **Access Method**: GitHub MCP tool (available in this environment)
+- **Purpose**: Private repository for Fern API definitions
+- **Contents**: YAML files defining API endpoints, types, and documentation
+
+### Definition Files Location
+The Fern definition files are typically located in:
+- `fern/definition/` directory
+- `fern/api.yml` or similar YAML files
+- `fern/docs/` for additional documentation
 
 **Never merge a PR that adds or changes an endpoint without a matching Fern definition update.**
