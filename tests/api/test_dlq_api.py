@@ -7,10 +7,6 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from unittest.mock import AsyncMock
 
-# Import the FastAPI app
-from api.main import app
-from api.observability import bind_request_context
-
 
 class TestDLQAPI:
     """Test DLQ API endpoints."""
@@ -18,6 +14,9 @@ class TestDLQAPI:
     @pytest_asyncio.fixture
     async def client(self):
         """Create an async client for testing."""
+        # Import here to avoid module load issues
+        from api.main import app
+        
         transport = ASGITransport(app=app)
         async with AsyncClient(
             transport=transport, base_url="http://localhost"

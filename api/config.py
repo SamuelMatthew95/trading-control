@@ -6,7 +6,6 @@ from typing import Optional
 
 from pydantic import (
     Field,
-    PostgresDsn,
     ValidationError,
     field_validator,
     model_validator,
@@ -15,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: Optional[PostgresDsn] = Field(default=None)
+    DATABASE_URL: Optional[str] = Field(default=None)
     REDIS_URL: Optional[str] = Field(default=None)
     ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
@@ -85,6 +84,10 @@ class Settings(BaseSettings):
     def validate_runtime_requirements(self) -> "Settings":
         if self.NODE_ENV == "production" and not self.DATABASE_URL:
             raise ValueError("DATABASE_URL is required in production")
+        if self.NODE_ENV == "production" and self.DATABASE_URL:
+            # Validate that production uses PostgreSQL
+            if not (self.DATABASE_URL.startswith("postgresql") or self.DATABASE_URL.startswith("postgres")):
+                raise ValueError("PostgreSQL DATABASE_URL is required in production")
         return self
 
 
