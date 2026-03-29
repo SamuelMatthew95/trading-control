@@ -40,8 +40,7 @@ async def create_negative_memory(
 @router.post("/feedback/reinforce")
 async def reinforce_feedback(
     payload: ReinforceRequest,
-    background_tasks: BackgroundTasks,
-    feedback_service=Depends(get_feedback_service),
+    background_tasks: BackgroundTasks, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
         job = await feedback_service.create_feedback_job(session, payload.run_id)
@@ -57,7 +56,7 @@ async def reinforce_feedback(
 
 @router.get("/feedback/reinforce/{job_id}")
 async def get_reinforce_job(
-    job_id: str, feedback_service=Depends(get_feedback_service)
+    job_id: str, feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)]
 ):
     async with get_async_session() as session:
         row = await feedback_service.get_feedback_job(session, job_id)

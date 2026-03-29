@@ -39,7 +39,7 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "dashboard snapshot failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/stream-lag")
@@ -146,7 +146,7 @@ async def get_prices() -> dict[str, Any]:
 
     except Exception as e:
         log_structured("error", "price cache failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/health/worker")

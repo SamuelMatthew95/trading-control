@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
+from api.services.trading_service import TradingService
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.core.schemas import StandardResponse, TradeDecision, TradeRequest
