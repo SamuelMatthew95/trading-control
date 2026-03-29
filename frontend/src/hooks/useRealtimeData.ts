@@ -42,7 +42,7 @@ export interface AgentState {
 }
 
 // Price store with SSE support
-export const usePriceStore = create<PriceState>((set, get) => {
+export const usePriceStore = create<PriceState>((set, _get) => {
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -60,7 +60,9 @@ export const usePriceStore = create<PriceState>((set, get) => {
     eventSourceRef.current = eventSource
 
     eventSource.onopen = () => {
-      console.log('SSE connection opened')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('SSE connection opened')
+      }
       set({ connectionStatus: 'live', error: null })
     }
 
@@ -94,18 +96,24 @@ export const usePriceStore = create<PriceState>((set, get) => {
           error: null
         }))
       } catch (error) {
-        console.error('Error parsing SSE message:', error)
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error parsing SSE message:', error)
+        }
       }
     }
 
     eventSource.onerror = () => {
-      console.log('SSE connection error')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('SSE connection error')
+      }
       eventSource.close()
       set({ connectionStatus: 'reconnecting' })
       
       // Reconnect after 3 seconds
       reconnectTimeoutRef.current = setTimeout(() => {
-        console.log('Attempting to reconnect SSE...')
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Attempting to reconnect SSE...')
+        }
         startSSE()
       }, 3000)
     }
@@ -140,7 +148,9 @@ export const usePriceStore = create<PriceState>((set, get) => {
         lastUpdated: Date.now() 
       })
     } catch (error) {
-      console.error('Error fetching prices:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error fetching prices:', error)
+      }
       set({ 
         error: error instanceof Error ? error.message : 'Failed to fetch prices', 
         isLoading: false 
@@ -163,7 +173,7 @@ export const usePriceStore = create<PriceState>((set, get) => {
 })
 
 // Agent store with polling
-export const useAgentStore = create<AgentState>((set, get) => {
+export const useAgentStore = create<AgentState>((set, _get) => {
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const fetchAgents = async () => {
@@ -183,7 +193,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
         lastUpdated: Date.now() 
       })
     } catch (error) {
-      console.error('Error fetching agents:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error fetching agents:', error)
+      }
       set({ 
         error: error instanceof Error ? error.message : 'Failed to fetch agents', 
         isLoading: false 
@@ -232,7 +244,7 @@ export const usePrices = () => {
     return () => {
       store.stopSSE()
     }
-  }, [store.fetchPrices, store.startSSE, store.stopSSE])
+  }, [store])
   
   return store
 }
@@ -248,7 +260,7 @@ export const useAgents = () => {
     return () => {
       store.stopPolling()
     }
-  }, [store.startPolling, store.stopPolling])
+  }, [store])
   
   return store
 }

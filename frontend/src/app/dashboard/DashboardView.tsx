@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
+import { useCallback, useMemo, useState, type ComponentType } from 'react'
 import { cn } from '@/lib/utils'
 import {
   Activity,
@@ -75,8 +75,6 @@ const TRACKED_AGENTS = [
   'NOTIFICATION_AGENT',
 ] as const
 
-const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
-
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(cast) ? cast : null
@@ -93,19 +91,6 @@ function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentT
       <div className="flex flex-col items-center gap-2 text-center">
         <Icon className="h-5 w-5 text-slate-400" />
         <p className="text-sm font-sans text-slate-400">{message}</p>
-      </div>
-    </div>
-  )
-}
-
-function PriceCardSkeleton() {
-  return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <div className="mb-1 h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-1 h-6 w-24 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-2 flex items-center justify-between">
-        <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-        <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
       </div>
     </div>
   )
@@ -198,7 +183,7 @@ export function DashboardView({ section }: { section: Section }) {
     wsConnected = false,
   } = useCodexStore()
 
-  const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
+  const [showNoAgentDataMessage] = useState(false)
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   

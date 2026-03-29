@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils'
 import { usePrices } from '@/hooks/useRealtimeData'
 
-const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
+const SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 
 function PriceCardSkeleton() {
   return (
@@ -132,7 +132,7 @@ export function LiveMarketPrices() {
             <PriceCardSkeleton key={index} />
           ))
         ) : (
-          TICKER_SYMBOLS.map((symbol) => {
+          SYMBOLS.map((symbol) => {
             const priceData = prices[symbol]
             
             if (!priceData && !isLoading) {
