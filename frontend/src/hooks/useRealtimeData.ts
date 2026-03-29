@@ -60,9 +60,8 @@ export const usePriceStore = create<PriceState>((set, _get) => {
     eventSourceRef.current = eventSource
 
     eventSource.onopen = () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('SSE connection opened')
-      }
+      // eslint-disable-next-line no-console
+      console.log('SSE connection opened')
       set({ connectionStatus: 'live', error: null })
     }
 
@@ -96,24 +95,21 @@ export const usePriceStore = create<PriceState>((set, _get) => {
           error: null
         }))
       } catch (error) {
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Error parsing SSE message:', error)
-        }
+      // eslint-disable-next-line no-console
+      console.error('Error parsing SSE message:', error)
       }
     }
 
     eventSource.onerror = () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('SSE connection error')
-      }
+      // eslint-disable-next-line no-console
+      console.log('SSE connection error')
       eventSource.close()
       set({ connectionStatus: 'reconnecting' })
       
       // Reconnect after 3 seconds
       reconnectTimeoutRef.current = setTimeout(() => {
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Attempting to reconnect SSE...')
-        }
+        // eslint-disable-next-line no-console
+        console.log('Attempting to reconnect SSE...')
         startSSE()
       }, 3000)
     }
@@ -148,9 +144,8 @@ export const usePriceStore = create<PriceState>((set, _get) => {
         lastUpdated: Date.now() 
       })
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Error fetching prices:', error)
-      }
+      // eslint-disable-next-line no-console
+      console.error('Error fetching prices:', error)
       set({ 
         error: error instanceof Error ? error.message : 'Failed to fetch prices', 
         isLoading: false 
@@ -193,9 +188,8 @@ export const useAgentStore = create<AgentState>((set, _get) => {
         lastUpdated: Date.now() 
       })
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Error fetching agents:', error)
-      }
+      // eslint-disable-next-line no-console
+      console.error('Error fetching agents:', error)
       set({ 
         error: error instanceof Error ? error.message : 'Failed to fetch agents', 
         isLoading: false 
