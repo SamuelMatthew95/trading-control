@@ -267,3 +267,8 @@ build/
 # Runtime artifacts
 trade-log.json
 trade-memory.json
+
+# Claude Code security
+.claude/settings.local.json
+*.token
+*.secret

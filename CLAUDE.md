@@ -394,6 +394,41 @@ was generating new uuid4() instead of extracting from upstream event payload".
 
 ---
 
+## API Documentation (Fern)
+
+Live docs: https://matthew.docs.buildwithfern.com/
+Fern source: private GitHub repo — accessible via GitHub MCP tool.
+
+### Reading the docs
+When you need to understand current API structure, use the GitHub MCP
+tool to read the Fern definition files from the private repo before
+making any endpoint changes.
+
+### Keeping docs in sync
+When you add or change any API endpoint, you must:
+1. Make the code change in this repo
+2. Use the GitHub MCP tool to read the current Fern definition
+3. Update the Fern definition file in the private repo to match
+4. Commit both changes — code change here, docs change in Fern repo
+5. Note both changes in CHANGELOG.md
+
+Never merge a PR that adds or changes an endpoint without a matching
+Fern definition update.
+
+### What counts as a docs change
+- New endpoint added → add to Fern definition
+- Endpoint response shape changed → update type definition
+- Endpoint deprecated → mark deprecated, do not delete
+- New query parameter → add to parameter definition
+- Error response changed → update error type
+
+### Fern repo details
+- Repo name: fern-support/matthew
+- Definition files location: [add path once confirmed e.g. fern/definition/]
+- To verify changes published: check https://matthew.docs.buildwithfern.com/
+
+---
+
 ## Current Status
 
 - [x] Price poller running as separate Render worker
