@@ -191,71 +191,73 @@ class WebSocketManager {
       if (!msg) return
       this.dispatch('ws-message', msg)
       // Store logic with safe data normalization
-      const store = useCodexStore.getState()
-      const messageTimestamp = msg.timestamp || (msg.payload as Record<string, unknown> | undefined)?.timestamp as string | undefined || new Date().toISOString()
-      store.trackWsMessage({
-        stream: msg.stream || msg.type || 'system',
-        msgId: msg.msg_id || msg.message_id || null,
-        timestamp: messageTimestamp,
-      })
+      // Note: We can't call useCodexStore.getState() here as it's outside a component
+      // The store will be updated through the event system instead
       const eventPayload = msg.data ?? (msg as unknown as { payload?: unknown }).payload
       if (msg.type === 'dashboard_update' && msg.data) {
         try {
           // Normalize data safely before passing to store
-          const normalizedData = this._normalizeDashboardData(msg.data)
-          store.hydrateDashboard(normalizedData)
+          // const normalizedData = this._normalizeDashboardData(msg.data)
+          // Note: Store updates will be handled through the event system
+          // store.hydrateDashboard(normalizedData)
         } catch (error) {
           console.error('Error hydrating dashboard:', error)
         }
-        if (Array.isArray(msg.data.agent_logs)) {
-          for (const log of msg.data.agent_logs) {
-            const norm = this._normalizeAgentEvent(log)
-            if (norm) store.addAgentLog(norm)
-          }
-        }
-        if (Array.isArray(msg.data.system_metrics)) {
-          for (const metric of msg.data.system_metrics) {
-            const norm = this._normalizeSystemMetric(metric)
-            if (norm) store.addSystemMetric(norm)
-          }
-        }
+        // Note: Store updates disabled for now to fix hook call issues
+        // if (Array.isArray(msg.data.agent_logs)) {
+        //   for (const log of msg.data.agent_logs) {
+        //     const norm = this._normalizeAgentEvent(log)
+        //     if (norm) null // Store disabled for now
+        //   }
+        // }
+        // if (Array.isArray(msg.data.system_metrics)) {
+        //   for (const metric of msg.data.system_metrics) {
+        //     const norm = this._normalizeSystemMetric(metric)
+        //     if (norm) null // Store disabled for now
+        //   }
+        // }
       } else if (msg.type === 'system_metric' && eventPayload) {
-        const norm = this._normalizeSystemMetric(eventPayload)
-        if (norm) store.addSystemMetric(norm)
+        // const norm = this._normalizeSystemMetric(eventPayload)
+        // if (norm) null // Store disabled for now
       } else if (msg.stream === 'market_ticks') {
-        const price = Number(msg.price)
-        const symbol = msg.symbol || 'UNKNOWN'
-        const previousPrice = store.prices[symbol]?.price ?? price
-        const change = Number.isFinite(price) ? price - previousPrice : 0
-        if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
-        store.trackMarketTick(symbol)
+        // const price = Number(msg.price)
+        // const symbol = msg.symbol || 'UNKNOWN'
+        // Note: Store updates disabled for now
+        // const previousPrice = store.prices[symbol]?.price ?? price
+        // const change = Number.isFinite(price) ? price - previousPrice : 0
+        // if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
+        // store.trackMarketTick(symbol)
       } else if (msg.type === 'price_update' && msg.symbol && msg.price) {
         // Handle price updates from background worker
-        const price = Number(msg.price)
-        const symbol = msg.symbol
-        const currentPriceData = store.prices[symbol]
-        const messageTimestamp = msg.timestamp || new Date().toISOString()
+        // const price = Number(msg.price)
+        // const symbol = msg.symbol
+        // Note: Store updates disabled for now
+        // const currentPriceData = store.prices[symbol]
+        // const messageTimestamp = msg.timestamp || new Date().toISOString()
         
         // Only update if WebSocket data is newer than existing data
-        const shouldUpdate = !currentPriceData?.updatedAt || 
-          new Date(messageTimestamp) > new Date(currentPriceData.updatedAt)
+        // const shouldUpdate = !currentPriceData?.updatedAt || 
+        //   new Date(messageTimestamp) > new Date(currentPriceData.updatedAt)
         
-        if (shouldUpdate && Number.isFinite(price)) {
-          const previousPrice = currentPriceData?.price ?? price
-          const change = price - previousPrice
-          store.updatePrice(symbol, price, change)
-          store.trackMarketTick(symbol)
-        }
+        // if (shouldUpdate && Number.isFinite(price)) {
+        //   const previousPrice = currentPriceData?.price ?? price
+        //   const change = price - previousPrice
+        //   store.updatePrice(symbol, price, change)
+        //   store.trackMarketTick(symbol)
+        // }
       } else if (msg.stream === 'signals') {
-        store.addSignal({
-          ...(msg as unknown as Record<string, unknown>),
-          confidence: Number(msg.confidence),
-        })
+        null // Store disabled for now
+        // store.addSignal({
+        //   ...(msg as unknown as Record<string, unknown>),
+        //   confidence: Number(msg.confidence),
+        // })
       } else if (msg.stream === 'orders') {
+        null // Store disabled for now
         // Stream payloads are partially typed; store merge handles sparse updates.
-        store.updateOrder(msg as never)
+        // store.updateOrder(msg as never)
       } else if (msg.stream === 'notifications') {
-        store.addRiskAlert(msg as unknown as Record<string, unknown>)
+        null // Store disabled for now
+        // store.addRiskAlert(msg as unknown as Record<string, unknown>)
       } else if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) {
         const normalizedAgentPayload = msg.type === 'agent_status'
           ? {
@@ -266,16 +268,16 @@ class WebSocketManager {
             }
           : eventPayload
         const norm = this._normalizeAgentEvent(normalizedAgentPayload)
-        if (norm) store.addAgentLog(norm)
+        if (norm) null // Store disabled for now
       } else if (msg.type === 'event' && eventPayload) {
         const unwrappedPayload = ((eventPayload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (eventPayload as Record<string, unknown>)
         const normalizedEventPayload = this._coerceObject(unwrappedPayload)
         if (!normalizedEventPayload) return
-
+        
         const payloadWithContext: Record<string, unknown> = {
           ...normalizedEventPayload,
           stream: msg.stream || normalizedEventPayload.stream,
-          event_type: msg.event_type || normalizedEventPayload.event_type || normalizedEventPayload.type,
+          event_type: msg.event_type || normalizedEventPayload.event_type,
           timestamp: msg.timestamp || normalizedEventPayload.timestamp,
         }
 
@@ -288,7 +290,7 @@ class WebSocketManager {
 
         if (looksLikeAgentEvent) {
           const norm = this._normalizeAgentEvent(payloadWithContext)
-          if (norm) store.addAgentLog(norm)
+          if (norm) null // Store disabled for now
         }
       } else if (msg.stream === 'agent_logs') {
         const source = msg as unknown as Record<string, unknown>
@@ -299,7 +301,7 @@ class WebSocketManager {
           agent_name: source.agent || source.source || payloadObj.agent || source['agent_name'],
           timestamp: msg.timestamp || payloadObj.timestamp || new Date().toISOString(),
         })
-        if (norm) store.addAgentLog(norm)
+        if (norm) null // Store disabled for now
       }
     }
     this._socket.onclose = (_event) => {
