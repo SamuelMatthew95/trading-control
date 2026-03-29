@@ -91,7 +91,7 @@ def ensure_database_ready(engine: Engine) -> bool:
         message = f"Database connection or inspection failed: {exc}"
         raise DatabaseReadinessError(message) from exc
     except DatabaseReadinessError as exc:
-        log_structured("error", "database readiness error", error=str(exc))
+        log_structured("error", "database readiness error", exc_info=True)
         raise
 
 
@@ -102,7 +102,7 @@ def analyze_vector_table(engine: Engine) -> None:
             connection.execute(text("ANALYZE vector_memory"))
         log_structured("info", "vector table analyzed for index performance")
     except SQLAlchemyError as exc:
-        log_structured("warning", "vector table analyze failed", error=str(exc))
+        log_structured("warning", "vector table analyze failed", exc_info=True)
 
 
 def safe_startup(engine: Engine) -> None:

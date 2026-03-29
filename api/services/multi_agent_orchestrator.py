@@ -166,7 +166,7 @@ class AnthropicReasoningModel:
                     "warning",
                     "reasoning model retry",
                     attempt=attempt + 1,
-                    error=str(exc),
+                    exc_info=True,
                 )
                 time.sleep(0.2 * (attempt + 1))
         raise RuntimeError(f"Model call failed after retries: {last_error}")

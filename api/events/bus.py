@@ -252,7 +252,7 @@ class EventBus:
     async def create_consumer_group(self, stream: str, group: str) -> None:
         """Create consumer group if it doesn't exist using mkstream."""
         try:
-            await self.redis.xgroup_create(stream, group, id="0", mkstream=True)
+            await self.redis.xgroup_create(stream, group, "0", mkstream=True)
         except ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise
@@ -261,7 +261,7 @@ class EventBus:
         """Create all predefined streams and consumer groups."""
         for stream in STREAMS:
             try:
-                await self.redis.xgroup_create(stream, DEFAULT_GROUP, id="$", mkstream=True)
+                await self.redis.xgroup_create(stream, DEFAULT_GROUP, "$", mkstream=True)
             except ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     raise
