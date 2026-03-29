@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.observability import log_structured
 from ..models import (
     AgentGrades,
     AgentLog,
@@ -84,14 +85,7 @@ class SafeWriter:
         if not entity_id:
             raise ValueError("entity_id is required for audit logging")
 
-        self.logger.info(
-            "[WRITE_AUDIT]",
-            extra={
-                "operation": operation,
-                "model": model_name,
-                "id": entity_id,
-            },
-        )
+        log_structured("info", "write audit", operation=operation, model=model_name, id=entity_id)
 
     @asynccontextmanager
     async def transaction(self):
@@ -195,10 +189,7 @@ class SafeWriter:
                     # Get the existing order's ID
                     existing_order = existing.scalar_one()
                     order_id = existing_order.id
-                    logger.info(
-                        "write_order_duplicate",
-                        extra={"msg_id": msg_id, "idempotency_key": idempotency_key}
-                    )
+                    log_structured("info", "write order duplicate", msg_id=msg_id, idempotency_key=idempotency_key)
 
                 # STEP 2: Insert Event (audit trail)
                 event = Event(
@@ -216,11 +207,11 @@ class SafeWriter:
                 session.add(claim)
                 await session.flush()  # Final flush before commit
 
-                logger.info(f"[WRITE_ORDER] msg={msg_id} stream={stream} symbol={data['symbol']}")
+                log_structured("info", "write order", msg_id=msg_id, stream=stream, symbol=data['symbol'])
                 return True
 
             except Exception as e:
-                logger.error(f"[WRITE_ERROR] msg={msg_id} stream={stream} err={e}")
+                log_structured("error", "write order failed", msg_id=msg_id, stream=stream, error=str(e))
                 raise
 
     async def write_execution(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:

@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from api.database import AsyncSessionFactory
+from api.observability import log_structured
 from api.redis_client import get_redis
 from api.services.metrics_aggregator import MetricsAggregator
 
