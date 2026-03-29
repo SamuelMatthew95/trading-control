@@ -199,6 +199,102 @@ Only when all lines show the expected value is the task complete.
 
 ---
 
+## Testing the Whole Application
+
+### Before Making Changes
+Always run this to verify current state:
+```bash
+# 1. Check git status
+git status
+
+# 2. Run full test suite
+pytest tests/ -v --tb=short
+
+# 3. Check linting
+ruff check api/ tests/ --fix
+ruff format api/ tests/
+
+# 4. Type checking
+mypy api/ --ignore-missing-imports --no-error-summary
+
+# 5. Frontend checks
+cd frontend && npx tsc --noEmit && npx eslint src/ --ext .ts,.tsx --max-warnings 0 && cd ..
+```
+
+### After Making Changes
+Run this complete verification checklist:
+```bash
+echo "=== TESTS ===" && pytest tests/ -v --tb=short | tail -5
+echo "=== RUFF ===" && ruff check api/ tests/ && echo "PASS"
+echo "=== MYPY ===" && mypy api/ --ignore-missing-imports --no-error-summary | tail -3
+echo "=== TSC ===" && cd frontend && npx tsc --noEmit && echo "PASS" && cd ..
+echo "=== PRINT STATEMENTS ===" && grep -rn "^[[:space:]]*print(" api/ --include="*.py" | wc -l
+echo "=== SLEEPS ===" && grep -rn "asyncio\.sleep" api/ --include="*.py" | grep -v "sleep(5)" | wc -l
+echo "=== HARDCODED URLS ===" && grep -rn "onrender\.com\|localhost:8000" frontend/src/ --include="*.ts" --include="*.tsx" | wc -l
+echo "=== ENV STAGED ===" && git status | grep "^[AM].*\.env$" | wc -l
+```
+
+Expected output:
+- TESTS: X passed, 0 failed
+- RUFF: PASS
+- MYPY: PASS or known pre-existing errors only
+- TSC: PASS
+- PRINT STATEMENTS: 0
+- SLEEPS: 0
+- HARDCODED URLS: 0
+- ENV STAGED: 0
+
+### Running the Application Locally
+```bash
+# Backend (Terminal 1)
+source .venv/bin/activate
+uvicorn api.main:app --reload --port 8000
+
+# Price poller (Terminal 2) 
+source .venv/bin/activate
+python -m api.workers.price_poller
+
+# Frontend (Terminal 3)
+cd frontend
+npm run dev
+
+# Verify everything is working
+curl -s http://localhost:8000/health
+curl -s http://localhost:8000/api/v1/prices | python3 -m json.tool
+curl -N --max-time 10 http://localhost:8000/api/v1/prices/stream
+```
+
+### Redis Verification
+```bash
+# Check price poller is writing
+redis-cli keys "prices:*"                    # should show 6 keys
+redis-cli xlen market_events                 # should be > 0 and growing
+
+# Check agents are firing
+redis-cli xlen signals                       # > 0 within 30s of poller starting
+redis-cli xlen decisions                     # > 0 shortly after
+redis-cli xlen graded_decisions              # > 0 shortly after
+redis-cli keys "agent:status:*"              # should show all 7 agents
+```
+
+### Database Verification
+```bash
+# Check database health
+psql $DATABASE_URL -c "SELECT agent_name, status, event_count, last_seen FROM agent_heartbeats;"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_runs WHERE status='completed';"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM processed_events;"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_pool;"  # should be 7
+```
+
+### CI/CD Testing
+The pipeline will automatically run:
+- **Backend**: ruff check/format, mypy, pytest (unit + integration)
+- **Frontend**: ESLint, TypeScript check, build, tests with coverage
+
+If any step fails, the PR cannot be merged.
+
+---
+
 ## API Documentation (Fern)
 
 Live docs: https://matthew.docs.buildwithfern.com/
