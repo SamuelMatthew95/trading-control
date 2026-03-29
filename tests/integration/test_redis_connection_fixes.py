@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from redis.asyncio import ConnectionPool, Redis
-from redis.exceptions import ConnectionError, TimeoutError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.events.bus import EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -71,7 +72,7 @@ class TestRedisConnectionFixes:
              patch('api.redis_client.close_redis') as mock_close:
 
             mock_redis = AsyncMock()
-            mock_redis.ping.side_effect = ConnectionError("Connection failed")
+            mock_redis.ping.side_effect = RedisConnectionError("Connection failed")
             mock_redis_class.return_value = mock_redis
 
             # Reset global state
@@ -83,7 +84,7 @@ class TestRedisConnectionFixes:
                 mock_settings.REDIS_URL = "redis://localhost:6379/0"
 
                 # Should not raise due to cleanup in get_redis
-                with pytest.raises(ConnectionError):
+                with pytest.raises(RedisConnectionError):
                     await get_redis()
 
                 # Verify error was logged and cleanup called
@@ -116,8 +117,8 @@ class TestRedisConnectionFixes:
              patch('api.redis_client._redis_pool') as mock_pool, \
              patch('api.redis_client.log_structured') as mock_log:
 
-            mock_client.aclose = AsyncMock(side_effect=ConnectionError("Close failed"))
-            mock_pool.aclose = AsyncMock(side_effect=TimeoutError("Pool close failed"))
+            mock_client.aclose = AsyncMock(side_effect=RedisConnectionError("Close failed"))
+            mock_pool.aclose = AsyncMock(side_effect=RedisTimeoutError("Pool close failed"))
 
             # Should not raise exception despite errors
             await close_redis()
@@ -226,7 +227,7 @@ class TestWebSocketBroadcaster:
     @pytest.mark.asyncio
     async def test_redis_listener_error_handling(self, broadcaster, mock_redis_client):
         """Test Redis listener error handling."""
-        mock_redis_client.xread.side_effect = ConnectionError("Redis error")
+        mock_redis_client.xread.side_effect = RedisConnectionError("Redis error")
 
         broadcaster.register_stream("orders")
         await broadcaster.start(mock_redis_client)
@@ -305,7 +306,7 @@ class TestEventBusErrorHandling:
     @pytest.mark.asyncio
     async def test_publish_connection_error(self, event_bus, mock_redis_client):
         """Test publish handles connection errors gracefully."""
-        mock_redis_client.xadd.side_effect = ConnectionError("Connection failed")
+        mock_redis_client.xadd.side_effect = RedisConnectionError("Connection failed")
 
         with patch('api.events.bus.log_structured') as mock_log:
             result = await event_bus.publish("test_stream", {"data": "test"})
@@ -321,7 +322,7 @@ class TestEventBusErrorHandling:
     @pytest.mark.asyncio
     async def test_consume_timeout_error(self, event_bus, mock_redis_client):
         """Test consume handles timeout errors gracefully."""
-        mock_redis_client.xreadgroup.side_effect = TimeoutError("Timeout")
+        mock_redis_client.xreadgroup.side_effect = RedisTimeoutError("Timeout")
 
         with patch('api.events.bus.log_structured') as mock_log:
             result = await event_bus.consume("test_stream", "group", "consumer")
@@ -337,8 +338,8 @@ class TestEventBusErrorHandling:
     @pytest.mark.asyncio
     async def test_reclaim_stale_error_handling(self, event_bus, mock_redis_client):
         """Test reclaim_stale handles all error types gracefully."""
-        # Test ConnectionError
-        mock_redis_client.xautoclaim.side_effect = ConnectionError("Connection failed")
+        # Test RedisConnectionError
+        mock_redis_client.xautoclaim.side_effect = RedisConnectionError("Connection failed")
 
         with patch('api.events.bus.log_structured') as mock_log:
             result = await event_bus.reclaim_stale("test_stream", "group", "consumer-1")
@@ -370,7 +371,7 @@ class TestEventBusErrorHandling:
     @pytest.mark.asyncio
     async def test_acknowledge_error_handling(self, event_bus, mock_redis_client):
         """Test acknowledge handles errors gracefully."""
-        mock_redis_client.xack.side_effect = ConnectionError("Connection failed")
+        mock_redis_client.xack.side_effect = RedisConnectionError("Connection failed")
 
         with patch('api.events.bus.log_structured') as mock_log:
             result = await event_bus.acknowledge("test_stream", "group", "msg1")
@@ -478,7 +479,7 @@ class TestConsumerShutdownFixes:
         """Test consumer loop handles Redis errors and recovers."""
         # First call fails, second succeeds
         consumer.bus.consume.side_effect = [
-            ConnectionError("Connection failed"),
+            RedisConnectionError("Connection failed"),
             [("msg1", {"data": "test"})]
         ]
 
