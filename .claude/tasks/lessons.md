@@ -34,12 +34,28 @@ Then update CLAUDE.md if the lesson applies globally.
 **Anti-Pattern**: `logger.error(f"Failed to read from stream {stream}: {e}")`
 **Pattern**: `log_structured("error", "stream read failed", stream=stream, error=str(e))`
 
-**Status**: 51 remaining logger calls need migration across other files
+**Status**: 11 remaining logger calls need migration across lower priority files
 
 **Priority Files Remaining**:
-- api/core/writer/safe_writer.py: 28 calls (critical database operations)
-- api/routes/system_health.py: 6 calls (health checks)
-- api/core/db/session.py: 5 calls (database sessions)
-- api/services/multi_agent_orchestrator.py: 3 calls (agent coordination)
+- api/core/db/session.py: 5 calls (database session management)
+- api/health.py: 2 calls (standalone health check)
+- api/routes/system.py: 2 calls (system routes)
+- api/services/system_metrics_consumer.py: 2 calls (metrics consumer)
 
-**Progress**: 26 logger calls migrated in this session (dashboard_v2, monitoring, metrics_aggregator)
+**Progress**: 66 logger calls migrated in this session (77 → 11)
+
+**Critical Infrastructure Completed**:
+✅ dashboard_v2.py: 13 calls (API endpoints)
+✅ monitoring.py: 8 calls (monitoring endpoints)
+✅ metrics_aggregator.py: 5 calls (core metrics)
+✅ safe_writer.py: 28 calls (critical database operations)
+✅ system_health.py: 6 calls (health monitoring)
+✅ multi_agent_orchestrator.py: 3 calls (agent coordination)
+✅ routes/health.py: 2 calls (health routes)
+
+**Migration Pattern Applied**:
+```python
+# Anti-Pattern → Pattern
+logger.error(f"Error getting system health: {e}")
+→ log_structured("error", "system health failed", error=str(e))
+```
