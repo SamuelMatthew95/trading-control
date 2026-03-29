@@ -73,6 +73,75 @@ Before marking ANY task complete, every item below must be true.
 Do not say "done" until you have verified each section.
 Show me the output of every verification command.
 
+===================================================================
+1. TESTS
+===================================================================
+
+Run the full test suite:
+  pytest tests/ -v --tb=short 2>&1 | tee .claude/tasks/last_test_run.txt
+
+Rules:
+  - Zero failing tests. No exceptions.
+  - If you fixed a bug, you added a test that would have caught it.
+  - Test file naming: tests/test_{module_name}.py
+  - Every agent must have a test in tests/agents/test_{agent_name}.py
+  - Every endpoint must have a test in tests/api/test_{router_name}.py
+
+===================================================================
+2. LINTING
+===================================================================
+
+Run all linters and fix every warning before marking done:
+
+# Python — Ruff (fast linter + formatter)
+ruff check api/ tests/ --fix
+ruff format api/ tests/
+
+# Frontend — ESLint + Prettier (if frontend changes)
+cd frontend && npm run lint:fix && npm run format
+
+Run this to catch print statements:
+  grep -rn "^[[:space:]]*print(" api/ --include="*.py" | grep -v ".pyc"
+
+Expected: empty
+
+===================================================================
+3. LOGGING
+===================================================================
+
+**Standard Logging Function**: Always use `log_structured()` from `api.observability`
+```python
+from api.observability import log_structured
+log_structured("error", "operation failed", error=str(e), context=data)
+```
+
+Rules:
+- No logger.info/error/warning calls in new code
+- No print statements anywhere
+- All logs must use structured key=value format
+- trace_id propagated: Any new agent code extracts trace_id from incoming event payload
+
+===================================================================
+4. CODE QUALITY
+===================================================================
+
+No hardcoded values:
+  grep -rn "onrender\.com\|vercel\.app\|localhost:8000" \
+      frontend/src/ --include="*.ts" --include="*.tsx" \
+      | grep -v ".env" | grep -v "CLAUDE.md"
+
+Expected: empty
+
+Schema version on every insert:
+  Any new INSERT to a versioned table includes schema_version='v2'
+  and source='<service_name>'. Manually verify any new INSERT statements.
+
+===================================================================
+5. SYSTEM VERIFICATION
+===================================================================
+
+### Redis Streams Verification
+```bash
 redis-cli xlen signals                       # > 0 within 30s of poller starting
 redis-cli xlen decisions                     # > 0 shortly after
 redis-cli xlen graded_decisions              # > 0 shortly after
@@ -94,6 +163,16 @@ The pipeline will automatically run:
 - **Frontend**: ESLint, TypeScript check, build, tests with coverage
 
 If any step fails, the PR cannot be merged.
+
+===================================================================
+6. FINAL CHECKLIST — RUN THIS BEFORE SAYING DONE
+===================================================================
+
+Copy this block, run every command, paste the results:
+  echo "=== TESTS ===" && pytest tests/ -v --tb=short | tail -5
+  echo "=== RUFF ===" && ruff check api/ tests/ && echo "PASS"
+  echo "=== PRINT STATEMENTS ===" && grep -rn "print(" api/ --include="*.py" | wc -l
+  echo "=== LOGGER CALLS ===" && grep -rn "logger\." api/ --include="*.py" | grep -v "logger = logging.getLogger" | wc -l
 
 ---
 
