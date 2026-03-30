@@ -12,13 +12,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from main import app
+
     logger.info("✅ FastAPI app imported successfully")
-    
+
     # Test if dashboard routes are registered
     from fastapi.routing import APIRoute
-    dashboard_routes = [r.path for r in app.routes if hasattr(r, 'path') and '/dashboard' in r.path]
+
+    dashboard_routes = [r.path for r in app.routes if hasattr(r, "path") and "/dashboard" in r.path]
     logger.info(f"📋 Dashboard routes found: {dashboard_routes}")
-    
+
 except Exception as e:
     logger.error(f"❌ Failed to import FastAPI app: {e}")
     app = None
@@ -30,14 +32,14 @@ class Handler:
 
     def __call__(self, environ, start_response):
         if not self.app:
-            start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
-            return [b'FastAPI app failed to load']
-        
+            start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
+            return [b"FastAPI app failed to load"]
+
         # Log incoming requests for debugging
-        path = environ.get('PATH_INFO', '')
-        method = environ.get('REQUEST_METHOD', '')
+        path = environ.get("PATH_INFO", "")
+        method = environ.get("REQUEST_METHOD", "")
         logger.info(f"🌐 {method} {path}")
-        
+
         return self.app(environ, start_response)
 
 
