@@ -70,9 +70,19 @@ class ReasoningAgent(BaseStreamConsumer):
                     fallback_reason is not None,
                     session=session,
                 )
-                await self._store_vector_memory(signal_summary, embedding, summary, session=session)
                 await self._store_agent_log(trace_id, summary, fallback_reason, session=session)
                 await self._store_cost_tracking(today, tokens_used, cost_usd, session=session)
+
+        # Vector memory is best-effort — run in its own session so failures don't
+        # abort the main transaction or cause the message to retry.
+        try:
+            async with AsyncSessionFactory() as vm_session:
+                async with vm_session.begin():
+                    await self._store_vector_memory(
+                        signal_summary, embedding, summary, session=vm_session
+                    )
+        except Exception:
+            pass  # Already logged inside _store_vector_memory
 
         log_structured(
             "info",
@@ -372,7 +382,6 @@ RETURNING id
                 exc_info=True,
                 trace_id=summary.get("trace_id"),
             )
-            raise
 
     async def _store_agent_log(
         self,

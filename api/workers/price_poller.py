@@ -40,7 +40,7 @@ async def fetch_crypto_prices(
     """Fetch latest crypto prices from Alpaca. Returns {symbol: price}."""
     try:
         async with asyncio.timeout(8):
-            request = CryptoLatestQuoteRequest(symbols=symbols)
+            request = CryptoLatestQuoteRequest(symbol_or_symbols=symbols)
             quotes = client.get_crypto_latest_quote(request)
 
         prices: dict[str, float] = {}
@@ -71,7 +71,7 @@ async def fetch_stock_prices(
     """Fetch latest stock prices from Alpaca. Returns {symbol: price}."""
     try:
         async with asyncio.timeout(8):
-            request = StockLatestQuoteRequest(symbols=symbols)
+            request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
             quotes = client.get_stock_latest_quote(request)
 
         prices: dict[str, float] = {}
