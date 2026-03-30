@@ -39,7 +39,7 @@ async def fetch_crypto_prices(
 
     for attempt in range(max_retries):
         try:
-            request = CryptoLatestQuoteRequest(symbols=symbols)
+            request = CryptoLatestQuoteRequest(symbol_or_symbols=symbols)
             quotes = client.get_crypto_latest_quote(request)
 
             prices = {}
@@ -90,7 +90,7 @@ async def fetch_stock_prices(
 
     for attempt in range(max_retries):
         try:
-            request = StockLatestQuoteRequest(symbols=symbols)
+            request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
             quotes = client.get_stock_latest_quote(request)
 
             prices = {}
