@@ -40,6 +40,22 @@ class Handler:
         method = environ.get("REQUEST_METHOD", "")
         logger.info(f"🌐 {method} {path}")
 
+        # Handle root path with a helpful response
+        if path == '/':
+            start_response('200 OK', [('Content-Type', 'application/json')])
+            response = {
+                "message": "Trading Control API",
+                "status": "running",
+                "endpoints": {
+                    "health": "/api/health",
+                    "dashboard": "/api/dashboard/*",
+                    "docs": "/docs"
+                },
+                "dashboard_routes": dashboard_routes if 'dashboard_routes' in locals() else []
+            }
+            import json
+            return [json.dumps(response).encode()]
+
         return self.app(environ, start_response)
 
 
