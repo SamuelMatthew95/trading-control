@@ -6,7 +6,7 @@ from unittest.mock import ANY
 import pytest
 from redis.exceptions import ResponseError
 
-from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
+from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 
@@ -39,10 +39,10 @@ class FakeRedis:
         self.acks.append((stream, group, ids))
         return len(ids)
 
-    async def xgroup_create(self, stream, group, id="0", mkstream=True):
+    async def xgroup_create(self, stream, group, id_param="0", mkstream=True):
         if stream in self.busy_streams:
             raise ResponseError("BUSYGROUP Consumer Group name already exists")
-        self.groups_created.append((stream, group, id, mkstream))
+        self.groups_created.append((stream, group, id_param, mkstream))
         self.streams.setdefault(stream, [])
         return True
 
@@ -88,9 +88,7 @@ class FakeRedis:
 
 class DummyConsumer(BaseStreamConsumer):
     def __init__(self, bus, dlq, should_fail=False):
-        super().__init__(
-            bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="dummy"
-        )
+        super().__init__(bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="dummy")
         self.should_fail = should_fail
         self.processed = []
 
@@ -173,7 +171,9 @@ async def test_base_stream_consumer_acks_success_and_dlqs_after_retries():
     dlq = DLQManager(redis, bus)
 
     ok_consumer = DummyConsumer(bus, dlq, should_fail=False)
-    await ok_consumer._handle_message("1-0", {"msg_id": "test-123", "ok": True, "schema_version": "v3"})
+    await ok_consumer._handle_message(
+        "1-0", {"msg_id": "test-123", "ok": True, "schema_version": "v3"}
+    )
     assert ok_consumer.processed == [{"msg_id": "test-123", "ok": True, "schema_version": "v3"}]
     assert redis.acks[-1] == ("signals", DEFAULT_GROUP, ("1-0",))
 

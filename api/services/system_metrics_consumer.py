@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
 
+from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
-from api.core.writer.safe_writer import SafeWriter
+from api.observability import log_structured
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         msg_id = self.extract_msg_id(data)
 
         # Parse timestamp, fallback to UTC now
-        timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(
-            timezone.utc
-        )
+        timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(timezone.utc)
 
         # Map input data to DB columns
         metric_name = data.get("metric_name")
@@ -69,10 +67,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         )
 
         # Log for observability
-        self.logger.info(
-            "Processed system metric",
-            extra={"msg_id": msg_id, "metric_name": metric_name},
-        )
+        log_structured("info", "system metric processed", msg_id=msg_id, metric_name=metric_name)
 
     def safe_parse_dt(self, dt_str):
         """Safely parse ISO datetime strings."""
@@ -82,5 +77,5 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError) as e:
-            self.logger.warning(f"Failed to parse datetime '{dt_str}': {e}")
+            log_structured("warning", "datetime parse failed", dt_str=dt_str, error=str(e))
             return None

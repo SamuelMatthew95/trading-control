@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # In Vercel, /var/task is the root, so we need to add current directory to path
 # to import main.py directly from the same directory
@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from main import app
 
 
-class handler:
+class Handler:
     def __init__(self):
         self.app = app
 
@@ -17,4 +17,4 @@ class handler:
 
 
 # Vercel needs this
-handler_instance = handler()
+handler_instance = Handler()

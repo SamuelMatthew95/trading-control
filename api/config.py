@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import (
     Field,
     PostgresDsn,
@@ -15,9 +13,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: Optional[PostgresDsn] = Field(default=None)
-    REDIS_URL: Optional[str] = Field(default=None)
-    ANTHROPIC_API_KEY: Optional[str] = Field(default=None)
+    DATABASE_URL: PostgresDsn | None = Field(default=None)
+    REDIS_URL: str | None = Field(default=None)
+    ANTHROPIC_API_KEY: str | None = Field(default=None)
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
     LLM_FALLBACK_MODE: str = "skip_reasoning"
     BROKER_MODE: str = "paper"
@@ -54,15 +52,13 @@ class Settings(BaseSettings):
 
     # Optional - kept for backwards compatibility
     ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
-    OPENAI_API_KEY: Optional[str] = Field(default=None)
+    OPENAI_API_KEY: str | None = Field(default=None)
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    API_SECRET_KEY: Optional[str] = Field(default=None)
+    API_SECRET_KEY: str | None = Field(default=None)
     NODE_ENV: str = "development"
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
-    ALLOWED_ORIGINS: str = (
-        "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
-    )
+    ALLOWED_ORIGINS: str = "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,*.vercel.app,*.onrender.com"
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3
@@ -82,7 +78,7 @@ class Settings(BaseSettings):
         return value.rstrip("/")
 
     @model_validator(mode="after")
-    def validate_runtime_requirements(self) -> "Settings":
+    def validate_runtime_requirements(self) -> Settings:
         if self.NODE_ENV == "production" and not self.DATABASE_URL:
             raise ValueError("DATABASE_URL is required in production")
         return self

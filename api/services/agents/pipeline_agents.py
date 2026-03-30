@@ -55,7 +55,11 @@ class MultiStreamAgent:
         while self._running:
             for stream in self.streams:
                 messages = await self.bus.consume(
-                    stream, group=DEFAULT_GROUP, consumer=self.consumer, count=20, block_ms=100
+                    stream,
+                    group=DEFAULT_GROUP,
+                    consumer=self.consumer,
+                    count=20,
+                    block_ms=100,
                 )
                 for redis_id, data in messages:
                     try:
@@ -64,12 +68,17 @@ class MultiStreamAgent:
                     except Exception as exc:  # noqa: BLE001
                         await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # Agent processing throttle - allowed
 
 
 class GradeAgent(MultiStreamAgent):
     def __init__(self, bus: EventBus, dlq: DLQManager) -> None:
-        super().__init__(bus, dlq, streams=["executions", "trade_performance"], consumer="grade-agent")
+        super().__init__(
+            bus,
+            dlq,
+            streams=["executions", "trade_performance"],
+            consumer="grade-agent",
+        )
         self._fills = 0
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -87,8 +96,24 @@ class GradeAgent(MultiStreamAgent):
             "source": "grade_agent",
         }
         await self.bus.publish("agent_grades", grade)
-        await self.bus.publish("proposals", {"msg_id": str(uuid.uuid4()), "source": "grade_agent", "proposal_type": "risk_tune", "content": {"fills": self._fills}})
-        await self.bus.publish("notifications", {"msg_id": str(uuid.uuid4()), "source": "grade_agent", "notification_type": "grade", "message": f"Grade update after {self._fills} fills"})
+        await self.bus.publish(
+            "proposals",
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": "grade_agent",
+                "proposal_type": "risk_tune",
+                "content": {"fills": self._fills},
+            },
+        )
+        await self.bus.publish(
+            "notifications",
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": "grade_agent",
+                "notification_type": "grade",
+                "message": f"Grade update after {self._fills} fills",
+            },
+        )
 
 
 class ICUpdater(MultiStreamAgent):
@@ -137,7 +162,15 @@ class ReflectionAgent(MultiStreamAgent):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await self.bus.publish("reflection_outputs", reflection)
-        await self.bus.publish("notifications", {"msg_id": str(uuid.uuid4()), "source": "reflection_agent", "notification_type": "reflection", "message": reflection["summary"]})
+        await self.bus.publish(
+            "notifications",
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": "reflection_agent",
+                "notification_type": "reflection",
+                "message": reflection["summary"],
+            },
+        )
 
 
 class StrategyProposer(MultiStreamAgent):
@@ -153,8 +186,24 @@ class StrategyProposer(MultiStreamAgent):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await self.bus.publish("proposals", proposal)
-        await self.bus.publish("notifications", {"msg_id": str(uuid.uuid4()), "source": "strategy_proposer", "notification_type": "proposal", "message": "New strategy proposal generated"})
-        await self.bus.publish("github_prs", {"msg_id": str(uuid.uuid4()), "source": "strategy_proposer", "title": "Automated strategy proposal", "body": str(proposal["content"])})
+        await self.bus.publish(
+            "notifications",
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": "strategy_proposer",
+                "notification_type": "proposal",
+                "message": "New strategy proposal generated",
+            },
+        )
+        await self.bus.publish(
+            "github_prs",
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": "strategy_proposer",
+                "title": "Automated strategy proposal",
+                "body": str(proposal["content"]),
+            },
+        )
 
 
 class NotificationAgent(MultiStreamAgent):
@@ -192,6 +241,8 @@ class NotificationAgent(MultiStreamAgent):
             "metadata": {"observed_msg_id": msg_id},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        await self.safe_writer.write_notification(notification["msg_id"], "notifications", notification)
+        await self.safe_writer.write_notification(
+            notification["msg_id"], "notifications", notification
+        )
         await self.bus.publish("notifications", notification)
         log_structured("debug", "notification_forwarded", stream=stream, observed_msg_id=msg_id)

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import types
-
 import pytest
 
 
@@ -13,16 +11,14 @@ async def test_init_database_uses_alembic_for_postgres(monkeypatch):
 
     async def fake_to_thread(func, url):
         calls.append((func, url))
-        return None
+        return
 
     monkeypatch.setattr(database_module, "database_url", "postgresql+asyncpg://db/test")
     monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
 
     await database_module.init_database()
 
-    assert calls == [
-        (database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")
-    ]
+    assert calls == [(database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")]
 
 
 @pytest.mark.asyncio
@@ -52,9 +48,7 @@ async def test_init_database_uses_metadata_create_all_for_sqlite(monkeypatch):
         def begin(self):
             return FakeBegin(fake_conn)
 
-    monkeypatch.setattr(
-        database_module, "database_url", "sqlite+aiosqlite:///:memory:"
-    )
+    monkeypatch.setattr(database_module, "database_url", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setattr(database_module, "async_engine", FakeEngine())
 
     await database_module.init_database()

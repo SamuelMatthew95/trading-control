@@ -32,7 +32,6 @@ class DLQManager:
         }
         await self.redis.hset(f"dlq:{stream}", event_id, json.dumps(record, default=str))
 
-
     async def should_dlq(self, event_id: str) -> bool:
         retries_key = f"dlq:retries:{event_id}"
         retries = int(await self.redis.incr(retries_key))

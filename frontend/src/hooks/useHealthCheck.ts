@@ -2,9 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { HealthResponse, BotControlResponse } from '@/types/health';
 
-const API_BASE = process.env.NODE_ENV === 'production' 
-  ? 'https://trading-control.onrender.com' 
-  : '';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
 export const useHealthCheck = () => {
   return useQuery<HealthResponse>({

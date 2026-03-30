@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import time
+from typing import Annotated
 
+from api.services.learning_service import LearningService
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
@@ -15,14 +17,17 @@ _STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 @router.get("/api/performance/{agent_name}")
 async def get_agent_performance(
-    agent_name: str, learning_service=Depends(get_learning_service)
+    agent_name: str,
+    learning_service: Annotated[LearningService, Depends(get_learning_service)],
 ):
     async with get_async_session() as session:
         return await learning_service.get_agent_performance(agent_name, session)
 
 
 @router.get("/api/performance")
-async def get_all_performance(learning_service=Depends(get_learning_service)):
+async def get_all_performance(
+    learning_service: Annotated[LearningService, Depends(get_learning_service)],
+):
     async with get_async_session() as session:
         output = {}
         for agent_name in learning_service.agent_performance.keys():
@@ -38,11 +43,7 @@ async def get_all_performance(learning_service=Depends(get_learning_service)):
 @router.get("/api/statistics")
 async def get_statistics(force_refresh: bool = False):
     now = time.time()
-    if (
-        not force_refresh
-        and _STATS_CACHE["payload"]
-        and now < float(_STATS_CACHE["expires_at"])
-    ):
+    if not force_refresh and _STATS_CACHE["payload"] and now < float(_STATS_CACHE["expires_at"]):
         return _STATS_CACHE["payload"]
 
     async with get_async_session() as session:
@@ -56,7 +57,9 @@ async def get_statistics(force_refresh: bool = False):
         ).scalar() or 0
         losses = (
             await session.execute(
-                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "short")
+                select(func.count(TradePerformance.id)).where(
+                    TradePerformance.trade_type == "short"
+                )
             )
         ).scalar() or 0
         total_pnl = (

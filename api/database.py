@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -40,7 +40,7 @@ def _resolve_database_url() -> str:
     except Exception:
         db_url = os.getenv("DATABASE_URL")
         if os.getenv("NODE_ENV", "development") == "production" and not db_url:
-            raise RuntimeError("DATABASE_URL is required in production")
+            raise RuntimeError("DATABASE_URL is required in production") from None
         return db_url or SQLITE_FALLBACK_URL
 
 

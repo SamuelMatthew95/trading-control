@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from api.services.trading import TradingService
 
-_trading_service: Optional[TradingService] = None
+_trading_service: TradingService | None = None
 
 
 def set_services(

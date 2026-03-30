@@ -47,7 +47,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [orders, positions])
 
   const handleKillSwitch = async (activate: boolean) => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL}/api`
     try {
       const response = await fetch(`${apiBase}/v1/dashboard/kill_switch`, {
         method: 'POST',

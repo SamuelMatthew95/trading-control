@@ -21,8 +21,6 @@ class TestEventRequest(BaseModel):
     payload: dict[str, Any] = {"message": "hello"}
 
 
-
-
 def _mask_redis_url(url: str) -> str:
     if not url:
         return ""
@@ -45,7 +43,9 @@ async def debug_redis(request: Request) -> dict[str, Any]:
         "ping": bool(pong),
         "masked_url": _mask_redis_url(settings.REDIS_URL or ""),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "last_error": getattr(getattr(request.app.state, "event_pipeline", None), "_last_error", None),
+        "last_error": getattr(
+            getattr(request.app.state, "event_pipeline", None), "_last_error", None
+        ),
     }
 
 
@@ -63,8 +63,11 @@ async def debug_agents(request: Request) -> dict[str, Any]:
         "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
     }
 
+
 @router.get("/streams")
-async def debug_streams(request: Request, limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
+async def debug_streams(
+    request: Request, limit: int = Query(default=20, ge=1, le=200)
+) -> dict[str, Any]:
     redis_client = request.app.state.redis_client
     pipeline = getattr(request.app.state, "event_pipeline", None)
     if redis_client is None:
@@ -78,7 +81,7 @@ async def debug_streams(request: Request, limit: int = Query(default=20, ge=1, l
             for msg_id, fields in messages:
                 parsed.append(
                     {
-                        "msg_id": msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id),
+                        "msg_id": (msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)),
                         "fields": {
                             (k.decode() if isinstance(k, bytes) else str(k)): (
                                 v.decode() if isinstance(v, bytes) else v
@@ -124,7 +127,9 @@ async def debug_pipeline(request: Request) -> dict[str, Any]:
 
 
 @router.get("/dlq")
-async def debug_dlq(request: Request, limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
+async def debug_dlq(
+    request: Request, limit: int = Query(default=50, ge=1, le=500)
+) -> dict[str, Any]:
     dlq = getattr(request.app.state, "dlq_manager", None)
     pipeline = getattr(request.app.state, "event_pipeline", None)
     if dlq is None:

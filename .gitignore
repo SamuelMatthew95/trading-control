@@ -272,3 +272,4 @@ trade-memory.json
 .claude/settings.local.json
 *.token
 *.secret
+# Formatting update

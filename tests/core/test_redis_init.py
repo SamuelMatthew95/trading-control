@@ -6,6 +6,7 @@ import pytest
 from redis.exceptions import ResponseError
 
 from api.constants import (
+    STREAM_AGENT_LOGS,
     STREAM_EXECUTIONS,
     STREAM_LEARNING_EVENTS,
     STREAM_MARKET_TICKS,
@@ -13,9 +14,8 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
-    STREAM_AGENT_LOGS,
 )
-from api.events.bus import DEFAULT_GROUP, EventBus, STREAMS
+from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 
 
 @pytest.mark.asyncio
@@ -77,9 +77,7 @@ async def test_all_streams_have_consumers(fake_redis):
     # Test consuming from each stream
     for stream in STREAMS:
         try:
-            messages = await event_bus.consume(
-                stream, DEFAULT_GROUP, f"test_consumer_{stream}"
-            )
+            messages = await event_bus.consume(stream, DEFAULT_GROUP, f"test_consumer_{stream}")
             assert isinstance(messages, list)  # Should return a list (empty is fine)
         except Exception as exc:
             pytest.fail(f"Failed to consume from {stream}: {exc}")
@@ -106,8 +104,6 @@ async def test_error_handling_unexpected_redis_error(fake_redis):
 
     # Restore original method
     fake_redis.xgroup_create = original_xgroup_create
-
-
 
 
 @pytest.mark.asyncio

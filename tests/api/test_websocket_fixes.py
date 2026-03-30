@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from api.routes.ws import dashboard_ws
-from api.services.websocket_broadcaster import WebSocketBroadcaster
 
 
 class TestWebSocketFixes:
@@ -19,21 +19,21 @@ class TestWebSocketFixes:
         mock_websocket = AsyncMock()
         mock_broadcaster = AsyncMock()
         mock_websocket.app.state.websocket_broadcaster = mock_broadcaster
-        
+
         # Make send_json raise an exception (simulating disconnected client)
         mock_websocket.send_json.side_effect = Exception("Connection closed")
-        
+
         # Mock receive_text to cancel after a short time
         async def mock_receive_text():
             await asyncio.sleep(0.1)
             raise asyncio.CancelledError()
-            
+
         mock_websocket.receive_text = mock_receive_text
-        
+
         # Should handle the exception gracefully and continue until cancelled
         with pytest.raises(asyncio.CancelledError):
             await dashboard_ws(mock_websocket)
-        
+
         # Verify broadcaster methods were called
         mock_broadcaster.add_connection.assert_called_once_with(mock_websocket)
         mock_broadcaster.remove_connection.assert_called_once_with(mock_websocket)
@@ -44,18 +44,18 @@ class TestWebSocketFixes:
         mock_websocket = AsyncMock()
         mock_broadcaster = AsyncMock()
         mock_websocket.app.state.websocket_broadcaster = mock_broadcaster
-        
+
         # Mock receive_text to cancel after a short time
         async def mock_receive_text():
             await asyncio.sleep(0.1)
             raise asyncio.CancelledError()
-            
+
         mock_websocket.receive_text = mock_receive_text
-        
+
         # Should handle normally (will be cancelled by mock_receive_text)
         with pytest.raises(asyncio.CancelledError):
             await dashboard_ws(mock_websocket)
-        
+
         # Verify broadcaster methods were called
         mock_broadcaster.add_connection.assert_called_once_with(mock_websocket)
         mock_broadcaster.remove_connection.assert_called_once_with(mock_websocket)
@@ -65,9 +65,9 @@ class TestWebSocketFixes:
         """Test that WebSocket closes gracefully when broadcaster is not available."""
         mock_websocket = AsyncMock()
         mock_websocket.app.state.websocket_broadcaster = None
-        
+
         await dashboard_ws(mock_websocket)
-        
+
         # Should have closed the WebSocket
         mock_websocket.close.assert_called_once_with(code=1013)
 

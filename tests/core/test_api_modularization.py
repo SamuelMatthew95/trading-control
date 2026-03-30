@@ -14,7 +14,7 @@ def test_modular_api_structure_exists():
 
 
 def test_readme_contains_core_sections():
-    with open("README.md", "r", encoding="utf-8") as readme_file:
+    with open("README.md", encoding="utf-8") as readme_file:
         content = readme_file.read()
 
     assert "## Installation" in content

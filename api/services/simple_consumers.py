@@ -1,17 +1,16 @@
 """Simple consumers for all missing streams - UUID-safe exactly-once processing."""
 
 import logging
-import uuid
 from typing import Any
 
 from redis.asyncio import Redis
 
+from api.core.writer.safe_writer import SafeWriter
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.database import AsyncSessionFactory
-from api.core.writer.safe_writer import SafeWriter
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +26,7 @@ class SimpleConsumer(BaseStreamConsumer):
         stream: str,
         consumer_name: str,
     ):
-        super().__init__(
-            bus, dlq, stream=stream, group=DEFAULT_GROUP, consumer=consumer_name
-        )
+        super().__init__(bus, dlq, stream=stream, group=DEFAULT_GROUP, consumer=consumer_name)
         self.redis = redis_client
 
     async def process(self, data: dict[str, Any]) -> None:
@@ -51,7 +48,7 @@ class SimpleConsumer(BaseStreamConsumer):
                 "msg_id": msg_id,
                 "consumer": self.consumer,
                 "payload": data,  # Log actual payload
-            }
+            },
         )
 
 
@@ -73,11 +70,9 @@ class ExecutionsConsumer(SimpleConsumer):
         try:
             # Write execution to database using SafeWriter
             success = await self.safe_writer.write_execution(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -93,14 +88,14 @@ class ExecutionsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
                 "execution_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise
 
@@ -123,11 +118,9 @@ class RiskAlertsConsumer(SimpleConsumer):
         try:
             # Write risk alert to database using SafeWriter
             success = await self.safe_writer.write_risk_alert(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -143,14 +136,14 @@ class RiskAlertsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
                 "risk_alert_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise
 
@@ -159,9 +152,7 @@ class LearningEventsConsumer(SimpleConsumer):
     """Consumer for learning_events stream - writes vector memories to database."""
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis):
-        super().__init__(
-            bus, dlq, redis_client, "learning_events", "learning-events-logger"
-        )
+        super().__init__(bus, dlq, redis_client, "learning_events", "learning-events-logger")
         self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def process(self, data: dict[str, Any]) -> None:
@@ -175,11 +166,9 @@ class LearningEventsConsumer(SimpleConsumer):
         try:
             # Write vector memory to database using SafeWriter
             success = await self.safe_writer.write_vector_memory(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -195,14 +184,14 @@ class LearningEventsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
                 "learning_event_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise
 
@@ -225,11 +214,9 @@ class AgentLogsConsumer(SimpleConsumer):
         try:
             # Write agent log to database using SafeWriter
             success = await self.safe_writer.write_agent_log(
-                msg_id=msg_id,
-                stream=self.stream,
-                data=data
+                msg_id=msg_id, stream=self.stream, data=data
             )
-            
+
             if success:
                 log_structured(
                     "info",
@@ -245,13 +232,13 @@ class AgentLogsConsumer(SimpleConsumer):
                     stream=self.stream,
                     msg_id=msg_id,
                 )
-                
+
         except Exception as e:
             log_structured(
                 "error",
                 "agent_log_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e)
+                error=str(e),
             )
             raise

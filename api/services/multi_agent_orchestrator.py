@@ -7,13 +7,16 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
+
+from api.observability import log_structured
 
 try:
     import anthropic
@@ -22,9 +25,7 @@ except ImportError:  # pragma: no cover - dependency optional in tests
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 Direction = Literal["LONG", "SHORT", "FLAT"]
@@ -33,25 +34,25 @@ Direction = Literal["LONG", "SHORT", "FLAT"]
 @dataclass
 class AgentCall:
     agent_name: str
-    input_data: Dict[str, Any]
-    output_data: Dict[str, Any]
+    input_data: dict[str, Any]
+    output_data: dict[str, Any]
     timestamp: datetime
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
     duration_ms: int = 0
 
 
 @dataclass
 class PlanStep:
     name: str
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TradePlan:
     asset: str
     timeframe: str
-    steps: List[PlanStep]
+    steps: list[PlanStep]
 
 
 class ToolError(RuntimeError):
@@ -70,24 +71,22 @@ class MemoryGuard:
     def __init__(self, threshold: float = 0.82):
         self.threshold = threshold
 
-    def check(
-        self, tool_name: str, payload: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        db_url = _to_sync_db_url(
-            os.getenv("DATABASE_URL", "sqlite:///./trading-control.db")
-        )
+    def check(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        db_url = _to_sync_db_url(os.getenv("DATABASE_URL", "sqlite:///./trading-control.db"))
         probe = f"{tool_name}:{json.dumps(payload, sort_keys=True)}"
         probe_embedding = self._embed(probe)
         try:
             engine = create_engine(db_url)
             with engine.connect() as conn:
-                rows = conn.execute(text("""
+                rows = conn.execute(
+                    text("""
                         SELECT content, embedding_json, metadata_json
                         FROM vector_memory_records
                         WHERE store_type = 'negative-memory'
                         ORDER BY id DESC
                         LIMIT 100
-                        """)).fetchall()
+                        """)
+                ).fetchall()
         except Exception:
             return None
 
@@ -96,31 +95,27 @@ class MemoryGuard:
                 candidate = json.loads(row.embedding_json)
                 similarity = self._cosine(probe_embedding, candidate)
                 if similarity > self.threshold:
-                    metadata = (
-                        json.loads(row.metadata_json) if row.metadata_json else {}
-                    )
+                    metadata = json.loads(row.metadata_json) if row.metadata_json else {}
                     return {
                         "similarity": round(similarity, 3),
-                        "reason": metadata.get(
-                            "reason", "blocked by prior negative memory"
-                        ),
+                        "reason": metadata.get("reason", "blocked by prior negative memory"),
                         "content": row.content,
                     }
             except Exception:
                 continue
         return None
 
-    def _embed(self, text_input: str) -> List[float]:
+    def _embed(self, text_input: str) -> list[float]:
         digest = hashlib.sha256(text_input.encode("utf-8")).digest()
         return [round(b / 255.0, 6) for b in digest[:16]]
 
-    def _cosine(self, a: List[float], b: List[float]) -> float:
+    def _cosine(self, a: list[float], b: list[float]) -> float:
         n = min(len(a), len(b))
         if n == 0:
             return 0.0
         a = a[:n]
         b = b[:n]
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
         norm_a = sum(x * x for x in a) ** 0.5
         norm_b = sum(y * y for y in b) ** 0.5
         if norm_a == 0 or norm_b == 0:
@@ -136,9 +131,7 @@ class TradeConstraint(BaseModel):
 
 
 class ReasoningModel(Protocol):
-    def complete_json(
-        self, *, system_prompt: str, payload: Dict[str, Any]
-    ) -> Dict[str, Any]: ...
+    def complete_json(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]: ...
 
 
 class AnthropicReasoningModel:
@@ -155,10 +148,8 @@ class AnthropicReasoningModel:
         self.model_name = model_name
         self.retries = retries
 
-    def complete_json(
-        self, *, system_prompt: str, payload: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        last_error: Optional[Exception] = None
+    def complete_json(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
+        last_error: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
                 response = self.client.messages.create(
@@ -171,9 +162,11 @@ class AnthropicReasoningModel:
                 return json.loads(text)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                logger.warning(
-                    "reasoning_model_retry",
-                    extra={"attempt": attempt + 1, "error": str(exc)},
+                log_structured(
+                    "warning",
+                    "reasoning model retry",
+                    attempt=attempt + 1,
+                    exc_info=True,
                 )
                 time.sleep(0.2 * (attempt + 1))
         raise RuntimeError(f"Model call failed after retries: {last_error}")
@@ -182,13 +175,9 @@ class AnthropicReasoningModel:
 class DeterministicReasoningModel:
     """Fallback local model to keep flows deterministic in development/tests."""
 
-    def complete_json(
-        self, *, system_prompt: str, payload: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def complete_json(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         if "normalize trade signals" in system_prompt.lower():
-            direction: Direction = (
-                "LONG" if payload["asset"] in {"AAPL", "MSFT"} else "FLAT"
-            )
+            direction: Direction = "LONG" if payload["asset"] in {"AAPL", "MSFT"} else "FLAT"
             return [
                 {
                     "source": "heuristic",
@@ -206,12 +195,8 @@ class DeterministicReasoningModel:
                     "signal_strength": 0.0,
                 }
             direction = signals[0]["direction"]
-            agreement = sum(1 for s in signals if s["direction"] == direction) / len(
-                signals
-            )
-            confidence = sum(float(s.get("confidence", 0)) for s in signals) / len(
-                signals
-            )
+            agreement = sum(1 for s in signals if s["direction"] == direction) / len(signals)
+            confidence = sum(float(s.get("confidence", 0)) for s in signals) / len(signals)
             return {
                 "direction": direction,
                 "agreement_ratio": agreement,
@@ -230,9 +215,7 @@ class DeterministicReasoningModel:
         price = float(payload.get("asset_price", 100))
         atr = float(payload.get("atr", 5))
         return {
-            "units": int(
-                max(1, payload.get("portfolio_value", 100000) * 0.01 / max(price, 1))
-            ),
+            "units": int(max(1, payload.get("portfolio_value", 100000) * 0.01 / max(price, 1))),
             "entry": price,
             "stop": max(0.01, price - atr),
             "target": price + atr * 2,
@@ -245,31 +228,29 @@ class DocumentRetriever:
 
     def __init__(self, root: str = "skills/trade-bot/references"):
         self.root = Path(root)
-        self.documents: Dict[str, str] = {}
+        self.documents: dict[str, str] = {}
         if self.root.exists():
             for path in self.root.glob("*.md"):
                 self.documents[path.name] = path.read_text(encoding="utf-8")
 
-    def retrieve(self, query: str, *, top_k: int = 2) -> List[Dict[str, str]]:
-        scored: List[tuple[int, str, str]] = []
+    def retrieve(self, query: str, *, top_k: int = 2) -> list[dict[str, str]]:
+        scored: list[tuple[int, str, str]] = []
         q_terms = {term.lower() for term in query.split() if len(term) > 2}
-        for name, text in self.documents.items():
-            lower = text.lower()
+        for name, doc_text in self.documents.items():
+            lower = doc_text.lower()
             score = sum(1 for term in q_terms if term in lower)
             if score:
-                scored.append((score, name, text[:500]))
+                scored.append((score, name, doc_text[:500]))
         scored.sort(reverse=True)
-        return [
-            {"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]
-        ]
+        return [{"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]]
 
 
 class TradeTools:
     def __init__(
         self,
         *,
-        allowed_assets: Optional[set[str]] = None,
-        price_provider: Optional[Callable[[str], float]] = None,
+        allowed_assets: set[str] | None = None,
+        price_provider: Callable[[str], float] | None = None,
         max_retries: int = 2,
         circuit_breaker_threshold: int = 3,
     ):
@@ -289,7 +270,7 @@ class TradeTools:
         self.memory_guard = MemoryGuard()
         self.guard_hits = 0
 
-    def _guard(self, tool_name: str, payload: Dict[str, Any]) -> None:
+    def _guard(self, tool_name: str, payload: dict[str, Any]) -> None:
         match = self.memory_guard.check(tool_name, payload)
         if not match:
             return
@@ -326,21 +307,21 @@ class TradeTools:
 class ConversationMemory:
     def __init__(self, limit: int = 10):
         self.limit = limit
-        self.events: List[Dict[str, Any]] = []
+        self.events: list[dict[str, Any]] = []
 
-    def add(self, event: Dict[str, Any]) -> None:
+    def add(self, event: dict[str, Any]) -> None:
         self.events.append(event)
         self.events = self.events[-self.limit :]
 
 
 class TaskStateMemory:
     def __init__(self):
-        self.state: Dict[str, Dict[str, Any]] = {}
+        self.state: dict[str, dict[str, Any]] = {}
 
-    def put(self, task_id: str, value: Dict[str, Any]) -> None:
+    def put(self, task_id: str, value: dict[str, Any]) -> None:
         self.state[task_id] = value
 
-    def get(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get(self, task_id: str) -> dict[str, Any] | None:
         return self.state.get(task_id)
 
 
@@ -349,16 +330,14 @@ class PersistentMemory:
         self.path = Path(path)
         self._store = self._load()
 
-    def _load(self) -> Dict[str, Any]:
+    def _load(self) -> dict[str, Any]:
         if self.path.exists():
             return json.loads(self.path.read_text(encoding="utf-8"))
         return {"trades": []}
 
-    def append_trade(self, trade: Dict[str, Any]) -> None:
+    def append_trade(self, trade: dict[str, Any]) -> None:
         self._store.setdefault("trades", []).append(trade)
-        self.path.write_text(
-            json.dumps(self._store, indent=2, default=str), encoding="utf-8"
-        )
+        self.path.write_text(json.dumps(self._store, indent=2, default=str), encoding="utf-8")
 
 
 class Planner:
@@ -377,25 +356,21 @@ class Planner:
 
 
 class ExecutionEngine:
-    AGENT_PROMPTS: Dict[str, str] = {
+    AGENT_PROMPTS: dict[str, str] = {
         "SIGNAL_AGENT": "You normalize trade signals. Return JSON list only.",
         "CONSENSUS_AGENT": "You aggregate signals and compute consensus. Return JSON object only.",
         "RISK_AGENT": "You enforce risk limits and can veto trades. Return JSON object only.",
         "SIZING_AGENT": "You calculate position size using Kelly criterion. Return JSON object only.",
     }
 
-    def __init__(
-        self, model: ReasoningModel, retriever: DocumentRetriever, tools: TradeTools
-    ):
+    def __init__(self, model: ReasoningModel, retriever: DocumentRetriever, tools: TradeTools):
         self.model = model
         self.retriever = retriever
         self.tools = tools
 
-    def run_step(self, step: PlanStep, context: Dict[str, Any]) -> Dict[str, Any]:
+    def run_step(self, step: PlanStep, context: dict[str, Any]) -> dict[str, Any]:
         if step.name == "signal":
-            grounding = self.retriever.retrieve(
-                f"{context['asset']} {context['timeframe']} signal"
-            )
+            grounding = self.retriever.retrieve(f"{context['asset']} {context['timeframe']} signal")
             payload = {
                 "asset": context["asset"],
                 "timeframe": context["timeframe"],
@@ -425,24 +400,20 @@ class ExecutionEngine:
                     "risk": context["risk"],
                     "asset_price": self.tools.get_current_price(context["asset"]),
                     "atr": self.tools.get_atr(context["asset"], context["timeframe"]),
-                    "portfolio_value": context["portfolio_state"].get(
-                        "total_value", 100000
-                    ),
+                    "portfolio_value": context["portfolio_state"].get("total_value", 100000),
                 },
             )
         if step.name == "decision":
             return self._format_decision(context)
         raise ValueError(f"Unknown plan step {step.name}")
 
-    def _format_decision(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _format_decision(self, context: dict[str, Any]) -> dict[str, Any]:
         consensus = context["consensus"]
         risk = context["risk"]
         sizing = context["sizing"]
         signal_strength = float(consensus.get("signal_strength", 0))
         confidence = (
-            "HIGH"
-            if signal_strength > 0.8
-            else "MEDIUM" if signal_strength > 0.6 else "LOW"
+            "HIGH" if signal_strength > 0.8 else "MEDIUM" if signal_strength > 0.6 else "LOW"
         )
         return {
             "DECISION": consensus.get("direction", "FLAT"),
@@ -465,7 +436,7 @@ class ExecutionEngine:
 
 
 class EvaluationLayer:
-    def validate_trajectory(self, trace: List[AgentCall]) -> List[str]:
+    def validate_trajectory(self, trace: list[AgentCall]) -> list[str]:
         issues = []
         if not trace:
             issues.append("empty_trace")
@@ -473,7 +444,7 @@ class EvaluationLayer:
             issues.append("step_failure")
         return issues
 
-    def validate_outcome(self, decision: Dict[str, Any]) -> List[str]:
+    def validate_outcome(self, decision: dict[str, Any]) -> list[str]:
         required = {"DECISION", "ASSET", "SIZE", "CONFIDENCE"}
         missing = sorted(required - set(decision))
         return [f"missing:{k}" for k in missing]
@@ -482,7 +453,7 @@ class EvaluationLayer:
 class MultiAgentOrchestrator:
     """Production-grade orchestrator with planner/executor/memory/eval layers."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         model: ReasoningModel
         if api_key:
             model = AnthropicReasoningModel(api_key)
@@ -494,10 +465,10 @@ class MultiAgentOrchestrator:
         self.task_memory = TaskStateMemory()
         self.persistent_memory = PersistentMemory()
         self.evaluator = EvaluationLayer()
-        self.agent_calls: List[AgentCall] = []
-        self.trade_log: List[Dict[str, Any]] = []
+        self.agent_calls: list[AgentCall] = []
+        self.trade_log: list[dict[str, Any]] = []
 
-    def call_agent(self, agent_name: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def call_agent(self, agent_name: str, input_data: dict[str, Any]) -> dict[str, Any]:
         """Compatibility interface for legacy callers."""
         prompt_key = f"{agent_name}"
         step_map = {
@@ -538,11 +509,11 @@ class MultiAgentOrchestrator:
             return {"success": False, "error": str(exc)}
 
     def analyze_trade(
-        self, asset: str, timeframe: str, portfolio_state: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, asset: str, timeframe: str, portfolio_state: dict[str, Any]
+    ) -> dict[str, Any]:
         task_id = f"{asset}:{datetime.now(timezone.utc).isoformat()}"
         plan = self.planner.build_plan(asset, timeframe)
-        context: Dict[str, Any] = {
+        context: dict[str, Any] = {
             "asset": asset,
             "timeframe": timeframe,
             "portfolio_state": portfolio_state,
@@ -614,21 +585,17 @@ class MultiAgentOrchestrator:
                     duration_ms=int((time.time() - step_start) * 1000),
                 )
             )
-            self.task_memory.put(
-                task_id, {"last_step": step.name, "context": context.copy()}
-            )
+            self.task_memory.put(task_id, {"last_step": step.name, "context": context.copy()})
 
         decision = self.executor.run_step(PlanStep("decision"), context)
         trajectory_issues = self.evaluator.validate_trajectory(self.agent_calls)
         outcome_issues = self.evaluator.validate_outcome(decision)
         if trajectory_issues or outcome_issues:
-            decision.setdefault("RISK FLAGS", []).extend(
-                trajectory_issues + outcome_issues
-            )
+            decision.setdefault("RISK FLAGS", []).extend(trajectory_issues + outcome_issues)
         self._persist(task_id, decision)
         return decision
 
-    def process_trade_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def process_trade_signals(self, signals: list[dict[str, Any]]) -> dict[str, Any]:
         symbol = signals[0].get("symbol", "AAPL") if signals else "AAPL"
         price = float(signals[0].get("price", 100)) if signals else 100
         portfolio = {
@@ -647,7 +614,7 @@ class MultiAgentOrchestrator:
             "risk_assessment": {"flags": decision.get("RISK FLAGS", [])},
         }
 
-    def _error_decision(self, asset: str, message: str) -> Dict[str, Any]:
+    def _error_decision(self, asset: str, message: str) -> dict[str, Any]:
         return {
             "DECISION": "FLAT",
             "ASSET": asset,
@@ -663,7 +630,7 @@ class MultiAgentOrchestrator:
             "INVALIDATION": "N/A",
         }
 
-    def _persist(self, task_id: str, decision: Dict[str, Any]) -> None:
+    def _persist(self, task_id: str, decision: dict[str, Any]) -> None:
         log_entry = {
             "trace_summary": {"guard_hits": self.executor.tools.guard_hits},
             "task_id": task_id,
@@ -678,10 +645,10 @@ class MultiAgentOrchestrator:
             json.dumps(self.trade_log, indent=2, default=str), encoding="utf-8"
         )
 
-    def get_trade_history(self) -> List[Dict[str, Any]]:
+    def get_trade_history(self) -> list[dict[str, Any]]:
         return self.trade_log
 
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         decisions = [entry["decision"]["DECISION"] for entry in self.trade_log]
         total = len(decisions)
         if total == 0:
@@ -697,7 +664,5 @@ class MultiAgentOrchestrator:
 
 if __name__ == "__main__":
     orchestrator = MultiAgentOrchestrator(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    result = orchestrator.analyze_trade(
-        "AAPL", "1D", {"total_value": 100000, "drawdown": -0.02}
-    )
-    print(json.dumps(result, indent=2))
+    result = orchestrator.analyze_trade("AAPL", "1D", {"total_value": 100000, "drawdown": -0.02})
+    log_structured("info", "trade analysis result", result=result)

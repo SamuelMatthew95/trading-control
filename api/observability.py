@@ -9,7 +9,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Deque, Dict
+from typing import Any
 
 import structlog
 
@@ -27,9 +27,7 @@ def configure_logging(level: str = "INFO") -> None:
         timestamper,
     ]
 
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO), format="%(message)s"
-    )
+    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format="%(message)s")
     structlog.configure(
         processors=[
             *pre_chain,
@@ -47,15 +45,11 @@ logger = structlog.get_logger("trading-control")
 
 @dataclass
 class MetricsStore:
-    recent_events: Deque[Dict[str, Any]] = field(
-        default_factory=lambda: deque(maxlen=300)
-    )
-    request_latencies_ms: Deque[float] = field(
-        default_factory=lambda: deque(maxlen=500)
-    )
+    recent_events: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=300))
+    request_latencies_ms: deque[float] = field(default_factory=lambda: deque(maxlen=500))
     total_requests: int = 0
     total_errors: int = 0
-    agent_status: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    agent_status: dict[str, dict[str, Any]] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock)
 
     def log_event(self, event_type: str, **data: Any) -> None:
@@ -85,14 +79,12 @@ class MetricsStore:
                 **data,
             }
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         with self._lock:
             latency = list(self.request_latencies_ms)
             avg_latency = round(sum(latency) / len(latency), 2) if latency else 0.0
             p95 = (
-                round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2)
-                if latency
-                else 0.0
+                round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2) if latency else 0.0
             )
             return {
                 "uptime_seconds": int(time.time() - START_TIME),
@@ -123,7 +115,14 @@ def bind_request_context(request_id: str) -> None:
 
 
 def log_structured(level: str, message: str, **extra_data: Any) -> None:
-    if level.lower() not in {"debug", "info", "warning", "error", "exception", "critical"}:
+    if level.lower() not in {
+        "debug",
+        "info",
+        "warning",
+        "error",
+        "exception",
+        "critical",
+    }:
         level = "info"
 
     if "event" in extra_data:

@@ -2,18 +2,18 @@
 Pydantic schemas for API request/response models.
 """
 
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 class ProcessResult(BaseModel):
     """Result of message processing."""
-    
+
     success: bool = Field(..., description="Whether processing succeeded")
     retryable: bool = Field(..., description="Whether the error is retryable")
-    message: Optional[str] = Field(None, description="Processing message or error")
+    message: str | None = Field(None, description="Processing message or error")
 
 
 class KillSwitchRequest(BaseModel):
@@ -56,10 +56,10 @@ class OrderResponse(BaseModel):
     qty: float = Field(..., description="Order quantity")
     price: float = Field(..., description="Order price")
     status: str = Field(..., description="Order status")
-    filled_qty: Optional[float] = Field(None, description="Filled quantity")
-    fill_price: Optional[float] = Field(None, description="Fill price")
+    filled_qty: float | None = Field(None, description="Filled quantity")
+    fill_price: float | None = Field(None, description="Fill price")
     created_at: str = Field(..., description="Order creation timestamp")
-    filled_at: Optional[str] = Field(None, description="Fill timestamp")
+    filled_at: str | None = Field(None, description="Fill timestamp")
 
 
 class DLQEntryResponse(BaseModel):
@@ -77,9 +77,9 @@ class SystemMetricResponse(BaseModel):
 
     metric_name: str = Field(..., description="Metric name")
     value: float = Field(..., description="Metric value")
-    unit: Optional[str] = Field(None, description="Value unit")
+    unit: str | None = Field(None, description="Value unit")
     timestamp: str = Field(..., description="Metric timestamp")
-    tags: Optional[Dict[str, str]] = Field(None, description="Metric tags")
+    tags: dict[str, str] | None = Field(None, description="Metric tags")
 
 
 class ErrorResponse(BaseModel):
@@ -92,30 +92,30 @@ class ErrorResponse(BaseModel):
 
 class TradeRequest(BaseModel):
     """Trade analysis request."""
-    
+
     symbol: str = Field(..., description="Trading symbol")
     price: float = Field(..., gt=0, description="Current price")
-    signals: Optional[Dict[str, Any]] = Field(default_factory=list, description="Trading signals")
+    signals: dict[str, Any] | None = Field(default_factory=list, description="Trading signals")
 
 
 class TradeDecision(BaseModel):
     """Trade analysis decision."""
-    
+
     symbol: str = Field(..., description="Trading symbol")
     decision: str = Field(..., pattern="^(LONG|SHORT|FLAT)$", description="Trading decision")
     confidence: float = Field(..., ge=0, le=1, description="Confidence score")
     reasoning: str = Field(..., description="Decision reasoning")
     timestamp: datetime = Field(..., description="Decision timestamp")
-    position_size: Optional[float] = Field(None, ge=0, le=1, description="Position size")
-    risk_assessment: Optional[Dict[str, Any]] = Field(None, description="Risk assessment")
+    position_size: float | None = Field(None, ge=0, le=1, description="Position size")
+    risk_assessment: dict[str, Any] | None = Field(None, description="Risk assessment")
 
 
 class StandardResponse(BaseModel):
     """Standard API response format."""
-    
+
     success: bool = Field(..., description="Whether the operation was successful")
     data: Any = Field(None, description="Response data")
-    error: Optional[str] = Field(None, description="Error message if any")
+    error: str | None = Field(None, description="Error message if any")
 
 
 class HealthResponse(BaseModel):
@@ -123,4 +123,4 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Service health status")
     timestamp: str = Field(..., description="Health check timestamp")
-    services: Dict[str, str] = Field(..., description="Individual service statuses")
+    services: dict[str, str] = Field(..., description="Individual service statuses")

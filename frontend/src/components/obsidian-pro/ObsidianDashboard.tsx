@@ -30,7 +30,7 @@ import { StatusChip, AgentStatusChip, TrendChip } from './StatusChip'
 import { MarketEmptyState } from './EmptyStates'
 import { KillSwitchState } from './KillSwitchState'
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL}/api`).replace(/\/$/, '')
 
 // Memoized components for performance optimization
 const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {

@@ -20,9 +20,7 @@ def enforce_api_key(request: Request) -> None:
     if not settings.API_SECRET_KEY:
         return
 
-    if request.method == "OPTIONS" or not request.url.path.startswith(
-        PROTECTED_PREFIXES
-    ):
+    if request.method == "OPTIONS" or not request.url.path.startswith(PROTECTED_PREFIXES):
         return
 
     provided = request.headers.get("x-api-key")

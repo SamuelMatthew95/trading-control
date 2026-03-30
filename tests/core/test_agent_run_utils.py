@@ -8,7 +8,7 @@ remains clean and focused on production-ready fields only.
 The TestAgentRun class extends AgentRun with temporary fields that were removed
 from production but are still expected by existing tests:
 - decision_json: Legacy field for decision data
-- trace_json: Legacy field for trace data  
+- trace_json: Legacy field for trace data
 - task_id: Legacy field for task identification
 
 This approach allows:
@@ -18,7 +18,6 @@ This approach allows:
 4. Cross-database compatibility (SQLite/Postgres)
 """
 
-from typing import Optional
 from api.core.models import AgentRun
 
 
@@ -31,13 +30,10 @@ class TestAgentRun(AgentRun):
             trace_json = "[]"
         if task_id is None:
             task_id = ""
-            
+
         # Pass all fields to parent constructor since they now exist in production model
         super().__init__(
-            task_id=task_id,
-            decision_json=decision_json,
-            trace_json=trace_json,
-            **kwargs
+            task_id=task_id, decision_json=decision_json, trace_json=trace_json, **kwargs
         )
 
 
@@ -49,12 +45,12 @@ def create_test_agent_run(**kwargs):
 class FakeSession:
     """
     Enhanced FakeSession that supports async context managers and transactions.
-    
+
     This mock session properly implements the async context manager protocol
     and supports the begin() method for transaction testing, making it compatible
     with modern SQLAlchemy async patterns used in production code.
     """
-    
+
     def __init__(self, handler=None):
         self.handler = handler
         self.executed = []
@@ -73,6 +69,7 @@ class FakeSession:
 
     class _TransactionContext:
         """Inner class to handle transaction context management"""
+
         def __init__(self, session):
             self.session = session
             self._in_transaction = False
@@ -101,7 +98,7 @@ class FakeSession:
 
     async def commit(self):
         self.commits += 1
-        return None
+        return
 
     async def rollback(self):
         return None
@@ -109,6 +106,7 @@ class FakeSession:
 
 class FakeResult:
     """Minimal fake result for FakeSession when no handler is provided"""
+
     def __init__(self, rows=None, first_row=None, mapping_rows=None):
         self._rows = rows or []
         self._first_row = first_row
@@ -134,6 +132,7 @@ class FakeResult:
 
 class FakeSessionFactory:
     """Factory for creating FakeSession instances"""
+
     def __init__(self, session=None):
         self.session = session or FakeSession()
 

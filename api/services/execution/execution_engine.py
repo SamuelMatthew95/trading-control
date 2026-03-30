@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
-import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,9 +22,7 @@ LARGE_ORDER_THRESHOLD = 10.0
 
 
 class ExecutionEngine(BaseStreamConsumer):
-    def __init__(
-        self, bus: EventBus, dlq: DLQManager, redis_client: Redis, broker: PaperBroker
-    ):
+    def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis, broker: PaperBroker):
         super().__init__(
             bus, dlq, stream="orders", group=DEFAULT_GROUP, consumer="execution-engine"
         )
@@ -226,9 +224,7 @@ class ExecutionEngine(BaseStreamConsumer):
             existing_qty if existing_side in {"long", "buy"} else (-1 * existing_qty)
         )
         new_qty = existing_signed_qty + signed_qty
-        next_side = (
-            "flat" if abs(new_qty) < 1e-9 else ("long" if new_qty > 0 else "short")
-        )
+        next_side = "flat" if abs(new_qty) < 1e-9 else ("long" if new_qty > 0 else "short")
         await session.execute(
             text(
                 "UPDATE positions SET side = :side, qty = :qty, current_price = :current_price WHERE id = :position_id"
@@ -241,9 +237,7 @@ class ExecutionEngine(BaseStreamConsumer):
             },
         )
 
-    async def _insert_audit_log(
-        self, session, event_type: str, payload: dict[str, Any]
-    ) -> None:
+    async def _insert_audit_log(self, session, event_type: str, payload: dict[str, Any]) -> None:
         await session.execute(
             text(
                 "INSERT INTO audit_log (event_type, payload) VALUES (:event_type, CAST(:payload AS JSONB))"

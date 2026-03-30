@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from typing import Any
 
 from alpaca.data.live.crypto import CryptoDataStream
 from alpaca.data.live.stock import StockDataStream
@@ -53,14 +54,22 @@ class AlpacaProvider(MarketDataProvider):
                     "symbol": symbol,
                     "price": str(getattr(bar, "close", "0")),
                     "volume": str(getattr(bar, "volume", "0")),
-                    "timestamp": str(getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())),
+                    "timestamp": str(
+                        getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
+                    ),
                     "source": "alpaca",
                     "msg_id": str(uuid.uuid4()),
                 }
             )
 
         async def on_crypto_bar(bar: Any) -> None:
-            symbol = str(getattr(bar, "symbol", "")).upper().replace("BTCUSD", "BTC/USD").replace("ETHUSD", "ETH/USD").replace("SOLUSD", "SOL/USD")
+            symbol = (
+                str(getattr(bar, "symbol", ""))
+                .upper()
+                .replace("BTCUSD", "BTC/USD")
+                .replace("ETHUSD", "ETH/USD")
+                .replace("SOLUSD", "SOL/USD")
+            )
             if symbol not in {"BTC/USD", "ETH/USD", "SOL/USD"}:
                 return
             await enqueue_tick(
@@ -68,7 +77,9 @@ class AlpacaProvider(MarketDataProvider):
                     "symbol": symbol,
                     "price": str(getattr(bar, "close", "0")),
                     "volume": str(getattr(bar, "volume", "0")),
-                    "timestamp": str(getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())),
+                    "timestamp": str(
+                        getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
+                    ),
                     "source": "alpaca",
                     "msg_id": str(uuid.uuid4()),
                 }
@@ -163,4 +174,3 @@ class MarketDataIngestor:
 
 class MarketIngestor(MarketDataIngestor):
     """Backward compatible alias for legacy imports."""
-

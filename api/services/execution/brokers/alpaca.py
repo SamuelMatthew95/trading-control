@@ -1,4 +1,5 @@
 """Alpaca broker - live paper trading with real market prices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -25,9 +26,7 @@ class AlpacaBroker:
             "Content-Type": "application/json",
         }
 
-    async def place_order(
-        self, symbol: str, side: str, qty: float, price: float
-    ) -> dict[str, Any]:
+    async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         """Place order via Alpaca paper trading API."""
         # Normalize symbol - Alpaca uses "AAPL" not "AAPL/USD"
         alpaca_symbol = symbol.replace("/USD", "").replace("/", "")
@@ -41,7 +40,8 @@ class AlpacaBroker:
         }
 
         log_structured(
-            "info", "Placing Alpaca order",
+            "info",
+            "Placing Alpaca order",
             symbol=alpaca_symbol,
             side=payload["side"],
             qty=qty,
@@ -57,18 +57,18 @@ class AlpacaBroker:
 
                 if resp.status >= 400:
                     log_structured(
-                        "error", "Alpaca order rejected",
+                        "error",
+                        "Alpaca order rejected",
                         symbol=alpaca_symbol,
                         status=resp.status,
                         error=body.get("message", "unknown"),
                     )
-                    raise RuntimeError(
-                        f"Alpaca order failed {resp.status}: {body.get('message')}"
-                    )
+                    raise RuntimeError(f"Alpaca order failed {resp.status}: {body.get('message')}")
 
         broker_order_id = body["id"]
         log_structured(
-            "info", "Alpaca order placed, waiting for fill",
+            "info",
+            "Alpaca order placed, waiting for fill",
             broker_order_id=broker_order_id,
             symbol=alpaca_symbol,
         )
@@ -77,7 +77,7 @@ class AlpacaBroker:
         fill_price = price  # fallback to signal price
         status = "pending"
         for attempt in range(10):
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)  # Order fill polling - allowed
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"{self.base_url}/v2/orders/{broker_order_id}",
@@ -91,16 +91,18 @@ class AlpacaBroker:
             if status == "filled" and filled_avg_price:
                 fill_price = float(filled_avg_price)
                 log_structured(
-                    "info", "Alpaca order filled",
+                    "info",
+                    "Alpaca order filled",
                     broker_order_id=broker_order_id,
                     symbol=alpaca_symbol,
                     fill_price=fill_price,
                     attempt=attempt + 1,
                 )
                 break
-            elif status in {"canceled", "expired", "rejected"}:
+            if status in {"canceled", "expired", "rejected"}:
                 log_structured(
-                    "warning", "Alpaca order terminal state",
+                    "warning",
+                    "Alpaca order terminal state",
                     broker_order_id=broker_order_id,
                     symbol=alpaca_symbol,
                     status=status,
@@ -108,7 +110,8 @@ class AlpacaBroker:
                 break
 
             log_structured(
-                "debug", "Waiting for Alpaca fill",
+                "debug",
+                "Waiting for Alpaca fill",
                 broker_order_id=broker_order_id,
                 status=status,
                 attempt=attempt + 1,
