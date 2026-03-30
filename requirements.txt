@@ -26,7 +26,7 @@ alpaca-py
 # Database dependencies
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
-pgvector>=0.2.0
+pgvector>=0.4.2
 alembic>=1.13.0
 
 # Linting and formatting
