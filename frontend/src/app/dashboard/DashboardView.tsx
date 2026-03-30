@@ -178,6 +178,298 @@ function MobileNavigation({ section }: { section: Section }) {
   )
 }
 
+type ApiAgent = {
+  name: string
+  status: string
+  event_count: number
+  last_event: string
+  last_seen: number
+  seconds_ago: number
+}
+
+type PipelineMetrics = {
+  market_events: number
+  signals: number
+  decisions: number
+  graded_decisions: number
+  agent_logs: number
+  trade_alerts: number
+}
+
+type ApiEvent = {
+  id: string
+  event_type: string
+  entity_type: string | null
+  source: string | null
+  created_at: string | null
+}
+
+function PipelineHealthBar({ metrics }: { metrics: PipelineMetrics | null }) {
+  const streams = [
+    { key: 'market_events', label: 'MARKET_EVENTS' },
+    { key: 'signals', label: 'SIGNALS' },
+    { key: 'decisions', label: 'DECISIONS' },
+    { key: 'graded_decisions', label: 'GRADED_DECISIONS' },
+  ] as const
+
+  return (
+    <div className={cardClass}>
+      <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Health</p>
+      <div className="flex items-center gap-2 overflow-x-auto">
+        {streams.map((s, i) => {
+          const count = metrics ? (metrics[s.key as keyof PipelineMetrics] as number) ?? 0 : 0
+          return (
+            <div key={s.key} className="flex items-center gap-2">
+              <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800 min-w-[120px]">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{s.label}</p>
+                  <span className={cn('h-2 w-2 rounded-full', count > 0 ? 'bg-emerald-500' : 'bg-slate-400')} />
+                </div>
+                <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{count}</p>
+              </div>
+              {i < streams.length - 1 && (
+                <span className="text-slate-400 text-lg font-bold">&rarr;</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function AgentsSection() {
+  const [apiAgents, setApiAgents] = useState<ApiAgent[]>([])
+  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
+  const [fetchError, setFetchError] = useState(false)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [agentRes, metricRes] = await Promise.all([
+          fetch('/api/dashboard/agents/status'),
+          fetch('/api/dashboard/system/metrics'),
+        ])
+        if (agentRes.ok) {
+          const data = await agentRes.json()
+          setApiAgents(data.agents ?? [])
+        }
+        if (metricRes.ok) {
+          setMetrics(await metricRes.json())
+        }
+        setFetchError(false)
+      } catch {
+        setFetchError(true)
+      }
+    }
+
+    fetchData()
+    const interval = setInterval(fetchData, 10_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Always show all 7 agents — merge API data with defaults
+  const agentMap = new Map(apiAgents.map((a) => [a.name, a]))
+  const agents: ApiAgent[] = TRACKED_AGENTS.map((name) =>
+    agentMap.get(name) ?? { name, status: 'WAITING', event_count: 0, last_event: '', last_seen: 0, seconds_ago: 0 }
+  )
+  const allWaiting = agents.every((a) => a.event_count === 0)
+
+  const statusDot = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'animate-pulse bg-emerald-500'
+      case 'STALE': return 'bg-amber-500'
+      case 'ERROR':
+      case 'OFFLINE': return 'bg-rose-500'
+      default: return 'bg-slate-400'
+    }
+  }
+
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'active'
+      case 'STALE': return 'stale'
+      case 'ERROR': return 'error'
+      case 'OFFLINE': return 'offline'
+      default: return 'waiting'
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <PipelineHealthBar metrics={metrics} />
+
+      {fetchError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/30">
+          <p className="text-sm font-sans text-rose-800 dark:text-rose-200">
+            Failed to fetch agent data. Check that the backend API is running.
+          </p>
+        </div>
+      )}
+
+      {allWaiting && !fetchError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="text-sm font-sans text-amber-800 dark:text-amber-200">
+            Agents are waiting for market data. Verify the backend is running and ALPACA_API_KEY is set.
+          </p>
+        </div>
+      )}
+
+      <div className={cardClass}>
+        <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800">
+                {['Agent', 'Status', 'Events', 'Last Event', 'Last Seen'].map((h) => (
+                  <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {agents.map((agent) => (
+                <tr key={agent.name} className="border-t border-slate-200 dark:border-slate-800">
+                  <td className={cn('px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100', agent.status === 'OFFLINE' && 'line-through')}>{agent.name}</td>
+                  <td className="px-2 py-2">
+                    <span className="inline-flex items-center gap-2">
+                      <span className={cn('h-2 w-2 rounded-full', statusDot(agent.status))} />
+                      <span className="text-xs text-slate-700 dark:text-slate-300">{statusLabel(agent.status)}</span>
+                    </span>
+                  </td>
+                  <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.event_count}</td>
+                  <td className="px-2 py-2 text-xs font-mono text-slate-500 max-w-[200px] truncate">{agent.last_event || '--'}</td>
+                  <td className="px-2 py-2 text-xs font-mono text-slate-500">{agent.seconds_ago > 0 ? `${agent.seconds_ago}s ago` : '--'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SystemSection() {
+  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
+  const [events, setEvents] = useState<ApiEvent[]>([])
+  const [sseStatus, setSseStatus] = useState<'Connected' | 'Reconnecting' | 'Disconnected'>('Disconnected')
+  const [msgCount, setMsgCount] = useState(0)
+  const [lastMsg, setLastMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [metricRes, eventRes] = await Promise.all([
+          fetch('/api/dashboard/system/metrics'),
+          fetch('/api/dashboard/events/recent'),
+        ])
+        if (metricRes.ok) {
+          setMetrics(await metricRes.json())
+          setSseStatus('Connected')
+        }
+        if (eventRes.ok) {
+          const data = await eventRes.json()
+          const evts: ApiEvent[] = data.events ?? []
+          setEvents(evts)
+          setMsgCount(evts.length)
+          if (evts.length > 0) setLastMsg(evts[0].created_at)
+        }
+      } catch {
+        setSseStatus('Disconnected')
+      }
+    }
+    fetchData()
+    const interval = setInterval(fetchData, 10_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const pipelineStreams = [
+    { key: 'market_events', label: 'MARKET_EVENTS' },
+    { key: 'signals', label: 'SIGNALS' },
+    { key: 'decisions', label: 'DECISIONS' },
+    { key: 'graded_decisions', label: 'GRADED_DECISIONS' },
+    { key: 'agent_logs', label: 'AGENT_LOGS' },
+    { key: 'trade_alerts', label: 'TRADE_ALERTS' },
+  ] as const
+
+  return (
+    <div className="space-y-4">
+      <div className={cardClass}>
+        <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {pipelineStreams.map((s) => {
+            const count = metrics ? (metrics[s.key as keyof PipelineMetrics] as number) ?? 0 : 0
+            return (
+              <div key={s.key} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{s.label}</p>
+                  <span className={cn('h-2 w-2 rounded-full', count > 0 ? 'bg-emerald-500' : 'bg-slate-400')} />
+                </div>
+                <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{count}</p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className={cardClass}>
+        <p className={cn(sectionTitleClass, 'mb-3')}>SSE Status</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <p className={mutedClass}>Connection</p>
+            <p className={cn('text-sm font-semibold', sseStatus === 'Connected' ? 'text-emerald-500' : sseStatus === 'Reconnecting' ? 'text-amber-500' : 'text-slate-500')}>{sseStatus}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <p className={mutedClass}>Messages Received</p>
+            <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{msgCount}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <p className={mutedClass}>Last Message</p>
+            <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(lastMsg)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className={cardClass}>
+        <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
+        {events.length === 0 ? (
+          <EmptyState message="No events recorded yet" icon={Activity} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800">
+                  {['Event Type', 'Entity', 'Source', 'Time'].map((h) => (
+                    <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((evt) => (
+                  <tr key={evt.id} className="border-t border-slate-200 dark:border-slate-800">
+                    <td className="px-2 py-2">
+                      <span className={cn('rounded px-2 py-0.5 text-xs font-semibold',
+                        evt.event_type.startsWith('signal') ? 'bg-indigo-500/15 text-indigo-400' :
+                        evt.event_type.startsWith('decision') ? 'bg-amber-500/15 text-amber-500' :
+                        evt.event_type.startsWith('trade') ? 'bg-emerald-500/15 text-emerald-500' :
+                        evt.event_type.startsWith('strategy') ? 'bg-violet-500/15 text-violet-400' :
+                        'bg-slate-500/15 text-slate-400'
+                      )}>{evt.event_type}</span>
+                    </td>
+                    <td className="px-2 py-2 text-xs text-slate-500">{evt.entity_type ?? '--'}</td>
+                    <td className="px-2 py-2 text-xs text-slate-500">{evt.source ?? '--'}</td>
+                    <td className="px-2 py-2 text-xs font-mono text-slate-500">{formatTimestamp(evt.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
@@ -187,17 +479,9 @@ export function DashboardView({ section }: { section: Section }) {
     positions = [],
     systemMetrics = [],
     dashboardData,
-    marketTickCount,
-    lastMarketSymbol,
-    streamStats,
-    wsMessageCount,
-    wsLastMessageTimestamp,
-    recentEvents,
-    wsConnected,
     fetchPrices,
   } = useCodexStore()
 
-  const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [pricesLoading, setPricesLoading] = useState(true)
 
   // Fetch initial prices on component mount
@@ -265,18 +549,6 @@ export function DashboardView({ section }: { section: Section }) {
     return Array.from(normalizedByName.values())
   }, [agentLogs])
 
-  useEffect(() => {
-    if (!wsConnected || agentLogs.length > 0) {
-      setShowNoAgentDataMessage(false)
-      return
-    }
-    const timer = setTimeout(() => {
-      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
-        setShowNoAgentDataMessage(true)
-      }
-    }, 10000)
-    return () => clearTimeout(timer)
-  }, [agentLogs.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -529,61 +801,7 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'agents' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className={cardClass}>
-              <p className={sectionTitleClass}>Market Ticks</p>
-              <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
-              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
-            </div>
-            <div className={cardClass}>
-              <p className={sectionTitleClass}>Tracked Agents</p>
-              <p className={valueClass}>{TRACKED_AGENTS.length}</p>
-              <p className={mutedClass}>Pre-populated on connect</p>
-            </div>
-            <div className={cardClass}>
-              <p className={sectionTitleClass}>Agent Events</p>
-              <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
-              <p className={mutedClass}>Total events received</p>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800">
-                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {showNoAgentDataMessage ? (
-                    <tr>
-                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
-                    </tr>
-                  ) : (
-                    realAgents.map((agent) => (
-                      <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
-                        <td className="px-2 py-2 text-xs font-sans">
-                          <span className="inline-flex items-center gap-2">
-                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <AgentsSection />
       )}
 
       {section === 'learning' && (
@@ -636,63 +854,7 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'system' && (
-        <div className="space-y-4">
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
-                const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
-                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
-                return (
-                  <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
-                      <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
-                    </div>
-                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>WebSocket Status</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Connection</p>
-                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Messages Received</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Last Message</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
-            {recentEvents.length === 0 ? (
-              <EmptyState message="No websocket events yet" icon={Activity} />
-            ) : (
-              <div className="space-y-2">
-                {recentEvents.map((event, index) => (
-                  <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-indigo-500/15 text-indigo-400' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
-                      {event.stream}
-                    </span>
-                    <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
-                    <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <SystemSection />
       )}
     </>
   )
