@@ -239,9 +239,8 @@ function PipelineHealthBar({ metrics }: { metrics: PipelineMetrics | null }) {
 }
 
 function AgentsSection() {
-  const [agents, setAgents] = useState<ApiAgent[]>([])
+  const [apiAgents, setApiAgents] = useState<ApiAgent[]>([])
   const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
-  const [allZero, setAllZero] = useState(false)
   const [fetchError, setFetchError] = useState(false)
 
   useEffect(() => {
@@ -253,8 +252,7 @@ function AgentsSection() {
         ])
         if (agentRes.ok) {
           const data = await agentRes.json()
-          setAgents(data.agents ?? [])
-          setAllZero((data.agents ?? []).every((a: ApiAgent) => a.event_count === 0))
+          setApiAgents(data.agents ?? [])
         }
         if (metricRes.ok) {
           setMetrics(await metricRes.json())
@@ -270,6 +268,13 @@ function AgentsSection() {
     return () => clearInterval(interval)
   }, [])
 
+  // Always show all 7 agents — merge API data with defaults
+  const agentMap = new Map(apiAgents.map((a) => [a.name, a]))
+  const agents: ApiAgent[] = TRACKED_AGENTS.map((name) =>
+    agentMap.get(name) ?? { name, status: 'WAITING', event_count: 0, last_event: '', seconds_ago: 0 }
+  )
+  const allWaiting = agents.every((a) => a.event_count === 0)
+
   const statusDot = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'animate-pulse bg-emerald-500'
@@ -277,6 +282,16 @@ function AgentsSection() {
       case 'ERROR':
       case 'OFFLINE': return 'bg-rose-500'
       default: return 'bg-slate-400'
+    }
+  }
+
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'active'
+      case 'STALE': return 'stale'
+      case 'ERROR': return 'error'
+      case 'OFFLINE': return 'offline'
+      default: return 'waiting'
     }
   }
 
@@ -292,10 +307,10 @@ function AgentsSection() {
         </div>
       )}
 
-      {allZero && !fetchError && (
+      {allWaiting && !fetchError && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-sm font-sans text-amber-800 dark:text-amber-200">
-            Agents are waiting for market data. Verify the price poller worker is running on Render and ALPACA_API_KEY is set in environment variables.
+            Agents are waiting for market data. Verify the backend is running and ALPACA_API_KEY is set.
           </p>
         </div>
       )}
@@ -318,7 +333,7 @@ function AgentsSection() {
                   <td className="px-2 py-2">
                     <span className="inline-flex items-center gap-2">
                       <span className={cn('h-2 w-2 rounded-full', statusDot(agent.status))} />
-                      <span className="text-xs text-slate-700 dark:text-slate-300">{agent.status}</span>
+                      <span className="text-xs text-slate-700 dark:text-slate-300">{statusLabel(agent.status)}</span>
                     </span>
                   </td>
                   <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.event_count}</td>
