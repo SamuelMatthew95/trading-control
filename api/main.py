@@ -34,10 +34,10 @@ from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
     NotificationAgent,
+    ReasoningAgent,
     ReflectionAgent,
     StrategyProposer,
 )
-from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.event_pipeline import EventPipeline
 from api.services.market_ingestor import MarketDataIngestor
 from api.services.signal_generator import SignalGenerator

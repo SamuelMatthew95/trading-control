@@ -14,8 +14,11 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 from api.observability import log_structured
 
 STREAMS = (
+    "market_events",
     "market_ticks",
     "signals",
+    "decisions",
+    "graded_decisions",
     "orders",
     "executions",
     "trade_performance",
