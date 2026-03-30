@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "FastAPI Backend (includes price poller)",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "uvicorn", "api.main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "Next.js Frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "port": 3000
+    }
+  ]
+}
