@@ -242,6 +242,7 @@ function AgentsSection() {
   const [agents, setAgents] = useState<ApiAgent[]>([])
   const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
   const [allZero, setAllZero] = useState(false)
+  const [fetchError, setFetchError] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -258,8 +259,9 @@ function AgentsSection() {
         if (metricRes.ok) {
           setMetrics(await metricRes.json())
         }
+        setFetchError(false)
       } catch {
-        /* ignore fetch errors */
+        setFetchError(true)
       }
     }
 
@@ -282,7 +284,15 @@ function AgentsSection() {
     <div className="space-y-4">
       <PipelineHealthBar metrics={metrics} />
 
-      {allZero && (
+      {fetchError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/30">
+          <p className="text-sm font-sans text-rose-800 dark:text-rose-200">
+            Failed to fetch agent data. Check that the backend API is running.
+          </p>
+        </div>
+      )}
+
+      {allZero && !fetchError && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-sm font-sans text-amber-800 dark:text-amber-200">
             Agents are waiting for market data. Verify the price poller worker is running on Render and ALPACA_API_KEY is set in environment variables.
@@ -327,7 +337,7 @@ function AgentsSection() {
 function SystemSection() {
   const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
   const [events, setEvents] = useState<ApiEvent[]>([])
-  const [sseStatus] = useState<'Connected' | 'Reconnecting' | 'Disconnected'>('Disconnected')
+  const [sseStatus, setSseStatus] = useState<'Connected' | 'Reconnecting' | 'Disconnected'>('Disconnected')
   const [msgCount, setMsgCount] = useState(0)
   const [lastMsg, setLastMsg] = useState<string | null>(null)
 
@@ -338,7 +348,10 @@ function SystemSection() {
           fetch('/api/dashboard/system/metrics'),
           fetch('/api/dashboard/events/recent'),
         ])
-        if (metricRes.ok) setMetrics(await metricRes.json())
+        if (metricRes.ok) {
+          setMetrics(await metricRes.json())
+          setSseStatus('Connected')
+        }
         if (eventRes.ok) {
           const data = await eventRes.json()
           const evts: ApiEvent[] = data.events ?? []
@@ -347,7 +360,7 @@ function SystemSection() {
           if (evts.length > 0) setLastMsg(evts[0].created_at)
         }
       } catch {
-        /* ignore */
+        setSseStatus('Disconnected')
       }
     }
     fetchData()
@@ -451,17 +464,9 @@ export function DashboardView({ section }: { section: Section }) {
     positions = [],
     systemMetrics = [],
     dashboardData,
-    marketTickCount,
-    lastMarketSymbol,
-    streamStats,
-    wsMessageCount,
-    wsLastMessageTimestamp,
-    recentEvents,
-    wsConnected,
     fetchPrices,
   } = useCodexStore()
 
-  const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [pricesLoading, setPricesLoading] = useState(true)
 
   // Fetch initial prices on component mount
@@ -529,18 +534,6 @@ export function DashboardView({ section }: { section: Section }) {
     return Array.from(normalizedByName.values())
   }, [agentLogs])
 
-  useEffect(() => {
-    if (!wsConnected || agentLogs.length > 0) {
-      setShowNoAgentDataMessage(false)
-      return
-    }
-    const timer = setTimeout(() => {
-      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
-        setShowNoAgentDataMessage(true)
-      }
-    }, 10000)
-    return () => clearTimeout(timer)
-  }, [agentLogs.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length

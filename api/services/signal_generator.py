@@ -94,7 +94,7 @@ class SignalGenerator(BaseStreamConsumer):
                              created_at, updated_at)
                         VALUES
                             (:id, :agent_id, :trace_id, 'analysis', :trigger,
-                             :input_data, 'v2', :source, 'running',
+                             :input_data, 'v3', :source, 'running',
                              NOW(), NOW())
                     """),
                     {
@@ -110,7 +110,7 @@ class SignalGenerator(BaseStreamConsumer):
         try:
             # Signal classification logic
             abs_pct = abs(pct)
-            direction = "bullish" if pct > 0 else "bearish"
+            direction = "bullish" if pct > 0 else ("bearish" if pct < 0 else "neutral")
 
             if abs_pct >= 3.0:
                 signal_type = "STRONG_MOMENTUM"
@@ -152,7 +152,7 @@ class SignalGenerator(BaseStreamConsumer):
                                  idempotency_key, source, schema_version)
                             VALUES
                                 ('signal.generated', 'signal', :data,
-                                 :idem_key, :source, 'v2')
+                                 :idem_key, :source, 'v3')
                             ON CONFLICT (idempotency_key) DO NOTHING
                         """),
                         {
@@ -170,7 +170,7 @@ class SignalGenerator(BaseStreamConsumer):
                                  trace_id, schema_version, source)
                             VALUES
                                 (:agent_id, 'accuracy', :score, :metrics,
-                                 :trace_id, 'v2', :source)
+                                 :trace_id, 'v3', :source)
                         """),
                         {
                             "agent_id": agent_pool_id or None,
@@ -271,6 +271,7 @@ class SignalGenerator(BaseStreamConsumer):
             )
 
         except Exception:
+            log_structured("error", "signal agent processing failed", exc_info=True)
             # Update agent_runs — failure
             async with AsyncSessionFactory() as session:
                 async with session.begin():

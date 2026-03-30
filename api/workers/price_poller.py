@@ -182,7 +182,7 @@ async def process_symbol(redis_client, symbol: str, current_price: float) -> Non
                              schema_version, source, timestamp)
                         VALUES
                             ('price_fetch', :price, 'usd',
-                             :tags, 'v2', 'price_poller', NOW())
+                             :tags, 'v3', 'price_poller', NOW())
                     """),
                     {
                         "price": current_price,
@@ -220,8 +220,11 @@ async def poll_prices():
     # Ensure market_events stream + consumer group exist
     try:
         await redis_client.xgroup_create("market_events", "workers", "$", mkstream=True)
-    except Exception:
-        pass  # BUSYGROUP — group already exists
+    except Exception as exc:
+        if "BUSYGROUP" in str(exc):
+            pass  # Consumer group already exists — expected
+        else:
+            log_structured("error", "failed to create consumer group", exc_info=True)
 
     log_structured(
         "info",

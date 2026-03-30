@@ -77,6 +77,14 @@ class MultiStreamAgent:
                         await self.process(stream, redis_id, data)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
                     except Exception as exc:  # noqa: BLE001
+                        log_structured(
+                            "error",
+                            "agent processing failed",
+                            agent=self.consumer,
+                            stream=stream,
+                            redis_id=redis_id,
+                            exc_info=True,
+                        )
                         await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
             await asyncio.sleep(0.05)  # Agent processing throttle
@@ -136,7 +144,7 @@ async def _create_agent_run(
                          created_at, updated_at)
                     VALUES
                         (:id, :agent_id, :trace_id, 'analysis', :trigger,
-                         :input_data, 'v2', :source, 'running', NOW(), NOW())
+                         :input_data, 'v3', :source, 'running', NOW(), NOW())
                 """),
                 {
                     "id": run_id,
@@ -244,7 +252,7 @@ async def _write_event(
                     INSERT INTO events
                         (event_type, entity_type, data,
                          idempotency_key, source, schema_version)
-                    VALUES (:etype, 'agent', :data, :idem, :source, 'v2')
+                    VALUES (:etype, 'agent', :data, :idem, :source, 'v3')
                     ON CONFLICT (idempotency_key) DO NOTHING
                 """),
                 {
@@ -360,6 +368,7 @@ class ReasoningAgent(MultiStreamAgent):
             )
 
         except Exception:
+            log_structured("error", "agent processing failed", agent=self.AGENT_NAME, exc_info=True)
             await _fail_agent_run(run_id, "processing_error")
             raise
 
@@ -411,7 +420,7 @@ class GradeAgent(MultiStreamAgent):
                                 (agent_id, grade_type, score, metrics,
                                  trace_id, schema_version, source)
                             VALUES (:agent_id, 'overall', :score, :metrics,
-                                    :trace_id, 'v2', :source)
+                                    :trace_id, 'v3', :source)
                         """),
                         {
                             "agent_id": self._pool_id,
@@ -474,6 +483,7 @@ class GradeAgent(MultiStreamAgent):
             )
 
         except Exception:
+            log_structured("error", "agent processing failed", agent=self.AGENT_NAME, exc_info=True)
             await _fail_agent_run(run_id, "processing_error")
             raise
 
@@ -540,7 +550,7 @@ class ICUpdater(MultiStreamAgent):
                                         (name, description, config,
                                          schema_version, source, status, rules, risk_limits)
                                     VALUES (:name, :desc, :config,
-                                            'v2', 'IC_UPDATER', 'active',
+                                            'v3', 'IC_UPDATER', 'active',
                                             '{}'::jsonb, '{}'::jsonb)
                                 """),
                                 {
@@ -604,6 +614,7 @@ class ICUpdater(MultiStreamAgent):
             )
 
         except Exception:
+            log_structured("error", "agent processing failed", agent=self.AGENT_NAME, exc_info=True)
             await _fail_agent_run(run_id, "processing_error")
             raise
 
@@ -667,16 +678,15 @@ class ReflectionAgent(MultiStreamAgent):
                     await session.execute(
                         text("""
                             INSERT INTO vector_memory
-                                (agent_id, content, content_type, embedding,
+                                (agent_id, content, content_type,
                                  vector_metadata, schema_version, source)
                             VALUES
-                                (:agent_id, :content, 'memory', :embedding,
-                                 :metadata, 'v2', 'REFLECTION_AGENT')
+                                (:agent_id, :content, 'memory',
+                                 :metadata, 'v3', 'REFLECTION_AGENT')
                         """),
                         {
                             "agent_id": self._pool_id,
                             "content": content,
-                            "embedding": "[]",
                             "metadata": metadata,
                         },
                     )
@@ -709,6 +719,7 @@ class ReflectionAgent(MultiStreamAgent):
             )
 
         except Exception:
+            log_structured("error", "agent processing failed", agent=self.AGENT_NAME, exc_info=True)
             await _fail_agent_run(run_id, "processing_error")
             raise
 
@@ -810,7 +821,7 @@ class StrategyProposer(MultiStreamAgent):
                                          schema_version, source, status,
                                          rules, risk_limits)
                                     VALUES (:name, :desc, :config,
-                                            'v2', 'STRATEGY_PROPOSER', 'active',
+                                            'v3', 'STRATEGY_PROPOSER', 'active',
                                             '{}'::jsonb, '{}'::jsonb)
                                 """),
                                 {
@@ -857,6 +868,7 @@ class StrategyProposer(MultiStreamAgent):
             )
 
         except Exception:
+            log_structured("error", "agent processing failed", agent=self.AGENT_NAME, exc_info=True)
             await _fail_agent_run(run_id, "processing_error")
             raise
 
@@ -932,7 +944,7 @@ class NotificationAgent(MultiStreamAgent):
                                     (metric_name, metric_value, metric_unit,
                                      tags, schema_version, source, timestamp)
                                 VALUES ('trade_alert_fired', 1, 'count',
-                                        :tags, 'v2', 'NOTIFICATION_AGENT', NOW())
+                                        :tags, 'v3', 'NOTIFICATION_AGENT', NOW())
                             """),
                             {
                                 "tags": json.dumps(
@@ -990,5 +1002,6 @@ class NotificationAgent(MultiStreamAgent):
             )
 
         except Exception:
+            log_structured("error", "agent processing failed", agent=self.AGENT_NAME, exc_info=True)
             await _fail_agent_run(run_id, "processing_error")
             raise

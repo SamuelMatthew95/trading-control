@@ -1,5 +1,31 @@
 # Changelog
 
+## [2026-03-30] — Complete agent pipeline, price poller rewrite, and dashboard overhaul
+
+### Added
+- **Price Poller rewrite**: 5 writes per cycle (Redis cache, Redis stream, pub/sub, Postgres prices_snapshot upsert, Postgres system_metrics insert), price change calculation from previous Redis value, asyncio.timeout(8) on Alpaca fetches
+- **7 pipeline agents fully implemented**: SignalGenerator, ReasoningAgent, GradeAgent, ICUpdater, ReflectionAgent, StrategyProposer, NotificationAgent — all with full agent_runs lifecycle, dedup via processed_events, trace_id propagation, Redis + Postgres heartbeats
+- **Stream chain**: market_events → signals → decisions → graded_decisions with proper classification logic at each stage
+- **3 new dashboard API endpoints**: GET /dashboard/agents/status (agent status from Redis), GET /dashboard/system/metrics (stream lengths + DB counts), GET /dashboard/events/recent (last 10 events)
+- **Frontend PipelineHealthBar component**: visual stream flow with arrow visualization (market_events → signals → decisions → graded_decisions)
+- **Frontend AgentsSection**: polls /api/dashboard/agents/status every 10s, shows agent status with color-coded dots (ACTIVE=green, STALE=amber, ERROR=red, WAITING=gray)
+- **Frontend SystemSection**: replaced WebSocket status with SSE status, shows pipeline metrics via 6 stream cards, recent events table
+- Added "market_events", "decisions", "graded_decisions" to EventBus STREAMS tuple
+
+### Fixed
+- Signal classification logic: STRONG_MOMENTUM (≥3%), MOMENTUM (≥1.5%), PRICE_UPDATE (else)
+- Agent stream chain: agents now listen to correct streams (was wrong stream names before)
+- Test mocks for AsyncSessionFactory using proper async context managers
+- LLM router test using patch.dict for _PROVIDERS to avoid groq import
+- test_no_unknown_ids updated for JSON-structured log output
+- All 117 tests passing, 0 failures
+- Full CI/CD compliance: ruff check, ruff format, critical error checks all passing
+
+### Architecture
+- All agents use shared helper pattern: _ensure_agent_pool_id, dedup check, agent_runs create/complete/fail, agent_logs, heartbeats
+- ReasoningAgent consolidated into pipeline_agents.py (single import point)
+- Postgres tables created safely via comprehensive SQL script with IF NOT EXISTS guards
+
 ## [2026-03-28] — Project documentation and Claude Code setup
 
 ### Added
