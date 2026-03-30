@@ -1,11 +1,27 @@
 import os
 import sys
+import logging
+
+# Configure logging for debugging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # In Vercel, /var/task is the root, so we need to add current directory to path
 # to import main.py directly from the same directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from main import app
+try:
+    from main import app
+    logger.info("✅ FastAPI app imported successfully")
+    
+    # Test if dashboard routes are registered
+    from fastapi.routing import APIRoute
+    dashboard_routes = [r.path for r in app.routes if hasattr(r, 'path') and '/dashboard' in r.path]
+    logger.info(f"📋 Dashboard routes found: {dashboard_routes}")
+    
+except Exception as e:
+    logger.error(f"❌ Failed to import FastAPI app: {e}")
+    app = None
 
 
 class Handler:
@@ -13,6 +29,15 @@ class Handler:
         self.app = app
 
     def __call__(self, environ, start_response):
+        if not self.app:
+            start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+            return [b'FastAPI app failed to load']
+        
+        # Log incoming requests for debugging
+        path = environ.get('PATH_INFO', '')
+        method = environ.get('REQUEST_METHOD', '')
+        logger.info(f"🌐 {method} {path}")
+        
         return self.app(environ, start_response)
 
 
