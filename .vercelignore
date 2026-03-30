@@ -17,3 +17,7 @@ yarn.lock
 tsconfig.json
 next.config.js
 next-env.d.ts
+api.py
+api/
+requirements.txt
+requirements-dev.txt
