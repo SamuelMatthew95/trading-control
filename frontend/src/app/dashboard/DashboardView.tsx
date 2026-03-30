@@ -271,7 +271,7 @@ function AgentsSection() {
   // Always show all 7 agents — merge API data with defaults
   const agentMap = new Map(apiAgents.map((a) => [a.name, a]))
   const agents: ApiAgent[] = TRACKED_AGENTS.map((name) =>
-    agentMap.get(name) ?? { name, status: 'WAITING', event_count: 0, last_event: '', seconds_ago: 0 }
+    agentMap.get(name) ?? { name, status: 'WAITING', event_count: 0, last_event: '', last_seen: 0, seconds_ago: 0 }
   )
   const allWaiting = agents.every((a) => a.event_count === 0)
 
