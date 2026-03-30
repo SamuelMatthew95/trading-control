@@ -1,5 +1,7 @@
 frontend/
 frontend/**
+frontend/package.json
+frontend/node_modules/
 node_modules/
 .git/
 .venv/
@@ -7,3 +9,11 @@ venv/
 *.pyc
 __pycache__/
 .pytest_cache/
+package.json
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+.next/
+tsconfig.json
+next.config.js
+next-env.d.ts
