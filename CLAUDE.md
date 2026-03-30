@@ -404,9 +404,11 @@ from api.services.feedback_service import FeedbackService
 
 ## Agent System Overview
 
-The system has a streamlined agent architecture focused on signal processing and reasoning. Current implementation includes core agents that communicate through Redis Streams.
+The system is designed for 8 specialized agents that communicate exclusively through Redis Streams. Currently, a subset is implemented with the full architecture in place for expansion.
 
-### Current Implemented Agents
+### Current Implementation Status
+
+**✅ IMPLEMENTED:**
 
 **SignalGenerator** - Generates periodic signals from market ticks
 - Listens: `market_ticks` | Publishes: `signals`
@@ -427,6 +429,53 @@ The system has a streamlined agent architecture focused on signal processing and
 - **NotificationAgent** - Classifies and routes system notifications
 - Located: `api/services/agents/pipeline_agents.py`
 
+### Agent Pool Tiers (Future Vision)
+
+**🚧 TODO: IMPLEMENT** - Agent pool management system
+
+| Tier           | Receives                            | Rules                                                                 |
+| -------------- | ----------------------------------- | --------------------------------------------------------------------- |
+| **Active**     | Live signals → real orders          | Demoted to Challenger if beaten for CHALLENGER_WIN_DAYS consecutive   |
+| **Challenger** | Paper signals only → no real orders | Promoted to Active when it beats Active for CHALLENGER_WIN_DAYS cycles |
+| **Retired**    | Nothing — archived forever          | Never deleted. Cannot be reinstated automatically.                    |
+
+**🚧 TODO: IMPLEMENT** - Agent lifecycle management and promotion/demotion logic
+
+### Complete Agent Architecture (Future Vision)
+
+**🚧 TODO: IMPLEMENT** - Full 8-agent system
+
+**✅ SignalGenerator** - Bridges market_ticks → signals stream
+**✅ ReasoningAgent** - Makes trading decisions using LLM reasoning  
+**🚧 HistoryAgent** - Mines historical data for patterns invisible in single trades
+- Reads: `trade_performance` (full history), `vector_memory`, `agent_grades`
+- Publishes: `historical_insights`, `proposals`, `notifications`
+- Trigger: HISTORY_AGENT_SCHEDULE_CRON (default: Sunday 02:00 UTC)
+
+**✅ GradeAgent** - Scores agents across 4 dimensions after fills
+- Listens: `executions`, `trade_performance` | Publishes: `agent_grades`, `proposals`
+- Score formula: accuracy×0.35 + ic×0.30 + cost_eff×0.20 + latency×0.15
+- Automatic actions based on grade thresholds (A-F)
+
+**✅ ICUpdater** - Reweights alpha factors based on predictive performance
+- Listens: `trade_performance` | Publishes: `ic_weights`, `factor_ic_history`
+- Computes Spearman correlation, zeros out factors below threshold
+- Normalizes remaining weights to sum to 1.0
+
+**✅ ReflectionAgent** - Finds patterns in recent trades, generates hypotheses
+- Listens: `trade_performance`, `agent_grades`, `factor_ic_history`
+- Publishes: `reflection_outputs`, `notifications`
+- Never modifies system directly, only generates analysis
+
+**✅ StrategyProposer** - Turns reflection hypotheses into concrete proposals
+- Listens: `reflection_outputs` | Publishes: `proposals`, `notifications`, GitHub PRs
+- Every proposal requires explicit approval before application
+
+**✅ NotificationAgent** - Classifies and routes all system events
+- Listens: All output streams | Publishes: `notifications` table + WebSocket
+- Severity levels: CRITICAL, URGENT, WARNING, INFO
+- Deduplication: same event type within 60s merged
+
 ### Agent State Registry
 
 Current active agents tracked in `AGENT_NAMES`:
@@ -437,6 +486,8 @@ Current active agents tracked in `AGENT_NAMES`:
 
 Located: `api/services/agent_state.py`
 
+**🚧 TODO: IMPLEMENT** - Full agent pool registry with tier management
+
 ### Agent Architecture Patterns
 
 All agents follow these patterns:
@@ -445,6 +496,23 @@ All agents follow these patterns:
 3. **Structured Logging**: Use `log_structured()` with `exc_info=True` for errors
 4. **Idempotency**: Handle duplicate events gracefully
 5. **Circuit Breaking**: Token budget limits and fallback modes
+
+### Implementation Roadmap
+
+**Phase 1** ✅ **COMPLETE**: Core signal processing
+- SignalGenerator ✅
+- ReasoningAgent ✅ 
+- Basic pipeline agents ✅
+
+**Phase 2** 🚧 **IN PROGRESS**: Agent lifecycle management
+- Agent pool tiers implementation
+- Promotion/demotion logic
+- Full agent registry
+
+**Phase 3** 📋 **PLANNED**: Advanced analytics
+- HistoryAgent implementation
+- Advanced pattern recognition
+- Automated strategy evolution
 
 ## Database Schema Overview
 
