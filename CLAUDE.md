@@ -421,17 +421,26 @@ The system is designed for 8 specialized agents that communicate exclusively thr
 - Features: Token budget tracking, fallback modes, vector memory search
 - Located: `api/services/agents/reasoning_agent.py`
 
-**Pipeline Agents** - Additional stream processing agents
-- **GradeAgent** - Scores agent performance across multiple dimensions
-- **ICUpdater** - Updates Information Coefficient weights for factors
-- **ReflectionAgent** - Analyzes trade patterns and generates insights
-- **StrategyProposer** - Creates proposals from reflection hypotheses
-- **NotificationAgent** - Classifies and routes system notifications
+**ExecutionEngine** - Executes orders via paper broker, computes realized PnL
+- Listens: `orders` | Publishes: `executions`, `trade_performance`
+- PnL computed from prior position snapshot (closing trades only)
+- Located: `api/services/execution/execution_engine.py`
+
+**Pipeline Agents** - Full learning loop agents, all fully implemented
+- **GradeAgent** - Real 4-dimension scoring (accuracy × 0.35 + IC × 0.30 + cost × 0.20 + latency × 0.15), grade letters A+/A/B/C/D/F, automatic actions per threshold, consecutive D-grade tracking
+- **ICUpdater** - Spearman rank correlation per factor, zeros factors below IC_ZERO_THRESHOLD, normalizes weights to 1.0, writes `alpha:ic_weights` to Redis + `factor_ic_history` table
+- **ReflectionAgent** - LLM call with structured JSON output (winning_factors, losing_factors, hypotheses with confidence, regime_edge, time_of_day_patterns), token budget aware, fallback on LLM failure
+- **StrategyProposer** - Filters hypotheses by HYPOTHESIS_MIN_CONFIDENCE, creates typed proposals (parameter_change | code_change | regime_adjustment), signals GitHub PR for rule changes
+- **NotificationAgent** - Deduplication via Redis 60s window, severity classification, persists to DB via SafeWriter
 - Located: `api/services/agents/pipeline_agents.py`
+
+**AgentStateRegistry** - Tracks all 7 running agents with event counts and last_seen
+- All MultiStreamAgent subclasses call `record_event()` on every processed message
+- Located: `api/services/agent_state.py`
 
 ### Agent Pool Tiers (Future Vision)
 
-**🚧 TODO: IMPLEMENT** - Agent pool management system
+**🚧 TODO: IMPLEMENT** - Agent pool management system (Active/Challenger/Retired tiers)
 
 | Tier           | Receives                            | Rules                                                                 |
 | -------------- | ----------------------------------- | --------------------------------------------------------------------- |
@@ -478,15 +487,19 @@ The system is designed for 8 specialized agents that communicate exclusively thr
 
 ### Agent State Registry
 
-Current active agents tracked in `AGENT_NAMES`:
+Current active agents tracked in `AGENT_NAMES` (7 real running agents):
 - SIGNAL_AGENT
-- RISK_AGENT  
-- CONSENSUS_AGENT
-- SIZING_AGENT
+- REASONING_AGENT
+- GRADE_AGENT
+- IC_UPDATER
+- REFLECTION_AGENT
+- STRATEGY_PROPOSER
+- NOTIFICATION_AGENT
 
 Located: `api/services/agent_state.py`
+Each agent calls `agent_state.record_event(name)` per processed message → powers live dashboard status.
 
-**🚧 TODO: IMPLEMENT** - Full agent pool registry with tier management
+**🚧 TODO: IMPLEMENT** - Full agent pool registry with Active/Challenger/Retired tier management
 
 ### Agent Architecture Patterns
 
@@ -501,18 +514,24 @@ All agents follow these patterns:
 
 **Phase 1** ✅ **COMPLETE**: Core signal processing
 - SignalGenerator ✅
-- ReasoningAgent ✅ 
-- Basic pipeline agents ✅
+- ReasoningAgent ✅
+- ExecutionEngine + PaperBroker ✅ (wired into lifespan, publishes trade_performance)
+- GradeAgent with real 4-dimension scoring ✅
+- ICUpdater with Spearman correlation ✅
+- ReflectionAgent with LLM analysis ✅
+- StrategyProposer with typed proposals ✅
+- NotificationAgent with deduplication ✅
+- AgentStateRegistry with live event counts ✅
 
 **Phase 2** 🚧 **IN PROGRESS**: Agent lifecycle management
-- Agent pool tiers implementation
-- Promotion/demotion logic
-- Full agent registry
+- Agent pool tiers (Active/Challenger/Retired)
+- Promotion/demotion logic based on grade cycles
+- Full agent pool DB registry
 
 **Phase 3** 📋 **PLANNED**: Advanced analytics
-- HistoryAgent implementation
-- Advanced pattern recognition
-- Automated strategy evolution
+- HistoryAgent (scheduled, Sunday 02:00 UTC)
+- Historical pattern mining across full trade history
+- Automated strategy evolution with human approval gate
 
 ## Database Schema Overview
 

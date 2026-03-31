@@ -38,12 +38,16 @@ class ExecutionEngine(BaseStreamConsumer):
         side = str(data["side"]).lower()
         qty = float(data["qty"])
         price = float(data["price"])
+        trace_id = str(data.get("trace_id") or uuid.uuid4())
         order_timestamp = self._parse_timestamp(data.get("timestamp"))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
         )
         lock_key = f"order_lock:{symbol}"
         lock_value = str(uuid.uuid4())
+
+        # Snapshot position BEFORE order to compute realized PnL
+        prior_position = await self.broker.get_position(symbol)
 
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
@@ -87,6 +91,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                fill_price = float(broker_result["fill_price"])
 
                 await session.execute(
                     text(
@@ -95,7 +100,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     {
                         "status": broker_result["status"],
                         "broker_order_id": broker_result["broker_order_id"],
-                        "fill_price": broker_result["fill_price"],
+                        "fill_price": fill_price,
                         "filled_at": filled_at,
                         "order_id": order_id,
                     },
@@ -106,7 +111,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     symbol=symbol,
                     side=side,
                     qty=qty,
-                    fill_price=float(broker_result["fill_price"]),
+                    fill_price=fill_price,
                 )
                 await self._insert_audit_log(
                     session,
@@ -128,23 +133,87 @@ class ExecutionEngine(BaseStreamConsumer):
             finally:
                 await self.redis.delete(lock_key)
 
+        # Compute realized PnL from prior position snapshot
+        realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
+        entry_price = float(prior_position.get("entry_price") or fill_price)
+
+        execution_payload: dict[str, Any] = {
+            "type": "order_filled",
+            "msg_id": str(uuid.uuid4()),
+            "order_id": order_id,
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "price": price,
+            "fill_price": fill_price,
+            "filled_at": filled_at.isoformat(),
+            "idempotency_key": idempotency_key,
+            "trace_id": trace_id,
+            "vwap_plan": vwap_plan,
+            "source": "execution_engine",
+        }
+        await self.bus.publish("executions", execution_payload)
+
+        # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
+        # have real fill data with realized PnL to work with
+        pnl_percent = (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
         await self.bus.publish(
-            "executions",
+            "trade_performance",
             {
-                "type": "order_filled",
+                "msg_id": str(uuid.uuid4()),
+                "type": "trade_performance",
                 "order_id": order_id,
                 "strategy_id": strategy_id,
                 "symbol": symbol,
                 "side": side,
                 "qty": qty,
-                "price": price,
-                "fill_price": float(broker_result["fill_price"]),
+                "fill_price": fill_price,
+                "entry_price": entry_price,
+                "exit_price": fill_price,
+                "pnl": realized_pnl,
+                "pnl_percent": pnl_percent,
+                "trace_id": trace_id,
                 "filled_at": filled_at.isoformat(),
-                "idempotency_key": idempotency_key,
-                "trace_id": data.get("trace_id"),
-                "vwap_plan": vwap_plan,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "execution_engine",
             },
         )
+        log_structured(
+            "info",
+            "order_executed",
+            order_id=order_id,
+            symbol=symbol,
+            side=side,
+            fill_price=fill_price,
+            realized_pnl=realized_pnl,
+            trace_id=trace_id,
+        )
+
+    def _compute_realized_pnl(
+        self,
+        prior_position: dict[str, Any],
+        side: str,
+        qty: float,
+        fill_price: float,
+    ) -> float:
+        """Compute realized PnL when closing or partially closing a position."""
+        prior_side = str(prior_position.get("side") or "flat").lower()
+        prior_entry = float(prior_position.get("entry_price") or fill_price)
+        prior_qty = float(prior_position.get("qty") or 0)
+
+        # Closing a long position with a sell
+        if prior_side == "long" and side in ("sell", "short") and prior_qty > 0:
+            closed_qty = min(qty, prior_qty)
+            return round((fill_price - prior_entry) * closed_qty, 8)
+
+        # Closing a short position with a buy
+        if prior_side == "short" and side in ("buy", "long") and prior_qty > 0:
+            closed_qty = min(qty, prior_qty)
+            return round((prior_entry - fill_price) * closed_qty, 8)
+
+        # Opening or adding to a position — no realized PnL yet
+        return 0.0
 
     def _build_idempotency_key(
         self,

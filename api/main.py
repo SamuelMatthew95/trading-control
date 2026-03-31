@@ -39,6 +39,8 @@ from api.services.agents.pipeline_agents import (
 )
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.event_pipeline import EventPipeline
+from api.services.execution.brokers.paper import PaperBroker
+from api.services.execution.execution_engine import ExecutionEngine
 from api.services.market_ingestor import MarketDataIngestor
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
@@ -101,15 +103,17 @@ async def lifespan(app: FastAPI):
         app.state.dlq_manager = dlq_manager
         app.state.agent_state = agent_state
 
+        paper_broker = PaperBroker(redis_client)
         agents = [
             MarketDataIngestor(event_bus),
             SignalGenerator(event_bus, dlq_manager),
             ReasoningAgent(event_bus, dlq_manager, redis_client),
-            GradeAgent(event_bus, dlq_manager),
-            ICUpdater(event_bus, dlq_manager, redis_client),
-            ReflectionAgent(event_bus, dlq_manager),
-            StrategyProposer(event_bus, dlq_manager),
-            NotificationAgent(event_bus, dlq_manager, redis_client),
+            ExecutionEngine(event_bus, dlq_manager, redis_client, paper_broker),
+            GradeAgent(event_bus, dlq_manager, agent_state=agent_state),
+            ICUpdater(event_bus, dlq_manager, redis_client, agent_state=agent_state),
+            ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state),
+            StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
+            NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
         ]
         for agent in agents:
             await agent.start()

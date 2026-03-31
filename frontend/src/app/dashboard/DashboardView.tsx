@@ -6,12 +6,17 @@ import { cn } from '@/lib/utils'
 import {
   Activity,
   BarChart3,
+  Bell,
   Brain,
+  CheckCheck,
   FileCode,
+  ThumbsDown,
+  ThumbsUp,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
+import type { Notification, Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -148,6 +153,166 @@ function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
   )
 }
 
+const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: string }> = {
+  CRITICAL: { badge: 'bg-rose-500/15 text-rose-500 border border-rose-500/30', dot: 'bg-rose-500 animate-pulse', label: 'CRITICAL' },
+  URGENT: { badge: 'bg-orange-500/15 text-orange-500 border border-orange-500/30', dot: 'bg-orange-500', label: 'URGENT' },
+  WARNING: { badge: 'bg-amber-500/15 text-amber-500 border border-amber-500/30', dot: 'bg-amber-400', label: 'WARNING' },
+  INFO: { badge: 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30', dot: 'bg-indigo-400', label: 'INFO' },
+}
+
+function NotificationFeed({
+  notifications,
+  onAcknowledge,
+}: {
+  notifications: Notification[]
+  onAcknowledge: (id: string) => void
+}) {
+  const unread = notifications.filter((n) => !n.acknowledged)
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-slate-500" />
+          <p className={sectionTitleClass}>Notifications</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {unread.length > 0 && (
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{unread.length}</span>
+          )}
+          <p className={mutedClass}>{notifications.length} total</p>
+        </div>
+      </div>
+      {notifications.length === 0 ? (
+        <EmptyState message="No notifications yet" icon={Bell} />
+      ) : (
+        <div className="max-h-72 space-y-2 overflow-y-auto">
+          {notifications.map((notif) => {
+            const style = SEVERITY_STYLES[notif.severity] ?? SEVERITY_STYLES['INFO']
+            return (
+              <div
+                key={notif.id}
+                className={cn(
+                  'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-opacity',
+                  notif.acknowledged ? 'border-slate-200 opacity-50 dark:border-slate-800' : 'border-slate-200 dark:border-slate-800',
+                )}
+              >
+                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', style.dot)} />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
+                    <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
+                    <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
+                  </div>
+                  <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
+                </div>
+                {!notif.acknowledged && (
+                  <button
+                    onClick={() => onAcknowledge(notif.id)}
+                    className="mt-0.5 shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-500 dark:hover:bg-slate-800"
+                    title="Acknowledge"
+                  >
+                    <CheckCheck className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PROPOSAL_TYPE_LABEL: Record<string, string> = {
+  parameter_change: 'Param Change',
+  code_change: 'Code Change',
+  regime_adjustment: 'Regime Adjust',
+}
+const PROPOSAL_TYPE_STYLE: Record<string, string> = {
+  parameter_change: 'bg-indigo-500/15 text-indigo-400',
+  code_change: 'bg-violet-500/15 text-violet-400',
+  regime_adjustment: 'bg-amber-500/15 text-amber-500',
+}
+
+function ProposalsFeed({
+  proposals,
+  onUpdateStatus,
+}: {
+  proposals: Proposal[]
+  onUpdateStatus: (id: string, status: import('@/stores/useCodexStore').ProposalStatus) => void
+}) {
+  const pending = proposals.filter((p) => p.status === 'pending')
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-violet-500" />
+          <p className={sectionTitleClass}>Strategy Proposals</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {pending.length > 0 && (
+            <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-bold text-white">{pending.length} pending</span>
+          )}
+          <p className={mutedClass}>{proposals.length} total</p>
+        </div>
+      </div>
+      {proposals.length === 0 ? (
+        <EmptyState message="No proposals yet" icon={Brain} />
+      ) : (
+        <div className="max-h-96 space-y-3 overflow-y-auto">
+          {proposals.map((proposal) => (
+            <div
+              key={proposal.id}
+              className={cn(
+                'rounded-lg border p-3 transition-opacity',
+                proposal.status === 'pending' ? 'border-violet-200 dark:border-violet-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
+              )}
+            >
+              <div className="mb-2 flex items-center gap-2 flex-wrap">
+                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-400')}>
+                  {PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type}
+                </span>
+                {proposal.confidence != null && (
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
+                    {(proposal.confidence * 100).toFixed(0)}% confidence
+                  </span>
+                )}
+                {proposal.status !== 'pending' && (
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
+                    {proposal.status}
+                  </span>
+                )}
+                <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
+              </div>
+              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
+                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
+              </p>
+              {proposal.status === 'pending' && proposal.requires_approval && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onUpdateStatus(proposal.id, 'approved')}
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                  >
+                    <ThumbsUp className="h-3 w-3" />
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => onUpdateStatus(proposal.id, 'rejected')}
+                    className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
+                  >
+                    <ThumbsDown className="h-3 w-3" />
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MobileNavigation({ section }: { section: Section }) {
   const links: { key: Section; label: string }[] = [
     { key: 'overview', label: 'Overview' },
@@ -186,6 +351,8 @@ export function DashboardView({ section }: { section: Section }) {
     prices = {},
     positions = [],
     systemMetrics = [],
+    notifications = [],
+    proposals = [],
     dashboardData,
     marketTickCount,
     lastMarketSymbol,
@@ -195,6 +362,8 @@ export function DashboardView({ section }: { section: Section }) {
     recentEvents,
     wsConnected,
     fetchPrices,
+    acknowledgeNotification,
+    updateProposalStatus,
   } = useCodexStore()
 
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
@@ -530,7 +699,7 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'agents' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <div className={cardClass}>
               <p className={sectionTitleClass}>Market Ticks</p>
               <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
@@ -545,6 +714,11 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={sectionTitleClass}>Agent Events</p>
               <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
               <p className={mutedClass}>Total events received</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Notifications</p>
+              <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
+              <p className={mutedClass}>{notifications.filter((n) => !n.acknowledged).length} unread</p>
             </div>
           </div>
 
@@ -583,6 +757,8 @@ export function DashboardView({ section }: { section: Section }) {
               </table>
             </div>
           </div>
+
+          <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />
         </div>
       )}
 
@@ -604,6 +780,8 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             ))}
           </div>
+
+          <ProposalsFeed proposals={proposals} onUpdateStatus={updateProposalStatus} />
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Performance Summary</p>

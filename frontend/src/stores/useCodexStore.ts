@@ -51,6 +51,32 @@ export interface LearningEvent {
   [key: string]: unknown
 }
 
+export type NotificationSeverity = 'CRITICAL' | 'URGENT' | 'WARNING' | 'INFO'
+
+export interface Notification {
+  id: string
+  severity: NotificationSeverity
+  message: string
+  notification_type: string
+  stream_source?: string
+  timestamp: string
+  acknowledged: boolean
+}
+
+export type ProposalStatus = 'pending' | 'approved' | 'rejected'
+export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment'
+
+export interface Proposal {
+  id: string
+  proposal_type: ProposalType
+  content: string
+  requires_approval: boolean
+  reflection_trace_id?: string
+  confidence?: number
+  timestamp: string
+  status: ProposalStatus
+}
+
 export interface PriceData {
   price: number
   change: number
@@ -101,6 +127,8 @@ type CodexState = {
   signals: Array<Record<string, unknown>>
   agentLogs: AgentLog[]
   riskAlerts: Array<Record<string, unknown>>
+  notifications: Notification[]
+  proposals: Proposal[]
   learningEvents: LearningEvent[]
   systemMetrics: SystemMetric[]
   dashboardData: DashboardData | null
@@ -121,6 +149,10 @@ type CodexState = {
   updateOrder: (order: Order) => void
   addAgentLog: (log: AgentLog) => void
   addRiskAlert: (alert: Record<string, unknown>) => void
+  addNotification: (notification: Omit<Notification, 'id' | 'acknowledged'>) => void
+  acknowledgeNotification: (id: string) => void
+  addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
+  updateProposalStatus: (id: string, status: ProposalStatus) => void
   addLearningEvent: (event: LearningEvent) => void
   addSystemMetric: (metric: SystemMetric) => void
   setDashboardData: (data: DashboardData | null) => void
@@ -142,6 +174,8 @@ export const useCodexStore = create<CodexState>((set) => ({
   signals: [],
   agentLogs: [],
   riskAlerts: [],
+  notifications: [],
+  proposals: [],
   learningEvents: [],
   systemMetrics: [],
   dashboardData: null,
@@ -232,6 +266,24 @@ export const useCodexStore = create<CodexState>((set) => ({
   })),
   addRiskAlert: (alert) => set((state) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
+  })),
+  addNotification: (notification) => set((state) => ({
+    notifications: [
+      { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
+      ...state.notifications,
+    ].slice(0, 100)
+  })),
+  acknowledgeNotification: (id) => set((state) => ({
+    notifications: state.notifications.map((n) => n.id === id ? { ...n, acknowledged: true } : n)
+  })),
+  addProposal: (proposal) => set((state) => ({
+    proposals: [
+      { ...proposal, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' as ProposalStatus },
+      ...state.proposals,
+    ].slice(0, 50)
+  })),
+  updateProposalStatus: (id, status) => set((state) => ({
+    proposals: state.proposals.map((p) => p.id === id ? { ...p, status } : p)
   })),
   addLearningEvent: (event) => set((state) => ({
     learningEvents: [event, ...state.learningEvents].slice(0, 50)
