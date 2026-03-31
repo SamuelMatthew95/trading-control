@@ -145,6 +145,106 @@ _PROVIDERS = {
 }
 
 
+async def _call_provider_raw(
+    provider: str, prompt: str, system_prompt: str, trace_id: str
+) -> tuple[str, int, float]:
+    """Call a provider and return raw text (not parsed as trading JSON)."""
+    if provider == "groq":
+        from groq import AsyncGroq
+
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            max_tokens=800,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        text = response.choices[0].message.content or ""
+        tokens = (
+            response.usage.prompt_tokens + response.usage.completion_tokens if response.usage else 0
+        )
+        return text, tokens, 0.0
+
+    if provider == "anthropic":
+        import aiohttp
+
+        payload = {
+            "model": settings.ANTHROPIC_MODEL,
+            "max_tokens": 800,
+            "temperature": 0.3,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": getattr(settings, "ANTHROPIC_API_KEY", ""),
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            ) as resp:
+                if resp.status >= 400:
+                    raise RuntimeError(f"anthropic_status_{resp.status}")
+                body = await resp.json()
+        text = "".join(
+            b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"
+        )
+        tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
+            body.get("usage", {}).get("output_tokens", 0)
+        )
+        return text, tokens, round(tokens * 0.000003, 6)
+
+    if provider == "openai":
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
+        response = await client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            max_tokens=800,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        text = response.choices[0].message.content or ""
+        tokens = response.usage.total_tokens if response.usage else 0
+        return text, tokens, round(tokens * 0.0000006, 6)
+
+    raise RuntimeError(f"unknown_provider: '{provider}'")
+
+
+async def call_llm_with_system(
+    prompt: str, system_prompt: str, trace_id: str
+) -> tuple[str, int, float]:
+    """Call the configured LLM provider with a custom system prompt.
+
+    Returns (raw_text, tokens_used, cost_usd). The caller is responsible
+    for parsing the response.
+    """
+    provider = settings.LLM_PROVIDER.lower().strip()
+    api_key = _get_provider_key(provider)
+    if not api_key:
+        raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+    try:
+        log_structured("info", "Calling LLM with custom prompt", provider=provider)
+        result = await _call_provider_raw(provider, prompt, system_prompt, trace_id)
+        log_structured("info", "LLM custom call succeeded", provider=provider)
+        return result
+    except Exception as exc:
+        error_str = str(exc).lower()
+        if "rate" in error_str or "429" in error_str or "limit" in error_str:
+            log_structured("warning", "LLM rate limit hit", provider=provider, exc_info=True)
+        else:
+            log_structured("warning", "LLM custom call failed", provider=provider, exc_info=True)
+        raise
+
+
 async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     """
     Call configured LLM provider.

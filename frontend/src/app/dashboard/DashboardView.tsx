@@ -6,12 +6,17 @@ import { cn } from '@/lib/utils'
 import {
   Activity,
   BarChart3,
+  Bell,
   Brain,
+  CheckCheck,
   FileCode,
+  ThumbsDown,
+  ThumbsUp,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
+import type { Notification, Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -148,6 +153,166 @@ function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
   )
 }
 
+const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: string }> = {
+  CRITICAL: { badge: 'bg-rose-500/15 text-rose-500 border border-rose-500/30', dot: 'bg-rose-500 animate-pulse', label: 'CRITICAL' },
+  URGENT: { badge: 'bg-orange-500/15 text-orange-500 border border-orange-500/30', dot: 'bg-orange-500', label: 'URGENT' },
+  WARNING: { badge: 'bg-amber-500/15 text-amber-500 border border-amber-500/30', dot: 'bg-amber-400', label: 'WARNING' },
+  INFO: { badge: 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30', dot: 'bg-indigo-400', label: 'INFO' },
+}
+
+function NotificationFeed({
+  notifications,
+  onAcknowledge,
+}: {
+  notifications: Notification[]
+  onAcknowledge: (id: string) => void
+}) {
+  const unread = notifications.filter((n) => !n.acknowledged)
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-slate-500" />
+          <p className={sectionTitleClass}>Notifications</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {unread.length > 0 && (
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{unread.length}</span>
+          )}
+          <p className={mutedClass}>{notifications.length} total</p>
+        </div>
+      </div>
+      {notifications.length === 0 ? (
+        <EmptyState message="No notifications yet" icon={Bell} />
+      ) : (
+        <div className="max-h-72 space-y-2 overflow-y-auto">
+          {notifications.map((notif) => {
+            const style = SEVERITY_STYLES[notif.severity] ?? SEVERITY_STYLES['INFO']
+            return (
+              <div
+                key={notif.id}
+                className={cn(
+                  'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-opacity',
+                  notif.acknowledged ? 'border-slate-200 opacity-50 dark:border-slate-800' : 'border-slate-200 dark:border-slate-800',
+                )}
+              >
+                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', style.dot)} />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
+                    <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
+                    <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
+                  </div>
+                  <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
+                </div>
+                {!notif.acknowledged && (
+                  <button
+                    onClick={() => onAcknowledge(notif.id)}
+                    className="mt-0.5 shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-500 dark:hover:bg-slate-800"
+                    title="Acknowledge"
+                  >
+                    <CheckCheck className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PROPOSAL_TYPE_LABEL: Record<string, string> = {
+  parameter_change: 'Param Change',
+  code_change: 'Code Change',
+  regime_adjustment: 'Regime Adjust',
+}
+const PROPOSAL_TYPE_STYLE: Record<string, string> = {
+  parameter_change: 'bg-indigo-500/15 text-indigo-400',
+  code_change: 'bg-violet-500/15 text-violet-400',
+  regime_adjustment: 'bg-amber-500/15 text-amber-500',
+}
+
+function ProposalsFeed({
+  proposals,
+  onUpdateStatus,
+}: {
+  proposals: Proposal[]
+  onUpdateStatus: (id: string, status: import('@/stores/useCodexStore').ProposalStatus) => void
+}) {
+  const pending = proposals.filter((p) => p.status === 'pending')
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-violet-500" />
+          <p className={sectionTitleClass}>Strategy Proposals</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {pending.length > 0 && (
+            <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-bold text-white">{pending.length} pending</span>
+          )}
+          <p className={mutedClass}>{proposals.length} total</p>
+        </div>
+      </div>
+      {proposals.length === 0 ? (
+        <EmptyState message="No proposals yet" icon={Brain} />
+      ) : (
+        <div className="max-h-96 space-y-3 overflow-y-auto">
+          {proposals.map((proposal) => (
+            <div
+              key={proposal.id}
+              className={cn(
+                'rounded-lg border p-3 transition-opacity',
+                proposal.status === 'pending' ? 'border-violet-200 dark:border-violet-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
+              )}
+            >
+              <div className="mb-2 flex items-center gap-2 flex-wrap">
+                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-400')}>
+                  {PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type}
+                </span>
+                {proposal.confidence != null && (
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
+                    {(proposal.confidence * 100).toFixed(0)}% confidence
+                  </span>
+                )}
+                {proposal.status !== 'pending' && (
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
+                    {proposal.status}
+                  </span>
+                )}
+                <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
+              </div>
+              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
+                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
+              </p>
+              {proposal.status === 'pending' && proposal.requires_approval && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onUpdateStatus(proposal.id, 'approved')}
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                  >
+                    <ThumbsUp className="h-3 w-3" />
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => onUpdateStatus(proposal.id, 'rejected')}
+                    className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
+                  >
+                    <ThumbsDown className="h-3 w-3" />
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MobileNavigation({ section }: { section: Section }) {
   const links: { key: Section; label: string }[] = [
     { key: 'overview', label: 'Overview' },
@@ -178,298 +343,6 @@ function MobileNavigation({ section }: { section: Section }) {
   )
 }
 
-type ApiAgent = {
-  name: string
-  status: string
-  event_count: number
-  last_event: string
-  last_seen: number
-  seconds_ago: number
-}
-
-type PipelineMetrics = {
-  market_events: number
-  signals: number
-  decisions: number
-  graded_decisions: number
-  agent_logs: number
-  trade_alerts: number
-}
-
-type ApiEvent = {
-  id: string
-  event_type: string
-  entity_type: string | null
-  source: string | null
-  created_at: string | null
-}
-
-function PipelineHealthBar({ metrics }: { metrics: PipelineMetrics | null }) {
-  const streams = [
-    { key: 'market_events', label: 'MARKET_EVENTS' },
-    { key: 'signals', label: 'SIGNALS' },
-    { key: 'decisions', label: 'DECISIONS' },
-    { key: 'graded_decisions', label: 'GRADED_DECISIONS' },
-  ] as const
-
-  return (
-    <div className={cardClass}>
-      <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Health</p>
-      <div className="flex items-center gap-2 overflow-x-auto">
-        {streams.map((s, i) => {
-          const count = metrics ? (metrics[s.key as keyof PipelineMetrics] as number) ?? 0 : 0
-          return (
-            <div key={s.key} className="flex items-center gap-2">
-              <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800 min-w-[120px]">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{s.label}</p>
-                  <span className={cn('h-2 w-2 rounded-full', count > 0 ? 'bg-emerald-500' : 'bg-slate-400')} />
-                </div>
-                <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{count}</p>
-              </div>
-              {i < streams.length - 1 && (
-                <span className="text-slate-400 text-lg font-bold">&rarr;</span>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function AgentsSection() {
-  const [apiAgents, setApiAgents] = useState<ApiAgent[]>([])
-  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
-  const [fetchError, setFetchError] = useState(false)
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [agentRes, metricRes] = await Promise.all([
-          fetch('/api/dashboard/agents/status'),
-          fetch('/api/dashboard/system/metrics'),
-        ])
-        if (agentRes.ok) {
-          const data = await agentRes.json()
-          setApiAgents(data.agents ?? [])
-        }
-        if (metricRes.ok) {
-          setMetrics(await metricRes.json())
-        }
-        setFetchError(false)
-      } catch {
-        setFetchError(true)
-      }
-    }
-
-    fetchData()
-    const interval = setInterval(fetchData, 10_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Always show all 7 agents — merge API data with defaults
-  const agentMap = new Map(apiAgents.map((a) => [a.name, a]))
-  const agents: ApiAgent[] = TRACKED_AGENTS.map((name) =>
-    agentMap.get(name) ?? { name, status: 'WAITING', event_count: 0, last_event: '', last_seen: 0, seconds_ago: 0 }
-  )
-  const allWaiting = agents.every((a) => a.event_count === 0)
-
-  const statusDot = (status: string) => {
-    switch (status) {
-      case 'ACTIVE': return 'animate-pulse bg-emerald-500'
-      case 'STALE': return 'bg-amber-500'
-      case 'ERROR':
-      case 'OFFLINE': return 'bg-rose-500'
-      default: return 'bg-slate-400'
-    }
-  }
-
-  const statusLabel = (status: string) => {
-    switch (status) {
-      case 'ACTIVE': return 'active'
-      case 'STALE': return 'stale'
-      case 'ERROR': return 'error'
-      case 'OFFLINE': return 'offline'
-      default: return 'waiting'
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <PipelineHealthBar metrics={metrics} />
-
-      {fetchError && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/30">
-          <p className="text-sm font-sans text-rose-800 dark:text-rose-200">
-            Failed to fetch agent data. Check that the backend API is running.
-          </p>
-        </div>
-      )}
-
-      {allWaiting && !fetchError && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
-          <p className="text-sm font-sans text-amber-800 dark:text-amber-200">
-            Agents are waiting for market data. Verify the backend is running and ALPACA_API_KEY is set.
-          </p>
-        </div>
-      )}
-
-      <div className={cardClass}>
-        <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800">
-                {['Agent', 'Status', 'Events', 'Last Event', 'Last Seen'].map((h) => (
-                  <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((agent) => (
-                <tr key={agent.name} className="border-t border-slate-200 dark:border-slate-800">
-                  <td className={cn('px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100', agent.status === 'OFFLINE' && 'line-through')}>{agent.name}</td>
-                  <td className="px-2 py-2">
-                    <span className="inline-flex items-center gap-2">
-                      <span className={cn('h-2 w-2 rounded-full', statusDot(agent.status))} />
-                      <span className="text-xs text-slate-700 dark:text-slate-300">{statusLabel(agent.status)}</span>
-                    </span>
-                  </td>
-                  <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.event_count}</td>
-                  <td className="px-2 py-2 text-xs font-mono text-slate-500 max-w-[200px] truncate">{agent.last_event || '--'}</td>
-                  <td className="px-2 py-2 text-xs font-mono text-slate-500">{agent.seconds_ago > 0 ? `${agent.seconds_ago}s ago` : '--'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SystemSection() {
-  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
-  const [events, setEvents] = useState<ApiEvent[]>([])
-  const [sseStatus, setSseStatus] = useState<'Connected' | 'Reconnecting' | 'Disconnected'>('Disconnected')
-  const [msgCount, setMsgCount] = useState(0)
-  const [lastMsg, setLastMsg] = useState<string | null>(null)
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [metricRes, eventRes] = await Promise.all([
-          fetch('/api/dashboard/system/metrics'),
-          fetch('/api/dashboard/events/recent'),
-        ])
-        if (metricRes.ok) {
-          setMetrics(await metricRes.json())
-          setSseStatus('Connected')
-        }
-        if (eventRes.ok) {
-          const data = await eventRes.json()
-          const evts: ApiEvent[] = data.events ?? []
-          setEvents(evts)
-          setMsgCount(evts.length)
-          if (evts.length > 0) setLastMsg(evts[0].created_at)
-        }
-      } catch {
-        setSseStatus('Disconnected')
-      }
-    }
-    fetchData()
-    const interval = setInterval(fetchData, 10_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const pipelineStreams = [
-    { key: 'market_events', label: 'MARKET_EVENTS' },
-    { key: 'signals', label: 'SIGNALS' },
-    { key: 'decisions', label: 'DECISIONS' },
-    { key: 'graded_decisions', label: 'GRADED_DECISIONS' },
-    { key: 'agent_logs', label: 'AGENT_LOGS' },
-    { key: 'trade_alerts', label: 'TRADE_ALERTS' },
-  ] as const
-
-  return (
-    <div className="space-y-4">
-      <div className={cardClass}>
-        <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {pipelineStreams.map((s) => {
-            const count = metrics ? (metrics[s.key as keyof PipelineMetrics] as number) ?? 0 : 0
-            return (
-              <div key={s.key} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{s.label}</p>
-                  <span className={cn('h-2 w-2 rounded-full', count > 0 ? 'bg-emerald-500' : 'bg-slate-400')} />
-                </div>
-                <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{count}</p>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className={cardClass}>
-        <p className={cn(sectionTitleClass, 'mb-3')}>SSE Status</p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <p className={mutedClass}>Connection</p>
-            <p className={cn('text-sm font-semibold', sseStatus === 'Connected' ? 'text-emerald-500' : sseStatus === 'Reconnecting' ? 'text-amber-500' : 'text-slate-500')}>{sseStatus}</p>
-          </div>
-          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <p className={mutedClass}>Messages Received</p>
-            <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{msgCount}</p>
-          </div>
-          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <p className={mutedClass}>Last Message</p>
-            <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(lastMsg)}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className={cardClass}>
-        <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
-        {events.length === 0 ? (
-          <EmptyState message="No events recorded yet" icon={Activity} />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800">
-                  {['Event Type', 'Entity', 'Source', 'Time'].map((h) => (
-                    <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((evt) => (
-                  <tr key={evt.id} className="border-t border-slate-200 dark:border-slate-800">
-                    <td className="px-2 py-2">
-                      <span className={cn('rounded px-2 py-0.5 text-xs font-semibold',
-                        evt.event_type.startsWith('signal') ? 'bg-indigo-500/15 text-indigo-400' :
-                        evt.event_type.startsWith('decision') ? 'bg-amber-500/15 text-amber-500' :
-                        evt.event_type.startsWith('trade') ? 'bg-emerald-500/15 text-emerald-500' :
-                        evt.event_type.startsWith('strategy') ? 'bg-violet-500/15 text-violet-400' :
-                        'bg-slate-500/15 text-slate-400'
-                      )}>{evt.event_type}</span>
-                    </td>
-                    <td className="px-2 py-2 text-xs text-slate-500">{evt.entity_type ?? '--'}</td>
-                    <td className="px-2 py-2 text-xs text-slate-500">{evt.source ?? '--'}</td>
-                    <td className="px-2 py-2 text-xs font-mono text-slate-500">{formatTimestamp(evt.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
@@ -478,11 +351,25 @@ export function DashboardView({ section }: { section: Section }) {
     prices = {},
     positions = [],
     systemMetrics = [],
+    notifications = [],
+    proposals = [],
     dashboardData,
+    marketTickCount,
+    lastMarketSymbol,
+    streamStats,
+    wsMessageCount,
+    wsLastMessageTimestamp,
+    recentEvents,
+    wsConnected,
     fetchPrices,
+    acknowledgeNotification,
+    updateProposalStatus,
   } = useCodexStore()
 
+  const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [pricesLoading, setPricesLoading] = useState(true)
+  const [icWeights, setIcWeights] = useState<Record<string, number>>({})
+  const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
 
   // Fetch initial prices on component mount
   useEffect(() => {
@@ -493,6 +380,43 @@ export function DashboardView({ section }: { section: Section }) {
     }
     loadPrices()
   }, [fetchPrices])
+
+  // Fetch learning data (proposals, IC weights, grades) on mount and every 30s
+  useEffect(() => {
+    const { addProposal } = useCodexStore.getState()
+    const fetchLearning = async () => {
+      try {
+        const [proposalsRes, icRes, gradesRes] = await Promise.all([
+          fetch('/api/dashboard/learning/proposals'),
+          fetch('/api/dashboard/learning/ic-weights'),
+          fetch('/api/dashboard/learning/grades'),
+        ])
+        if (proposalsRes.ok) {
+          const data = await proposalsRes.json()
+          const existing = useCodexStore.getState().proposals
+          const existingIds = new Set(existing.map((p) => p.id))
+          for (const p of data.proposals ?? []) {
+            if (!existingIds.has(p.id)) {
+              addProposal({ proposal_type: p.proposal_type, content: JSON.stringify(p.content), requires_approval: p.requires_approval, confidence: p.confidence, reflection_trace_id: p.reflection_trace_id, timestamp: p.timestamp ?? new Date().toISOString() })
+            }
+          }
+        }
+        if (icRes.ok) {
+          const data = await icRes.json()
+          setIcWeights(data.current_weights ?? {})
+        }
+        if (gradesRes.ok) {
+          const data = await gradesRes.json()
+          setGradeHistory((data.grades ?? []).slice(0, 10))
+        }
+      } catch {
+        // non-fatal — data will populate via WebSocket
+      }
+    }
+    fetchLearning()
+    const interval = setInterval(fetchLearning, 30_000)
+    return () => clearInterval(interval)
+  }, [])
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -549,6 +473,18 @@ export function DashboardView({ section }: { section: Section }) {
     return Array.from(normalizedByName.values())
   }, [agentLogs])
 
+  useEffect(() => {
+    if (!wsConnected || agentLogs.length > 0) {
+      setShowNoAgentDataMessage(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
+        setShowNoAgentDataMessage(true)
+      }
+    }, 10000)
+    return () => clearTimeout(timer)
+  }, [agentLogs.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -801,7 +737,68 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'agents' && (
-        <AgentsSection />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Market Ticks</p>
+              <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
+              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Tracked Agents</p>
+              <p className={valueClass}>{TRACKED_AGENTS.length}</p>
+              <p className={mutedClass}>Pre-populated on connect</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Agent Events</p>
+              <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
+              <p className={mutedClass}>Total events received</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Notifications</p>
+              <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
+              <p className={mutedClass}>{notifications.filter((n) => !n.acknowledged).length} unread</p>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800">
+                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
+                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {showNoAgentDataMessage ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                    </tr>
+                  ) : (
+                    realAgents.map((agent) => (
+                      <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
+                        <td className="px-2 py-2 text-xs font-sans">
+                          <span className="inline-flex items-center gap-2">
+                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                            <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />
+        </div>
       )}
 
       {section === 'learning' && (
@@ -822,6 +819,53 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             ))}
           </div>
+
+          <ProposalsFeed proposals={proposals} onUpdateStatus={updateProposalStatus} />
+
+          {Object.keys(icWeights).length > 0 && (
+            <div className={cardClass}>
+              <p className={cn(sectionTitleClass, 'mb-3')}>IC Factor Weights</p>
+              <div className="space-y-2">
+                {Object.entries(icWeights).map(([factor, weight]) => (
+                  <div key={factor} className="flex items-center justify-between">
+                    <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div className="h-2 rounded-full bg-indigo-500" style={{ width: `${Math.round(weight * 100)}%` }} />
+                      </div>
+                      <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(weight * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {gradeHistory.length > 0 && (
+            <div className={cardClass}>
+              <p className={cn(sectionTitleClass, 'mb-3')}>Grade History</p>
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800">
+                      {['Grade', 'Score', 'Time'].map((h) => (
+                        <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gradeHistory.map((g, i) => (
+                      <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
+                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
+                        <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Performance Summary</p>
@@ -854,7 +898,63 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'system' && (
-        <SystemSection />
+        <div className="space-y-4">
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
+                const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
+                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
+                return (
+                  <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
+                      <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
+                    </div>
+                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>WebSocket Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Connection</p>
+                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Messages Received</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Last Message</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
+            {recentEvents.length === 0 ? (
+              <EmptyState message="No websocket events yet" icon={Activity} />
+            ) : (
+              <div className="space-y-2">
+                {recentEvents.map((event, index) => (
+                  <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-indigo-500/15 text-indigo-400' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
+                      {event.stream}
+                    </span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
+                    <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </>
   )

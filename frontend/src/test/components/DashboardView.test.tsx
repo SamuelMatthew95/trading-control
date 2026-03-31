@@ -1,22 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
-const mockStore = {
-  wsConnected: false,
-  killSwitchActive: false,
-  setKillSwitch: vi.fn(),
-  orders: [],
-  positions: [],
-  agentLogs: [],
-  prices: {},
-  systemMetrics: [],
-  learningEvents: [],
-  dashboardData: null,
-  fetchPrices: vi.fn().mockResolvedValue(undefined)
-}
+const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
+  const store: Record<string, unknown> = {
+    wsConnected: false,
+    killSwitchActive: false,
+    setKillSwitch: vi.fn(),
+    orders: [],
+    positions: [],
+    agentLogs: [],
+    prices: {},
+    systemMetrics: [],
+    learningEvents: [],
+    dashboardData: null,
+    proposals: [],
+    addProposal: vi.fn(),
+    fetchPrices: vi.fn().mockResolvedValue(undefined),
+  }
+  const hook = Object.assign(() => store, { getState: () => store })
+  return { mockStore: store, mockUseCodexStore: hook }
+})
 
 vi.mock('@/stores/useCodexStore', () => ({
-  useCodexStore: () => mockStore
+  useCodexStore: mockUseCodexStore
 }))
 
 vi.mock('@/components/EquityCurve', () => ({
@@ -38,6 +44,7 @@ describe('DashboardView — overview', () => {
     mockStore.learningEvents = []
     mockStore.systemMetrics = []
     mockStore.dashboardData = null
+    mockStore.proposals = []
   })
 
   it('renders without crashing when store is empty', () => {

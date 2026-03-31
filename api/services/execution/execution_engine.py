@@ -11,39 +11,65 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from api.constants import OrderSide, PositionSide
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
 LARGE_ORDER_THRESHOLD = 10.0
+_STATE_NAME = "EXECUTION_ENGINE"
 
 
 class ExecutionEngine(BaseStreamConsumer):
-    def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis, broker: PaperBroker):
+    def __init__(
+        self,
+        bus: EventBus,
+        dlq: DLQManager,
+        redis_client: Redis,
+        broker: PaperBroker,
+        *,
+        agent_state: AgentStateRegistry | None = None,
+    ):
         super().__init__(
             bus, dlq, stream="orders", group=DEFAULT_GROUP, consumer="execution-engine"
         )
         self.redis = redis_client
         self.broker = broker
+        self.agent_state = agent_state
 
     async def process(self, data: dict[str, Any]) -> None:
         if await self.redis.get("kill_switch:active") == "1":
             raise RuntimeError("KillSwitchActive")
 
+        # Validate required fields before any DB/broker interaction
+        missing = [f for f in ("strategy_id", "symbol", "side", "qty", "price") if not data.get(f)]
+        if missing:
+            log_structured("warning", "order_missing_required_fields", missing=missing)
+            return
+
         strategy_id = str(data["strategy_id"])
         symbol = str(data["symbol"])
         side = str(data["side"]).lower()
-        qty = float(data["qty"])
-        price = float(data["price"])
+        try:
+            qty = float(data["qty"])
+            price = float(data["price"])
+        except (TypeError, ValueError):
+            log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
+            return
+        trace_id = str(data.get("trace_id") or uuid.uuid4())
         order_timestamp = self._parse_timestamp(data.get("timestamp"))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
         )
         lock_key = f"order_lock:{symbol}"
         lock_value = str(uuid.uuid4())
+
+        # Snapshot position BEFORE order to compute realized PnL
+        prior_position = await self.broker.get_position(symbol)
 
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
@@ -87,6 +113,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                fill_price = float(broker_result["fill_price"])
 
                 await session.execute(
                     text(
@@ -95,7 +122,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     {
                         "status": broker_result["status"],
                         "broker_order_id": broker_result["broker_order_id"],
-                        "fill_price": broker_result["fill_price"],
+                        "fill_price": fill_price,
                         "filled_at": filled_at,
                         "order_id": order_id,
                     },
@@ -106,7 +133,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     symbol=symbol,
                     side=side,
                     qty=qty,
-                    fill_price=float(broker_result["fill_price"]),
+                    fill_price=fill_price,
                 )
                 await self._insert_audit_log(
                     session,
@@ -128,23 +155,97 @@ class ExecutionEngine(BaseStreamConsumer):
             finally:
                 await self.redis.delete(lock_key)
 
+        # Compute realized PnL from prior position snapshot
+        realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
+        entry_price = float(prior_position.get("entry_price") or fill_price)
+
+        execution_payload: dict[str, Any] = {
+            "type": "order_filled",
+            "msg_id": str(uuid.uuid4()),
+            "order_id": order_id,
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "price": price,
+            "fill_price": fill_price,
+            "filled_at": filled_at.isoformat(),
+            "idempotency_key": idempotency_key,
+            "trace_id": trace_id,
+            "vwap_plan": vwap_plan,
+            "source": "execution_engine",
+        }
+        await self.bus.publish("executions", execution_payload)
+
+        # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
+        # have real fill data with realized PnL to work with
+        pnl_percent = (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
         await self.bus.publish(
-            "executions",
+            "trade_performance",
             {
-                "type": "order_filled",
+                "msg_id": str(uuid.uuid4()),
+                "type": "trade_performance",
                 "order_id": order_id,
                 "strategy_id": strategy_id,
                 "symbol": symbol,
                 "side": side,
                 "qty": qty,
-                "price": price,
-                "fill_price": float(broker_result["fill_price"]),
+                "fill_price": fill_price,
+                "entry_price": entry_price,
+                "exit_price": fill_price,
+                "pnl": realized_pnl,
+                "pnl_percent": pnl_percent,
+                "trace_id": trace_id,
                 "filled_at": filled_at.isoformat(),
-                "idempotency_key": idempotency_key,
-                "trace_id": data.get("trace_id"),
-                "vwap_plan": vwap_plan,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "execution_engine",
             },
         )
+        log_structured(
+            "info",
+            "order_executed",
+            order_id=order_id,
+            symbol=symbol,
+            side=side,
+            fill_price=fill_price,
+            realized_pnl=realized_pnl,
+            trace_id=trace_id,
+        )
+        if self.agent_state:
+            self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
+
+    def _compute_realized_pnl(
+        self,
+        prior_position: dict[str, Any],
+        side: str,
+        qty: float,
+        fill_price: float,
+    ) -> float:
+        """Compute realized PnL when closing or partially closing a position."""
+        prior_side = str(prior_position.get("side") or PositionSide.FLAT).lower()
+        prior_entry = float(prior_position.get("entry_price") or fill_price)
+        prior_qty = float(prior_position.get("qty") or 0)
+
+        # Closing a long position with a sell
+        if (
+            prior_side == PositionSide.LONG
+            and side in (OrderSide.SELL, PositionSide.SHORT)
+            and prior_qty > 0
+        ):
+            closed_qty = min(qty, prior_qty)
+            return round((fill_price - prior_entry) * closed_qty, 8)
+
+        # Closing a short position with a buy
+        if (
+            prior_side == PositionSide.SHORT
+            and side in (OrderSide.BUY, PositionSide.LONG)
+            and prior_qty > 0
+        ):
+            closed_qty = min(qty, prior_qty)
+            return round((prior_entry - fill_price) * closed_qty, 8)
+
+        # Opening or adding to a position — no realized PnL yet
+        return 0.0
 
     def _build_idempotency_key(
         self,
@@ -201,7 +302,7 @@ class ExecutionEngine(BaseStreamConsumer):
             {"strategy_id": strategy_id, "symbol": symbol},
         )
         row = existing.mappings().first()
-        signed_qty = qty if side in {"buy", "long"} else (-1 * qty)
+        signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
         if row is None:
             await session.execute(
                 text(
@@ -209,7 +310,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 ),
                 {
                     "symbol": symbol,
-                    "side": "long" if signed_qty >= 0 else "short",
+                    "side": PositionSide.LONG if signed_qty >= 0 else PositionSide.SHORT,
                     "qty": abs(signed_qty),
                     "entry_price": fill_price,
                     "current_price": fill_price,
@@ -221,10 +322,16 @@ class ExecutionEngine(BaseStreamConsumer):
         existing_side = str(row["side"]).lower()
         existing_qty = float(row["qty"])
         existing_signed_qty = (
-            existing_qty if existing_side in {"long", "buy"} else (-1 * existing_qty)
+            existing_qty
+            if existing_side in {PositionSide.LONG, OrderSide.BUY}
+            else (-1 * existing_qty)
         )
         new_qty = existing_signed_qty + signed_qty
-        next_side = "flat" if abs(new_qty) < 1e-9 else ("long" if new_qty > 0 else "short")
+        next_side = (
+            PositionSide.FLAT
+            if abs(new_qty) < 1e-9
+            else (PositionSide.LONG if new_qty > 0 else PositionSide.SHORT)
+        )
         await session.execute(
             text(
                 "UPDATE positions SET side = :side, qty = :qty, current_price = :current_price WHERE id = :position_id"

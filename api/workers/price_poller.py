@@ -4,8 +4,13 @@ Writes every cycle:
   a) Redis cache  (prices:{symbol})        — for REST endpoint
   b) Redis stream (market_events)          — wakes SIGNAL_AGENT
   c) Redis pub/sub (price_updates)         — for SSE browser streaming
-  d) Postgres prices_snapshot              — persistent fallback
-  e) Postgres system_metrics               — observability
+  d) Postgres prices_snapshot              — persistent fallback (batched per cycle)
+  e) Postgres system_metrics               — observability (batched per cycle)
+
+Performance notes:
+  - Alpaca SDK calls are synchronous; run_in_executor keeps the event loop free.
+  - DB writes are batched: one transaction for all symbols per cycle instead of
+    one transaction per symbol.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ import json
 import time
 import uuid
 from datetime import datetime, timezone
+from functools import partial
 
 from alpaca.data.historical.crypto import CryptoHistoricalDataClient
 from alpaca.data.historical.stock import StockHistoricalDataClient
@@ -33,32 +39,49 @@ SYMBOLS = {
 
 ALL_SYMBOLS = SYMBOLS["crypto"] + SYMBOLS["stocks"]
 
+_POLL_INTERVAL = 5  # seconds between cycles
+
+
+def _sync_fetch_crypto(client: CryptoHistoricalDataClient, symbols: list[str]) -> dict[str, float]:
+    """Synchronous Alpaca crypto fetch — runs in a thread via run_in_executor."""
+    request = CryptoLatestQuoteRequest(symbol_or_symbols=symbols)
+    quotes = client.get_crypto_latest_quote(request)
+    prices: dict[str, float] = {}
+    for symbol in symbols:
+        if symbol in quotes:
+            quote = quotes[symbol]
+            price = float(quote.bid_price if quote.bid_price else quote.ask_price)
+            if price > 0:
+                prices[symbol] = price
+    return prices
+
+
+def _sync_fetch_stocks(client: StockHistoricalDataClient, symbols: list[str]) -> dict[str, float]:
+    """Synchronous Alpaca stock fetch — runs in a thread via run_in_executor."""
+    request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
+    quotes = client.get_stock_latest_quote(request)
+    prices: dict[str, float] = {}
+    for symbol in symbols:
+        if symbol in quotes:
+            quote = quotes[symbol]
+            price = float(quote.bid_price if quote.bid_price else quote.ask_price)
+            if price > 0:
+                prices[symbol] = price
+    return prices
+
 
 async def fetch_crypto_prices(
     client: CryptoHistoricalDataClient, symbols: list[str]
 ) -> dict[str, float]:
-    """Fetch latest crypto prices from Alpaca. Returns {symbol: price}."""
+    """Fetch latest crypto prices without blocking the event loop."""
+    loop = asyncio.get_running_loop()
     try:
-        async with asyncio.timeout(8):
-            request = CryptoLatestQuoteRequest(symbol_or_symbols=symbols)
-            quotes = client.get_crypto_latest_quote(request)
-
-        prices: dict[str, float] = {}
-        for symbol in symbols:
-            if symbol in quotes:
-                quote = quotes[symbol]
-                price = float(quote.bid_price if quote.bid_price else quote.ask_price)
-                if price > 0:
-                    prices[symbol] = price
-                else:
-                    log_structured("warning", "crypto zero price", symbol=symbol)
-            else:
-                log_structured("warning", "crypto_quote_missing", symbol=symbol)
-
-        return prices
-
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, partial(_sync_fetch_crypto, client, symbols)),
+            timeout=8,
+        )
     except TimeoutError:
-        log_structured("warning", "Alpaca timeout: crypto after 8s — skipping")
+        log_structured("warning", "alpaca_crypto_timeout", symbols=symbols)
         return {}
     except Exception:
         log_structured("error", "crypto_price_fetch_failed", exc_info=True)
@@ -68,143 +91,124 @@ async def fetch_crypto_prices(
 async def fetch_stock_prices(
     client: StockHistoricalDataClient, symbols: list[str]
 ) -> dict[str, float]:
-    """Fetch latest stock prices from Alpaca. Returns {symbol: price}."""
+    """Fetch latest stock prices without blocking the event loop."""
+    loop = asyncio.get_running_loop()
     try:
-        async with asyncio.timeout(8):
-            request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
-            quotes = client.get_stock_latest_quote(request)
-
-        prices: dict[str, float] = {}
-        for symbol in symbols:
-            if symbol in quotes:
-                quote = quotes[symbol]
-                price = float(quote.bid_price if quote.bid_price else quote.ask_price)
-                if price > 0:
-                    prices[symbol] = price
-                else:
-                    log_structured("warning", "stock zero price", symbol=symbol)
-            else:
-                log_structured("warning", "stock_quote_missing", symbol=symbol)
-
-        return prices
-
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, partial(_sync_fetch_stocks, client, symbols)),
+            timeout=8,
+        )
     except TimeoutError:
-        log_structured("warning", "Alpaca timeout: stocks after 8s — skipping")
+        log_structured("warning", "alpaca_stocks_timeout", symbols=symbols)
         return {}
     except Exception:
         log_structured("error", "stock_price_fetch_failed", exc_info=True)
         return {}
 
 
-async def process_symbol(redis_client, symbol: str, current_price: float) -> None:
-    """Process a single symbol: calculate change, write to Redis + Postgres."""
-    ts = int(time.time())
-    trace_id = str(uuid.uuid4())
-
-    # FIX 1: Read previous price from Redis for change calculation
+async def build_symbol_payload(redis_client, symbol: str, current_price: float) -> dict:
+    """Compute change/pct from cached previous price, return full payload."""
     prev_raw = await redis_client.get(f"prices:{symbol}")
     prev_data = json.loads(prev_raw) if prev_raw else None
-    prev_price = prev_data["price"] if prev_data else None
+    prev_price = float(prev_data["price"]) if prev_data else None
     change = round(current_price - prev_price, 4) if prev_price else 0.0
-    pct = round(((current_price - prev_price) / prev_price * 100), 4) if prev_price else 0.0
-
-    price_payload = {
-        "price": current_price,
-        "change": change,
-        "pct": pct,
-        "ts": ts,
-    }
-
-    # (a) Redis cache write
-    await redis_client.set(
-        f"prices:{symbol}",
-        json.dumps(price_payload),
-        ex=30,
-    )
-
-    # (b) Redis Stream write — wakes SIGNAL_AGENT
-    stream_payload = {
+    pct = round((change / prev_price) * 100, 4) if prev_price else 0.0
+    return {
         "symbol": symbol,
         "price": current_price,
         "change": change,
         "pct": pct,
-        "ts": ts,
-        "trace_id": trace_id,
-        "source": "price_poller",
+        "ts": int(time.time()),
+        "trace_id": str(uuid.uuid4()),
     }
-    await redis_client.xadd(
-        "market_events",
-        {"payload": json.dumps(stream_payload)},
-    )
-    await redis_client.xtrim("market_events", maxlen=1000, approximate=True)
 
-    # (c) Redis pub/sub publish — for SSE browser streaming
-    await redis_client.publish(
-        "price_updates",
-        json.dumps(
+
+async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
+    """Write all symbol payloads to Redis cache, stream, and pub/sub."""
+    pipe = redis_client.pipeline()
+    for p in payloads:
+        symbol = p["symbol"]
+        cache_val = json.dumps(
+            {"price": p["price"], "change": p["change"], "pct": p["pct"], "ts": p["ts"]}
+        )
+        pipe.set(f"prices:{symbol}", cache_val, ex=30)
+        pipe.xadd(
+            "market_events",
             {
-                "symbol": symbol,
-                "price": current_price,
-                "change": change,
-                "pct": pct,
-                "ts": ts,
-            }
-        ),
-    )
+                "payload": json.dumps(
+                    {k: p[k] for k in ("symbol", "price", "change", "pct", "ts", "trace_id")}
+                )
+            },
+        )
+        pipe.publish(
+            "price_updates",
+            json.dumps(
+                {
+                    "symbol": symbol,
+                    "price": p["price"],
+                    "change": p["change"],
+                    "pct": p["pct"],
+                    "ts": p["ts"],
+                }
+            ),
+        )
+    pipe.xtrim("market_events", maxlen=1000, approximate=True)
+    await pipe.execute()
 
-    # (d) Postgres upsert — persistent fallback
+
+async def flush_to_db(payloads: list[dict]) -> None:
+    """Batch-write all symbol prices to Postgres in a single transaction."""
     try:
         async with AsyncSessionFactory() as session:
             async with session.begin():
-                await session.execute(
-                    text("""
-                        INSERT INTO prices_snapshot (symbol, price, change_amt, change_pct, updated_at)
-                        VALUES (:symbol, :price, :change_amt, :change_pct, NOW())
-                        ON CONFLICT (symbol) DO UPDATE SET
-                            price = EXCLUDED.price,
-                            change_amt = EXCLUDED.change_amt,
-                            change_pct = EXCLUDED.change_pct,
-                            updated_at = NOW()
-                    """),
-                    {
-                        "symbol": symbol,
-                        "price": current_price,
-                        "change_amt": change,
-                        "change_pct": pct,
-                    },
-                )
-
-                # (e) Postgres system_metrics insert
-                await session.execute(
-                    text("""
-                        INSERT INTO system_metrics
-                            (metric_name, metric_value, metric_unit, tags,
-                             schema_version, source, timestamp)
-                        VALUES
-                            ('price_fetch', :price, 'usd',
-                             :tags, 'v3', 'price_poller', NOW())
-                    """),
-                    {
-                        "price": current_price,
-                        "tags": json.dumps({"symbol": symbol, "ts": ts}),
-                    },
-                )
+                for p in payloads:
+                    await session.execute(
+                        text("""
+                            INSERT INTO prices_snapshot
+                                (symbol, price, change_amt, change_pct, updated_at)
+                            VALUES (:symbol, :price, :change_amt, :change_pct, NOW())
+                            ON CONFLICT (symbol) DO UPDATE SET
+                                price       = EXCLUDED.price,
+                                change_amt  = EXCLUDED.change_amt,
+                                change_pct  = EXCLUDED.change_pct,
+                                updated_at  = NOW()
+                        """),
+                        {
+                            "symbol": p["symbol"],
+                            "price": p["price"],
+                            "change_amt": p["change"],
+                            "change_pct": p["pct"],
+                        },
+                    )
+                    await session.execute(
+                        text("""
+                            INSERT INTO system_metrics
+                                (metric_name, metric_value, metric_unit, tags,
+                                 schema_version, source, timestamp)
+                            VALUES ('price_fetch', :price, 'usd',
+                                    :tags, 'v3', 'price_poller', NOW())
+                        """),
+                        {
+                            "price": p["price"],
+                            "tags": json.dumps({"symbol": p["symbol"], "ts": p["ts"]}),
+                        },
+                    )
     except Exception:
-        log_structured("error", "Postgres write failed", symbol=symbol, exc_info=True)
+        log_structured(
+            "error",
+            "price_poller_db_flush_failed",
+            symbols=[p["symbol"] for p in payloads],
+            exc_info=True,
+        )
 
-    log_structured(
-        "info",
-        f"[price_poller] {symbol}: price={current_price} change={change:+.4f} pct={pct:+.4f}%",
-    )
 
-
-async def poll_prices():
-    """Main price polling loop."""
+async def poll_prices() -> None:
+    """Main price polling loop — runs for the lifetime of the app."""
     if not settings.ALPACA_API_KEY or not settings.ALPACA_SECRET_KEY:
         log_structured(
             "error",
             "alpaca_credentials_missing",
-            message="ALPACA_API_KEY and ALPACA_SECRET_KEY required",
+            message="ALPACA_API_KEY and ALPACA_SECRET_KEY are required",
         )
         return
 
@@ -217,71 +221,71 @@ async def poll_prices():
 
     redis_client = await get_redis()
 
-    # Ensure market_events stream + consumer group exist
     try:
         await redis_client.xgroup_create("market_events", "workers", "$", mkstream=True)
     except Exception as exc:
-        if "BUSYGROUP" in str(exc):
-            pass  # Consumer group already exists — expected
-        else:
-            log_structured("error", "failed to create consumer group", exc_info=True)
+        if "BUSYGROUP" not in str(exc):
+            log_structured("error", "failed_to_create_consumer_group", exc_info=True)
 
     log_structured(
-        "info",
-        "[price_poller] starting: symbols=6 interval=5s",
+        "info", "price_poller_started", symbols=len(ALL_SYMBOLS), interval_secs=_POLL_INTERVAL
     )
 
     while True:
         cycle_start = time.perf_counter()
         try:
-            crypto_task = fetch_crypto_prices(crypto_client, SYMBOLS["crypto"])
-            stock_task = fetch_stock_prices(stock_client, SYMBOLS["stocks"])
-
+            # Fetch both asset classes concurrently — each runs in a thread, not the event loop
             crypto_prices, stock_prices = await asyncio.gather(
-                crypto_task, stock_task, return_exceptions=True
+                fetch_crypto_prices(crypto_client, SYMBOLS["crypto"]),
+                fetch_stock_prices(stock_client, SYMBOLS["stocks"]),
+                return_exceptions=True,
             )
 
             if isinstance(crypto_prices, Exception):
-                log_structured("error", "crypto_prices_exception", exc_info=True)
+                log_structured("error", "crypto_gather_exception", exc_info=True)
                 crypto_prices = {}
             if isinstance(stock_prices, Exception):
-                log_structured("error", "stock_prices_exception", exc_info=True)
+                log_structured("error", "stock_gather_exception", exc_info=True)
                 stock_prices = {}
 
-            all_prices = {**crypto_prices, **stock_prices}
+            all_prices: dict[str, float] = {**crypto_prices, **stock_prices}
 
             if all_prices:
-                for symbol, price in all_prices.items():
-                    try:
-                        await process_symbol(redis_client, symbol, price)
-                    except Exception:
-                        log_structured(
-                            "error",
-                            f"[price_poller] symbol write failed: {symbol}",
-                            exc_info=True,
-                        )
+                # Build payloads (reads prev prices from Redis — fast)
+                payloads = await asyncio.gather(
+                    *[
+                        build_symbol_payload(redis_client, sym, price)
+                        for sym, price in all_prices.items()
+                    ]
+                )
+
+                # Write Redis (pipeline — single round-trip) and DB (batched transaction) concurrently
+                await asyncio.gather(
+                    publish_to_redis(redis_client, payloads),
+                    flush_to_db(payloads),
+                )
+
+                await redis_client.set(
+                    "worker:heartbeat",
+                    datetime.now(timezone.utc).isoformat(),
+                    ex=120,
+                )
+
+                elapsed_ms = round((time.perf_counter() - cycle_start) * 1000)
+                log_structured(
+                    "info",
+                    "price_poller_cycle_complete",
+                    symbols=len(all_prices),
+                    total=len(ALL_SYMBOLS),
+                    duration_ms=elapsed_ms,
+                )
             else:
-                log_structured("warning", "[price_poller] no prices fetched")
-
-            # Worker heartbeat
-            await redis_client.set(
-                "worker:heartbeat",
-                datetime.now(timezone.utc).isoformat(),
-                ex=120,
-            )
-
-            elapsed_ms = round((time.perf_counter() - cycle_start) * 1000)
-            fetched = len(all_prices)
-            log_structured(
-                "info",
-                f"[price_poller] cycle complete: duration_ms={elapsed_ms} symbols={fetched}/6",
-            )
+                log_structured("warning", "price_poller_no_prices_fetched")
 
         except Exception:
-            log_structured("error", "[price_poller] cycle error", exc_info=True)
+            log_structured("error", "price_poller_cycle_error", exc_info=True)
 
-        # Only sleep: 5s poll interval
-        await asyncio.sleep(5)
+        await asyncio.sleep(_POLL_INTERVAL)
 
 
 if __name__ == "__main__":

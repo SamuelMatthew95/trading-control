@@ -7,6 +7,7 @@ import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -35,16 +36,41 @@ from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
     NotificationAgent,
-    ReasoningAgent,
     ReflectionAgent,
     StrategyProposer,
 )
+from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.event_pipeline import EventPipeline
+from api.services.execution.brokers.paper import PaperBroker
+from api.services.execution.execution_engine import ExecutionEngine
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
 from api.workers.price_poller import poll_prices
 
 configure_logging(settings.LOG_LEVEL)
+
+_KEEP_ALIVE_INTERVAL = 10 * 60  # 10 minutes — prevents Render spin-down
+
+
+async def _keep_alive() -> None:
+    """Ping own /health endpoint every 10 min so Render never spins us down.
+
+    Render sets RENDER_EXTERNAL_URL automatically on deployed services.
+    No-ops in local dev where the env var is absent.
+    """
+    base_url = settings.RENDER_EXTERNAL_URL
+    if not base_url:
+        return  # not on Render — nothing to do
+    url = f"{base_url.rstrip('/')}/health"
+    await asyncio.sleep(60)  # let the app fully start before first ping
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(url)
+            log_structured("debug", "keep_alive_ping", url=url, status=resp.status_code)
+        except Exception:
+            log_structured("warning", "keep_alive_ping_failed", url=url, exc_info=True)
+        await asyncio.sleep(_KEEP_ALIVE_INTERVAL)
 
 
 @asynccontextmanager
@@ -102,19 +128,28 @@ async def lifespan(app: FastAPI):
         app.state.dlq_manager = dlq_manager
         app.state.agent_state = agent_state
 
+        paper_broker = PaperBroker(redis_client)
+
         # Start price poller as a background task (replaces standalone worker)
         poller_task = asyncio.create_task(poll_prices(), name="price-poller")
         app.state.poller_task = poller_task
         log_structured("info", "price_poller_started", mode="background_task")
 
+        # Keep-alive: self-ping /health every 10 min so Render never spins down
+        keep_alive_task = asyncio.create_task(_keep_alive(), name="keep-alive")
+        app.state.keep_alive_task = keep_alive_task
+
         agents = [
             SignalGenerator(event_bus, dlq_manager),
             ReasoningAgent(event_bus, dlq_manager, redis_client),
-            GradeAgent(event_bus, dlq_manager),
-            ICUpdater(event_bus, dlq_manager, redis_client),
-            ReflectionAgent(event_bus, dlq_manager),
-            StrategyProposer(event_bus, dlq_manager),
-            NotificationAgent(event_bus, dlq_manager, redis_client),
+            ExecutionEngine(
+                event_bus, dlq_manager, redis_client, paper_broker, agent_state=agent_state
+            ),
+            GradeAgent(event_bus, dlq_manager, agent_state=agent_state),
+            ICUpdater(event_bus, dlq_manager, redis_client, agent_state=agent_state),
+            ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state),
+            StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
+            NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
         ]
         for agent in agents:
             await agent.start()
@@ -156,12 +191,12 @@ async def lifespan(app: FastAPI):
         )
         raise
     finally:
-        # Stop price poller background task
-        poller = getattr(app.state, "poller_task", None)
-        if poller is not None:
-            poller.cancel()
-            with suppress(asyncio.CancelledError):
-                await poller
+        for task_name in ("poller_task", "keep_alive_task"):
+            task = getattr(app.state, task_name, None)
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
         for agent in reversed(getattr(app.state, "agents", [])):
             await agent.stop()
         if pipeline is not None:

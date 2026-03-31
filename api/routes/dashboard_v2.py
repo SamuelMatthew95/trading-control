@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from sqlalchemy import text
 
 from api.database import AsyncSessionFactory
@@ -156,6 +156,7 @@ async def get_agents_status() -> dict[str, Any]:
         agent_names = [
             "SIGNAL_AGENT",
             "REASONING_AGENT",
+            "EXECUTION_ENGINE",
             "GRADE_AGENT",
             "IC_UPDATER",
             "REFLECTION_AGENT",
@@ -464,3 +465,188 @@ async def get_worker_health() -> dict[str, Any]:
             "check_time": now.isoformat(),
         }
         raise HTTPException(status_code=503, detail=error_data) from None
+
+
+@router.get("/learning/proposals")
+async def get_proposals(limit: int = 50) -> dict[str, Any]:
+    """Get recent strategy proposals from agent_logs."""
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT trace_id, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type = 'proposal'
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit},
+            )
+            rows = result.all()
+        proposals = [
+            {
+                "id": row[0],
+                "proposal_type": row[1].get("proposal_type", "parameter_change"),
+                "content": row[1].get("content", {}),
+                "requires_approval": row[1].get("requires_approval", True),
+                "confidence": row[1].get("confidence"),
+                "reflection_trace_id": row[1].get("reflection_trace_id"),
+                "status": row[1].get("status", "pending"),
+                "timestamp": row[2].isoformat() if row[2] else None,
+            }
+            for row in rows
+        ]
+        return {
+            "proposals": proposals,
+            "total": len(proposals),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "proposals fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/learning/grades")
+async def get_grade_history(limit: int = 50) -> dict[str, Any]:
+    """Get recent agent grade history from agent_grades table and agent_logs."""
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT trace_id, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type = 'grade'
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit},
+            )
+            rows = result.all()
+        grades = [
+            {
+                "trace_id": row[0],
+                "grade": row[1].get("grade"),
+                "score": row[1].get("score"),
+                "score_pct": row[1].get("score_pct"),
+                "metrics": row[1].get("metrics", {}),
+                "fills_graded": row[1].get("fills_graded"),
+                "timestamp": row[2].isoformat() if row[2] else None,
+            }
+            for row in rows
+        ]
+        return {
+            "grades": grades,
+            "total": len(grades),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "grades fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/learning/ic-weights")
+async def get_ic_weights() -> dict[str, Any]:
+    """Get current IC factor weights from Redis."""
+    try:
+        redis_client = await get_redis()
+        raw = await redis_client.get("alpha:ic_weights")
+        weights = json.loads(raw) if raw else {}
+        history_result: list[dict[str, Any]] = []
+        try:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT factor_name, ic_score, computed_at
+                        FROM factor_ic_history
+                        ORDER BY computed_at DESC
+                        LIMIT 20
+                    """)
+                )
+                rows = result.all()
+                history_result = [
+                    {
+                        "factor": row[0],
+                        "ic_score": float(row[1]),
+                        "computed_at": row[2].isoformat() if row[2] else None,
+                    }
+                    for row in rows
+                ]
+        except Exception:
+            pass
+        return {
+            "current_weights": weights,
+            "history": history_result,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "ic weights fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/learning/reflections")
+async def get_reflections(limit: int = 20) -> dict[str, Any]:
+    """Get recent reflection outputs from agent_logs."""
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT trace_id, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type = 'reflection'
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit},
+            )
+            rows = result.all()
+        reflections = [
+            {
+                "trace_id": row[0],
+                "summary": row[1].get("summary", ""),
+                "hypotheses": row[1].get("hypotheses", []),
+                "winning_factors": row[1].get("winning_factors", []),
+                "losing_factors": row[1].get("losing_factors", []),
+                "regime_edge": row[1].get("regime_edge", {}),
+                "fills_analyzed": row[1].get("fills_analyzed"),
+                "timestamp": row[2].isoformat() if row[2] else None,
+            }
+            for row in rows
+        ]
+        return {
+            "reflections": reflections,
+            "total": len(reflections),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "reflections fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.patch("/learning/proposals/{trace_id}")
+async def update_proposal_status(
+    trace_id: str, status: str = Body(..., embed=True)
+) -> dict[str, Any]:
+    """Persist proposal approval or rejection back to agent_logs payload."""
+    if status not in {"approved", "rejected"}:
+        raise HTTPException(status_code=400, detail="status must be 'approved' or 'rejected'")
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE agent_logs
+                    SET payload = payload || jsonb_build_object('status', :status::text)
+                    WHERE trace_id = :trace_id AND log_type = 'proposal'
+                    RETURNING trace_id
+                """),
+                {"trace_id": trace_id, "status": status},
+            )
+            updated = result.fetchone()
+            await session.commit()
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return {"trace_id": trace_id, "status": status}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None

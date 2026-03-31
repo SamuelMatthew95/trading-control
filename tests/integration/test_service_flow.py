@@ -175,6 +175,9 @@ class FakeBroker:
             "fill_price": 101.25,
         }
 
+    async def get_position(self, symbol):
+        return {"symbol": symbol, "side": "flat", "qty": 0.0, "entry_price": 0.0}
+
 
 @pytest.mark.asyncio
 async def test_paper_broker_updates_cash_and_position(monkeypatch):
@@ -236,11 +239,22 @@ async def test_execution_engine_publishes_fill_metadata(monkeypatch):
         }
     )
 
-    execution_event = bus.published[-1][1]
+    # Engine publishes: executions (order_filled) then trade_performance
+    # Find the order_filled event specifically
+    execution_event = next(
+        event for stream, event in bus.published if event.get("type") == "order_filled"
+    )
     assert execution_event["type"] == "order_filled"
     assert execution_event["trace_id"] == "trace-abc"
     assert execution_event["fill_price"] == 101.25
     assert "filled_at" in execution_event
+
+    # Also verify trade_performance event was published
+    tp_event = next(
+        event for stream, event in bus.published if event.get("type") == "trade_performance"
+    )
+    assert tp_event["symbol"] == "BTC/USD"
+    assert "pnl" in tp_event
 
 
 @pytest.mark.asyncio
