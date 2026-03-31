@@ -387,9 +387,9 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchLearning = async () => {
       try {
         const [proposalsRes, icRes, gradesRes] = await Promise.all([
-          fetch('/api/dashboard/learning/proposals'),
-          fetch('/api/dashboard/learning/ic-weights'),
-          fetch('/api/dashboard/learning/grades'),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/proposals`),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/ic-weights`),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/grades`),
         ])
         if (proposalsRes.ok) {
           const data = await proposalsRes.json()
