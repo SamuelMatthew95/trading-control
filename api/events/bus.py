@@ -243,7 +243,7 @@ class EventBus:
         """Create a stream if it doesn't exist using mkstream."""
         try:
             # Use xgroup_create with mkstream which creates stream if missing
-            await self.redis.xgroup_create(stream, "temp_init_group", id="0", mkstream=True)
+            await self.redis.xgroup_create(stream, "temp_init_group", "0", mkstream=True)
             # Clean up the temp group
             await self.redis.xgroup_destroy(stream, "temp_init_group")
         except ResponseError:
