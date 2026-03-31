@@ -1,0 +1,11 @@
+{
+  "claude": {
+    "memoryPath": ".claude",
+    "rulesPath": ".claude/rules",
+    "tasksPath": ".claude/tasks"
+  },
+  "project": {
+    "name": "trading-control",
+    "type": "python"
+  }
+}
