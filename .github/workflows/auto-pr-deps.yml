@@ -1,0 +1,139 @@
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: '0 9 */2 * *'  # Every 2 days at 09:00 UTC
+  workflow_dispatch:         # Manual trigger from GitHub Actions UI
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  audit:
+    name: Check for outdated packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt -q
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate audit report
+        id: audit
+        run: |
+          python3 - << 'PYEOF'
+          import subprocess, os
+          from datetime import datetime, timezone
+
+          date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+          # Python outdated packages
+          result = subprocess.run(
+              ["pip", "list", "--outdated", "--format=columns"],
+              capture_output=True, text=True
+          )
+          # Strip the two header lines (Package / Version / Latest / Type + dashes)
+          py_lines = [l for l in result.stdout.splitlines() if l.strip()][2:]
+          py_outdated = "\n".join(py_lines)
+
+          # Frontend outdated packages (pnpm exits 1 when packages are outdated)
+          result = subprocess.run(
+              ["pnpm", "outdated"],
+              capture_output=True, text=True, cwd="frontend"
+          )
+          fe_outdated = result.stdout.strip()
+
+          has_outdated = bool(py_outdated or fe_outdated)
+
+          os.makedirs(".github", exist_ok=True)
+          with open(".github/DEPS_REPORT.md", "w") as f:
+              f.write(f"# Dependency Audit — {date}\n\n")
+              f.write("> Auto-generated every 2 days. Review and update packages manually.\n\n")
+
+              f.write("## 🐍 Python (`requirements.txt`)\n\n")
+              if py_outdated:
+                  f.write(f"**{len(py_lines)} outdated package(s):**\n\n")
+                  f.write("```\n")
+                  f.write("Package                  Current    Latest\n")
+                  f.write("-" * 50 + "\n")
+                  f.write(py_outdated + "\n")
+                  f.write("```\n\n")
+              else:
+                  f.write("✅ All packages up to date.\n\n")
+
+              f.write("## ⚛️ Frontend (`frontend/package.json`)\n\n")
+              if fe_outdated:
+                  f.write("**Outdated package(s):**\n\n")
+                  f.write("```\n")
+                  f.write(fe_outdated + "\n")
+                  f.write("```\n\n")
+              else:
+                  f.write("✅ All packages up to date.\n\n")
+
+              f.write("---\n")
+              f.write("_To update: edit `requirements.txt` or `frontend/package.json` with the new versions and open a PR._\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as gho:
+              gho.write(f"has_outdated={'true' if has_outdated else 'false'}\n")
+              gho.write(f"date={date}\n")
+          PYEOF
+
+      - name: Ensure labels exist
+        if: steps.audit.outputs.has_outdated == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "dependencies" --color "0075ca" --description "Dependency updates" 2>/dev/null || true
+          gh label create "automated"    --color "e4e669" --description "Opened by GitHub Actions" 2>/dev/null || true
+
+      - name: Open or update PR
+        if: steps.audit.outputs.has_outdated == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automated/deps-audit
+          commit-message: "chore: dependency audit ${{ steps.audit.outputs.date }}"
+          title: "chore: dependency audit ${{ steps.audit.outputs.date }}"
+          body: |
+            ## Automated Dependency Audit
+
+            Outdated packages were detected on **${{ steps.audit.outputs.date }}**.
+
+            See `.github/DEPS_REPORT.md` in this PR for the full list.
+
+            **To update a Python package:**
+            1. Edit the version pin in `requirements.txt`
+            2. Push to this branch — CI will run automatically
+
+            **To update a frontend package:**
+            1. Edit the version in `frontend/package.json`
+            2. Run `cd frontend && pnpm install` and commit the lockfile
+            3. Push to this branch — CI will run automatically
+
+            ---
+            🤖 *Opened automatically every 2 days by the [Dependency Audit](${{ github.server_url }}/${{ github.repository }}/actions/workflows/auto-pr-deps.yml) workflow.*
+          labels: dependencies,automated
+          draft: false
