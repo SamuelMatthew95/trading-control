@@ -84,14 +84,17 @@ async def test_safe_writer(fake_session: FakeAsyncSession):
 
 ### Redis tests
 
-Use `FakeAsyncRedis` from `fakeredis/` — never connect to a real Redis in unit tests.
+Use `FakeAsyncRedis` from the `fakeredis` PyPI package — never connect to a real Redis in unit tests. The `fake_redis` fixture in `tests/conftest.py` provides a pre-configured instance.
 
 ```python
-from fakeredis import FakeAsyncRedis
+import pytest_asyncio
+import fakeredis
 
-@pytest.fixture
-def redis():
-    return FakeAsyncRedis()
+@pytest_asyncio.fixture
+async def redis():
+    r = fakeredis.FakeAsyncRedis(decode_responses=True)
+    yield r
+    await r.aclose()
 ```
 
 **Important:** Use positional arguments with `xgroup_create`:
@@ -100,7 +103,7 @@ def redis():
 # Correct
 await redis.xgroup_create(stream, group, "$", mkstream=True)
 
-# Wrong — breaks FakeRedis
+# Wrong — keyword arg breaks compatibility
 await redis.xgroup_create(stream, group, id="$", mkstream=True)
 ```
 

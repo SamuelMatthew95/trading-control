@@ -177,17 +177,14 @@ trading-control/
 ├── frontend/                   # Next.js 14 operator dashboard
 ├── docs/                       # Architecture, deployment, contributing
 ├── tests/                      # Unit, API, agent, and integration tests
-│   ├── core/                   # Core unit tests + FakeSession/FakeRedis
+│   ├── core/                   # Core unit tests + FakeAsyncSession
 │   └── api/                    # Per-router endpoint tests
-├── fakeredis/                  # In-repo async FakeRedis shim for tests
 ├── requirements.txt            # All runtime + dev/test dependencies
 ├── ruff.toml                   # Linting config (line-length 100, py310)
 ├── pytest.ini                  # Pytest configuration
 ├── render.yaml                 # Render deployment config
 └── CHANGELOG.md                # Full change history
 ```
-
-> **Note on `fakeredis/`:** Kept in-repo intentionally. Provides the async `FakeAsyncRedis` used by all tests. Removing it breaks test fixtures.
 
 ---
 
