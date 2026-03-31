@@ -41,7 +41,7 @@ pytest tests/ -v --tb=short          # All tests pass
 ```
 
 ## Additional Rules (Always Loaded)
-@./claude/rules/memory-trading.md     # Alpaca trading specifics
-@./claude/rules/memory-agents.md      # Agent hand-off protocols  
-@./claude/rules/memory-logging.md     # Trace ID & logging standards
-@./claude/rules/memory-cicd.md       # CI/CD patterns and fixes
+@./.claude/rules/memory-trading.md     # Alpaca trading specifics
+@./.claude/rules/memory-agents.md      # Agent hand-off protocols  
+@./.claude/rules/memory-logging.md     # Trace ID & logging standards
+@./.claude/rules/memory-cicd.md       # CI/CD patterns and fixes
