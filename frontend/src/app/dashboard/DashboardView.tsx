@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import {
   Activity,
@@ -178,23 +178,10 @@ function MobileNavigation({ section }: { section: Section }) {
   )
 }
 
-type ApiAgent = {
-  name: string
-  status: string
-  event_count: number
-  last_event: string
-  last_seen: number
-  seconds_ago: number
-}
+// ApiAgent is now AgentStatus from the store (pushed via WebSocket)
+type ApiAgent = AgentStatus
 
-type PipelineMetrics = {
-  market_events: number
-  signals: number
-  decisions: number
-  graded_decisions: number
-  agent_logs: number
-  trade_alerts: number
-}
+type PipelineMetrics = Record<string, number>
 
 type ApiEvent = {
   id: string
@@ -239,37 +226,16 @@ function PipelineHealthBar({ metrics }: { metrics: PipelineMetrics | null }) {
 }
 
 function AgentsSection() {
-  const [apiAgents, setApiAgents] = useState<ApiAgent[]>([])
-  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
-  const [fetchError, setFetchError] = useState(false)
+  // Data arrives via WebSocket agent_status_update — no HTTP polling needed
+  const agentStatuses = useCodexStore((state) => state.agentStatuses)
+  const pipelineMetrics = useCodexStore((state) => state.pipelineMetrics)
+  const wsConnected = useCodexStore((state) => state.wsConnected)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [agentRes, metricRes] = await Promise.all([
-          fetch('/api/dashboard/agents/status'),
-          fetch('/api/dashboard/system/metrics'),
-        ])
-        if (agentRes.ok) {
-          const data = await agentRes.json()
-          setApiAgents(data.agents ?? [])
-        }
-        if (metricRes.ok) {
-          setMetrics(await metricRes.json())
-        }
-        setFetchError(false)
-      } catch {
-        setFetchError(true)
-      }
-    }
+  const metrics: PipelineMetrics = pipelineMetrics
+  const fetchError = false  // errors surface as OFFLINE/WAITING agent status
 
-    fetchData()
-    const interval = setInterval(fetchData, 10_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Always show all 7 agents — merge API data with defaults
-  const agentMap = new Map(apiAgents.map((a) => [a.name, a]))
+  // Always show all 7 agents — merge WS data with defaults
+  const agentMap = new Map(agentStatuses.map((a) => [a.name, a]))
   const agents: ApiAgent[] = TRACKED_AGENTS.map((name) =>
     agentMap.get(name) ?? { name, status: 'WAITING', event_count: 0, last_event: '', last_seen: 0, seconds_ago: 0 }
   )
@@ -299,15 +265,15 @@ function AgentsSection() {
     <div className="space-y-4">
       <PipelineHealthBar metrics={metrics} />
 
-      {fetchError && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/30">
-          <p className="text-sm font-sans text-rose-800 dark:text-rose-200">
-            Failed to fetch agent data. Check that the backend API is running.
+      {!wsConnected && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="text-sm font-sans text-amber-800 dark:text-amber-200">
+            Connecting to backend… agent status will appear automatically.
           </p>
         </div>
       )}
 
-      {allWaiting && !fetchError && (
+      {allWaiting && wsConnected && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-sm font-sans text-amber-800 dark:text-amber-200">
             Agents are waiting for market data. Verify the backend is running and ALPACA_API_KEY is set.
@@ -350,38 +316,17 @@ function AgentsSection() {
 }
 
 function SystemSection() {
-  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
-  const [events, setEvents] = useState<ApiEvent[]>([])
-  const [sseStatus, setSseStatus] = useState<'Connected' | 'Reconnecting' | 'Disconnected'>('Disconnected')
-  const [msgCount, setMsgCount] = useState(0)
-  const [lastMsg, setLastMsg] = useState<string | null>(null)
+  // Pipeline metrics arrive via WebSocket agent_status_update — no polling needed
+  const pipelineMetrics = useCodexStore((state) => state.pipelineMetrics)
+  const wsConnected = useCodexStore((state) => state.wsConnected)
+  const wsMessageCount = useCodexStore((state) => state.wsMessageCount)
+  const wsLastMessageTimestamp = useCodexStore((state) => state.wsLastMessageTimestamp)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [metricRes, eventRes] = await Promise.all([
-          fetch('/api/dashboard/system/metrics'),
-          fetch('/api/dashboard/events/recent'),
-        ])
-        if (metricRes.ok) {
-          setMetrics(await metricRes.json())
-          setSseStatus('Connected')
-        }
-        if (eventRes.ok) {
-          const data = await eventRes.json()
-          const evts: ApiEvent[] = data.events ?? []
-          setEvents(evts)
-          setMsgCount(evts.length)
-          if (evts.length > 0) setLastMsg(evts[0].created_at)
-        }
-      } catch {
-        setSseStatus('Disconnected')
-      }
-    }
-    fetchData()
-    const interval = setInterval(fetchData, 10_000)
-    return () => clearInterval(interval)
-  }, [])
+  const metrics: PipelineMetrics = pipelineMetrics
+  const events: ApiEvent[] = []  // future: populate from store recentEvents
+  const sseStatus = wsConnected ? 'Connected' : 'Disconnected'
+  const msgCount = wsMessageCount
+  const lastMsg = wsLastMessageTimestamp
 
   const pipelineStreams = [
     { key: 'market_events', label: 'MARKET_EVENTS' },

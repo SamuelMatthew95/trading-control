@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket
 
 from api.observability import log_structured
+
+_AGENT_NAMES = [
+    "SIGNAL_AGENT",
+    "REASONING_AGENT",
+    "GRADE_AGENT",
+    "IC_UPDATER",
+    "REFLECTION_AGENT",
+    "STRATEGY_PROPOSER",
+    "NOTIFICATION_AGENT",
+]
+
+_PIPELINE_STREAMS = ["market_events", "signals", "decisions", "graded_decisions"]
+_AGENT_PUSH_INTERVAL = 5  # seconds
 
 
 class WebSocketBroadcaster:
@@ -29,6 +43,7 @@ class WebSocketBroadcaster:
         }
         self._idle_sleep_seconds = 0.1
         self._xread_streams_state: str | None = None
+        self._agent_push_task: asyncio.Task[None] | None = None
 
     async def start(self, redis_client=None) -> None:
         if self._running:
@@ -38,16 +53,21 @@ class WebSocketBroadcaster:
         self._broadcast_task = asyncio.create_task(
             self._dashboard_broadcast_loop(), name="ws-broadcaster-loop"
         )
+        self._agent_push_task = asyncio.create_task(
+            self._agent_status_push_loop(), name="ws-agent-push-loop"
+        )
 
     async def stop(self) -> None:
         self._running = False
-        if self._broadcast_task is not None:
-            self._broadcast_task.cancel()
-            try:
-                await self._broadcast_task
-            except asyncio.CancelledError:
-                pass
-            self._broadcast_task = None
+        for task_attr in ("_broadcast_task", "_agent_push_task"):
+            task = getattr(self, task_attr, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, task_attr, None)
 
         for ws in list(self._connections):
             try:
@@ -129,6 +149,69 @@ class WebSocketBroadcaster:
                 self._last_error = str(exc)
                 log_structured("warning", "websocket_background_loop_error", exc_info=True)
                 await asyncio.sleep(self._idle_sleep_seconds)  # WebSocket idle sleep - allowed
+
+    async def _agent_status_push_loop(self) -> None:
+        """Push agent status + stream metrics to all clients every N seconds.
+
+        This replaces client-side HTTP polling — data arrives via WebSocket
+        regardless of page load.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(_AGENT_PUSH_INTERVAL)
+                if self._redis_client is None or not self._connections:
+                    continue
+
+                now = int(datetime.now(timezone.utc).timestamp())
+                agents = []
+                for name in _AGENT_NAMES:
+                    raw = await self._redis_client.get(f"agent:status:{name}")
+                    if raw:
+                        data = json.loads(raw)
+                        last_seen = data.get("last_seen", 0)
+                        age = now - last_seen
+                        status = "STALE" if age > 120 else data.get("status", "ACTIVE")
+                        agents.append(
+                            {
+                                "name": name,
+                                "status": status,
+                                "event_count": data.get("event_count", 0),
+                                "last_event": data.get("last_event", ""),
+                                "last_seen": last_seen,
+                                "seconds_ago": age,
+                            }
+                        )
+                    else:
+                        agents.append(
+                            {
+                                "name": name,
+                                "status": "WAITING",
+                                "event_count": 0,
+                                "last_event": "",
+                                "last_seen": 0,
+                                "seconds_ago": 0,
+                            }
+                        )
+
+                metrics: dict[str, int] = {}
+                for stream_name in _PIPELINE_STREAMS:
+                    try:
+                        metrics[stream_name] = int(await self._redis_client.xlen(stream_name))
+                    except Exception:
+                        metrics[stream_name] = 0
+
+                await self.broadcast(
+                    {
+                        "type": "agent_status_update",
+                        "agents": agents,
+                        "metrics": metrics,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log_structured("warning", "agent_status_push_loop_error", exc_info=True)
 
     @staticmethod
     def _decode_redis_value(value: Any) -> str:

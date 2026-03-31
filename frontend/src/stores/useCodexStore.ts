@@ -65,6 +65,15 @@ export interface StreamStat {
   lastMessageTimestamp: string | null
 }
 
+export interface AgentStatus {
+  name: string
+  status: string
+  event_count: number
+  last_event: string
+  last_seen: number
+  seconds_ago: number
+}
+
 export interface RecentEvent {
   stream: string
   msgId: string
@@ -114,6 +123,10 @@ type CodexState = {
   wsLastMessageTimestamp: string | null
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEvent[]
+  agentStatuses: AgentStatus[]
+  pipelineMetrics: Record<string, number>
+  setAgentStatuses: (agents: AgentStatus[]) => void
+  setPipelineMetrics: (metrics: Record<string, number>) => void
   updatePrice: (symbol: string, price: number, change: number) => void
   updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void
   addSignal: (signal: Record<string, unknown>) => void
@@ -163,6 +176,10 @@ export const useCodexStore = create<CodexState>((set) => ({
     notifications: { count: 0, lastMessageTimestamp: null },
   },
   recentEvents: [],
+  agentStatuses: [],
+  pipelineMetrics: {},
+  setAgentStatuses: (agentStatuses) => set({ agentStatuses }),
+  setPipelineMetrics: (pipelineMetrics) => set({ pipelineMetrics }),
 
   updatePrice: (symbol, price, change) => set((state) => ({
     prices: {

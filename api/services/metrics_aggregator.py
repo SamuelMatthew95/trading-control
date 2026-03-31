@@ -324,11 +324,11 @@ class MetricsAggregator:
             # Ensure no NaN values - replace with 0 or null
             return self._sanitize_snapshot(snapshot)
 
-        except Exception as e:
-            log_structured("error", "dashboard snapshot failed", error=str(e))
+        except Exception:
+            log_structured("error", "dashboard snapshot failed", exc_info=True)
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "error": str(e),
+                "error": "snapshot_failed",
                 "stream_lag": {},
                 "system_health": {"overall_status": "error"},
                 "pnl": {"total_pnl": 0, "today_pnl": 0},

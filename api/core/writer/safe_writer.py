@@ -116,8 +116,8 @@ class SafeWriter:
 
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError) as e:
-            log_structured("warning", "datetime parse failed", dt_str=dt_str, error=str(e))
+        except (ValueError, AttributeError):
+            log_structured("warning", "datetime parse failed", dt_str=dt_str, exc_info=True)
             return None
 
     async def _claim_message(self, session: AsyncSession, msg_id: str, stream: str) -> bool:
@@ -225,13 +225,13 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
+            except Exception:
                 log_structured(
                     "error",
                     "write order failed",
                     msg_id=msg_id,
                     stream=stream,
-                    error=str(e),
+                    exc_info=True,
                 )
                 raise
 
@@ -322,8 +322,8 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "write error", msg_id=msg_id, stream=stream, error=str(e))
+            except Exception:
+                log_structured("error", "write error", msg_id=msg_id, stream=stream, exc_info=True)
                 raise
 
     async def write_agent_log(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -386,17 +386,17 @@ class SafeWriter:
                     "agent log write success",
                     msg_id=msg_id,
                     stream=stream,
-                    agent_run=data["agent_run_id"],
+                    agent_run=data["agent_id"],
                 )
                 return True
 
-            except Exception as e:
+            except Exception:
                 log_structured(
                     "error",
                     "agent log write error",
                     msg_id=msg_id,
                     stream=stream,
-                    error=str(e),
+                    exc_info=True,
                 )
                 raise
 
@@ -479,8 +479,8 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "system metric write error", msg_id=msg_id, error=str(e))
+            except Exception:
+                log_structured("error", "system metric write error", msg_id=msg_id, exc_info=True)
                 raise
 
     async def write_trade_performance(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -553,12 +553,12 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
+            except Exception:
                 log_structured(
                     "error",
                     "trade performance write error",
                     msg_id=msg_id,
-                    error=str(e),
+                    exc_info=True,
                 )
                 raise
 
@@ -610,8 +610,8 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "vector memory write error", msg_id=msg_id, error=str(e))
+            except Exception:
+                log_structured("error", "vector memory write error", msg_id=msg_id, exc_info=True)
                 raise
 
     async def write_risk_alert(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -643,8 +643,8 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "risk alert write error", msg_id=msg_id, error=str(e))
+            except Exception:
+                log_structured("error", "risk alert write error", msg_id=msg_id, exc_info=True)
                 raise
 
     async def write_agent_grade(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -688,8 +688,8 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "agent grade write error", msg_id=msg_id, error=str(e))
+            except Exception:
+                log_structured("error", "agent grade write error", msg_id=msg_id, exc_info=True)
                 raise
 
     async def write_ic_weight(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -729,8 +729,8 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "ic weight write error", msg_id=msg_id, error=str(e))
+            except Exception:
+                log_structured("error", "ic weight write error", msg_id=msg_id, exc_info=True)
                 raise
 
     async def write_reflection_output(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
@@ -780,12 +780,12 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
+            except Exception:
                 log_structured(
                     "error",
                     "reflection output write error",
                     msg_id=msg_id,
-                    error=str(e),
+                    exc_info=True,
                 )
                 raise
 
@@ -826,13 +826,14 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
+            except Exception:
                 log_structured(
                     "error",
                     "strategy proposal write error",
                     msg_id=msg_id,
-                    error=str(e),
+                    exc_info=True,
                 )
+                raise
 
     async def write_notification(self, msg_id: str, stream: str, data: dict[str, Any]) -> bool:
         """Write notification with atomic claim-at-end pattern."""
@@ -871,6 +872,6 @@ class SafeWriter:
                 )
                 return True
 
-            except Exception as e:
-                log_structured("error", "notification write error", msg_id=msg_id, error=str(e))
+            except Exception:
+                log_structured("error", "notification write error", msg_id=msg_id, exc_info=True)
                 raise

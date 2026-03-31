@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     RETRY_BACKOFF_MS: int = 250
     LOG_LEVEL: str = "INFO"
 
+    # Database connection pool (tune for Render PostgreSQL limits)
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+
+    # Redis connection pool (tune for Render Redis plan limits)
+    REDIS_MAX_CONNECTIONS: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

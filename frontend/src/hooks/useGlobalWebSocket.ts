@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 
 // --- Types ---
 type WebSocketMessage = {
@@ -192,6 +192,19 @@ class WebSocketManager {
       this.dispatch('ws-message', msg)
       // Store logic with safe data normalization
       const store = useCodexStore.getState()
+
+      // Agent status push — replaces client-side HTTP polling
+      if (msg.type === 'agent_status_update') {
+        if (Array.isArray((msg as unknown as Record<string, unknown>).agents)) {
+          store.setAgentStatuses((msg as unknown as { agents: AgentStatus[] }).agents)
+        }
+        const metricsRaw = (msg as unknown as Record<string, unknown>).metrics
+        if (metricsRaw && typeof metricsRaw === 'object' && !Array.isArray(metricsRaw)) {
+          store.setPipelineMetrics(metricsRaw as Record<string, number>)
+        }
+        return
+      }
+
       const messageTimestamp = msg.timestamp || (msg.payload as Record<string, unknown> | undefined)?.timestamp as string | undefined || new Date().toISOString()
       store.trackWsMessage({
         stream: msg.stream || msg.type || 'system',
