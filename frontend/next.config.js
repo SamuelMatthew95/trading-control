@@ -31,11 +31,13 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react'],
   },
   async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://trading-control.onrender.com';
+    // Strip whitespace and trailing slashes/paths — we only need the origin
+    const raw = (process.env.NEXT_PUBLIC_API_URL || 'https://trading-control.onrender.com').trim();
+    const backendOrigin = raw.replace(/\/api\/?$/, '').replace(/\/$/, '');
     return [
       {
         source: '/api/:path*',
-        destination: `${apiUrl}/api/:path*`,
+        destination: `${backendOrigin}/api/:path*`,
       },
     ];
   },
