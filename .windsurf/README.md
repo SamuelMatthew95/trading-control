@@ -4,19 +4,23 @@ This directory configures Windsurf IDE settings for the trading-control project.
 
 ## Configuration
 
-- **Memory Path**: `.claude/` - Contains project memory and context
-- **Rules Path**: `.claude/rules/` - Contains coding standards and guidelines  
-- **Tasks Path**: `.claude/tasks/` - Contains project task management
+- **Project**: `trading-control` (Python)
+- **Rules**: Located in `.windsurf/rules/` directory
+- **Memory**: Uses Windsurf's internal memory system
+
+## Rules Structure
+
+- `cicd-patterns.md` - CI/CD pipeline requirements and common fixes
+- `trading-rules.md` - Alpaca trading and order execution rules
 
 ## IDE Integration
 
-Windsurf will automatically use the `.claude` folder for:
-- Project memory and context
-- Coding rules and standards
-- Task management and workflows
+Windsurf automatically discovers and applies rules from:
+- Current workspace `.windsurf/rules` directory
+- Subdirectories up to git root
 
 ## Notes
 
-- This configuration points Windsurf to use your existing `.claude` folder structure
-- No duplicate data - Windsurf reads directly from your Claude memory system
-- Empty `plans/` directory is reserved for future IDE-specific planning features
+- Rules are copied from `.claude/rules/` and formatted for Windsurf
+- Windsurf uses its own memory system - `.claude/memory` is not used
+- Configuration focuses on project metadata only
