@@ -9,6 +9,7 @@ from typing import Any
 AGENT_NAMES = (
     "SIGNAL_AGENT",
     "REASONING_AGENT",
+    "EXECUTION_ENGINE",
     "GRADE_AGENT",
     "IC_UPDATER",
     "REFLECTION_AGENT",

@@ -114,7 +114,9 @@ async def lifespan(app: FastAPI):
         agents = [
             SignalGenerator(event_bus, dlq_manager),
             ReasoningAgent(event_bus, dlq_manager, redis_client),
-            ExecutionEngine(event_bus, dlq_manager, redis_client, paper_broker),
+            ExecutionEngine(
+                event_bus, dlq_manager, redis_client, paper_broker, agent_state=agent_state
+            ),
             GradeAgent(event_bus, dlq_manager, agent_state=agent_state),
             ICUpdater(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state),

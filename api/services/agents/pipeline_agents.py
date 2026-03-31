@@ -380,7 +380,7 @@ class GradeAgent(MultiStreamAgent):
             return 0.8
 
     async def _write_grade_log(self, trace_id: str, payload: dict[str, Any]) -> None:
-        """Persist grade to agent_logs using the schema reasoning_agent uses."""
+        """Persist grade to agent_logs and agent_grades tables."""
         try:
             async with AsyncSessionFactory() as session:
                 await session.execute(
@@ -389,6 +389,19 @@ class GradeAgent(MultiStreamAgent):
                         VALUES (:trace_id, 'grade', CAST(:payload AS JSONB))
                     """),
                     {"trace_id": trace_id, "payload": json.dumps(payload, default=str)},
+                )
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_grades
+                            (grade_type, score, metrics, trace_id, schema_version, source)
+                        VALUES ('pipeline', :score, CAST(:metrics AS JSONB),
+                                :trace_id, 'v3', 'grade_agent')
+                    """),
+                    {
+                        "score": payload.get("score_pct", 0.0),
+                        "metrics": json.dumps(payload.get("metrics", {}), default=str),
+                        "trace_id": trace_id,
+                    },
                 )
                 await session.commit()
         except Exception:
@@ -986,6 +999,7 @@ class StrategyProposer(MultiStreamAgent):
                 }
 
             await self.bus.publish("proposals", proposal)
+            await self._persist_proposal(proposal)
             await self.bus.publish(
                 "notifications",
                 {
@@ -1009,6 +1023,24 @@ class StrategyProposer(MultiStreamAgent):
             strong_hypotheses=len(strong),
             reflection_trace_id=data.get("trace_id"),
         )
+
+    async def _persist_proposal(self, proposal: dict[str, Any]) -> None:
+        """Persist proposal to agent_logs for dashboard query and audit trail."""
+        trace_id = (
+            proposal.get("reflection_trace_id") or proposal.get("msg_id") or str(uuid.uuid4())
+        )
+        try:
+            async with AsyncSessionFactory() as session:
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_logs (trace_id, log_type, payload)
+                        VALUES (:trace_id, 'proposal', CAST(:payload AS JSONB))
+                    """),
+                    {"trace_id": trace_id, "payload": json.dumps(proposal, default=str)},
+                )
+                await session.commit()
+        except Exception:
+            log_structured("warning", "proposal_persist_failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

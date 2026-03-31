@@ -16,18 +16,29 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
 LARGE_ORDER_THRESHOLD = 10.0
+_STATE_NAME = "EXECUTION_ENGINE"
 
 
 class ExecutionEngine(BaseStreamConsumer):
-    def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis, broker: PaperBroker):
+    def __init__(
+        self,
+        bus: EventBus,
+        dlq: DLQManager,
+        redis_client: Redis,
+        broker: PaperBroker,
+        *,
+        agent_state: AgentStateRegistry | None = None,
+    ):
         super().__init__(
             bus, dlq, stream="orders", group=DEFAULT_GROUP, consumer="execution-engine"
         )
         self.redis = redis_client
         self.broker = broker
+        self.agent_state = agent_state
 
     async def process(self, data: dict[str, Any]) -> None:
         if await self.redis.get("kill_switch:active") == "1":
@@ -189,6 +200,8 @@ class ExecutionEngine(BaseStreamConsumer):
             realized_pnl=realized_pnl,
             trace_id=trace_id,
         )
+        if self.agent_state:
+            self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
 
     def _compute_realized_pnl(
         self,

@@ -45,7 +45,11 @@ class ReasoningAgent(BaseStreamConsumer):
         budget_used = int(await self.redis.get(budget_key) or 0)
         signal_summary = self._summarize_signal(data)
         embedding = await self._embed_text(signal_summary)
-        similar_trades = await self._search_vector_memory(embedding)
+        try:
+            similar_trades = await self._search_vector_memory(embedding)
+        except Exception:
+            log_structured("warning", "vector_memory_search_failed", exc_info=True)
+            similar_trades = []
         fallback_reason = None
         if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             fallback_reason = "budget_exceeded"
