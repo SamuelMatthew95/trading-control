@@ -1,23 +1,27 @@
-frontend/
-frontend/**
-frontend/package.json
-frontend/node_modules/
-node_modules/
-.git/
-.venv/
-venv/
+# Python / backend (not needed for frontend deploy)
+api/
+api.py
+server.py
 *.pyc
 __pycache__/
+.venv/
+venv/
 .pytest_cache/
-package.json
-package-lock.json
-pnpm-lock.yaml
-yarn.lock
-.next/
-tsconfig.json
-next.config.js
-next-env.d.ts
-api.py
-api/
 requirements.txt
+requirements-api.txt
 requirements-dev.txt
+pytest.ini
+ruff.toml
+render.yaml
+tests/
+scripts/
+fakeredis/
+docs/
+skills/
+
+# Build artifacts
+node_modules/
+.next/
+
+# Dev files at repo root (not frontend)
+.git/
