@@ -1,177 +1,146 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 596" width="800" height="596">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 540" width="800" height="540">
   <defs>
-    <marker id="a" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-      <polygon points="0 0,10 3.5,0 7" fill="#3d444d"/>
+    <marker id="a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#0969da"/>
     </marker>
+    <filter id="s" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f232814"/>
+    </filter>
   </defs>
 
   <!-- Background -->
-  <rect width="800" height="596" fill="#0d1117" rx="10"/>
+  <rect width="800" height="540" fill="#ffffff" rx="10" stroke="#d0d7de" stroke-width="1"/>
 
-  <!-- Header label -->
-  <text x="400" y="30" text-anchor="middle"
+  <!-- Title -->
+  <text x="400" y="28" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" font-weight="500" fill="#656d76" letter-spacing="2.5">
+    font-size="11" font-weight="500" fill="#57606a" letter-spacing="2">
     AGENT PIPELINE
   </text>
 
-  <!-- ─── SOURCE ──────────────────────────────────────────────────────── -->
-  <rect x="290" y="44" width="220" height="36" rx="18"
-    fill="#161b22" stroke="#3d444d" stroke-width="1.5"/>
-  <circle cx="322" cy="62" r="4.5" fill="#3fb950"/>
-  <text x="404" y="67" text-anchor="middle"
+  <!-- ── Source ── -->
+  <rect x="310" y="42" width="180" height="34" rx="17"
+    fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <circle cx="338" cy="59" r="4" fill="#1a7f37"/>
+  <text x="406" y="64" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="13" fill="#848d97">
-    market_ticks stream
-  </text>
+    font-size="13" fill="#57606a">market_ticks</text>
 
-  <!-- Arrow -->
-  <line x1="400" y1="80" x2="400" y2="108"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
+  <!-- Arrow 1 -->
+  <line x1="400" y1="76" x2="400" y2="102"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <!-- ─── SIGNAL GENERATOR ─────────────────────────────────────────────── -->
-  <rect x="185" y="110" width="430" height="76" rx="8"
-    fill="#161b22" stroke="#1f6feb" stroke-width="2"/>
-  <text x="400" y="143" text-anchor="middle"
+  <!-- ── SignalGenerator ── -->
+  <rect x="215" y="104" width="370" height="64" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="400" y="133" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="17" font-weight="700" fill="#79c0ff">
-    SignalGenerator
-  </text>
-  <text x="400" y="166" text-anchor="middle"
+    font-size="16" font-weight="600" fill="#1f2328">SignalGenerator</text>
+  <text x="400" y="153" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="12" fill="#848d97">
-    Classifies ticks as STRONG_MOMENTUM · MOMENTUM · PRICE_UPDATE
-  </text>
+    font-size="12" fill="#57606a">Converts price ticks into trading signals</text>
 
-  <!-- Arrow + label -->
-  <line x1="400" y1="186" x2="400" y2="220"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
-  <text x="414" y="207"
-    font-family="ui-monospace,'SF Mono',Consolas,monospace"
-    font-size="11" fill="#1f6feb">signals</text>
+  <!-- Arrow 2 + label -->
+  <line x1="400" y1="168" x2="400" y2="198"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="412" y="187"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" fill="#0969da">signals</text>
 
-  <!-- ─── REASONING AGENT ──────────────────────────────────────────────── -->
-  <rect x="185" y="222" width="430" height="76" rx="8"
-    fill="#161b22" stroke="#8957e5" stroke-width="2"/>
-  <text x="400" y="255" text-anchor="middle"
+  <!-- ── ReasoningAgent ── -->
+  <rect x="215" y="200" width="370" height="64" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="400" y="229" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="17" font-weight="700" fill="#c084fc">
-    ReasoningAgent
-  </text>
-  <text x="400" y="278" text-anchor="middle"
+    font-size="16" font-weight="600" fill="#1f2328">ReasoningAgent</text>
+  <text x="400" y="249" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="12" fill="#848d97">
-    LLM trade decisions via Groq (llama-3.3-70b) · Anthropic fallback
-  </text>
+    font-size="12" fill="#57606a">Makes trade decisions using LLM reasoning</text>
 
-  <!-- Arrow + label -->
-  <line x1="400" y1="298" x2="400" y2="332"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
-  <text x="414" y="319"
-    font-family="ui-monospace,'SF Mono',Consolas,monospace"
-    font-size="11" fill="#8957e5">decisions</text>
+  <!-- Arrow 3 + label -->
+  <line x1="400" y1="264" x2="400" y2="294"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="412" y="283"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" fill="#0969da">decisions</text>
 
-  <!-- ─── GRADE AGENT ───────────────────────────────────────────────────── -->
-  <rect x="185" y="334" width="430" height="76" rx="8"
-    fill="#161b22" stroke="#2ea043" stroke-width="2"/>
-  <text x="400" y="367" text-anchor="middle"
+  <!-- ── GradeAgent ── -->
+  <rect x="215" y="296" width="370" height="64" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="400" y="325" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="17" font-weight="700" fill="#56d364">
-    GradeAgent
-  </text>
-  <text x="400" y="390" text-anchor="middle"
+    font-size="16" font-weight="600" fill="#1f2328">GradeAgent</text>
+  <text x="400" y="345" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="12" fill="#848d97">
-    Scores executions: accuracy ×0.35 · IC ×0.30 · cost ×0.20 · latency ×0.15
-  </text>
+    font-size="12" fill="#57606a">Scores every agent execution</text>
 
-  <!-- ─── FORK ──────────────────────────────────────────────────────────── -->
-  <line x1="400" y1="410" x2="400" y2="438"
-    stroke="#3d444d" stroke-width="2"/>
-  <!-- Horizontal spread bar -->
-  <line x1="145" y1="438" x2="655" y2="438"
-    stroke="#3d444d" stroke-width="2"/>
-  <!-- Four drops -->
-  <line x1="145" y1="438" x2="145" y2="460"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="315" y1="438" x2="315" y2="460"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="485" y1="438" x2="485" y2="460"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
-  <line x1="655" y1="438" x2="655" y2="460"
-    stroke="#3d444d" stroke-width="2" marker-end="url(#a)"/>
+  <!-- ── Fork ── -->
+  <line x1="400" y1="360" x2="400" y2="388"
+    stroke="#0969da" stroke-width="1.5"/>
+  <line x1="136" y1="388" x2="664" y2="388"
+    stroke="#0969da" stroke-width="1.5"/>
+  <line x1="136" y1="388" x2="136" y2="408"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="312" y1="388" x2="312" y2="408"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="488" y1="388" x2="488" y2="408"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="664" y1="388" x2="664" y2="408"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <!-- ─── LEAF AGENTS (centers: 145, 315, 485, 655) w=150 each ─────────── -->
+  <!-- ── Leaf agents (w=156, centers: 136, 312, 488, 664) ── -->
 
-  <!-- ICUpdater -->
-  <rect x="70" y="462" width="150" height="90" rx="8"
-    fill="#161b22" stroke="#0ea5e9" stroke-width="1.5"/>
-  <text x="145" y="491" text-anchor="middle"
+  <rect x="58" y="410" width="156" height="80" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="136" y="438" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="13" font-weight="700" fill="#38bdf8">ICUpdater</text>
-  <text x="145" y="508" text-anchor="middle"
+    font-size="13" font-weight="600" fill="#1f2328">ICUpdater</text>
+  <text x="136" y="455" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">Reweights alpha</text>
-  <text x="145" y="522" text-anchor="middle"
+    font-size="11" fill="#57606a">Reweights alpha factors</text>
+  <text x="136" y="479" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">factors via IC</text>
-  <text x="145" y="542" text-anchor="middle"
-    font-family="ui-monospace,'SF Mono',Consolas,monospace"
-    font-size="10" fill="#0ea5e9">ic_weights</text>
+    font-size="11" fill="#0969da">→ ic_weights</text>
 
-  <!-- ReflectionAgent -->
-  <rect x="240" y="462" width="150" height="90" rx="8"
-    fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-  <text x="315" y="491" text-anchor="middle"
+  <rect x="234" y="410" width="156" height="80" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="312" y="438" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="13" font-weight="700" fill="#ffa657">ReflectionAgent</text>
-  <text x="315" y="508" text-anchor="middle"
+    font-size="13" font-weight="600" fill="#1f2328">ReflectionAgent</text>
+  <text x="312" y="455" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">Finds patterns in</text>
-  <text x="315" y="522" text-anchor="middle"
+    font-size="11" fill="#57606a">Finds trade patterns</text>
+  <text x="312" y="479" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">trade history</text>
-  <text x="315" y="542" text-anchor="middle"
-    font-family="ui-monospace,'SF Mono',Consolas,monospace"
-    font-size="10" fill="#f0883e">reflection_outputs</text>
+    font-size="11" fill="#0969da">→ reflection_outputs</text>
 
-  <!-- StrategyProposer -->
-  <rect x="410" y="462" width="150" height="90" rx="8"
-    fill="#161b22" stroke="#ec4899" stroke-width="1.5"/>
-  <text x="485" y="491" text-anchor="middle"
+  <rect x="410" y="410" width="156" height="80" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="488" y="438" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="13" font-weight="700" fill="#f472b6">StrategyProposer</text>
-  <text x="485" y="508" text-anchor="middle"
+    font-size="13" font-weight="600" fill="#1f2328">StrategyProposer</text>
+  <text x="488" y="455" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">Turns hypotheses</text>
-  <text x="485" y="522" text-anchor="middle"
+    font-size="11" fill="#57606a">Creates proposals</text>
+  <text x="488" y="479" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">into proposals</text>
-  <text x="485" y="542" text-anchor="middle"
-    font-family="ui-monospace,'SF Mono',Consolas,monospace"
-    font-size="10" fill="#ec4899">proposals</text>
+    font-size="11" fill="#0969da">→ proposals</text>
 
-  <!-- NotificationAgent -->
-  <rect x="580" y="462" width="150" height="90" rx="8"
-    fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
-  <text x="655" y="491" text-anchor="middle"
+  <rect x="586" y="410" width="156" height="80" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <text x="664" y="438" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="13" font-weight="700" fill="#ff7b72">NotificationAgent</text>
-  <text x="655" y="508" text-anchor="middle"
+    font-size="13" font-weight="600" fill="#1f2328">NotificationAgent</text>
+  <text x="664" y="455" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">Routes alerts by</text>
-  <text x="655" y="522" text-anchor="middle"
+    font-size="11" fill="#57606a">Routes alerts</text>
+  <text x="664" y="479" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="11" fill="#848d97">severity level</text>
-  <text x="655" y="542" text-anchor="middle"
-    font-family="ui-monospace,'SF Mono',Consolas,monospace"
-    font-size="10" fill="#f85149">notifications</text>
+    font-size="11" fill="#0969da">→ notifications</text>
 
-  <!-- Footer -->
-  <line x1="40" y1="578" x2="760" y2="578" stroke="#21262d" stroke-width="1"/>
-  <text x="400" y="591" text-anchor="middle"
+  <!-- Footer rule -->
+  <line x1="40" y1="524" x2="760" y2="524" stroke="#d0d7de" stroke-width="1"/>
+  <text x="400" y="535" text-anchor="middle"
     font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-    font-size="10" fill="#3d444d">
-    All agents communicate exclusively via Redis Streams — never by direct call
-  </text>
+    font-size="10" fill="#8c959f">Agents communicate via Redis Streams</text>
 </svg>
