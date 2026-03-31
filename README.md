@@ -177,7 +177,7 @@ trading-control/
 ├── frontend/                   # Next.js 14 operator dashboard
 ├── docs/                       # Architecture, deployment, contributing
 ├── tests/                      # Unit, API, agent, and integration tests
-│   ├── core/                   # Core unit tests + FakeSession/FakeRedis
+│   ├── core/                   # Core unit tests + FakeAsyncSession
 │   └── api/                    # Per-router endpoint tests
 ├── requirements.txt            # All runtime + dev/test dependencies
 ├── ruff.toml                   # Linting config (line-length 100, py310)
