@@ -270,6 +270,7 @@ trade-memory.json
 
 # Claude Code security
 .claude/settings.local.json
+.claude/worktrees/
 *.token
 *.secret
 # Formatting update

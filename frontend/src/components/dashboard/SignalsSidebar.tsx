@@ -14,7 +14,7 @@ export function SignalsSidebar() {
   const [items, setItems] = useState<Signal[]>([])
 
   const load = async () => {
-    const response = await axios.get('/signals')
+    const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/signals`)
     setItems(response.data.items || [])
   }
 
@@ -28,7 +28,7 @@ export function SignalsSidebar() {
     const previous = items
     setItems((current) => current.filter((signal) => signal.id !== id))
     try {
-      await axios.post(`/signals/${id}/dismiss`)
+      await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/signals/${id}/dismiss`)
     } catch {
       setItems(previous)
     }

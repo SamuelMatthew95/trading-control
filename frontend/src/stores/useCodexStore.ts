@@ -222,7 +222,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   })),
   fetchPrices: async () => {
     try {
-      const response = await fetch('/api/dashboard/prices')
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/prices`)
       if (!response.ok) throw new Error('Failed to fetch prices')
       
       const data = await response.json()

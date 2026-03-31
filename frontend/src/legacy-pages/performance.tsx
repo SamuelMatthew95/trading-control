@@ -18,8 +18,8 @@ export default function PerformancePage() {
       setIsLoading(true);
       setError(null);
       const [a, d] = await Promise.all([
-        axios.get('/api/dashboard/pnl'),
-        axios.get('/api/dashboard/run-summary'),
+        axios.get(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/pnl`),
+        axios.get(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/run-summary`),
       ]);
       setPnl(a.data);
       setSummary(d.data);
