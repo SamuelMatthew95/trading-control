@@ -17,6 +17,8 @@ def test_readme_contains_core_sections():
     with open("README.md", encoding="utf-8") as readme_file:
         content = readme_file.read()
 
-    assert "## Installation" in content
-    assert "## Configuration" in content
-    assert "## Run Tests" in content
+    assert "Quick Start" in content
+    assert "Configuration" in content
+    assert "Testing" in content
+    assert "Agent Pipeline" in content
+    assert "Architecture" in content

@@ -1,4 +1,4 @@
-# Production dependencies
+# ── Runtime dependencies ─────────────────────────────────────────────────────
 a2wsgi>=1.0
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
@@ -23,11 +23,24 @@ schedule==1.2.0
 groq
 alpaca-py
 
-# Database dependencies
+# ── Database ─────────────────────────────────────────────────────────────────
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 pgvector>=0.4.2
 alembic>=1.13.0
 
-# Linting and formatting
+# ── Linting / formatting ──────────────────────────────────────────────────────
 ruff
+
+# ── Dev / test dependencies ──────────────────────────────────────────────────
+pytest==7.4.0
+pytest-asyncio==0.21.0
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-xdist==3.3.0
+coverage==7.3.2
+fakeredis==2.34.1
+mypy==1.7.1
+factory-boy>=3.3.0
+httpx>=0.28.0
+faker>=20.0.0
