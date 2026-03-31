@@ -43,39 +43,9 @@
 
 ## Agent Pipeline
 
-The platform runs 7 specialized agents connected via Redis Streams:
-
-```mermaid
-flowchart TD
-    MT([market_ticks]) --> SG
-
-    SG["<b>SignalGenerator</b><br/>Converts ticks to typed signals"]
-    SG -->|signals| RA
-
-    RA["<b>ReasoningAgent</b><br/>LLM-powered trade decisions<br/><i>Groq / Anthropic</i>"]
-    RA -->|decisions| GA
-
-    GA["<b>GradeAgent</b><br/>Scores performance<br/><i>accuracy · IC · cost · latency</i>"]
-
-    GA --> IC
-    GA --> RF
-    GA --> SP
-    GA --> NA
-
-    IC["<b>ICUpdater</b><br/>Reweights alpha factors"]
-    RF["<b>ReflectionAgent</b><br/>Finds trade patterns"]
-    SP["<b>StrategyProposer</b><br/>Creates proposals"]
-    NA["<b>NotificationAgent</b><br/>Routes alerts"]
-
-    style MT fill:#1e293b,color:#94a3b8,stroke:#334155
-    style SG fill:#0f172a,color:#38bdf8,stroke:#0ea5e9
-    style RA fill:#0f172a,color:#a78bfa,stroke:#7c3aed
-    style GA fill:#0f172a,color:#34d399,stroke:#059669
-    style IC fill:#1e293b,color:#cbd5e1,stroke:#475569
-    style RF fill:#1e293b,color:#cbd5e1,stroke:#475569
-    style SP fill:#1e293b,color:#cbd5e1,stroke:#475569
-    style NA fill:#1e293b,color:#cbd5e1,stroke:#475569
-```
+<p align="center">
+  <img src="docs/img/agent-pipeline.svg" alt="Agent Pipeline" width="860"/>
+</p>
 
 | Agent | Listens To | Publishes To | Purpose |
 |---|---|---|---|
@@ -91,20 +61,9 @@ flowchart TD
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    PG[("PostgreSQL\nSource of Truth")]
-    RS["Redis Streams\nDelivery · Fan-out"]
-    AG["AI Agents\nStream consumers"]
-    DB["Next.js Dashboard\nSSE · WebSocket"]
-
-    PG --> RS --> AG --> DB
-
-    style PG fill:#1e3a5f,color:#93c5fd,stroke:#3b82f6
-    style RS fill:#3b1f1f,color:#fca5a5,stroke:#ef4444
-    style AG fill:#1a2e1a,color:#86efac,stroke:#22c55e
-    style DB fill:#1e1e3b,color:#c4b5fd,stroke:#8b5cf6
-```
+<p align="center">
+  <img src="docs/img/architecture.svg" alt="System Architecture" width="860"/>
+</p>
 
 Core guarantees:
 
