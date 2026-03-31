@@ -1,4 +1,7 @@
 # Logging Standards & Trace ID Management
+# Memory File: Logging
+# Version: v1.0
+# Last Updated: 2026-03-31
 
 ## Structured Logging Requirements
 

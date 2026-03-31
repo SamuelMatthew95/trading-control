@@ -1,4 +1,7 @@
 # Agent Hand-off Protocols & Communication
+# Memory File: Agents
+# Version: v1.0
+# Last Updated: 2026-03-31
 
 ## Agent Communication Rules
 

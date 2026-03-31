@@ -54,6 +54,13 @@ jobs:
           ruff format --check .
           ruff check . --select=E9,F63,F7,F82
 
+      - name: Audit Memory Rules
+        run: |
+          python3 scripts/audit_trading_memory.py
+
+      - name: Test Memory Rules
+        run: pytest tests/test_memory_rules.py -v
+
       - name: Run unit tests
         run: pytest tests/core tests/api -v
 

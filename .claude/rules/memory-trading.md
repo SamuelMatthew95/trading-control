@@ -1,4 +1,7 @@
 # Alpaca Trading & Order Execution Memory
+# Memory File: Trading
+# Version: v1.0
+# Last Updated: 2026-03-31
 
 ## Broker Configuration (CRITICAL)
 - **Library**: Use `alpaca-py` v0.8+ only
