@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.models import AgentLog, Order, TradePerformance
+from ..core.models import AgentLog, Order, Position, TradePerformance
 from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
@@ -334,6 +334,99 @@ class MetricsAggregator:
                 "pnl": {"total_pnl": 0, "today_pnl": 0},
                 "agents": {"active_agents": [], "active_agent_count": 0},
                 "orders": {"orders_last_hour": {}, "total_orders_last_hour": 0},
+            }
+
+    async def get_raw_snapshot(self) -> dict[str, Any]:
+        """Return raw DB rows matching the frontend DashboardData type.
+
+        This is used for the WebSocket initial snapshot so every client
+        starts with the same consistent view without any REST calls.
+        """
+
+        def _safe_float(val: Any) -> float:
+            try:
+                return float(val) if val is not None else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        def _safe_str(val: Any) -> str | None:
+            return str(val) if val is not None else None
+
+        try:
+            # Recent orders (last 50, newest first)
+            orders_result = await self.session.execute(
+                select(Order).order_by(Order.created_at.desc()).limit(50)
+            )
+            orders = [
+                {
+                    "order_id": _safe_str(o.id),
+                    "symbol": o.symbol,
+                    "side": o.side,
+                    "quantity": _safe_float(o.quantity),
+                    "price": _safe_float(o.price),
+                    "filled_price": _safe_float(o.filled_price),
+                    "status": o.status,
+                    "pnl": 0.0,  # filled in by trade_performance
+                    "timestamp": o.created_at.isoformat() if o.created_at else None,
+                    "entry_price": _safe_float(o.price),
+                    "current_price": _safe_float(o.filled_price or o.price),
+                }
+                for o in orders_result.scalars().all()
+            ]
+
+            # Current positions
+            positions_result = await self.session.execute(
+                select(Position).order_by(Position.updated_at.desc()).limit(50)
+            )
+            positions = [
+                {
+                    "symbol": p.symbol,
+                    "side": "long" if _safe_float(p.quantity) >= 0 else "short",
+                    "quantity": _safe_float(p.quantity),
+                    "entry_price": _safe_float(p.avg_cost),
+                    "current_price": _safe_float(p.last_price or p.avg_cost),
+                    "pnl": _safe_float(p.unrealized_pnl),
+                    "market_value": _safe_float(p.market_value),
+                }
+                for p in positions_result.scalars().all()
+            ]
+
+            # Recent agent logs (last 50)
+            logs_result = await self.session.execute(
+                select(AgentLog).order_by(AgentLog.created_at.desc()).limit(50)
+            )
+            agent_logs = [
+                {
+                    "id": _safe_str(lg.id),
+                    "agent_name": lg.source or "agent",
+                    "message": lg.message,
+                    "timestamp": lg.created_at.isoformat() if lg.created_at else None,
+                    "log_level": lg.log_level,
+                    "trace_id": lg.trace_id,
+                }
+                for lg in logs_result.scalars().all()
+            ]
+
+            return {
+                "orders": orders,
+                "positions": positions,
+                "agent_logs": agent_logs,
+                "signals": [],
+                "learning_events": [],
+                "risk_alerts": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        except Exception:
+            log_structured("error", "raw_snapshot_failed", exc_info=True)
+            return {
+                "orders": [],
+                "positions": [],
+                "agent_logs": [],
+                "signals": [],
+                "learning_events": [],
+                "risk_alerts": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     def _sanitize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:

@@ -28,18 +28,37 @@ _AGENT_NAMES = [
 _PIPELINE_STREAMS = ["market_events", "signals", "decisions", "graded_decisions"]
 
 
-async def _build_db_snapshot() -> dict[str, Any]:
-    """Fetch full dashboard state from DB via MetricsAggregator.
+async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
+    """Fetch full dashboard state (DB rows + Redis prices) on WS connect.
 
-    All clients receive the same DB-backed state on connect, ensuring a
-    consistent shared view regardless of when they join.
+    Returns a dashboard_update message matching the frontend DashboardData
+    type — orders[], positions[], agent_logs[], prices{} — so every client
+    starts with the same consistent view without any REST calls.
     """
     from api.database import AsyncSessionFactory
     from api.services.metrics_aggregator import MetricsAggregator
 
     async with AsyncSessionFactory() as session:
         aggregator = MetricsAggregator(session)
-        data = await aggregator.get_dashboard_snapshot()
+        data = await aggregator.get_raw_snapshot()
+
+    # Enrich with current prices from Redis cache
+    if redis_client is not None:
+        symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
+        keys = [f"prices:{s}" for s in symbols]
+        try:
+            cached_values = await redis_client.mget(keys)
+            prices: dict[str, Any] = {}
+            for symbol, raw in zip(symbols, cached_values, strict=False):
+                if raw:
+                    try:
+                        prices[symbol] = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if prices:
+                data["prices"] = prices
+        except Exception:
+            log_structured("warning", "ws_snapshot_prices_failed", exc_info=True)
 
     return {
         "type": "dashboard_update",
@@ -131,7 +150,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             log_structured("warning", "ws_initial_snapshot_failed", exc_info=True)
 
     try:
-        db_snapshot = await _build_db_snapshot()
+        db_snapshot = await _build_db_snapshot(redis_client)
         await websocket.send_json(db_snapshot)
     except Exception:
         log_structured("warning", "ws_db_snapshot_failed", exc_info=True)

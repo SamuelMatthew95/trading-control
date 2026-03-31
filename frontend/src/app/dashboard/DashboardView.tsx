@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
+import { useCallback, useMemo, type ComponentType } from 'react'
 import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import {
@@ -424,20 +424,10 @@ export function DashboardView({ section }: { section: Section }) {
     positions = [],
     systemMetrics = [],
     dashboardData,
-    fetchPrices,
   } = useCodexStore()
 
-  const [pricesLoading, setPricesLoading] = useState(true)
-
-  // Fetch initial prices on component mount
-  useEffect(() => {
-    const loadPrices = async () => {
-      setPricesLoading(true)
-      await fetchPrices()
-      setPricesLoading(false)
-    }
-    loadPrices()
-  }, [fetchPrices])
+  // Prices arrive via the WS dashboard_update snapshot on connect — no REST call needed
+  const pricesLoading = Object.keys(prices).length === 0
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
