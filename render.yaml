@@ -27,28 +27,8 @@ services:
           name: trading-control-db
           type: ps
 
-  # Type: worker (background process)
-  - type: worker
-    name: trading-price-poller
-    env: python
-    plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m api.workers.price_poller
-    healthCheckPath: /api/dashboard/health/worker
-    autoDeploy: true
-    dependsOn:
-      - trading-control-redis
-    restartPolicy:
-      type: always
-    
-    # Environment variables
-    envVars:
-      - key: PYTHONPATH
-        value: /app
-      - key: REDIS_URL
-        fromService:
-          name: trading-control-redis
-          type: ps
+  # NOTE: Price poller is now integrated into the web service as a background task.
+  # No separate worker needed — it starts automatically with the app.
 
   # PostgreSQL
   - type: ps

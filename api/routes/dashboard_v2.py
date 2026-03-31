@@ -6,18 +6,17 @@ Provides real-time dashboard data without NaN issues.
 
 import asyncio
 import json
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import text
 
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.services.metrics_aggregator import MetricsAggregator
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 # Track process start time for startup grace period
@@ -37,9 +36,9 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_dashboard_snapshot()
 
-    except Exception as e:
-        log_structured("error", "dashboard snapshot failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "dashboard snapshot failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/stream-lag")
@@ -54,9 +53,9 @@ async def get_stream_lag() -> dict[str, Any]:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
-    except Exception as e:
-        log_structured("error", "stream lag failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "stream lag failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/system-health")
@@ -67,9 +66,9 @@ async def get_system_health() -> dict[str, Any]:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_system_health()
 
-    except Exception as e:
-        log_structured("error", "system health failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "system health failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/pnl")
@@ -80,9 +79,9 @@ async def get_pnl_metrics() -> dict[str, Any]:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_pnl_metrics()
 
-    except Exception as e:
-        log_structured("error", "pnl metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "pnl metrics failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/agents")
@@ -93,9 +92,9 @@ async def get_agent_metrics() -> dict[str, Any]:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_agent_metrics()
 
-    except Exception as e:
-        log_structured("error", "agent metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "agent metrics failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/orders")
@@ -106,9 +105,9 @@ async def get_order_metrics() -> dict[str, Any]:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_order_metrics()
 
-    except Exception as e:
-        log_structured("error", "order metrics failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "order metrics failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/prices")
@@ -144,9 +143,148 @@ async def get_prices() -> dict[str, Any]:
             "source": "redis_cache",
         }
 
-    except Exception as e:
-        log_structured("error", "price cache failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from None
+    except Exception:
+        log_structured("error", "price cache failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/agents/status")
+async def get_agents_status() -> dict[str, Any]:
+    """Get agent status from Redis heartbeats."""
+    try:
+        redis_client = await get_redis()
+        agent_names = [
+            "SIGNAL_AGENT",
+            "REASONING_AGENT",
+            "GRADE_AGENT",
+            "IC_UPDATER",
+            "REFLECTION_AGENT",
+            "STRATEGY_PROPOSER",
+            "NOTIFICATION_AGENT",
+        ]
+        now = int(datetime.now(timezone.utc).timestamp())
+        agents = []
+        for name in agent_names:
+            raw = await redis_client.get(f"agent:status:{name}")
+            if raw:
+                data = json.loads(raw)
+                last_seen = data.get("last_seen", 0)
+                age = now - last_seen
+                if age > 120:
+                    status = "STALE"
+                else:
+                    status = data.get("status", "ACTIVE")
+                agents.append(
+                    {
+                        "name": name,
+                        "status": status,
+                        "event_count": data.get("event_count", 0),
+                        "last_event": data.get("last_event", ""),
+                        "last_seen": last_seen,
+                        "seconds_ago": age,
+                    }
+                )
+            else:
+                agents.append(
+                    {
+                        "name": name,
+                        "status": "WAITING",
+                        "event_count": 0,
+                        "last_event": "",
+                        "last_seen": 0,
+                        "seconds_ago": 0,
+                    }
+                )
+
+        return {
+            "agents": agents,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "agents status failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/system/metrics")
+async def get_system_stream_metrics() -> dict[str, Any]:
+    """Get Redis stream lengths for pipeline health display."""
+    try:
+        redis_client = await get_redis()
+
+        streams = {
+            "market_events": "market_events",
+            "signals": "signals",
+            "decisions": "decisions",
+            "graded_decisions": "graded_decisions",
+        }
+
+        result = {}
+        for key, stream_name in streams.items():
+            try:
+                result[key] = await redis_client.xlen(stream_name)
+            except Exception:
+                result[key] = 0
+
+        # agent_logs count from DB
+        try:
+            async with AsyncSessionFactory() as session:
+                row = await session.execute(text("SELECT COUNT(*) FROM agent_logs"))
+                result["agent_logs"] = row.scalar() or 0
+        except Exception:
+            result["agent_logs"] = 0
+
+        # trade_alerts count from events table
+        try:
+            async with AsyncSessionFactory() as session:
+                row = await session.execute(
+                    text("SELECT COUNT(*) FROM events WHERE event_type = 'trade.alert'")
+                )
+                result["trade_alerts"] = row.scalar() or 0
+        except Exception:
+            result["trade_alerts"] = 0
+
+        return {
+            **result,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "system metrics failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/events/recent")
+async def get_recent_events() -> dict[str, Any]:
+    """Get last 10 events from events table."""
+    try:
+        async with AsyncSessionFactory() as session:
+            from sqlalchemy import text
+
+            result = await session.execute(
+                text("""
+                    SELECT id, event_type, entity_type, source, created_at
+                    FROM events
+                    ORDER BY created_at DESC
+                    LIMIT 10
+                """)
+            )
+            rows = result.all()
+            events = [
+                {
+                    "id": str(row[0]),
+                    "event_type": row[1],
+                    "entity_type": row[2],
+                    "source": row[3],
+                    "created_at": row[4].isoformat() if row[4] else None,
+                }
+                for row in rows
+            ]
+        return {
+            "events": events,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "recent events failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.get("/health/worker")
@@ -189,7 +327,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "check_time": now.isoformat(),
             }
         except Exception as e:
-            log_structured("warning", "redis connection failed during health check", error=str(e))
+            log_structured("warning", "redis connection failed during health check", exc_info=True)
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -210,7 +348,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "check_time": now.isoformat(),
             }
         except Exception as e:
-            log_structured("warning", "redis read failed during health check", error=str(e))
+            log_structured("warning", "redis read failed during health check", exc_info=True)
             return {
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
@@ -318,7 +456,7 @@ async def get_worker_health() -> dict[str, Any]:
         # Re-raise HTTP exceptions (our health check failures)
         raise
     except Exception as e:
-        log_structured("error", "worker health check failed", error=str(e))
+        log_structured("error", "worker health check failed", exc_info=True)
         error_data = {
             "status": "error",
             "message": f"Health check failed: {str(e)}",

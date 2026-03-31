@@ -1,16 +1,22 @@
 # Documentation Index
 
-This folder contains focused docs for contributors working on `trading-control`.
+This folder contains focused reference docs for contributors working on Trading Control.
 
-## Core docs
+## Docs
 
-- [architecture.md](architecture.md) — backend architecture, orchestration flow, and key modules.
-- [development-guide.md](development-guide.md) — local setup, env vars, and run commands.
-- [testing.md](testing.md) — test suites and recommended commands.
-- [deployment-guide.md](deployment-guide.md) — production deployment checklist for the FastAPI backend + frontend.
-- [contributing.md](contributing.md) — contribution workflow and quality expectations.
+| File | What it covers |
+|---|---|
+| [architecture.md](architecture.md) | Full agent pipeline, stream chain, DB schema, system guarantees |
+| [development-guide.md](development-guide.md) | Local setup, all env vars, run commands, logging standards |
+| [testing.md](testing.md) | Test structure, how to write agent and DB tests, CI requirements |
+| [deployment-guide.md](deployment-guide.md) | Render + Vercel deployment, all required env vars, smoke checks |
+| [contributing.md](contributing.md) | PR workflow, code standards, full validation checklist |
+| [AGENTS.md](AGENTS.md) | Agent patterns, stream chain rules, new agent template |
 
-## Notes
+## Quick links
 
-- The root [README](../README.md) is the best project overview.
-- Older deployment audit/checklist docs were removed in favor of one maintained deployment guide.
+- Root README: [../README.md](../README.md)
+- Changelog: [../CHANGELOG.md](../CHANGELOG.md)
+- Claude Code rules: [../CLAUDE.md](../CLAUDE.md)
+- Live API docs: https://matthew.docs.buildwithfern.com/
+- Live dashboard: https://trading-control-khaki.vercel.app/dashboard

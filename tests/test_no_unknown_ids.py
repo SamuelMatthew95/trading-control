@@ -64,6 +64,7 @@ async def test_write_system_metric_logs_real_id(caplog, safe_writer, monkeypatch
         timestamp=datetime.now(timezone.utc),
     )
 
+    # Log output is JSON-structured — check the UUID appears in the log text
     assert msg_id in caplog.text
     assert "id=unknown" not in caplog.text
     assert '"id": "unknown"' not in caplog.text

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
@@ -34,16 +35,16 @@ from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
     NotificationAgent,
+    ReasoningAgent,
     ReflectionAgent,
     StrategyProposer,
 )
-from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
-from api.services.market_ingestor import MarketDataIngestor
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
+from api.workers.price_poller import poll_prices
 
 configure_logging(settings.LOG_LEVEL)
 
@@ -104,8 +105,13 @@ async def lifespan(app: FastAPI):
         app.state.agent_state = agent_state
 
         paper_broker = PaperBroker(redis_client)
+
+        # Start price poller as a background task (replaces standalone worker)
+        poller_task = asyncio.create_task(poll_prices(), name="price-poller")
+        app.state.poller_task = poller_task
+        log_structured("info", "price_poller_started", mode="background_task")
+
         agents = [
-            MarketDataIngestor(event_bus),
             SignalGenerator(event_bus, dlq_manager),
             ReasoningAgent(event_bus, dlq_manager, redis_client),
             ExecutionEngine(event_bus, dlq_manager, redis_client, paper_broker),
@@ -155,6 +161,12 @@ async def lifespan(app: FastAPI):
         )
         raise
     finally:
+        # Stop price poller background task
+        poller = getattr(app.state, "poller_task", None)
+        if poller is not None:
+            poller.cancel()
+            with suppress(asyncio.CancelledError):
+                await poller
         for agent in reversed(getattr(app.state, "agents", [])):
             await agent.stop()
         if pipeline is not None:

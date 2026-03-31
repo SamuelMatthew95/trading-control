@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" width="800" height="420">
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#0969da"/>
+    </marker>
+    <filter id="s" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f232814"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="420" fill="#ffffff" rx="10" stroke="#d0d7de" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="400" y="28" text-anchor="middle"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" font-weight="500" fill="#57606a" letter-spacing="2">
+    SYSTEM ARCHITECTURE
+  </text>
+
+  <!-- ── Layer 1: PostgreSQL ── -->
+  <rect x="40" y="42" width="720" height="68" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <rect x="40" y="42" width="5" height="68" rx="2.5" fill="#0969da"/>
+  <text x="68" y="72"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="15" font-weight="600" fill="#1f2328">PostgreSQL</text>
+  <text x="68" y="92"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="12" fill="#57606a">Source of truth — all state lives here</text>
+  <text x="748" y="80" text-anchor="end"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" fill="#8c959f">Render · pgvector</text>
+
+  <!-- Arrow 1 -->
+  <line x1="400" y1="110" x2="400" y2="140"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ── Layer 2: Redis Streams ── -->
+  <rect x="40" y="142" width="720" height="68" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <rect x="40" y="142" width="5" height="68" rx="2.5" fill="#0969da"/>
+  <text x="68" y="172"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="15" font-weight="600" fill="#1f2328">Redis Streams</text>
+  <text x="68" y="192"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="12" fill="#57606a">Event delivery between agents — market_ticks · signals · decisions</text>
+  <text x="748" y="180" text-anchor="end"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" fill="#8c959f">Render · 5 streams</text>
+
+  <!-- Arrow 2 -->
+  <line x1="400" y1="210" x2="400" y2="240"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ── Layer 3: AI Agents ── -->
+  <rect x="40" y="242" width="720" height="68" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <rect x="40" y="242" width="5" height="68" rx="2.5" fill="#0969da"/>
+  <text x="68" y="272"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="15" font-weight="600" fill="#1f2328">AI Agents</text>
+  <text x="68" y="292"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="12" fill="#57606a">7 specialized agents processing events — Signal · Reasoning · Grade · IC · Reflection · Strategy · Notify</text>
+  <text x="748" y="280" text-anchor="end"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" fill="#8c959f">Groq LLM</text>
+
+  <!-- Arrow 3 -->
+  <line x1="400" y1="310" x2="400" y2="340"
+    stroke="#0969da" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ── Layer 4: Dashboard ── -->
+  <rect x="40" y="342" width="720" height="68" rx="8"
+    fill="#ffffff" stroke="#d0d7de" stroke-width="1.5" filter="url(#s)"/>
+  <rect x="40" y="342" width="5" height="68" rx="2.5" fill="#0969da"/>
+  <text x="68" y="372"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="15" font-weight="600" fill="#1f2328">Next.js Dashboard</text>
+  <text x="68" y="392"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="12" fill="#57606a">Live operator view — agent status, pipeline health, trade feed</text>
+  <text x="748" y="380" text-anchor="end"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="11" fill="#8c959f">Vercel</text>
+
+  <!-- Footer rule -->
+  <line x1="40" y1="408" x2="760" y2="408" stroke="#d0d7de" stroke-width="1"/>
+  <text x="400" y="416" text-anchor="middle"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+    font-size="10" fill="#8c959f">Alpaca API for market data · paper trading mode</text>
+</svg>
