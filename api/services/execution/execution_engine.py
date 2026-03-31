@@ -11,6 +11,7 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from api.constants import OrderSide, PositionSide
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -44,11 +45,21 @@ class ExecutionEngine(BaseStreamConsumer):
         if await self.redis.get("kill_switch:active") == "1":
             raise RuntimeError("KillSwitchActive")
 
+        # Validate required fields before any DB/broker interaction
+        missing = [f for f in ("strategy_id", "symbol", "side", "qty", "price") if not data.get(f)]
+        if missing:
+            log_structured("warning", "order_missing_required_fields", missing=missing)
+            return
+
         strategy_id = str(data["strategy_id"])
         symbol = str(data["symbol"])
         side = str(data["side"]).lower()
-        qty = float(data["qty"])
-        price = float(data["price"])
+        try:
+            qty = float(data["qty"])
+            price = float(data["price"])
+        except (TypeError, ValueError):
+            log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
+            return
         trace_id = str(data.get("trace_id") or uuid.uuid4())
         order_timestamp = self._parse_timestamp(data.get("timestamp"))
         idempotency_key = self._build_idempotency_key(
@@ -211,17 +222,25 @@ class ExecutionEngine(BaseStreamConsumer):
         fill_price: float,
     ) -> float:
         """Compute realized PnL when closing or partially closing a position."""
-        prior_side = str(prior_position.get("side") or "flat").lower()
+        prior_side = str(prior_position.get("side") or PositionSide.FLAT).lower()
         prior_entry = float(prior_position.get("entry_price") or fill_price)
         prior_qty = float(prior_position.get("qty") or 0)
 
         # Closing a long position with a sell
-        if prior_side == "long" and side in ("sell", "short") and prior_qty > 0:
+        if (
+            prior_side == PositionSide.LONG
+            and side in (OrderSide.SELL, PositionSide.SHORT)
+            and prior_qty > 0
+        ):
             closed_qty = min(qty, prior_qty)
             return round((fill_price - prior_entry) * closed_qty, 8)
 
         # Closing a short position with a buy
-        if prior_side == "short" and side in ("buy", "long") and prior_qty > 0:
+        if (
+            prior_side == PositionSide.SHORT
+            and side in (OrderSide.BUY, PositionSide.LONG)
+            and prior_qty > 0
+        ):
             closed_qty = min(qty, prior_qty)
             return round((prior_entry - fill_price) * closed_qty, 8)
 
@@ -283,7 +302,7 @@ class ExecutionEngine(BaseStreamConsumer):
             {"strategy_id": strategy_id, "symbol": symbol},
         )
         row = existing.mappings().first()
-        signed_qty = qty if side in {"buy", "long"} else (-1 * qty)
+        signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
         if row is None:
             await session.execute(
                 text(
@@ -291,7 +310,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 ),
                 {
                     "symbol": symbol,
-                    "side": "long" if signed_qty >= 0 else "short",
+                    "side": PositionSide.LONG if signed_qty >= 0 else PositionSide.SHORT,
                     "qty": abs(signed_qty),
                     "entry_price": fill_price,
                     "current_price": fill_price,
@@ -303,10 +322,16 @@ class ExecutionEngine(BaseStreamConsumer):
         existing_side = str(row["side"]).lower()
         existing_qty = float(row["qty"])
         existing_signed_qty = (
-            existing_qty if existing_side in {"long", "buy"} else (-1 * existing_qty)
+            existing_qty
+            if existing_side in {PositionSide.LONG, OrderSide.BUY}
+            else (-1 * existing_qty)
         )
         new_qty = existing_signed_qty + signed_qty
-        next_side = "flat" if abs(new_qty) < 1e-9 else ("long" if new_qty > 0 else "short")
+        next_side = (
+            PositionSide.FLAT
+            if abs(new_qty) < 1e-9
+            else (PositionSide.LONG if new_qty > 0 else PositionSide.SHORT)
+        )
         await session.execute(
             text(
                 "UPDATE positions SET side = :side, qty = :qty, current_price = :current_price WHERE id = :position_id"

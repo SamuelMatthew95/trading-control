@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from sqlalchemy import text
 
 from api.database import AsyncSessionFactory
@@ -619,4 +619,34 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "reflections fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.patch("/learning/proposals/{trace_id}")
+async def update_proposal_status(
+    trace_id: str, status: str = Body(..., embed=True)
+) -> dict[str, Any]:
+    """Persist proposal approval or rejection back to agent_logs payload."""
+    if status not in {"approved", "rejected"}:
+        raise HTTPException(status_code=400, detail="status must be 'approved' or 'rejected'")
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE agent_logs
+                    SET payload = payload || jsonb_build_object('status', :status::text)
+                    WHERE trace_id = :trace_id AND log_type = 'proposal'
+                    RETURNING trace_id
+                """),
+                {"trace_id": trace_id, "status": status},
+            )
+            updated = result.fetchone()
+            await session.commit()
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return {"trace_id": trace_id, "status": status}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None

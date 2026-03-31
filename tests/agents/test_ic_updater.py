@@ -164,7 +164,7 @@ async def test_factor_below_threshold_zeroed(ic_updater, fake_redis):
         ic_updater._score_pnl_buffer.append((float(i) / 10, float(i)))
 
     with patch(
-        "api.services.agents.pipeline_agents._spearman_correlation",
+        "api.services.agents.pipeline_agents.spearman_correlation",
         return_value=0.0,
     ):
         await ic_updater._recompute_and_publish()

@@ -1,8 +1,77 @@
 """
 Application constants and configuration values.
+
+Use the StrEnum classes for all string comparisons in domain logic — no bare string literals.
 """
 
+from enum import StrEnum
 from typing import Final
+
+# ---------------------------------------------------------------------------
+# Domain enums — import and compare against these, not bare strings
+# ---------------------------------------------------------------------------
+
+
+class OrderSide(StrEnum):
+    BUY = "buy"
+    SELL = "sell"
+
+
+class PositionSide(StrEnum):
+    LONG = "long"
+    SHORT = "short"
+    FLAT = "flat"
+
+
+class OrderStatus(StrEnum):
+    PENDING = "pending"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
+
+
+class AgentAction(StrEnum):
+    BUY = "buy"
+    SELL = "sell"
+    HOLD = "hold"
+    REJECT = "reject"
+    FLAT = "flat"
+
+
+# Actions that produce no order event
+NO_ORDER_ACTIONS: frozenset[str] = frozenset(
+    {AgentAction.REJECT, AgentAction.HOLD, AgentAction.FLAT}
+)
+
+
+class Severity(StrEnum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    URGENT = "URGENT"
+    CRITICAL = "CRITICAL"
+
+
+class ProposalType(StrEnum):
+    PARAMETER_CHANGE = "parameter_change"
+    CODE_CHANGE = "code_change"
+    REGIME_ADJUSTMENT = "regime_adjustment"
+    SIGNAL_WEIGHT_REDUCTION = "signal_weight_reduction"
+    AGENT_SUSPENSION = "agent_suspension"
+    AGENT_RETIREMENT = "agent_retirement"
+
+
+class ProposalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class LogType(StrEnum):
+    REASONING_SUMMARY = "reasoning_summary"
+    GRADE = "grade"
+    REFLECTION = "reflection"
+    PROPOSAL = "proposal"
+
 
 # Redis key patterns
 REDIS_KEY_PAPER_CASH: Final[str] = "paper:cash"

@@ -7,12 +7,10 @@ import pytest
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
-from api.services.agents.pipeline_agents import (
-    GradeAgent,
-    _normalize_ic,
-    _score_to_grade,
-    _spearman_correlation,
-)
+from api.services.agents.pipeline_agents import GradeAgent
+from api.services.agents.scoring import normalize_ic as _normalize_ic
+from api.services.agents.scoring import score_to_grade as _score_to_grade
+from api.services.agents.scoring import spearman_correlation as _spearman_correlation
 
 # Applied per-function for async tests; sync helper tests do not carry this mark.
 
@@ -214,13 +212,13 @@ def test_compute_accuracy(grade_agent):
     for pnl in [10.0, -5.0, 20.0, -3.0, 15.0]:
         grade_agent._pnl_buffer.append(pnl)
 
-    accuracy = grade_agent._compute_accuracy(lookback_n=5)
+    accuracy = grade_agent._win_rate(lookback_n=5)
     assert accuracy == pytest.approx(3 / 5)
 
 
 def test_compute_accuracy_empty_buffer(grade_agent):
     """Empty buffer returns neutral default of 0.5."""
-    accuracy = grade_agent._compute_accuracy(lookback_n=20)
+    accuracy = grade_agent._win_rate(lookback_n=20)
     assert accuracy == pytest.approx(0.5)
 
 

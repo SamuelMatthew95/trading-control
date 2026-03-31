@@ -140,7 +140,7 @@ def _valid_summary(action="buy"):
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_fallback_when_no_llm_key(mock_embed, mock_call_llm, agent, mock_bus, mock_redis):
     """When LLM call raises (simulating missing key), agent falls back gracefully."""
     mock_embed.return_value = [0.1] * 1536
@@ -160,7 +160,7 @@ async def test_fallback_when_no_llm_key(mock_embed, mock_call_llm, agent, mock_b
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_processes_signal_event_publishes_order_for_buy(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
@@ -174,7 +174,7 @@ async def test_processes_signal_event_publishes_order_for_buy(
         _MockSessionFactory(),
     ):
         with patch(
-            "api.services.agents.reasoning_agent.ReasoningAgent._search_vector_memory",
+            "api.services.agents.vector_helpers.search_vector_memory",
             AsyncMock(return_value=[]),
         ):
             await agent.process(_make_signal("buy"))
@@ -191,7 +191,7 @@ async def test_processes_signal_event_publishes_order_for_buy(
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_hold_action_no_order_published(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
@@ -205,7 +205,7 @@ async def test_hold_action_no_order_published(
         _MockSessionFactory(),
     ):
         with patch(
-            "api.services.agents.reasoning_agent.ReasoningAgent._search_vector_memory",
+            "api.services.agents.vector_helpers.search_vector_memory",
             AsyncMock(return_value=[]),
         ):
             await agent.process(_make_signal("hold"))
@@ -216,7 +216,7 @@ async def test_hold_action_no_order_published(
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_reject_action_no_order_published(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
@@ -230,7 +230,7 @@ async def test_reject_action_no_order_published(
         _MockSessionFactory(),
     ):
         with patch(
-            "api.services.agents.reasoning_agent.ReasoningAgent._search_vector_memory",
+            "api.services.agents.vector_helpers.search_vector_memory",
             AsyncMock(return_value=[]),
         ):
             await agent.process(_make_signal("reject"))
@@ -240,7 +240,7 @@ async def test_reject_action_no_order_published(
 
 
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_token_budget_check_skips_llm(mock_embed, mock_call_llm, agent, mock_bus, mock_redis):
     """When daily token budget is at max, LLM is skipped and fallback is used."""
     mock_embed.return_value = [0.1] * 1536
@@ -253,7 +253,7 @@ async def test_token_budget_check_skips_llm(mock_embed, mock_call_llm, agent, mo
         _MockSessionFactory(),
     ):
         with patch(
-            "api.services.agents.reasoning_agent.ReasoningAgent._search_vector_memory",
+            "api.services.agents.vector_helpers.search_vector_memory",
             AsyncMock(return_value=[]),
         ):
             await agent.process(_make_signal())
@@ -267,7 +267,7 @@ async def test_token_budget_check_skips_llm(mock_embed, mock_call_llm, agent, mo
 
 
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_vector_memory_search_failure_graceful(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
@@ -284,10 +284,8 @@ async def test_vector_memory_search_failure_graceful(
             "api.services.agents.reasoning_agent.AsyncSessionFactory",
             _MockSessionFactory(),
         ),
-        patch.object(
-            ReasoningAgent,
-            "_search_vector_memory",
-            AsyncMock(return_value=[]),
+        patch(
+            "api.services.agents.vector_helpers.search_vector_memory", AsyncMock(return_value=[])
         ),
     ):
         # Should not raise — vector search failure is gracefully handled
@@ -299,7 +297,7 @@ async def test_vector_memory_search_failure_graceful(
 
 
 @patch("api.services.agents.reasoning_agent.call_llm")
-@patch("api.services.agents.reasoning_agent.ReasoningAgent._embed_text")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_publishes_to_agent_logs(mock_embed, mock_call_llm, agent, mock_bus, mock_redis):
     """After processing a signal, agent publishes to 'agent_logs' stream."""
     mock_embed.return_value = [0.1] * 1536
@@ -311,7 +309,7 @@ async def test_publishes_to_agent_logs(mock_embed, mock_call_llm, agent, mock_bu
         _MockSessionFactory(),
     ):
         with patch(
-            "api.services.agents.reasoning_agent.ReasoningAgent._search_vector_memory",
+            "api.services.agents.vector_helpers.search_vector_memory",
             AsyncMock(return_value=[]),
         ):
             await agent.process(_make_signal("sell"))

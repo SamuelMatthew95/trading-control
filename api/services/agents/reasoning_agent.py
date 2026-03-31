@@ -1,55 +1,53 @@
-"""Structured reasoning agent for signal summaries."""
+"""Reasoning agent: makes trading decisions using LLM analysis of signals."""
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
 
-import aiohttp
 from sqlalchemy import text
 
 from api.config import settings
+from api.constants import NO_ORDER_ACTIONS, AgentAction
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agents.db_helpers import get_last_reflection, write_agent_log
+from api.services.agents.vector_helpers import (
+    build_vector_literal,
+    embed_text,
+    search_vector_memory,
+)
 from api.services.llm_router import call_llm
-
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
-EMBED_DIMENSIONS = 1536
 
 
 class ReasoningAgent(BaseStreamConsumer):
+    """Listens on the ``signals`` stream and publishes orders based on LLM decisions."""
+
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client):
         super().__init__(
             bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="reasoning-agent"
         )
         self.redis = redis_client
 
-    def _json_expr(self, field: str) -> str:
-        return f"CAST(:{field} AS JSONB)"
-
-    def _vector_expr(self) -> str:
-        return "CAST(:embedding AS vector)"
-
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
         trace_id = str(uuid.uuid4())
-        budget_key = f"llm:tokens:{today}"
-        budget_used = int(await self.redis.get(budget_key) or 0)
-        signal_summary = self._summarize_signal(data)
-        embedding = await self._embed_text(signal_summary)
+
+        budget_used = int(await self.redis.get(f"llm:tokens:{today}") or 0)
+        signal_summary = self._build_signal_summary(data)
+        embedding = await embed_text(signal_summary)
+
         try:
-            similar_trades = await self._search_vector_memory(embedding)
+            similar_trades = await search_vector_memory(embedding)
         except Exception:
             log_structured("warning", "vector_memory_search_failed", exc_info=True)
             similar_trades = []
+
         fallback_reason = None
         if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             fallback_reason = "budget_exceeded"
@@ -57,7 +55,7 @@ class ReasoningAgent(BaseStreamConsumer):
             tokens_used, cost_usd = 0, 0.0
         else:
             try:
-                summary, tokens_used, cost_usd = await self._call_reasoning_model(
+                summary, tokens_used, cost_usd = await self._call_llm(
                     data, similar_trades, trace_id
                 )
             except Exception as exc:  # noqa: BLE001
@@ -68,48 +66,45 @@ class ReasoningAgent(BaseStreamConsumer):
         async with AsyncSessionFactory() as session:
             async with session.begin():
                 await self._store_agent_run(
-                    data,
-                    summary,
-                    trace_id,
-                    fallback_reason is not None,
-                    session=session,
+                    data, summary, trace_id, fallback_reason is not None, session
                 )
-                await self._store_agent_log(trace_id, summary, fallback_reason, session=session)
-                await self._store_cost_tracking(today, tokens_used, cost_usd, session=session)
+                await self._store_cost_tracking(today, tokens_used, cost_usd, session)
 
-        # Vector memory is best-effort — run in its own session so failures don't
-        # abort the main transaction or cause the message to retry.
+        await write_agent_log(
+            trace_id, "reasoning_summary", {**summary, "fallback_reason": fallback_reason}
+        )
+
+        # Vector memory is best-effort — separate session so failures do not abort the main write
         try:
             async with AsyncSessionFactory() as vm_session:
                 async with vm_session.begin():
-                    await self._store_vector_memory(
-                        signal_summary, embedding, summary, session=vm_session
-                    )
+                    await self._store_vector_memory(signal_summary, embedding, summary, vm_session)
         except Exception:
-            pass  # Already logged inside _store_vector_memory
+            pass
 
         log_structured(
-            "info",
-            "agent_transaction_success",
-            trace_id=trace_id,
-            action=summary.get("action"),
+            "info", "agent_transaction_success", trace_id=trace_id, action=summary.get("action")
         )
 
-        await self.redis.incrby(budget_key, tokens_used)
+        await self.redis.incrby(f"llm:tokens:{today}", tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
 
-        # Event-driven: trigger cost update immediately
-        # This replaces polling - cost updates happen instantly when LLM is used
+        # Publish live cost metric for WebSocket dashboard clients
         try:
-            from api.main import on_llm_cost_updated
-
             current_cost = float(await self.redis.get(f"llm:cost:{today}") or 0.0)
-            await on_llm_cost_updated(self.bus, self.redis, current_cost)
+            await self.bus.publish(
+                "system_metrics",
+                {
+                    "type": "system_metric",
+                    "metric_name": "llm_cost_today",
+                    "value": current_cost,
+                    "source": "reasoning_agent",
+                },
+            )
         except Exception:
-            pass  # Don't let monitoring break processing
+            pass
 
-        # Cache updated budget to avoid redundant Redis calls
-        updated_budget = int(await self.redis.get(budget_key) or 0)
+        updated_budget = int(await self.redis.get(f"llm:tokens:{today}") or 0)
         if updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             await self.bus.publish(
                 "risk_alerts",
@@ -120,18 +115,14 @@ class ReasoningAgent(BaseStreamConsumer):
                     "limit": settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
                 },
             )
+
         await self.bus.publish(
             "agent_logs",
-            {
-                "type": "agent_log",
-                "msg_id": str(uuid.uuid4()),
-                "source": "reasoning",
-                **summary,
-            },
+            {"type": "agent_log", "msg_id": str(uuid.uuid4()), "source": "reasoning", **summary},
         )
-        # Normalize action to lowercase for consistent comparison
+
         action = summary.get("action", "").lower()
-        if action not in {"reject", "hold", "flat"}:
+        if action not in NO_ORDER_ACTIONS:
             await self.bus.publish(
                 "orders",
                 {
@@ -147,7 +138,11 @@ class ReasoningAgent(BaseStreamConsumer):
                 },
             )
 
-    def _summarize_signal(self, data: dict[str, Any]) -> str:
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_signal_summary(self, data: dict[str, Any]) -> str:
         return json.dumps(
             {
                 "symbol": data.get("symbol"),
@@ -160,64 +155,7 @@ class ReasoningAgent(BaseStreamConsumer):
             default=str,
         )
 
-    async def _embed_text(self, text_value: str) -> list[float]:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=settings.LLM_TIMEOUT_SECONDS)
-            ) as session:
-                async with session.post(
-                    OPENAI_EMBEDDING_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": "text-embedding-3-small", "input": text_value},
-                ) as response:
-                    if response.status >= 400:
-                        raise RuntimeError(f"Embedding API failed with status {response.status}")
-                    payload = await response.json()
-                    return payload["data"][0]["embedding"]
-        digest = hashlib.sha256(text_value.encode("utf-8")).digest()
-        values = []
-        while len(values) < EMBED_DIMENSIONS:
-            for byte in digest:
-                values.append(round(byte / 255, 6))
-                if len(values) == EMBED_DIMENSIONS:
-                    break
-        return values
-
-    async def _search_vector_memory(self, embedding: list[float]) -> list[dict[str, Any]]:
-        vector_literal = self._vector_literal(embedding)
-        query = text(f"""
-SELECT id, content, metadata_, outcome,
-       1 - (embedding <=> {self._vector_expr()}) AS sim
-FROM vector_memory
-ORDER BY embedding <=> {self._vector_expr()}
-LIMIT 5
-""")
-        try:
-            async with AsyncSessionFactory() as session:
-                result = await session.execute(query, {"embedding": vector_literal})
-                return [
-                    {
-                        "id": str(row["id"]),
-                        "content": row["content"],
-                        "metadata": row["metadata_"],
-                        "outcome": row["outcome"],
-                        "sim": float(row["sim"]),
-                    }
-                    for row in result.mappings().all()
-                ]
-        except Exception:  # noqa: BLE001
-            log_structured(
-                "error",
-                "vector_memory_search_failed",
-                exc_info=True,
-            )
-            return []
-
-    async def _call_reasoning_model(
+    async def _call_llm(
         self, data: dict[str, Any], similar_trades: list[dict[str, Any]], trace_id: str
     ) -> tuple[dict[str, Any], int, float]:
         prompt = json.dumps({"signal": data, "similar_trades": similar_trades}, default=str)
@@ -228,16 +166,23 @@ LIMIT 5
     ) -> dict[str, Any]:
         base_action = str(data.get("action") or data.get("signal") or "hold").lower()
         composite_score = float(data.get("composite_score", 0.0) or 0.0)
+
         if settings.LLM_FALLBACK_MODE == "reject_signal":
             action = "reject"
         elif settings.LLM_FALLBACK_MODE == "use_last_reflection":
-            reflection = await self._get_last_reflection()
-            # Extract proper action from reflection, not sizing_recommendation
+            reflection = await get_last_reflection()
             action = reflection.get("action", base_action) if reflection else base_action
-            if action not in {"buy", "sell", "hold", "reject"}:
+            valid_actions = {
+                AgentAction.BUY,
+                AgentAction.SELL,
+                AgentAction.HOLD,
+                AgentAction.REJECT,
+            }
+            if action not in valid_actions:
                 action = base_action if base_action not in {"none", ""} else "hold"
         else:
             action = base_action if base_action not in {"none", ""} else "hold"
+
         return {
             "action": action,
             "confidence": round(max(composite_score, 0.1), 4),
@@ -252,29 +197,6 @@ LIMIT 5
             "fallback": True,
         }
 
-    async def _get_last_reflection(self) -> dict[str, Any]:
-        try:
-            async with AsyncSessionFactory() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT payload FROM agent_logs WHERE log_type = 'reflection' ORDER BY created_at DESC LIMIT 1"
-                    )
-                )
-                row = result.first()
-                if row is None:
-                    return {}
-                payload = row[0]
-                if isinstance(payload, str):
-                    return json.loads(payload)
-                return payload or {}
-        except Exception:  # noqa: BLE001
-            log_structured(
-                "error",
-                "get_last_reflection_failed",
-                exc_info=True,
-            )
-            return {}
-
     async def _store_agent_run(
         self,
         data: dict[str, Any],
@@ -283,47 +205,20 @@ LIMIT 5
         fallback: bool,
         session,
     ) -> None:
-        query = text(f"""
-INSERT INTO agent_runs (
-    strategy_id,
-    symbol,
-    signal_data,
-    action,
-    confidence,
-    primary_edge,
-    risk_factors,
-    size_pct,
-    stop_atr_x,
-    rr_ratio,
-    latency_ms,
-    cost_usd,
-    trace_id,
-    fallback
-)
-VALUES (
-    :strategy_id,
-    :symbol,
-    {self._json_expr("signal_data")},
-    :action,
-    :confidence,
-    :primary_edge,
-    {self._json_expr("risk_factors")},
-    :size_pct,
-    :stop_atr_x,
-    :rr_ratio,
-    :latency_ms,
-    :cost_usd,
-    :trace_id,
-    :fallback
-)
-RETURNING id
-""")
         try:
-            result = await session.execute(
-                query,
+            await session.execute(
+                text("""
+                    INSERT INTO agent_runs (
+                        strategy_id, symbol, signal_data, action, confidence,
+                        primary_edge, risk_factors, size_pct, stop_atr_x, rr_ratio,
+                        latency_ms, cost_usd, trace_id, fallback
+                    ) VALUES (
+                        :strategy_id, :symbol, CAST(:signal_data AS JSONB), :action, :confidence,
+                        :primary_edge, CAST(:risk_factors AS JSONB), :size_pct, :stop_atr_x,
+                        :rr_ratio, :latency_ms, :cost_usd, :trace_id, :fallback
+                    ) RETURNING id
+                """),
                 {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": "reasoning",
                     "strategy_id": data.get("strategy_id"),
                     "symbol": data.get("symbol"),
                     "signal_data": json.dumps(data, default=str),
@@ -340,46 +235,34 @@ RETURNING id
                     "fallback": fallback,
                 },
             )
-            result.scalar()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log_structured("error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id)
             raise
 
     async def _store_vector_memory(
         self, content: str, embedding: list[float], summary: dict[str, Any], session
     ) -> None:
-        query = text(f"""
-INSERT INTO vector_memory (
-    content,
-    embedding,
-    metadata_,
-    outcome
-)
-VALUES (
-    :content,
-    {self._vector_expr()},
-    {self._json_expr("metadata")},
-    {self._json_expr("outcome")}
-)
-RETURNING id
-""")
         try:
-            result = await session.execute(
-                query,
+            await session.execute(
+                text("""
+                    INSERT INTO vector_memory (content, embedding, metadata_, outcome)
+                    VALUES (
+                        :content,
+                        CAST(:embedding AS vector),
+                        CAST(:metadata AS JSONB),
+                        CAST(:outcome AS JSONB)
+                    ) RETURNING id
+                """),
                 {
                     "content": content,
-                    "embedding": self._vector_literal(embedding),
+                    "embedding": build_vector_literal(embedding),
                     "metadata": json.dumps({"trace_id": summary["trace_id"]}),
                     "outcome": json.dumps(
-                        {
-                            "action": summary["action"],
-                            "confidence": summary["confidence"],
-                        }
+                        {"action": summary["action"], "confidence": summary["confidence"]}
                     ),
                 },
             )
-            result.scalar()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log_structured(
                 "error",
                 "vector_memory_insert_failed",
@@ -387,60 +270,17 @@ RETURNING id
                 trace_id=summary.get("trace_id"),
             )
 
-    async def _store_agent_log(
-        self,
-        trace_id: str,
-        summary: dict[str, Any],
-        fallback_reason: str | None,
-        session,
-    ) -> None:
-        query = text(f"""
-INSERT INTO agent_logs (
-    trace_id,
-    log_type,
-    payload
-)
-VALUES (
-    :trace_id,
-    :log_type,
-    {self._json_expr("payload")}
-)
-RETURNING id
-""")
-        try:
-            result = await session.execute(
-                query,
-                {
-                    "trace_id": trace_id,
-                    "log_type": "reasoning_summary",
-                    "payload": json.dumps(
-                        {**summary, "fallback_reason": fallback_reason}, default=str
-                    ),
-                },
-            )
-            result.scalar()
-        except Exception:  # noqa: BLE001
-            log_structured("error", "agent_log_insert_failed", exc_info=True, trace_id=trace_id)
-            raise
-
     async def _store_cost_tracking(
         self, today: str, tokens_used: int, cost_usd: float, session
     ) -> None:
         try:
-            result = await session.execute(
-                text(
-                    "INSERT INTO llm_cost_tracking (date, tokens_used, cost_usd) VALUES (:date, :tokens_used, :cost_usd) RETURNING id"
-                ),
+            await session.execute(
+                text("""
+                    INSERT INTO llm_cost_tracking (date, tokens_used, cost_usd)
+                    VALUES (:date, :tokens_used, :cost_usd) RETURNING id
+                """),
                 {"date": today, "tokens_used": tokens_used, "cost_usd": cost_usd},
             )
-            result.scalar()
-        except Exception:  # noqa: BLE001
-            log_structured(
-                "error",
-                "cost_tracking_insert_failed",
-                exc_info=True,
-            )
+        except Exception:
+            log_structured("error", "cost_tracking_insert_failed", exc_info=True)
             raise
-
-    def _vector_literal(self, embedding: list[float]) -> str:
-        return "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"

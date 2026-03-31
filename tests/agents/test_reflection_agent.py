@@ -359,7 +359,7 @@ class TestParseReflectionResponse:
 
     def test_valid_json(self, parser):
         """Valid JSON is parsed and all required keys are present."""
-        parsed = parser._parse_reflection_response(_valid_reflection_json())
+        parsed = parser._parse_llm_response(_valid_reflection_json())
         assert parsed["winning_factors"] == ["composite_score", "momentum"]
         assert len(parsed["hypotheses"]) == 1
         assert parsed["summary"] == "Momentum strategy performing well."
@@ -367,13 +367,13 @@ class TestParseReflectionResponse:
     def test_strips_markdown_fences(self, parser):
         """JSON wrapped in markdown code fences is parsed correctly."""
         fenced = "```json\n" + _valid_reflection_json() + "\n```"
-        parsed = parser._parse_reflection_response(fenced)
+        parsed = parser._parse_llm_response(fenced)
         assert "winning_factors" in parsed
         assert parsed["winning_factors"] == ["composite_score", "momentum"]
 
     def test_falls_back_on_invalid_json(self, parser):
         """Garbage LLM output falls back to _FALLBACK_REFLECTION defaults."""
-        parsed = parser._parse_reflection_response("not valid json at all @@##")
+        parsed = parser._parse_llm_response("not valid json at all @@##")
         assert "winning_factors" in parsed
         assert "hypotheses" in parsed
         assert parsed["hypotheses"] == []
