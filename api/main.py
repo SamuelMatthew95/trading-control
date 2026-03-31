@@ -35,10 +35,10 @@ from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
     NotificationAgent,
-    ReasoningAgent,
     ReflectionAgent,
     StrategyProposer,
 )
+from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
