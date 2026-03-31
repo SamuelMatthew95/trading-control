@@ -40,7 +40,7 @@ ruff check . --select=E9,F63,F7,F82   # Critical errors
 pytest tests/ -v --tb=short          # All tests pass
 ```
 
-## Referenced Documentation
+## Additional Rules (Always Loaded)
 @./claude/rules/memory-trading.md     # Alpaca trading specifics
 @./claude/rules/memory-agents.md      # Agent hand-off protocols  
 @./claude/rules/memory-logging.md     # Trace ID & logging standards
