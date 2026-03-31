@@ -1,0 +1,40 @@
+# Windsurf Configuration
+- Primary Rules: Follow all instructions in `.claude/rules/`.
+- Project Context: This is the `trading-control` Python project.
+- Standards: Prioritize the Clean Code and Safety rules defined in your Claude setup.
+
+## Key Project Rules from .claude/rules/
+
+### CI/CD Requirements (from .claude/rules/memory-cicd.md)
+- Always run `ruff check . --fix` before commits
+- Use `ruff format --check .` for formatting validation
+- Include `schema_version="v3"` in all database writes
+- Test files must follow pattern: `tests/test_{module_name}.py`
+- No print statements or hardcoded URLs in production code
+
+### Trading System Rules (from .claude/rules/memory-trading.md)
+- ALWAYS use `ALPACA_PAPER=true` during development
+- Every order requires unique `client_order_id` with trace_id
+- Redis is the source of truth for positions and orders
+- Max 5% portfolio risk per trade, 10% per symbol
+- Use SafeWriter for all order database operations
+
+## Development Standards
+- Python FastAPI backend with async/await patterns
+- React frontend with TypeScript
+- PostgreSQL database with SQLAlchemy
+- Redis for real-time state management
+- Structured logging with `log_structured()`
+
+## Safety & Error Handling
+- Wrap all Alpaca calls in try/except for `AlpacaAPIError`
+- Use exception chaining with `raise ... from None`
+- Implement exponential backoff for network retries
+- Validate all external inputs and market data
+
+## Project Structure
+- `api/` - FastAPI backend code
+- `frontend/` - React TypeScript frontend  
+- `tests/` - Pytest test suite
+- `.claude/` - Claude Code rules and memory
+- `docs/` - Project documentation
