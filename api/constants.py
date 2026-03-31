@@ -4,8 +4,16 @@ Application constants and configuration values.
 Use the StrEnum classes for all string comparisons in domain logic — no bare string literals.
 """
 
-from enum import StrEnum
+import sys
 from typing import Final
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from enum import Enum
+
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        """Backport of StrEnum for Python 3.10."""
 
 # ---------------------------------------------------------------------------
 # Domain enums — import and compare against these, not bare strings
