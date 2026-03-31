@@ -36,6 +36,7 @@
       "Bash(rm -rf:*)",
       "Bash(drop table:*)",
       "Bash(dropdb:*)"
-    ]
+    ],
+    "autoApprove": ["read_file", "list_files", "list_dir", "find_by_name", "grep_search"]
   }
 }
