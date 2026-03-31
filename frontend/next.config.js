@@ -30,6 +30,17 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react'],
   },
+  async rewrites() {
+    // Strip whitespace and trailing slashes/paths — we only need the origin
+    const raw = (process.env.NEXT_PUBLIC_API_URL || 'https://trading-control.onrender.com').trim();
+    const backendOrigin = raw.replace(/\/api\/?$/, '').replace(/\/$/, '');
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${backendOrigin}/api/:path*`,
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
