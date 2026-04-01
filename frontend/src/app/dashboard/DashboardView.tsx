@@ -610,8 +610,7 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchTradeFeed = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || ''
-        const r = await fetch(`${base}/api/dashboard/trade-feed`)
+        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_TRADE_FEED))
         const d = await r.json()
         useCodexStore.getState().setTradeFeed(d.trades ?? [])
       } catch {
@@ -627,8 +626,7 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchPerformance = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || ''
-        const r = await fetch(`${base}/api/dashboard/performance-trends`)
+        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
         const d = await r.json()
         if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
       } catch {
@@ -642,8 +640,7 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchAgentInstances = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || ''
-        const r = await fetch(`${base}/api/dashboard/agent-instances`)
+        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
         const d = await r.json()
         useCodexStore.getState().setAgentInstances(d.instances ?? [])
       } catch {
