@@ -286,6 +286,30 @@ class WebSocketManager {
           confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
           timestamp: msg.timestamp || new Date().toISOString(),
         })
+      } else if (msg.stream === 'trade_lifecycle') {
+        // Live trade fill / grade update pushed from execution_engine / grade_agent
+        const raw = msg as unknown as Record<string, unknown>
+        store.addTradeFeedItem({
+          id: (raw.id as string | null) ?? String(Date.now()),
+          symbol: String(raw.symbol ?? ''),
+          side: (raw.side as 'buy' | 'sell') ?? 'buy',
+          qty: typeof raw.qty === 'number' ? raw.qty : null,
+          entry_price: typeof raw.entry_price === 'number' ? raw.entry_price : null,
+          exit_price: typeof raw.exit_price === 'number' ? raw.exit_price : null,
+          pnl: typeof raw.pnl === 'number' ? raw.pnl : null,
+          pnl_percent: typeof raw.pnl_percent === 'number' ? raw.pnl_percent : null,
+          order_id: (raw.order_id as string | null) ?? null,
+          execution_trace_id: (raw.execution_trace_id as string | null) ?? null,
+          signal_trace_id: (raw.signal_trace_id as string | null) ?? null,
+          grade: (raw.grade as string | null) ?? null,
+          grade_score: typeof raw.grade_score === 'number' ? raw.grade_score : null,
+          grade_label: (raw.grade_label as string | null) ?? null,
+          status: String(raw.status ?? 'filled'),
+          filled_at: (raw.filled_at as string | null) ?? null,
+          graded_at: (raw.graded_at as string | null) ?? null,
+          reflected_at: (raw.reflected_at as string | null) ?? null,
+          created_at: msg.timestamp ?? new Date().toISOString(),
+        })
       } else if (msg.stream === 'agent_grades' || msg.stream === 'reflection_outputs') {
         store.addLearningEvent({
           type: msg.stream === 'agent_grades' ? 'trade_evaluated' : 'reflection',

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
@@ -14,6 +14,23 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     learningEvents: [],
     dashboardData: null,
     proposals: [],
+    tradeFeed: [],
+    agentInstances: [],
+    performanceSummary: null,
+    dailyPnl: [],
+    notifications: [],
+    recentEvents: [],
+    streamStats: {},
+    agentStatuses: [],
+    marketTickCount: 0,
+    lastMarketSymbol: null,
+    wsMessageCount: 0,
+    wsLastMessageTimestamp: null,
+    acknowledgeNotification: vi.fn(),
+    updateProposalStatus: vi.fn(),
+    setTradeFeed: vi.fn(),
+    setAgentInstances: vi.fn(),
+    setPerformanceSummary: vi.fn(),
     addProposal: vi.fn(),
     fetchPrices: vi.fn().mockResolvedValue(undefined),
   }
@@ -34,6 +51,13 @@ vi.mock('@/components/MobileNavigation', () => ({
 }), { virtual: true })
 
 import { DashboardView } from '@/app/dashboard/DashboardView'
+
+beforeAll(() => {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({}),
+  }) as unknown as typeof fetch
+})
 
 describe('DashboardView — overview', () => {
   beforeEach(() => {

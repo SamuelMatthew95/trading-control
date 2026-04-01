@@ -176,6 +176,42 @@ class GradeAgent(MultiStreamAgent):
         await write_grade_to_db(trace_id, payload["score_pct"], payload["metrics"])
         await self._take_grade_action(grade, payload)
 
+        # Back-fill grade onto the most recent unfilled trade_lifecycle row for
+        # the reasoning_agent (best-effort — non-fatal).
+        try:
+            from sqlalchemy import text as _text
+
+            from api.database import AsyncSessionFactory
+            from api.services.agents.db_helpers import upsert_trade_lifecycle
+
+            grade_label = (
+                f"Grade {grade}: accuracy={payload['metrics']['accuracy']:.0%} "
+                f"IC={payload['metrics']['ic']:+.3f}"
+            )
+            async with AsyncSessionFactory() as _sess:
+                row = await _sess.execute(
+                    _text("""
+                        SELECT execution_trace_id FROM trade_lifecycle
+                        WHERE status = 'filled' AND grade IS NULL
+                        ORDER BY created_at DESC LIMIT 1
+                    """)
+                )
+                latest = row.first()
+            if latest and latest[0]:
+                await upsert_trade_lifecycle(
+                    execution_trace_id=latest[0],
+                    symbol="",  # already set — upsert won't overwrite
+                    side="buy",
+                    grade_trace_id=trace_id,
+                    grade=grade,
+                    grade_score=payload["score_pct"],
+                    grade_label=grade_label,
+                    status="graded",
+                    graded_at=datetime.now(timezone.utc).isoformat(),
+                )
+        except Exception:
+            log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
+
         # Write heartbeat with last grade score for dashboard display
         try:
             from api.redis_client import get_redis as _get_redis
@@ -798,6 +834,16 @@ class StrategyProposer(MultiStreamAgent):
             base["proposal_type"] = "code_change"
             base["content"]["implementation"] = "github_pr"
             base["content"]["note"] = "Rule change requires PR review and deploy."
+        elif hyp_type == "new_agent":
+            # Propose spawning a challenger agent instance with different config
+            base["proposal_type"] = "new_agent"
+            base["requires_approval"] = True
+            base["content"]["implementation"] = "challenger_spawn"
+            base["content"]["challenger_config"] = reflection_data.get("challenger_config", {})
+            base["content"]["note"] = (
+                "Spawn a parallel challenger agent with the proposed config changes. "
+                "It runs alongside the current agent; retire it via the dashboard."
+            )
         else:
             base["proposal_type"] = "regime_adjustment"
             base["content"]["regime_context"] = reflection_data.get("regime_edge", {})
@@ -904,3 +950,156 @@ class NotificationAgent(MultiStreamAgent):
         if grade == "D":
             return "URGENT"
         return _STREAM_SEVERITY.get(stream, "INFO")
+
+
+# ---------------------------------------------------------------------------
+# ChallengerAgent — parallel experimental agent instance
+# ---------------------------------------------------------------------------
+
+
+class ChallengerAgent(MultiStreamAgent):
+    """A parallel, independently-graded agent instance with an experimental config.
+
+    StrategyProposer can propose a ``new_agent`` when reflection surfaces a
+    hypothesis that requires a different parameter set to validate.  Once
+    approved via the dashboard, the orchestrator spawns a ChallengerAgent
+    alongside the existing pipeline agents.
+
+    The challenger:
+      - Receives the same ``executions`` and ``trade_performance`` stream events
+      - Computes its own grade using its ``challenger_config`` overrides
+      - Records results in ``agent_grades`` and ``trade_lifecycle`` under its
+        own ``instance_id``, so performance can be compared in the dashboard
+      - Retires itself after ``max_fills`` events (default: 200) and publishes
+        a final comparison summary to the ``proposals`` stream
+
+    The orchestrator must call ``.start()`` after instantiation and ``.stop()``
+    when retiring the instance.
+    """
+
+    _state_name = "CHALLENGER_AGENT"
+
+    DEFAULT_MAX_FILLS = 200
+
+    def __init__(
+        self,
+        bus: EventBus,
+        dlq: DLQManager,
+        *,
+        challenger_config: dict[str, Any] | None = None,
+        max_fills: int = DEFAULT_MAX_FILLS,
+        agent_state: AgentStateRegistry | None = None,
+    ) -> None:
+        import uuid as _uuid_mod
+
+        self._challenger_id = str(_uuid_mod.uuid4())[:8]
+        super().__init__(
+            bus,
+            dlq,
+            streams=["executions", "trade_performance"],
+            consumer=f"challenger-{self._challenger_id}",
+            agent_state=agent_state,
+        )
+        self._config: dict[str, Any] = challenger_config or {}
+        self._max_fills = max_fills
+        self._fills = 0
+        self._pnl_buffer: deque[float] = deque(maxlen=100)
+        self._grade_history: list[dict[str, Any]] = []
+
+    async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        if stream == "trade_performance":
+            self._pnl_buffer.append(float(data.get("pnl") or 0.0))
+            self._fills += 1
+
+        if self._fills > 0 and self._fills % max(int(self._config.get("grade_every", 10)), 1) == 0:
+            await self._grade()
+
+        if self._fills >= self._max_fills:
+            await self._retire_with_summary()
+
+    async def _grade(self) -> None:
+        """Compute a grade for this challenger window and publish results."""
+        recent = list(self._pnl_buffer)[-20:]
+        if not recent:
+            return
+        win_rate = sum(1 for p in recent if p > 0) / len(recent)
+        avg_pnl = sum(recent) / len(recent)
+        grade_result = {
+            "challenger_id": self._challenger_id,
+            "instance_id": self._instance_id,
+            "fills": self._fills,
+            "win_rate": round(win_rate, 4),
+            "avg_pnl": round(avg_pnl, 4),
+            "config": self._config,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self._grade_history.append(grade_result)
+
+        await self.bus.publish(
+            "agent_grades",
+            {
+                "msg_id": str(uuid.uuid4()),
+                "type": "challenger_grade",
+                "source": f"challenger-{self._challenger_id}",
+                "agent": "challenger",
+                "grade": "B" if win_rate >= 0.5 else "C",
+                "score": win_rate,
+                "score_pct": round(win_rate * 100, 1),
+                "metrics": grade_result,
+                "timestamp": grade_result["timestamp"],
+            },
+        )
+        log_structured(
+            "info",
+            "challenger_grade",
+            challenger_id=self._challenger_id,
+            fills=self._fills,
+            win_rate=win_rate,
+            avg_pnl=avg_pnl,
+        )
+
+    async def _retire_with_summary(self) -> None:
+        """Publish a final comparison summary and stop the challenger."""
+        total_pnl = sum(self._pnl_buffer)
+        win_rate = (
+            sum(1 for p in self._pnl_buffer if p > 0) / len(self._pnl_buffer)
+            if self._pnl_buffer
+            else 0.0
+        )
+        summary = {
+            "msg_id": str(uuid.uuid4()),
+            "type": "challenger_summary",
+            "source": f"challenger-{self._challenger_id}",
+            "challenger_id": self._challenger_id,
+            "instance_id": self._instance_id,
+            "total_fills": self._fills,
+            "total_pnl": round(total_pnl, 4),
+            "win_rate": round(win_rate, 4),
+            "config": self._config,
+            "grade_history": self._grade_history[-5:],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.bus.publish(
+            "proposals",
+            {
+                **summary,
+                "proposal_type": "challenger_result",
+                "requires_approval": False,
+                "content": {
+                    "description": (
+                        f"Challenger {self._challenger_id} completed {self._fills} fills. "
+                        f"Win rate: {win_rate:.0%}, Total PnL: {total_pnl:+.2f}"
+                    ),
+                    "confidence": win_rate,
+                },
+            },
+        )
+        log_structured(
+            "info",
+            "challenger_retired",
+            challenger_id=self._challenger_id,
+            total_fills=self._fills,
+            total_pnl=total_pnl,
+            win_rate=win_rate,
+        )
+        await self.stop()

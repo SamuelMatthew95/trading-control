@@ -211,6 +211,50 @@ class ExecutionEngine(BaseStreamConsumer):
             realized_pnl=realized_pnl,
             trace_id=trace_id,
         )
+
+        # Persist end-to-end trade lifecycle row (best-effort, never raises)
+        try:
+            from api.services.agents.db_helpers import upsert_trade_lifecycle
+
+            await upsert_trade_lifecycle(
+                execution_trace_id=trace_id,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                entry_price=entry_price,
+                exit_price=fill_price,
+                pnl=realized_pnl,
+                pnl_percent=pnl_percent,
+                order_id=order_id,
+                status="filled",
+                filled_at=filled_at.isoformat(),
+            )
+        except Exception:
+            log_structured(
+                "warning", "trade_lifecycle_write_failed", trace_id=trace_id, exc_info=True
+            )
+
+        # Broadcast fill to dashboard WS so trade feed updates live
+        await self.bus.publish(
+            "trade_lifecycle",
+            {
+                "type": "trade_filled",
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "entry_price": entry_price,
+                "exit_price": fill_price,
+                "pnl": realized_pnl,
+                "pnl_percent": pnl_percent,
+                "order_id": order_id,
+                "execution_trace_id": trace_id,
+                "status": "filled",
+                "filled_at": filled_at.isoformat(),
+                "timestamp": filled_at.isoformat(),
+                "source": "execution_engine",
+            },
+        )
+
         if self.agent_state:
             self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
 

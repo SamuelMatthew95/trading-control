@@ -7,6 +7,8 @@ focused on its domain logic rather than raw SQL strings.
 from __future__ import annotations
 
 import json
+import uuid as _uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -115,3 +117,187 @@ async def get_last_reflection() -> dict[str, Any]:
     except Exception:
         log_structured("error", "get_last_reflection_failed", exc_info=True)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Agent instance lifecycle
+# ---------------------------------------------------------------------------
+
+
+async def register_agent_instance(instance_key: str, pool_name: str) -> str:
+    """Insert a new agent_instances row and return its UUID string.
+
+    Called once when an agent process starts.  Each restart produces a new
+    UUID, so retired instances remain in the table for audit purposes.
+    """
+    instance_id = str(_uuid.uuid4())
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO agent_instances
+                        (id, instance_key, pool_name, status, started_at, schema_version)
+                    VALUES
+                        (:id, :key, :pool, 'active', NOW(), 'v3')
+                """),
+                {"id": instance_id, "key": instance_key, "pool": pool_name},
+            )
+            await session.commit()
+    except Exception:
+        log_structured(
+            "warning",
+            "agent_instance_register_failed",
+            instance_key=instance_key,
+            exc_info=True,
+        )
+    return instance_id
+
+
+async def retire_agent_instance(instance_id: str) -> None:
+    """Mark an agent_instances row as retired with the current timestamp."""
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    UPDATE agent_instances
+                    SET status = 'retired', retired_at = NOW()
+                    WHERE id = :id
+                """),
+                {"id": instance_id},
+            )
+            await session.commit()
+    except Exception:
+        log_structured(
+            "warning",
+            "agent_instance_retire_failed",
+            instance_id=instance_id,
+            exc_info=True,
+        )
+
+
+async def increment_instance_event_count(instance_id: str) -> None:
+    """Increment event_count for a running agent instance (best-effort)."""
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    UPDATE agent_instances
+                    SET event_count = event_count + 1
+                    WHERE id = :id AND status = 'active'
+                """),
+                {"id": instance_id},
+            )
+            await session.commit()
+    except Exception:
+        pass  # Non-critical counter — never raise
+
+
+# ---------------------------------------------------------------------------
+# Trade lifecycle
+# ---------------------------------------------------------------------------
+
+
+async def upsert_trade_lifecycle(
+    execution_trace_id: str,
+    *,
+    symbol: str,
+    side: str,
+    qty: float | None = None,
+    entry_price: float | None = None,
+    exit_price: float | None = None,
+    pnl: float | None = None,
+    pnl_percent: float | None = None,
+    order_id: str | None = None,
+    signal_trace_id: str | None = None,
+    decision_trace_id: str | None = None,
+    grade_trace_id: str | None = None,
+    reflection_trace_id: str | None = None,
+    grade: str | None = None,
+    grade_score: float | None = None,
+    grade_label: str | None = None,
+    status: str = "filled",
+    filled_at: str | None = None,
+    graded_at: str | None = None,
+    reflected_at: str | None = None,
+) -> None:
+    """Insert or update one row in trade_lifecycle keyed on execution_trace_id.
+
+    Uses INSERT … ON CONFLICT DO UPDATE so the same trace_id accumulates
+    data as each downstream stage (grade, reflection) completes.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO trade_lifecycle (
+                        id, symbol, side, qty, entry_price, exit_price,
+                        pnl, pnl_percent, order_id,
+                        signal_trace_id, decision_trace_id, execution_trace_id,
+                        grade_trace_id, reflection_trace_id,
+                        grade, grade_score, grade_label,
+                        status, filled_at, graded_at, reflected_at,
+                        schema_version, source, created_at, updated_at
+                    ) VALUES (
+                        gen_random_uuid(), :symbol, :side, :qty,
+                        :entry_price, :exit_price,
+                        :pnl, :pnl_percent, :order_id::uuid,
+                        :signal_trace_id, :decision_trace_id, :execution_trace_id,
+                        :grade_trace_id, :reflection_trace_id,
+                        :grade, :grade_score, :grade_label,
+                        :status,
+                        :filled_at::timestamptz,
+                        :graded_at::timestamptz,
+                        :reflected_at::timestamptz,
+                        'v3', 'execution_engine', NOW(), NOW()
+                    )
+                    ON CONFLICT (execution_trace_id)
+                    DO UPDATE SET
+                        qty              = COALESCE(EXCLUDED.qty,              trade_lifecycle.qty),
+                        entry_price      = COALESCE(EXCLUDED.entry_price,      trade_lifecycle.entry_price),
+                        exit_price       = COALESCE(EXCLUDED.exit_price,       trade_lifecycle.exit_price),
+                        pnl              = COALESCE(EXCLUDED.pnl,              trade_lifecycle.pnl),
+                        pnl_percent      = COALESCE(EXCLUDED.pnl_percent,      trade_lifecycle.pnl_percent),
+                        order_id         = COALESCE(EXCLUDED.order_id,         trade_lifecycle.order_id),
+                        grade_trace_id   = COALESCE(EXCLUDED.grade_trace_id,   trade_lifecycle.grade_trace_id),
+                        reflection_trace_id = COALESCE(EXCLUDED.reflection_trace_id, trade_lifecycle.reflection_trace_id),
+                        grade            = COALESCE(EXCLUDED.grade,            trade_lifecycle.grade),
+                        grade_score      = COALESCE(EXCLUDED.grade_score,      trade_lifecycle.grade_score),
+                        grade_label      = COALESCE(EXCLUDED.grade_label,      trade_lifecycle.grade_label),
+                        status           = EXCLUDED.status,
+                        filled_at        = COALESCE(EXCLUDED.filled_at,        trade_lifecycle.filled_at),
+                        graded_at        = COALESCE(EXCLUDED.graded_at,        trade_lifecycle.graded_at),
+                        reflected_at     = COALESCE(EXCLUDED.reflected_at,     trade_lifecycle.reflected_at),
+                        updated_at       = NOW()
+                """),
+                {
+                    "symbol": symbol,
+                    "side": side.lower(),
+                    "qty": qty,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "pnl": pnl,
+                    "pnl_percent": pnl_percent,
+                    "order_id": order_id,
+                    "signal_trace_id": signal_trace_id,
+                    "decision_trace_id": decision_trace_id,
+                    "execution_trace_id": execution_trace_id,
+                    "grade_trace_id": grade_trace_id,
+                    "reflection_trace_id": reflection_trace_id,
+                    "grade": grade,
+                    "grade_score": grade_score,
+                    "grade_label": grade_label,
+                    "status": status,
+                    "filled_at": filled_at or now_iso,
+                    "graded_at": graded_at,
+                    "reflected_at": reflected_at,
+                },
+            )
+            await session.commit()
+    except Exception:
+        log_structured(
+            "warning",
+            "trade_lifecycle_upsert_failed",
+            execution_trace_id=execution_trace_id,
+            exc_info=True,
+        )

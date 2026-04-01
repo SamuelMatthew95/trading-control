@@ -526,6 +526,15 @@ function ProposalsSection() {
   )
 }
 
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
+
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
@@ -536,6 +545,9 @@ export function DashboardView({ section }: { section: Section }) {
     systemMetrics = [],
     notifications = [],
     proposals = [],
+    tradeFeed = [],
+    agentInstances = [],
+    performanceSummary,
     dashboardData,
     wsConnected,
     marketTickCount,
@@ -590,6 +602,55 @@ export function DashboardView({ section }: { section: Section }) {
     }
     fetchLearning()
     const interval = setInterval(fetchLearning, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch trade feed on mount and every 30s
+  useEffect(() => {
+    const fetchTradeFeed = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || ''
+        const r = await fetch(`${base}/api/dashboard/trade-feed`)
+        const d = await r.json()
+        useCodexStore.getState().setTradeFeed(d.trades ?? [])
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchTradeFeed()
+    const interval = setInterval(fetchTradeFeed, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch performance summary on mount
+  useEffect(() => {
+    const fetchPerformance = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || ''
+        const r = await fetch(`${base}/api/dashboard/performance-trends`)
+        const d = await r.json()
+        if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchPerformance()
+  }, [])
+
+  // Fetch agent instances on mount and every 30s
+  useEffect(() => {
+    const fetchAgentInstances = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || ''
+        const r = await fetch(`${base}/api/dashboard/agent-instances`)
+        const d = await r.json()
+        useCodexStore.getState().setAgentInstances(d.instances ?? [])
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchAgentInstances()
+    const interval = setInterval(fetchAgentInstances, 30_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -715,6 +776,43 @@ export function DashboardView({ section }: { section: Section }) {
             ))}
           </div>
 
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Performance</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                {
+                  label: 'Total P&L',
+                  value: performanceSummary != null
+                    ? `${performanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(performanceSummary.total_pnl)}`
+                    : '--',
+                  colorClass: performanceSummary != null
+                    ? performanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                    : 'text-slate-900 dark:text-slate-100',
+                },
+                {
+                  label: 'Win Rate',
+                  value: performanceSummary != null ? `${(performanceSummary.win_rate * 100).toFixed(1)}%` : '--',
+                  colorClass: 'text-slate-900 dark:text-slate-100',
+                },
+                {
+                  label: 'Best Trade',
+                  value: performanceSummary != null ? `+${formatUSD(performanceSummary.best_trade)}` : '--',
+                  colorClass: 'text-emerald-500',
+                },
+                {
+                  label: 'Worst Trade',
+                  value: performanceSummary != null ? `-${formatUSD(performanceSummary.worst_trade)}` : '--',
+                  colorClass: 'text-rose-500',
+                },
+              ].map((cell) => (
+                <div key={cell.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <p className={mutedClass}>{cell.label}</p>
+                  <p className={cn('mt-1 text-sm font-mono tabular-nums font-semibold', cell.colorClass)}>{cell.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
             <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
               <div className="mb-3 flex items-center justify-between">
@@ -826,6 +924,71 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'trading' && (
         <div className="space-y-4">
+          <div className={cardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className={sectionTitleClass}>Trade Feed</p>
+              <p className={mutedClass}>{tradeFeed.length} fills</p>
+            </div>
+            {tradeFeed.length === 0 ? (
+              <EmptyState message="No fills yet — paper trades execute continuously" icon={Activity} />
+            ) : (
+              <div className="max-h-96 overflow-y-auto space-y-1">
+                {tradeFeed.slice(0, 50).map((trade) => {
+                  const isBuy = trade.side === 'buy'
+                  const pnl = toFiniteNumber(trade.pnl)
+                  const pnlPct = toFiniteNumber(trade.pnl_percent)
+                  const isPnlPositive = (pnl ?? 0) >= 0
+                  const exitPrice = toFiniteNumber(trade.exit_price)
+                  const qty = toFiniteNumber(trade.qty)
+
+                  const GRADE_STYLE: Record<string, string> = {
+                    A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+                    B: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+                    C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                    D: 'bg-rose-500/15 text-rose-500',
+                    F: 'bg-rose-500/15 text-rose-500',
+                  }
+
+                  return (
+                    <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-500')}>
+                          {isBuy ? 'BUY' : 'SELL'}
+                        </span>
+                        <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
+                        <span className={mutedClass}>
+                          {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {pnl != null ? (
+                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
+                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
+                          </span>
+                        ) : (
+                          <span className={mutedClass}>--</span>
+                        )}
+                        {trade.grade && (
+                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', GRADE_STYLE[trade.grade] ?? 'bg-slate-500/15 text-slate-500')}>
+                            {trade.grade}
+                          </span>
+                        )}
+                        {trade.execution_trace_id && (
+                          <button
+                            onClick={() => setActiveTraceId(trade.execution_trace_id!)}
+                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                          >
+                            trace:{trade.execution_trace_id.slice(0, 8)}…
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Agent Thought Stream</p>
@@ -978,6 +1141,45 @@ export function DashboardView({ section }: { section: Section }) {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
+            {agentInstances.length === 0 ? (
+              <EmptyState message="No instances registered yet" icon={Activity} />
+            ) : (
+              <div className="max-h-48 overflow-y-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800">
+                      {['Instance Key', 'Pool', 'Status', 'Events', 'Uptime', 'Started'].map((head) => (
+                        <th key={head} className="px-2 py-1.5 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentInstances.map((inst) => {
+                      const isActive = inst.status === 'active'
+                      return (
+                        <tr key={inst.id} className="border-t border-slate-200 dark:border-slate-800">
+                          <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-100">{inst.instance_key}</td>
+                          <td className="px-2 py-1.5 text-xs font-sans text-slate-600 dark:text-slate-400">{inst.pool_name}</td>
+                          <td className="px-2 py-1.5 text-xs font-sans">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className={cn('h-2 w-2 rounded-full', isActive ? 'bg-emerald-500' : 'bg-slate-400')} />
+                              <span className={isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}>{inst.status}</span>
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-100">{inst.event_count}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{formatUptime(inst.uptime_seconds)}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono text-slate-500">{formatTimestamp(inst.started_at)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />

@@ -64,7 +64,7 @@ export interface Notification {
 }
 
 export type ProposalStatus = 'pending' | 'approved' | 'rejected'
-export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment'
+export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment' | 'new_agent' | 'challenger_result'
 
 export interface Proposal {
   id: string
@@ -112,6 +112,58 @@ export interface AgentStatus {
   last_grade_score?: number
 }
 
+export interface TradeFeedItem {
+  id: string
+  symbol: string
+  side: 'buy' | 'sell'
+  qty: number | null
+  entry_price: number | null
+  exit_price: number | null
+  pnl: number | null
+  pnl_percent: number | null
+  order_id: string | null
+  execution_trace_id: string | null
+  signal_trace_id: string | null
+  grade: string | null
+  grade_score: number | null
+  grade_label: string | null
+  status: string
+  filled_at: string | null
+  graded_at: string | null
+  reflected_at: string | null
+  created_at: string | null
+}
+
+export interface AgentInstance {
+  id: string
+  instance_key: string
+  pool_name: string
+  status: 'active' | 'retired'
+  started_at: string | null
+  retired_at: string | null
+  event_count: number
+  uptime_seconds: number
+}
+
+export interface PerformanceSummary {
+  total_pnl: number
+  total_trades: number
+  win_rate: number
+  avg_win: number
+  avg_loss: number
+  best_trade: number
+  worst_trade: number
+}
+
+export interface DailyPnl {
+  day: string
+  pnl: number
+  trade_count: number
+  wins: number
+  losses: number
+  avg_pnl: number
+}
+
 export interface RecentEvent {
   stream: string
   msgId: string
@@ -150,6 +202,10 @@ type CodexState = {
   riskAlerts: Array<Record<string, unknown>>
   notifications: Notification[]
   proposals: Proposal[]
+  tradeFeed: TradeFeedItem[]
+  agentInstances: AgentInstance[]
+  performanceSummary: PerformanceSummary | null
+  dailyPnl: DailyPnl[]
   learningEvents: LearningEvent[]
   systemMetrics: SystemMetric[]
   dashboardData: DashboardData | null
@@ -167,6 +223,11 @@ type CodexState = {
   pipelineMetrics: Record<string, number>
   setAgentStatuses: (agents: AgentStatus[]) => void
   setPipelineMetrics: (metrics: Record<string, number>) => void
+  setTradeFeed: (trades: TradeFeedItem[]) => void
+  addTradeFeedItem: (trade: TradeFeedItem) => void
+  setAgentInstances: (instances: AgentInstance[]) => void
+  setPerformanceSummary: (summary: PerformanceSummary) => void
+  setDailyPnl: (pnl: DailyPnl[]) => void
   updatePrice: (symbol: string, price: number, change: number) => void
   updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void
   addSignal: (signal: Record<string, unknown>) => void
@@ -201,6 +262,10 @@ export const useCodexStore = create<CodexState>((set) => ({
   riskAlerts: [],
   notifications: [],
   proposals: [],
+  tradeFeed: [],
+  agentInstances: [],
+  performanceSummary: null,
+  dailyPnl: [],
   learningEvents: [],
   systemMetrics: [],
   dashboardData: null,
@@ -226,6 +291,13 @@ export const useCodexStore = create<CodexState>((set) => ({
   pipelineMetrics: {},
   setAgentStatuses: (agentStatuses) => set({ agentStatuses }),
   setPipelineMetrics: (pipelineMetrics) => set({ pipelineMetrics }),
+  setTradeFeed: (tradeFeed) => set({ tradeFeed }),
+  addTradeFeedItem: (trade) => set((state) => ({
+    tradeFeed: [trade, ...state.tradeFeed].slice(0, 200),
+  })),
+  setAgentInstances: (agentInstances) => set({ agentInstances }),
+  setPerformanceSummary: (performanceSummary) => set({ performanceSummary }),
+  setDailyPnl: (dailyPnl) => set({ dailyPnl }),
 
   updatePrice: (symbol, price, change) => set((state) => ({
     prices: {
