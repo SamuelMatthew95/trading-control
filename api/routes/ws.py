@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -12,6 +14,105 @@ from api.events.bus import STREAMS
 from api.observability import log_structured
 
 router = APIRouter(tags=["ws"])
+
+_AGENT_NAMES = [
+    "SIGNAL_AGENT",
+    "REASONING_AGENT",
+    "GRADE_AGENT",
+    "IC_UPDATER",
+    "REFLECTION_AGENT",
+    "STRATEGY_PROPOSER",
+    "NOTIFICATION_AGENT",
+]
+
+_PIPELINE_STREAMS = ["market_events", "signals", "decisions", "graded_decisions"]
+
+
+async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
+    """Fetch full dashboard state (DB rows + Redis prices) on WS connect.
+
+    Returns a dashboard_update message matching the frontend DashboardData
+    type — orders[], positions[], agent_logs[], prices{} — so every client
+    starts with the same consistent view without any REST calls.
+    """
+    from api.database import AsyncSessionFactory
+    from api.services.metrics_aggregator import MetricsAggregator
+
+    async with AsyncSessionFactory() as session:
+        aggregator = MetricsAggregator(session)
+        data = await aggregator.get_raw_snapshot()
+
+    # Enrich with current prices from Redis cache
+    if redis_client is not None:
+        symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
+        keys = [f"prices:{s}" for s in symbols]
+        try:
+            cached_values = await redis_client.mget(keys)
+            prices: dict[str, Any] = {}
+            for symbol, raw in zip(symbols, cached_values, strict=False):
+                if raw:
+                    try:
+                        prices[symbol] = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if prices:
+                data["prices"] = prices
+        except Exception:
+            log_structured("warning", "ws_snapshot_prices_failed", exc_info=True)
+
+    return {
+        "type": "dashboard_update",
+        "data": data,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _build_snapshot(redis_client: Any) -> dict[str, Any]:
+    """Build agent-status + stream-metrics snapshot from Redis (no DB needed)."""
+    now = int(datetime.now(timezone.utc).timestamp())
+    agents = []
+    for name in _AGENT_NAMES:
+        raw = await redis_client.get(f"agent:status:{name}")
+        if raw:
+            data = json.loads(raw)
+            last_seen = data.get("last_seen", 0)
+            age = now - last_seen
+            status = "STALE" if age > 120 else data.get("status", "ACTIVE")
+            agents.append(
+                {
+                    "name": name,
+                    "status": status,
+                    "event_count": data.get("event_count", 0),
+                    "last_event": data.get("last_event", ""),
+                    "last_seen": last_seen,
+                    "seconds_ago": age,
+                }
+            )
+        else:
+            agents.append(
+                {
+                    "name": name,
+                    "status": "WAITING",
+                    "event_count": 0,
+                    "last_event": "",
+                    "last_seen": 0,
+                    "seconds_ago": 0,
+                }
+            )
+
+    metrics: dict[str, int] = {}
+    for stream_name in _PIPELINE_STREAMS:
+        try:
+            metrics[stream_name] = int(await redis_client.xlen(stream_name))
+        except Exception:
+            metrics[stream_name] = 0
+
+    return {
+        "type": "agent_status_update",
+        "agents": agents,
+        "metrics": metrics,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.websocket("/ws/dashboard")
@@ -36,8 +137,23 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             }
         )
     except Exception:
-        # Continue loop; disconnect cleanup happens in finally block.
         pass
+
+    # Send initial snapshots so the frontend never needs a REST fetch on load.
+    # All clients receive the same data → shared consistent view.
+    redis_client = getattr(websocket.app.state, "redis_client", None)
+    if redis_client is not None:
+        try:
+            snapshot = await _build_snapshot(redis_client)
+            await websocket.send_json(snapshot)
+        except Exception:
+            log_structured("warning", "ws_initial_snapshot_failed", exc_info=True)
+
+    try:
+        db_snapshot = await _build_db_snapshot(redis_client)
+        await websocket.send_json(db_snapshot)
+    except Exception:
+        log_structured("warning", "ws_db_snapshot_failed", exc_info=True)
 
     try:
         while True:

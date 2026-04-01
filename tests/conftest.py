@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+import fakeredis
 import pytest
 import pytest_asyncio
 
-import fakeredis
 from api.core.writer.safe_writer import SafeWriter
 
 os.environ.setdefault("ENABLE_SIGNAL_SCHEDULER", "false")

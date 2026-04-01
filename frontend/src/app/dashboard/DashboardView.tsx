@@ -343,6 +343,198 @@ function MobileNavigation({ section }: { section: Section }) {
     </nav>
   )
 }
+// ---------------------------------------------------------------------------
+// Trace modal
+// ---------------------------------------------------------------------------
+
+type TraceData = {
+  trace_id: string
+  agent_runs: Array<Record<string, unknown>>
+  agent_logs: Array<Record<string, unknown>>
+  agent_grades: Array<Record<string, unknown>>
+}
+
+function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void }) {
+  const [data, setData] = useState<TraceData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useState(() => {
+    const base = process.env.NEXT_PUBLIC_API_URL || ''
+    fetch(`${base}/api/dashboard/trace/${encodeURIComponent(traceId)}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d as TraceData); setLoading(false) })
+      .catch(() => { setError('Failed to load trace'); setLoading(false) })
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16" onClick={onClose}>
+      <div
+        className="w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900 max-h-[80vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
+        </div>
+        {loading && <p className={mutedClass}>Loading…</p>}
+        {error && <p className="text-rose-500 text-sm">{error}</p>}
+        {data && (
+          <div className="space-y-4">
+            {data.agent_runs.length > 0 && (
+              <div>
+                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
+                <div className="space-y-1">
+                  {data.agent_runs.map((r, i) => (
+                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
+                      {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
+                      {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.agent_logs.length > 0 && (
+              <div>
+                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
+                <div className="space-y-1">
+                  {data.agent_logs.map((lg, i) => (
+                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                      <span className="text-indigo-500">{String(lg.log_type ?? '--')}</span>
+                      {' · '}{String(lg.created_at ?? '')}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.agent_grades.length > 0 && (
+              <div>
+                <p className={cn(sectionTitleClass, 'mb-2')}>Grades</p>
+                <div className="space-y-1">
+                  {data.agent_grades.map((g, i) => {
+                    const score = typeof g.score === 'number' ? g.score : null
+                    const scoreColor = score == null ? 'text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
+                    return (
+                      <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                        <span>{String(g.grade_type ?? '--')}</span>
+                        <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Proposals section
+// ---------------------------------------------------------------------------
+
+function ProposalsSection() {
+  const proposals = useCodexStore((state) => state.proposals)
+  const updateProposalStatus = useCodexStore((state) => state.updateProposalStatus)
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
+
+  const handleVote = async (id: string, vote: 'approve' | 'reject') => {
+    setPendingAction(id)
+    const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || ''
+      await fetch(`${base}/api/dashboard/learning/proposals/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      updateProposalStatus(id, status)
+    } catch {
+      // non-fatal — store will update optimistically
+      updateProposalStatus(id, status)
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  if (proposals.length === 0) {
+    return (
+      <div className={cardClass}>
+        <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
+        <EmptyState message="No proposals yet — they arrive from the ReflectionAgent" icon={Zap} />
+      </div>
+    )
+  }
+
+  return (
+    <div className={cardClass}>
+      <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
+      <div className="space-y-3">
+        {proposals.map((p) => {
+          const isPending = p.status === 'pending'
+          const isApproved = p.status === 'approved'
+          const confidencePct = p.confidence != null ? `${(p.confidence * 100).toFixed(0)}%` : null
+          return (
+            <div
+              key={p.id}
+              className={cn(
+                'rounded-lg border p-3',
+                isApproved ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' :
+                p.status === 'rejected' ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 opacity-60' :
+                'border-slate-200 dark:border-slate-800'
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-xs font-semibold text-indigo-500">
+                      {p.proposal_type.replace(/_/g, ' ')}
+                    </span>
+                    {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
+                  </div>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
+                  {p.reflection_trace_id && (
+                    <p className="text-[10px] font-mono text-slate-400 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
+                  )}
+                </div>
+                {isPending ? (
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      disabled={pendingAction === p.id}
+                      onClick={() => handleVote(p.id, 'approve')}
+                      className="rounded px-3 py-1 text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
+                    >Approve</button>
+                    <button
+                      disabled={pendingAction === p.id}
+                      onClick={() => handleVote(p.id, 'reject')}
+                      className="rounded px-3 py-1 text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
+                    >Reject</button>
+                  </div>
+                ) : (
+                  <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
+                    isApproved ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-500'
+                  )}>{p.status}</span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
 
 export function DashboardView({ section }: { section: Section }) {
   const {
@@ -354,33 +546,28 @@ export function DashboardView({ section }: { section: Section }) {
     systemMetrics = [],
     notifications = [],
     proposals = [],
+    tradeFeed = [],
+    agentInstances = [],
+    performanceSummary,
     dashboardData,
+    wsConnected,
     marketTickCount,
     lastMarketSymbol,
     streamStats,
     wsMessageCount,
     wsLastMessageTimestamp,
-    recentEvents,
-    wsConnected,
-    fetchPrices,
+    recentEvents = [],
     acknowledgeNotification,
     updateProposalStatus,
   } = useCodexStore()
 
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
-  const [pricesLoading, setPricesLoading] = useState(true)
   const [icWeights, setIcWeights] = useState<Record<string, number>>({})
   const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
 
-  // Fetch initial prices on component mount
-  useEffect(() => {
-    const loadPrices = async () => {
-      setPricesLoading(true)
-      await fetchPrices()
-      setPricesLoading(false)
-    }
-    loadPrices()
-  }, [fetchPrices])
+  // Prices arrive via the WS dashboard_update snapshot on connect — no REST call needed
+  const pricesLoading = Object.keys(prices).length === 0
 
   // Fetch learning data (proposals, IC weights, grades) on mount and every 30s
   useEffect(() => {
@@ -416,6 +603,55 @@ export function DashboardView({ section }: { section: Section }) {
     }
     fetchLearning()
     const interval = setInterval(fetchLearning, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch trade feed on mount and every 30s
+  useEffect(() => {
+    const fetchTradeFeed = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || ''
+        const r = await fetch(`${base}/api/dashboard/trade-feed`)
+        const d = await r.json()
+        useCodexStore.getState().setTradeFeed(d.trades ?? [])
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchTradeFeed()
+    const interval = setInterval(fetchTradeFeed, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch performance summary on mount
+  useEffect(() => {
+    const fetchPerformance = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || ''
+        const r = await fetch(`${base}/api/dashboard/performance-trends`)
+        const d = await r.json()
+        if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchPerformance()
+  }, [])
+
+  // Fetch agent instances on mount and every 30s
+  useEffect(() => {
+    const fetchAgentInstances = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || ''
+        const r = await fetch(`${base}/api/dashboard/agent-instances`)
+        const d = await r.json()
+        useCodexStore.getState().setAgentInstances(d.instances ?? [])
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchAgentInstances()
+    const interval = setInterval(fetchAgentInstances, 30_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -541,6 +777,43 @@ export function DashboardView({ section }: { section: Section }) {
             ))}
           </div>
 
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Performance</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                {
+                  label: 'Total P&L',
+                  value: performanceSummary != null
+                    ? `${performanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(performanceSummary.total_pnl)}`
+                    : '--',
+                  colorClass: performanceSummary != null
+                    ? performanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                    : 'text-slate-900 dark:text-slate-100',
+                },
+                {
+                  label: 'Win Rate',
+                  value: performanceSummary != null ? `${(performanceSummary.win_rate * 100).toFixed(1)}%` : '--',
+                  colorClass: 'text-slate-900 dark:text-slate-100',
+                },
+                {
+                  label: 'Best Trade',
+                  value: performanceSummary != null ? `+${formatUSD(performanceSummary.best_trade)}` : '--',
+                  colorClass: 'text-emerald-500',
+                },
+                {
+                  label: 'Worst Trade',
+                  value: performanceSummary != null ? `-${formatUSD(performanceSummary.worst_trade)}` : '--',
+                  colorClass: 'text-rose-500',
+                },
+              ].map((cell) => (
+                <div key={cell.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <p className={mutedClass}>{cell.label}</p>
+                  <p className={cn('mt-1 text-sm font-mono tabular-nums font-semibold', cell.colorClass)}>{cell.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
             <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
               <div className="mb-3 flex items-center justify-between">
@@ -654,6 +927,71 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
+              <p className={sectionTitleClass}>Trade Feed</p>
+              <p className={mutedClass}>{tradeFeed.length} fills</p>
+            </div>
+            {tradeFeed.length === 0 ? (
+              <EmptyState message="No fills yet — paper trades execute continuously" icon={Activity} />
+            ) : (
+              <div className="max-h-96 overflow-y-auto space-y-1">
+                {tradeFeed.slice(0, 50).map((trade) => {
+                  const isBuy = trade.side === 'buy'
+                  const pnl = toFiniteNumber(trade.pnl)
+                  const pnlPct = toFiniteNumber(trade.pnl_percent)
+                  const isPnlPositive = (pnl ?? 0) >= 0
+                  const exitPrice = toFiniteNumber(trade.exit_price)
+                  const qty = toFiniteNumber(trade.qty)
+
+                  const GRADE_STYLE: Record<string, string> = {
+                    A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+                    B: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+                    C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                    D: 'bg-rose-500/15 text-rose-500',
+                    F: 'bg-rose-500/15 text-rose-500',
+                  }
+
+                  return (
+                    <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-500')}>
+                          {isBuy ? 'BUY' : 'SELL'}
+                        </span>
+                        <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
+                        <span className={mutedClass}>
+                          {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {pnl != null ? (
+                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
+                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
+                          </span>
+                        ) : (
+                          <span className={mutedClass}>--</span>
+                        )}
+                        {trade.grade && (
+                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', GRADE_STYLE[trade.grade] ?? 'bg-slate-500/15 text-slate-500')}>
+                            {trade.grade}
+                          </span>
+                        )}
+                        {trade.execution_trace_id && (
+                          <button
+                            onClick={() => setActiveTraceId(trade.execution_trace_id!)}
+                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                          >
+                            trace:{trade.execution_trace_id.slice(0, 8)}…
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className={cardClass}>
+            <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Agent Thought Stream</p>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
@@ -671,9 +1009,17 @@ export function DashboardView({ section }: { section: Section }) {
                     const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
                     return (
                       <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
-                        <div className="mb-1 flex items-center gap-2">
+                        <div className="mb-1 flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
+                          {typeof log?.trace_id === 'string' && log.trace_id ? (
+                            <button
+                              onClick={() => setActiveTraceId(log.trace_id as string)}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                            >
+                              trace:{(log.trace_id as string).slice(0, 8)}…
+                            </button>
+                          ) : null}
                         </div>
                         <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge))}</p>
                       </div>
@@ -798,6 +1144,45 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           </div>
 
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
+            {agentInstances.length === 0 ? (
+              <EmptyState message="No instances registered yet" icon={Activity} />
+            ) : (
+              <div className="max-h-48 overflow-y-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800">
+                      {['Instance Key', 'Pool', 'Status', 'Events', 'Uptime', 'Started'].map((head) => (
+                        <th key={head} className="px-2 py-1.5 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentInstances.map((inst) => {
+                      const isActive = inst.status === 'active'
+                      return (
+                        <tr key={inst.id} className="border-t border-slate-200 dark:border-slate-800">
+                          <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-100">{inst.instance_key}</td>
+                          <td className="px-2 py-1.5 text-xs font-sans text-slate-600 dark:text-slate-400">{inst.pool_name}</td>
+                          <td className="px-2 py-1.5 text-xs font-sans">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className={cn('h-2 w-2 rounded-full', isActive ? 'bg-emerald-500' : 'bg-slate-400')} />
+                              <span className={isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}>{inst.status}</span>
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-100">{inst.event_count}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{formatUptime(inst.uptime_seconds)}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono text-slate-500">{formatTimestamp(inst.started_at)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />
         </div>
       )}
@@ -895,6 +1280,8 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             </div>
           </div>
+
+          <ProposalsSection />
         </div>
       )}
 
@@ -967,6 +1354,10 @@ export function DashboardView({ section }: { section: Section }) {
       </main>
 
       <MobileNavigation section={section} />
+
+      {activeTraceId && (
+        <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
+      )}
     </div>
   )
 }
