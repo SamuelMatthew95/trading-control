@@ -6,12 +6,17 @@ import { cn } from '@/lib/utils'
 import {
   Activity,
   BarChart3,
+  Bell,
   Brain,
+  CheckCheck,
   FileCode,
+  ThumbsDown,
+  ThumbsUp,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
+import type { Notification, Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -144,6 +149,166 @@ function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
           points={chartPoints}
         />
       </svg>
+    </div>
+  )
+}
+
+const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: string }> = {
+  CRITICAL: { badge: 'bg-rose-500/15 text-rose-500 border border-rose-500/30', dot: 'bg-rose-500 animate-pulse', label: 'CRITICAL' },
+  URGENT: { badge: 'bg-orange-500/15 text-orange-500 border border-orange-500/30', dot: 'bg-orange-500', label: 'URGENT' },
+  WARNING: { badge: 'bg-amber-500/15 text-amber-500 border border-amber-500/30', dot: 'bg-amber-400', label: 'WARNING' },
+  INFO: { badge: 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30', dot: 'bg-indigo-400', label: 'INFO' },
+}
+
+function NotificationFeed({
+  notifications,
+  onAcknowledge,
+}: {
+  notifications: Notification[]
+  onAcknowledge: (id: string) => void
+}) {
+  const unread = notifications.filter((n) => !n.acknowledged)
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-slate-500" />
+          <p className={sectionTitleClass}>Notifications</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {unread.length > 0 && (
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{unread.length}</span>
+          )}
+          <p className={mutedClass}>{notifications.length} total</p>
+        </div>
+      </div>
+      {notifications.length === 0 ? (
+        <EmptyState message="No notifications yet" icon={Bell} />
+      ) : (
+        <div className="max-h-72 space-y-2 overflow-y-auto">
+          {notifications.map((notif) => {
+            const style = SEVERITY_STYLES[notif.severity] ?? SEVERITY_STYLES['INFO']
+            return (
+              <div
+                key={notif.id}
+                className={cn(
+                  'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-opacity',
+                  notif.acknowledged ? 'border-slate-200 opacity-50 dark:border-slate-800' : 'border-slate-200 dark:border-slate-800',
+                )}
+              >
+                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', style.dot)} />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
+                    <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
+                    <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
+                  </div>
+                  <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
+                </div>
+                {!notif.acknowledged && (
+                  <button
+                    onClick={() => onAcknowledge(notif.id)}
+                    className="mt-0.5 shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-500 dark:hover:bg-slate-800"
+                    title="Acknowledge"
+                  >
+                    <CheckCheck className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PROPOSAL_TYPE_LABEL: Record<string, string> = {
+  parameter_change: 'Param Change',
+  code_change: 'Code Change',
+  regime_adjustment: 'Regime Adjust',
+}
+const PROPOSAL_TYPE_STYLE: Record<string, string> = {
+  parameter_change: 'bg-indigo-500/15 text-indigo-400',
+  code_change: 'bg-violet-500/15 text-violet-400',
+  regime_adjustment: 'bg-amber-500/15 text-amber-500',
+}
+
+function ProposalsFeed({
+  proposals,
+  onUpdateStatus,
+}: {
+  proposals: Proposal[]
+  onUpdateStatus: (id: string, status: import('@/stores/useCodexStore').ProposalStatus) => void
+}) {
+  const pending = proposals.filter((p) => p.status === 'pending')
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-violet-500" />
+          <p className={sectionTitleClass}>Strategy Proposals</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {pending.length > 0 && (
+            <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-bold text-white">{pending.length} pending</span>
+          )}
+          <p className={mutedClass}>{proposals.length} total</p>
+        </div>
+      </div>
+      {proposals.length === 0 ? (
+        <EmptyState message="No proposals yet" icon={Brain} />
+      ) : (
+        <div className="max-h-96 space-y-3 overflow-y-auto">
+          {proposals.map((proposal) => (
+            <div
+              key={proposal.id}
+              className={cn(
+                'rounded-lg border p-3 transition-opacity',
+                proposal.status === 'pending' ? 'border-violet-200 dark:border-violet-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
+              )}
+            >
+              <div className="mb-2 flex items-center gap-2 flex-wrap">
+                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-400')}>
+                  {PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type}
+                </span>
+                {proposal.confidence != null && (
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
+                    {(proposal.confidence * 100).toFixed(0)}% confidence
+                  </span>
+                )}
+                {proposal.status !== 'pending' && (
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
+                    {proposal.status}
+                  </span>
+                )}
+                <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
+              </div>
+              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
+                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
+              </p>
+              {proposal.status === 'pending' && proposal.requires_approval && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onUpdateStatus(proposal.id, 'approved')}
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                  >
+                    <ThumbsUp className="h-3 w-3" />
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => onUpdateStatus(proposal.id, 'rejected')}
+                    className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
+                  >
+                    <ThumbsDown className="h-3 w-3" />
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -517,17 +682,23 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
 
 function ProposalsSection() {
   const proposals = useCodexStore((state) => state.proposals)
+  const updateProposalStatus = useCodexStore((state) => state.updateProposalStatus)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
-  const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({})
 
   const handleVote = async (id: string, vote: 'approve' | 'reject') => {
     setPendingAction(id)
+    const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
     try {
       const base = process.env.NEXT_PUBLIC_API_URL || ''
-      await fetch(`${base}/api/dashboard/proposals/${encodeURIComponent(id)}/${vote}`, { method: 'POST' })
-      setLocalStatuses((s) => ({ ...s, [id]: vote === 'approve' ? 'approved' : 'rejected' }))
+      await fetch(`${base}/api/dashboard/learning/proposals/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      updateProposalStatus(id, status)
     } catch {
-      // silently ignore — UI will reflect last known state
+      // non-fatal — store will update optimistically
+      updateProposalStatus(id, status)
     } finally {
       setPendingAction(null)
     }
@@ -537,7 +708,7 @@ function ProposalsSection() {
     return (
       <div className={cardClass}>
         <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
-        <EmptyState message="No proposals yet — they arrive when grade ≥ 60" icon={Zap} />
+        <EmptyState message="No proposals yet — they arrive from the ReflectionAgent" icon={Zap} />
       </div>
     )
   }
@@ -547,39 +718,30 @@ function ProposalsSection() {
       <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
       <div className="space-y-3">
         {proposals.map((p) => {
-          const status = localStatuses[p.id] ?? p.status
-          const isPending = status === 'pending'
-          const isApproved = status === 'approved'
+          const isPending = p.status === 'pending'
+          const isApproved = p.status === 'approved'
+          const confidencePct = p.confidence != null ? `${(p.confidence * 100).toFixed(0)}%` : null
           return (
             <div
               key={p.id}
               className={cn(
                 'rounded-lg border p-3',
                 isApproved ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' :
-                status === 'rejected' ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 opacity-60' :
+                p.status === 'rejected' ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 opacity-60' :
                 'border-slate-200 dark:border-slate-800'
               )}
             >
               <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1 min-w-0">
+                <div className="space-y-1 min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold',
-                      p.action === 'BUY' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-rose-500/15 text-rose-600'
-                    )}>{p.action ?? '--'}</span>
-                    <span className="text-sm font-mono font-bold text-slate-900 dark:text-slate-100">{p.symbol ?? '--'}</span>
-                    {p.bias && <span className={cn('rounded px-2 py-0.5 text-xs font-semibold',
-                      p.bias === 'bullish' ? 'bg-emerald-500/10 text-emerald-500' :
-                      p.bias === 'bearish' ? 'bg-rose-500/10 text-rose-500' : 'bg-slate-500/10 text-slate-500'
-                    )}>{p.bias}</span>}
-                    <span className={mutedClass}>grade {p.grade_score?.toFixed(1) ?? '--'}</span>
+                    <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-xs font-semibold text-indigo-500">
+                      {p.proposal_type.replace(/_/g, ' ')}
+                    </span>
+                    {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
                   </div>
-                  <div className="flex gap-3 text-xs text-slate-500">
-                    {p.buys != null && <span>↑{p.buys}B</span>}
-                    {p.sells != null && <span>↓{p.sells}S</span>}
-                    {p.strategy_name && <span className="truncate">{p.strategy_name}</span>}
-                  </div>
-                  {p.trace_id && (
-                    <p className="text-[10px] font-mono text-slate-400 truncate">trace: {p.trace_id.slice(0, 16)}…</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
+                  {p.reflection_trace_id && (
+                    <p className="text-[10px] font-mono text-slate-400 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
                   )}
                 </div>
                 {isPending ? (
@@ -598,7 +760,7 @@ function ProposalsSection() {
                 ) : (
                   <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
                     isApproved ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-500'
-                  )}>{status}</span>
+                  )}>{p.status}</span>
                 )}
               </div>
             </div>
@@ -617,13 +779,57 @@ export function DashboardView({ section }: { section: Section }) {
     prices = {},
     positions = [],
     systemMetrics = [],
+    notifications = [],
+    proposals = [],
     dashboardData,
+    wsConnected,
+    acknowledgeNotification,
+    updateProposalStatus,
   } = useCodexStore()
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
+  const [icWeights, setIcWeights] = useState<Record<string, number>>({})
+  const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
 
   // Prices arrive via the WS dashboard_update snapshot on connect — no REST call needed
   const pricesLoading = Object.keys(prices).length === 0
+
+  // Fetch learning data (proposals, IC weights, grades) on mount and every 30s
+  useEffect(() => {
+    const { addProposal } = useCodexStore.getState()
+    const fetchLearning = async () => {
+      try {
+        const [proposalsRes, icRes, gradesRes] = await Promise.all([
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/proposals`),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/ic-weights`),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/grades`),
+        ])
+        if (proposalsRes.ok) {
+          const data = await proposalsRes.json()
+          const existing = useCodexStore.getState().proposals
+          const existingIds = new Set(existing.map((p) => p.id))
+          for (const p of data.proposals ?? []) {
+            if (!existingIds.has(p.id)) {
+              addProposal({ proposal_type: p.proposal_type, content: JSON.stringify(p.content), requires_approval: p.requires_approval, confidence: p.confidence, reflection_trace_id: p.reflection_trace_id, timestamp: p.timestamp ?? new Date().toISOString() })
+            }
+          }
+        }
+        if (icRes.ok) {
+          const data = await icRes.json()
+          setIcWeights(data.current_weights ?? {})
+        }
+        if (gradesRes.ok) {
+          const data = await gradesRes.json()
+          setGradeHistory((data.grades ?? []).slice(0, 10))
+        }
+      } catch {
+        // non-fatal — data will populate via WebSocket
+      }
+    }
+    fetchLearning()
+    const interval = setInterval(fetchLearning, 30_000)
+    return () => clearInterval(interval)
+  }, [])
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -680,6 +886,18 @@ export function DashboardView({ section }: { section: Section }) {
     return Array.from(normalizedByName.values())
   }, [agentLogs])
 
+  useEffect(() => {
+    if (!wsConnected || agentLogs.length > 0) {
+      setShowNoAgentDataMessage(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
+        setShowNoAgentDataMessage(true)
+      }
+    }, 10000)
+    return () => clearTimeout(timer)
+  }, [agentLogs.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -940,7 +1158,68 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'agents' && (
-        <AgentsSection />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Market Ticks</p>
+              <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
+              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Tracked Agents</p>
+              <p className={valueClass}>{TRACKED_AGENTS.length}</p>
+              <p className={mutedClass}>Pre-populated on connect</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Agent Events</p>
+              <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
+              <p className={mutedClass}>Total events received</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Notifications</p>
+              <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
+              <p className={mutedClass}>{notifications.filter((n) => !n.acknowledged).length} unread</p>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800">
+                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
+                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {showNoAgentDataMessage ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                    </tr>
+                  ) : (
+                    realAgents.map((agent) => (
+                      <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
+                        <td className="px-2 py-2 text-xs font-sans">
+                          <span className="inline-flex items-center gap-2">
+                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                            <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />
+        </div>
       )}
 
       {section === 'learning' && (
@@ -961,6 +1240,53 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             ))}
           </div>
+
+          <ProposalsFeed proposals={proposals} onUpdateStatus={updateProposalStatus} />
+
+          {Object.keys(icWeights).length > 0 && (
+            <div className={cardClass}>
+              <p className={cn(sectionTitleClass, 'mb-3')}>IC Factor Weights</p>
+              <div className="space-y-2">
+                {Object.entries(icWeights).map(([factor, weight]) => (
+                  <div key={factor} className="flex items-center justify-between">
+                    <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div className="h-2 rounded-full bg-indigo-500" style={{ width: `${Math.round(weight * 100)}%` }} />
+                      </div>
+                      <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(weight * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {gradeHistory.length > 0 && (
+            <div className={cardClass}>
+              <p className={cn(sectionTitleClass, 'mb-3')}>Grade History</p>
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800">
+                      {['Grade', 'Score', 'Time'].map((h) => (
+                        <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gradeHistory.map((g, i) => (
+                      <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
+                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
+                        <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Performance Summary</p>
@@ -995,7 +1321,63 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'system' && (
-        <SystemSection />
+        <div className="space-y-4">
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
+                const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
+                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
+                return (
+                  <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
+                      <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
+                    </div>
+                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>WebSocket Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Connection</p>
+                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Messages Received</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Last Message</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
+            {recentEvents.length === 0 ? (
+              <EmptyState message="No websocket events yet" icon={Activity} />
+            ) : (
+              <div className="space-y-2">
+                {recentEvents.map((event, index) => (
+                  <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-indigo-500/15 text-indigo-400' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
+                      {event.stream}
+                    </span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
+                    <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </>
   )

@@ -51,6 +51,43 @@ export interface LearningEvent {
   [key: string]: unknown
 }
 
+export type NotificationSeverity = 'CRITICAL' | 'URGENT' | 'WARNING' | 'INFO'
+
+export interface Notification {
+  id: string
+  severity: NotificationSeverity
+  message: string
+  notification_type: string
+  stream_source?: string
+  timestamp: string
+  acknowledged: boolean
+}
+
+export type ProposalStatus = 'pending' | 'approved' | 'rejected'
+export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment'
+
+export interface Proposal {
+  id: string
+  proposal_type: ProposalType
+  content: string
+  requires_approval: boolean
+  reflection_trace_id?: string
+  confidence?: number
+  timestamp: string
+  status: ProposalStatus
+  // Our branch fields (from events table / WS proposals stream)
+  symbol?: string | null
+  action?: string | null
+  grade_score?: number | null
+  bias?: string | null
+  buys?: number | null
+  sells?: number | null
+  strategy_name?: string | null
+  trace_id?: string | null
+  created_at?: string | null
+  source?: string | null
+}
+
 export interface PriceData {
   price: number
   change: number
@@ -73,21 +110,6 @@ export interface AgentStatus {
   last_seen: number
   seconds_ago: number
   last_grade_score?: number
-}
-
-export interface Proposal {
-  id: string
-  symbol: string | null
-  action: string | null
-  grade_score: number | null
-  bias: string | null
-  buys: number | null
-  sells: number | null
-  strategy_name: string | null
-  trace_id: string | null
-  created_at: string | null
-  source: string | null
-  status: string
 }
 
 export interface RecentEvent {
@@ -126,6 +148,8 @@ type CodexState = {
   signals: Array<Record<string, unknown>>
   agentLogs: AgentLog[]
   riskAlerts: Array<Record<string, unknown>>
+  notifications: Notification[]
+  proposals: Proposal[]
   learningEvents: LearningEvent[]
   systemMetrics: SystemMetric[]
   dashboardData: DashboardData | null
@@ -141,11 +165,8 @@ type CodexState = {
   recentEvents: RecentEvent[]
   agentStatuses: AgentStatus[]
   pipelineMetrics: Record<string, number>
-  proposals: Proposal[]
   setAgentStatuses: (agents: AgentStatus[]) => void
   setPipelineMetrics: (metrics: Record<string, number>) => void
-  addProposal: (proposal: Proposal) => void
-  setProposals: (proposals: Proposal[]) => void
   updatePrice: (symbol: string, price: number, change: number) => void
   updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void
   addSignal: (signal: Record<string, unknown>) => void
@@ -153,6 +174,10 @@ type CodexState = {
   updateOrder: (order: Order) => void
   addAgentLog: (log: AgentLog) => void
   addRiskAlert: (alert: Record<string, unknown>) => void
+  addNotification: (notification: Omit<Notification, 'id' | 'acknowledged'>) => void
+  acknowledgeNotification: (id: string) => void
+  addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
+  updateProposalStatus: (id: string, status: ProposalStatus) => void
   addLearningEvent: (event: LearningEvent) => void
   addSystemMetric: (metric: SystemMetric) => void
   setDashboardData: (data: DashboardData | null) => void
@@ -174,6 +199,8 @@ export const useCodexStore = create<CodexState>((set) => ({
   signals: [],
   agentLogs: [],
   riskAlerts: [],
+  notifications: [],
+  proposals: [],
   learningEvents: [],
   systemMetrics: [],
   dashboardData: null,
@@ -197,13 +224,8 @@ export const useCodexStore = create<CodexState>((set) => ({
   recentEvents: [],
   agentStatuses: [],
   pipelineMetrics: {},
-  proposals: [],
   setAgentStatuses: (agentStatuses) => set({ agentStatuses }),
   setPipelineMetrics: (pipelineMetrics) => set({ pipelineMetrics }),
-  addProposal: (proposal) => set((state) => ({
-    proposals: [proposal, ...state.proposals].slice(0, 50),
-  })),
-  setProposals: (proposals) => set({ proposals }),
 
   updatePrice: (symbol, price, change) => set((state) => ({
     prices: {
@@ -229,7 +251,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   })),
   fetchPrices: async () => {
     try {
-      const response = await fetch('/api/dashboard/prices')
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/prices`)
       if (!response.ok) throw new Error('Failed to fetch prices')
       
       const data = await response.json()
@@ -273,6 +295,24 @@ export const useCodexStore = create<CodexState>((set) => ({
   })),
   addRiskAlert: (alert) => set((state) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
+  })),
+  addNotification: (notification) => set((state) => ({
+    notifications: [
+      { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
+      ...state.notifications,
+    ].slice(0, 100)
+  })),
+  acknowledgeNotification: (id) => set((state) => ({
+    notifications: state.notifications.map((n) => n.id === id ? { ...n, acknowledged: true } : n)
+  })),
+  addProposal: (proposal) => set((state) => ({
+    proposals: [
+      { ...proposal, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' as ProposalStatus },
+      ...state.proposals,
+    ].slice(0, 50)
+  })),
+  updateProposalStatus: (id, status) => set((state) => ({
+    proposals: state.proposals.map((p) => p.id === id ? { ...p, status } : p)
   })),
   addLearningEvent: (event) => set((state) => ({
     learningEvents: [event, ...state.learningEvents].slice(0, 50)

@@ -36,6 +36,21 @@ class Settings(BaseSettings):
     IC_UPDATE_EVERY_N_FILLS: int = 10
     REFLECT_EVERY_N_FILLS: int = 10
 
+    # Grade system
+    GRADE_LOOKBACK_N: int = 20
+    GRADE_WEIGHT_ACCURACY: float = 0.35
+    GRADE_WEIGHT_IC: float = 0.30
+    GRADE_WEIGHT_COST: float = 0.20
+    GRADE_WEIGHT_LATENCY: float = 0.15
+    RETIRE_AFTER_N_GRADES: int = 3
+
+    # IC updater
+    IC_LOOKBACK_DAYS: int = 30
+    IC_ZERO_THRESHOLD: float = 0.05
+
+    # Reflection / strategy
+    HYPOTHESIS_MIN_CONFIDENCE: float = 0.7
+
     # LLM provider routing
     LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: str = ""
@@ -57,6 +72,8 @@ class Settings(BaseSettings):
 
     API_SECRET_KEY: str | None = Field(default=None)
     NODE_ENV: str = "development"
+    # Render sets this automatically — used for self-ping keep-alive
+    RENDER_EXTERNAL_URL: str | None = Field(default=None)
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
     ALLOWED_ORIGINS: str = "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,*.vercel.app,*.onrender.com"

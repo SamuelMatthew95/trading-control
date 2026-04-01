@@ -268,23 +268,30 @@ class WebSocketManager {
         // Stream payloads are partially typed; store merge handles sparse updates.
         store.updateOrder(msg as never)
       } else if (msg.stream === 'notifications') {
-        store.addRiskAlert(msg as unknown as Record<string, unknown>)
+        const raw = msg as unknown as Record<string, unknown>
+        store.addNotification({
+          severity: (raw.severity as string || 'INFO') as import('@/stores/useCodexStore').NotificationSeverity,
+          message: String(raw.message || raw.summary || ''),
+          notification_type: String(raw.notification_type || raw.type || 'system'),
+          stream_source: String(raw.stream_source || raw.source || ''),
+          timestamp: msg.timestamp || new Date().toISOString(),
+        })
       } else if (msg.stream === 'proposals') {
-        const p = msg as unknown as Record<string, unknown>
+        const raw = msg as unknown as Record<string, unknown>
         store.addProposal({
-          id: (p.msg_id as string | null) ?? String(Date.now()),
-          symbol: (p.symbol as string | null) ?? null,
-          action: (p.action as string | null) ?? null,
-          grade_score: typeof p.grade_score === 'number' ? p.grade_score : null,
-          bias: (p.bias as string | null) ?? null,
-          buys: typeof p.buys === 'number' ? p.buys : null,
-          sells: typeof p.sells === 'number' ? p.sells : null,
-          strategy_name: (p.strategy_name as string | null) ?? null,
-          trace_id: (p.trace_id as string | null) ?? null,
-          created_at: (p.timestamp as string | null) ?? new Date().toISOString(),
-          source: (p.source as string | null) ?? null,
-          status: 'pending',
-        } satisfies Proposal)
+          proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useCodexStore').ProposalType,
+          content: String(raw.content || raw.description || ''),
+          requires_approval: raw.requires_approval !== false,
+          reflection_trace_id: raw.reflection_trace_id as string | undefined,
+          confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+          timestamp: msg.timestamp || new Date().toISOString(),
+        })
+      } else if (msg.stream === 'agent_grades' || msg.stream === 'reflection_outputs') {
+        store.addLearningEvent({
+          type: msg.stream === 'agent_grades' ? 'trade_evaluated' : 'reflection',
+          timestamp: msg.timestamp || new Date().toISOString(),
+          ...(msg as unknown as Record<string, unknown>),
+        })
       } else if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) {
         const normalizedAgentPayload = msg.type === 'agent_status'
           ? {

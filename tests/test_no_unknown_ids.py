@@ -35,8 +35,7 @@ class _FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_write_system_metric_logs_real_id(caplog, safe_writer, monkeypatch):
-    caplog.set_level("INFO")
+async def test_write_system_metric_logs_real_id(capsys, safe_writer, monkeypatch):
     """Prevents regression of id=unknown bug."""
 
     @asynccontextmanager
@@ -64,6 +63,9 @@ async def test_write_system_metric_logs_real_id(caplog, safe_writer, monkeypatch
         timestamp=datetime.now(timezone.utc),
     )
 
-    # Log output is JSON-structured — check the UUID appears in the log text
-    assert msg_id in caplog.text
-    assert "id=unknown" not in caplog.text
+    # structlog writes to stdout — check the UUID appears there
+    captured = capsys.readouterr()
+    log_output = captured.out + captured.err
+    assert msg_id in log_output
+    assert "id=unknown" not in log_output
+    assert '"id": "unknown"' not in log_output
