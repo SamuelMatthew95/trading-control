@@ -72,6 +72,22 @@ export interface AgentStatus {
   last_event: string
   last_seen: number
   seconds_ago: number
+  last_grade_score?: number
+}
+
+export interface Proposal {
+  id: string
+  symbol: string | null
+  action: string | null
+  grade_score: number | null
+  bias: string | null
+  buys: number | null
+  sells: number | null
+  strategy_name: string | null
+  trace_id: string | null
+  created_at: string | null
+  source: string | null
+  status: string
 }
 
 export interface RecentEvent {
@@ -125,8 +141,11 @@ type CodexState = {
   recentEvents: RecentEvent[]
   agentStatuses: AgentStatus[]
   pipelineMetrics: Record<string, number>
+  proposals: Proposal[]
   setAgentStatuses: (agents: AgentStatus[]) => void
   setPipelineMetrics: (metrics: Record<string, number>) => void
+  addProposal: (proposal: Proposal) => void
+  setProposals: (proposals: Proposal[]) => void
   updatePrice: (symbol: string, price: number, change: number) => void
   updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void
   addSignal: (signal: Record<string, unknown>) => void
@@ -178,8 +197,13 @@ export const useCodexStore = create<CodexState>((set) => ({
   recentEvents: [],
   agentStatuses: [],
   pipelineMetrics: {},
+  proposals: [],
   setAgentStatuses: (agentStatuses) => set({ agentStatuses }),
   setPipelineMetrics: (pipelineMetrics) => set({ pipelineMetrics }),
+  addProposal: (proposal) => set((state) => ({
+    proposals: [proposal, ...state.proposals].slice(0, 50),
+  })),
+  setProposals: (proposals) => set({ proposals }),
 
   updatePrice: (symbol, price, change) => set((state) => ({
     prices: {

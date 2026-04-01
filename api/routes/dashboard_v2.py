@@ -464,3 +464,205 @@ async def get_worker_health() -> dict[str, Any]:
             "check_time": now.isoformat(),
         }
         raise HTTPException(status_code=503, detail=error_data) from None
+
+
+# ---------------------------------------------------------------------------
+# Proposals panel
+# ---------------------------------------------------------------------------
+
+
+@router.get("/proposals")
+async def get_proposals() -> dict[str, Any]:
+    """Get recent strategy proposals from events table."""
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT id, data, created_at, source
+                    FROM events
+                    WHERE event_type = 'strategy.proposal'
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """)
+            )
+            rows = result.all()
+            proposals = []
+            for row in rows:
+                raw = row[1]
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                proposals.append(
+                    {
+                        "id": str(row[0]),
+                        "symbol": data.get("symbol"),
+                        "action": data.get("action"),
+                        "grade_score": data.get("grade_score"),
+                        "bias": data.get("bias"),
+                        "buys": data.get("buys"),
+                        "sells": data.get("sells"),
+                        "strategy_name": data.get("strategy_name"),
+                        "trace_id": data.get("trace_id"),
+                        "created_at": row[2].isoformat() if row[2] else None,
+                        "source": row[3],
+                        "status": data.get("status", "pending"),
+                    }
+                )
+        return {
+            "proposals": proposals,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "proposals fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(proposal_id: str) -> dict[str, Any]:
+    """Mark a strategy proposal as approved."""
+    try:
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "SELECT id, data FROM events "
+                        "WHERE id = :id AND event_type = 'strategy.proposal'"
+                    ),
+                    {"id": proposal_id},
+                )
+                row = result.first()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Proposal not found") from None
+                raw = row[1]
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                data["status"] = "approved"
+                await session.execute(
+                    text("UPDATE events SET data = :data WHERE id = :id"),
+                    {"data": json.dumps(data), "id": proposal_id},
+                )
+        return {"status": "approved", "id": proposal_id}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal approve failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(proposal_id: str) -> dict[str, Any]:
+    """Mark a strategy proposal as rejected."""
+    try:
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "SELECT id, data FROM events "
+                        "WHERE id = :id AND event_type = 'strategy.proposal'"
+                    ),
+                    {"id": proposal_id},
+                )
+                row = result.first()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Proposal not found") from None
+                raw = row[1]
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                data["status"] = "rejected"
+                await session.execute(
+                    text("UPDATE events SET data = :data WHERE id = :id"),
+                    {"data": json.dumps(data), "id": proposal_id},
+                )
+        return {"status": "rejected", "id": proposal_id}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal reject failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Trace view
+# ---------------------------------------------------------------------------
+
+
+@router.get("/trace/{trace_id}")
+async def get_trace(trace_id: str) -> dict[str, Any]:
+    """Return the full trace for a trace_id: agent_runs + agent_logs + agent_grades."""
+    try:
+        async with AsyncSessionFactory() as session:
+            run_result = await session.execute(
+                text("""
+                    SELECT id, source, run_type, status,
+                           input_data, output_data, execution_time_ms, created_at
+                    FROM agent_runs
+                    WHERE trace_id = :trace_id
+                    ORDER BY created_at ASC
+                """),
+                {"trace_id": trace_id},
+            )
+            runs = [
+                {
+                    "id": str(r[0]),
+                    "agent_name": r[1],
+                    "run_type": r[2],
+                    "status": r[3],
+                    "input_data": r[4],
+                    "output_data": r[5],
+                    "execution_time_ms": r[6],
+                    "created_at": r[7].isoformat() if r[7] else None,
+                }
+                for r in run_result.all()
+            ]
+
+            log_result = await session.execute(
+                text("""
+                    SELECT id, log_type, payload, created_at
+                    FROM agent_logs
+                    WHERE trace_id = :trace_id
+                    ORDER BY created_at ASC
+                """),
+                {"trace_id": trace_id},
+            )
+            logs = [
+                {
+                    "id": str(lg[0]),
+                    "log_type": lg[1],
+                    "payload": lg[2],
+                    "created_at": lg[3].isoformat() if lg[3] else None,
+                }
+                for lg in log_result.all()
+            ]
+
+            grade_result = await session.execute(
+                text("""
+                    SELECT id, agent_id, grade_type, score, metrics, created_at
+                    FROM agent_grades
+                    WHERE trace_id = :trace_id
+                    ORDER BY created_at ASC
+                """),
+                {"trace_id": trace_id},
+            )
+            grades = [
+                {
+                    "id": str(g[0]),
+                    "agent_id": str(g[1]),
+                    "grade_type": g[2],
+                    "score": float(g[3]) if g[3] is not None else None,
+                    "metrics": g[4],
+                    "created_at": g[5].isoformat() if g[5] else None,
+                }
+                for g in grade_result.all()
+            ]
+
+        if not runs and not logs and not grades:
+            raise HTTPException(status_code=404, detail="Trace not found") from None
+
+        return {
+            "trace_id": trace_id,
+            "agent_runs": runs,
+            "agent_logs": logs,
+            "agent_grades": grades,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "trace fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None

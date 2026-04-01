@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus, type Proposal } from '@/stores/useCodexStore'
 
 // --- Types ---
 type WebSocketMessage = {
@@ -269,6 +269,22 @@ class WebSocketManager {
         store.updateOrder(msg as never)
       } else if (msg.stream === 'notifications') {
         store.addRiskAlert(msg as unknown as Record<string, unknown>)
+      } else if (msg.stream === 'proposals') {
+        const p = msg as unknown as Record<string, unknown>
+        store.addProposal({
+          id: (p.msg_id as string | null) ?? String(Date.now()),
+          symbol: (p.symbol as string | null) ?? null,
+          action: (p.action as string | null) ?? null,
+          grade_score: typeof p.grade_score === 'number' ? p.grade_score : null,
+          bias: (p.bias as string | null) ?? null,
+          buys: typeof p.buys === 'number' ? p.buys : null,
+          sells: typeof p.sells === 'number' ? p.sells : null,
+          strategy_name: (p.strategy_name as string | null) ?? null,
+          trace_id: (p.trace_id as string | null) ?? null,
+          created_at: (p.timestamp as string | null) ?? new Date().toISOString(),
+          source: (p.source as string | null) ?? null,
+          status: 'pending',
+        } satisfies Proposal)
       } else if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) {
         const normalizedAgentPayload = msg.type === 'agent_status'
           ? {

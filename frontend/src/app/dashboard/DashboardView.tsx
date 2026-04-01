@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, type ComponentType } from 'react'
+import { useCallback, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import {
@@ -287,26 +287,33 @@ function AgentsSection() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800">
-                {['Agent', 'Status', 'Events', 'Last Event', 'Last Seen'].map((h) => (
+                {['Agent', 'Status', 'Events', 'Grade', 'Last Event', 'Last Seen'].map((h) => (
                   <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {agents.map((agent) => (
-                <tr key={agent.name} className="border-t border-slate-200 dark:border-slate-800">
-                  <td className={cn('px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100', agent.status === 'OFFLINE' && 'line-through')}>{agent.name}</td>
-                  <td className="px-2 py-2">
-                    <span className="inline-flex items-center gap-2">
-                      <span className={cn('h-2 w-2 rounded-full', statusDot(agent.status))} />
-                      <span className="text-xs text-slate-700 dark:text-slate-300">{statusLabel(agent.status)}</span>
-                    </span>
-                  </td>
-                  <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.event_count}</td>
-                  <td className="px-2 py-2 text-xs font-mono text-slate-500 max-w-[200px] truncate">{agent.last_event || '--'}</td>
-                  <td className="px-2 py-2 text-xs font-mono text-slate-500">{agent.seconds_ago > 0 ? `${agent.seconds_ago}s ago` : '--'}</td>
-                </tr>
-              ))}
+              {agents.map((agent) => {
+                const grade = agent.last_grade_score
+                const gradeColor = grade == null ? 'text-slate-400' : grade >= 70 ? 'text-emerald-500' : grade >= 40 ? 'text-amber-500' : 'text-rose-500'
+                return (
+                  <tr key={agent.name} className="border-t border-slate-200 dark:border-slate-800">
+                    <td className={cn('px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100', agent.status === 'OFFLINE' && 'line-through')}>{agent.name}</td>
+                    <td className="px-2 py-2">
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn('h-2 w-2 rounded-full', statusDot(agent.status))} />
+                        <span className="text-xs text-slate-700 dark:text-slate-300">{statusLabel(agent.status)}</span>
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.event_count}</td>
+                    <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-semibold', gradeColor)}>
+                      {grade == null ? '--' : grade.toFixed(1)}
+                    </td>
+                    <td className="px-2 py-2 text-xs font-mono text-slate-500 max-w-[200px] truncate">{agent.last_event || '--'}</td>
+                    <td className="px-2 py-2 text-xs font-mono text-slate-500">{agent.seconds_ago > 0 ? `${agent.seconds_ago}s ago` : '--'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -415,6 +422,193 @@ function SystemSection() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Trace modal
+// ---------------------------------------------------------------------------
+
+type TraceData = {
+  trace_id: string
+  agent_runs: Array<Record<string, unknown>>
+  agent_logs: Array<Record<string, unknown>>
+  agent_grades: Array<Record<string, unknown>>
+}
+
+function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void }) {
+  const [data, setData] = useState<TraceData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useState(() => {
+    const base = process.env.NEXT_PUBLIC_API_URL || ''
+    fetch(`${base}/api/dashboard/trace/${encodeURIComponent(traceId)}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d as TraceData); setLoading(false) })
+      .catch(() => { setError('Failed to load trace'); setLoading(false) })
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16" onClick={onClose}>
+      <div
+        className="w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900 max-h-[80vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
+        </div>
+        {loading && <p className={mutedClass}>Loading…</p>}
+        {error && <p className="text-rose-500 text-sm">{error}</p>}
+        {data && (
+          <div className="space-y-4">
+            {data.agent_runs.length > 0 && (
+              <div>
+                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
+                <div className="space-y-1">
+                  {data.agent_runs.map((r, i) => (
+                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
+                      {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
+                      {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.agent_logs.length > 0 && (
+              <div>
+                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
+                <div className="space-y-1">
+                  {data.agent_logs.map((lg, i) => (
+                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                      <span className="text-indigo-500">{String(lg.log_type ?? '--')}</span>
+                      {' · '}{String(lg.created_at ?? '')}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.agent_grades.length > 0 && (
+              <div>
+                <p className={cn(sectionTitleClass, 'mb-2')}>Grades</p>
+                <div className="space-y-1">
+                  {data.agent_grades.map((g, i) => {
+                    const score = typeof g.score === 'number' ? g.score : null
+                    const scoreColor = score == null ? 'text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
+                    return (
+                      <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                        <span>{String(g.grade_type ?? '--')}</span>
+                        <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Proposals section
+// ---------------------------------------------------------------------------
+
+function ProposalsSection() {
+  const proposals = useCodexStore((state) => state.proposals)
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({})
+
+  const handleVote = async (id: string, vote: 'approve' | 'reject') => {
+    setPendingAction(id)
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || ''
+      await fetch(`${base}/api/dashboard/proposals/${encodeURIComponent(id)}/${vote}`, { method: 'POST' })
+      setLocalStatuses((s) => ({ ...s, [id]: vote === 'approve' ? 'approved' : 'rejected' }))
+    } catch {
+      // silently ignore — UI will reflect last known state
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  if (proposals.length === 0) {
+    return (
+      <div className={cardClass}>
+        <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
+        <EmptyState message="No proposals yet — they arrive when grade ≥ 60" icon={Zap} />
+      </div>
+    )
+  }
+
+  return (
+    <div className={cardClass}>
+      <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
+      <div className="space-y-3">
+        {proposals.map((p) => {
+          const status = localStatuses[p.id] ?? p.status
+          const isPending = status === 'pending'
+          const isApproved = status === 'approved'
+          return (
+            <div
+              key={p.id}
+              className={cn(
+                'rounded-lg border p-3',
+                isApproved ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' :
+                status === 'rejected' ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 opacity-60' :
+                'border-slate-200 dark:border-slate-800'
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold',
+                      p.action === 'BUY' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-rose-500/15 text-rose-600'
+                    )}>{p.action ?? '--'}</span>
+                    <span className="text-sm font-mono font-bold text-slate-900 dark:text-slate-100">{p.symbol ?? '--'}</span>
+                    {p.bias && <span className={cn('rounded px-2 py-0.5 text-xs font-semibold',
+                      p.bias === 'bullish' ? 'bg-emerald-500/10 text-emerald-500' :
+                      p.bias === 'bearish' ? 'bg-rose-500/10 text-rose-500' : 'bg-slate-500/10 text-slate-500'
+                    )}>{p.bias}</span>}
+                    <span className={mutedClass}>grade {p.grade_score?.toFixed(1) ?? '--'}</span>
+                  </div>
+                  <div className="flex gap-3 text-xs text-slate-500">
+                    {p.buys != null && <span>↑{p.buys}B</span>}
+                    {p.sells != null && <span>↓{p.sells}S</span>}
+                    {p.strategy_name && <span className="truncate">{p.strategy_name}</span>}
+                  </div>
+                  {p.trace_id && (
+                    <p className="text-[10px] font-mono text-slate-400 truncate">trace: {p.trace_id.slice(0, 16)}…</p>
+                  )}
+                </div>
+                {isPending ? (
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      disabled={pendingAction === p.id}
+                      onClick={() => handleVote(p.id, 'approve')}
+                      className="rounded px-3 py-1 text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
+                    >Approve</button>
+                    <button
+                      disabled={pendingAction === p.id}
+                      onClick={() => handleVote(p.id, 'reject')}
+                      className="rounded px-3 py-1 text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
+                    >Reject</button>
+                  </div>
+                ) : (
+                  <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
+                    isApproved ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-500'
+                  )}>{status}</span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
@@ -425,6 +619,8 @@ export function DashboardView({ section }: { section: Section }) {
     systemMetrics = [],
     dashboardData,
   } = useCodexStore()
+
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
 
   // Prices arrive via the WS dashboard_update snapshot on connect — no REST call needed
   const pricesLoading = Object.keys(prices).length === 0
@@ -669,9 +865,17 @@ export function DashboardView({ section }: { section: Section }) {
                     const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
                     return (
                       <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
-                        <div className="mb-1 flex items-center gap-2">
+                        <div className="mb-1 flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
+                          {log?.trace_id && typeof log.trace_id === 'string' && (
+                            <button
+                              onClick={() => setActiveTraceId(log.trace_id as string)}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                            >
+                              trace:{(log.trace_id as string).slice(0, 8)}…
+                            </button>
+                          )}
                         </div>
                         <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge))}</p>
                       </div>
@@ -785,6 +989,8 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             </div>
           </div>
+
+          <ProposalsSection />
         </div>
       )}
 
@@ -801,6 +1007,10 @@ export function DashboardView({ section }: { section: Section }) {
       </main>
 
       <MobileNavigation section={section} />
+
+      {activeTraceId && (
+        <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
+      )}
     </div>
   )
 }

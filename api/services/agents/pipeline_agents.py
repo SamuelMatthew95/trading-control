@@ -207,17 +207,19 @@ async def _write_heartbeat(
     agent_name: str,
     last_event: str,
     event_count: int,
+    extra: dict[str, Any] | None = None,
 ) -> None:
+    payload: dict[str, Any] = {
+        "status": "ACTIVE",
+        "last_event": last_event,
+        "event_count": event_count,
+        "last_seen": int(time.time()),
+    }
+    if extra:
+        payload.update(extra)
     await redis.set(
         f"agent:status:{agent_name}",
-        json.dumps(
-            {
-                "status": "ACTIVE",
-                "last_event": last_event,
-                "event_count": event_count,
-                "last_seen": int(time.time()),
-            }
-        ),
+        json.dumps(payload),
         ex=60,
     )
     async with AsyncSessionFactory() as session:
@@ -480,6 +482,7 @@ class GradeAgent(MultiStreamAgent):
                 self.AGENT_NAME,
                 f"{action} {symbol} grade={grade_score}",
                 self.total_events,
+                extra={"last_grade_score": grade_score},
             )
 
         except Exception:
@@ -841,6 +844,25 @@ class StrategyProposer(MultiStreamAgent):
                 output["buys"] = recent_buys
                 output["sells"] = recent_sells
 
+                await self.bus.publish(
+                    "proposals",
+                    {
+                        "type": "strategy_proposal",
+                        "symbol": symbol,
+                        "action": action,
+                        "confidence": confidence,
+                        "grade_score": grade_score,
+                        "bias": bias,
+                        "buys": recent_buys,
+                        "sells": recent_sells,
+                        "strategy_name": strategy_name,
+                        "trace_id": trace_id,
+                        "source": self.AGENT_NAME,
+                        "schema_version": "v3",
+                        "ts": ts,
+                    },
+                )
+
                 log_structured(
                     "info",
                     f"[{self.AGENT_NAME}] proposal: symbol={symbol} bias={bias} "
@@ -973,6 +995,23 @@ class NotificationAgent(MultiStreamAgent):
                 )
 
                 output["alerted"] = True
+
+                await self.bus.publish(
+                    "notifications",
+                    {
+                        "type": "trade_alert",
+                        "symbol": symbol,
+                        "action": action,
+                        "confidence": confidence,
+                        "grade_score": grade_score,
+                        "price": price,
+                        "trace_id": trace_id,
+                        "source": self.AGENT_NAME,
+                        "schema_version": "v3",
+                        "ts": ts,
+                    },
+                )
+
                 log_structured(
                     "info",
                     f"[{self.AGENT_NAME}] ALERT FIRED: symbol={symbol} "
