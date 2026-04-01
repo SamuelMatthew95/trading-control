@@ -1188,7 +1188,7 @@ async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, 
             "info",
             "kill_switch_toggled",
             active=active,
-            timestamp=datetime.now(timezone.utc).isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
         return {
