@@ -650,3 +650,195 @@ async def update_proposal_status(
     except Exception:
         log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/trade-feed")
+async def get_trade_feed() -> dict[str, Any]:
+    """Get recent trade activity and agent logs for trade feed display."""
+    try:
+        async with AsyncSessionFactory() as session:
+            # Get recent agent logs related to trading
+            result = await session.execute(
+                text("""
+                    SELECT log_type, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type IN ('signal', 'decision', 'execution', 'grade')
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """)
+            )
+            rows = result.all()
+
+            trade_feed = []
+            for row in rows:
+                payload = row[1] or {}
+                trade_feed.append({
+                    "type": row[0],
+                    "action": payload.get("action", "unknown"),
+                    "symbol": payload.get("symbol", ""),
+                    "message": payload.get("message", payload.get("primary_edge", "")),
+                    "confidence": payload.get("confidence"),
+                    "timestamp": row[2].isoformat() if row[2] else None,
+                })
+
+            return {
+                "trade_feed": trade_feed,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+    except Exception:
+        log_structured("error", "trade feed failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/agent-instances")
+async def get_agent_instances() -> dict[str, Any]:
+    """Get current agent instances and their status."""
+    try:
+        redis_client = await get_redis()
+        agent_names = [
+            "SIGNAL_AGENT",
+            "REASONING_AGENT",
+            "EXECUTION_ENGINE",
+            "GRADE_AGENT",
+            "IC_UPDATER",
+            "REFLECTION_AGENT",
+            "STRATEGY_PROPOSER",
+            "NOTIFICATION_AGENT",
+        ]
+        now = int(datetime.now(timezone.utc).timestamp())
+        agents = []
+
+        for name in agent_names:
+            raw = await redis_client.get(f"agent:status:{name}")
+            if raw:
+                data = json.loads(raw)
+                last_seen = data.get("last_seen", 0)
+                age = now - last_seen
+                if age > 120:
+                    status = "STALE"
+                else:
+                    status = data.get("status", "ACTIVE")
+                agents.append({
+                    "name": name,
+                    "status": status,
+                    "event_count": data.get("event_count", 0),
+                    "last_event": data.get("last_event", ""),
+                    "last_seen": last_seen,
+                    "seconds_ago": age,
+                    "type": data.get("type", "agent"),
+                })
+            else:
+                agents.append({
+                    "name": name,
+                    "status": "WAITING",
+                    "event_count": 0,
+                    "last_event": "",
+                    "last_seen": 0,
+                    "seconds_ago": 0,
+                    "type": "agent",
+                })
+
+        return {
+            "agents": agents,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "agent instances failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/performance-trends")
+async def get_performance_trends() -> dict[str, Any]:
+    """Get performance trends and analytics data."""
+    try:
+        async with AsyncSessionFactory() as session:
+            # Get PnL trends over time
+            pnl_result = await session.execute(
+                text("""
+                    SELECT
+                        DATE(created_at) as date,
+                        SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) as profits,
+                        SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END) as losses,
+                        SUM(pnl) as net_pnl,
+                        COUNT(*) as trade_count
+                    FROM orders
+                    WHERE created_at >= DATE('now', '-30 days')
+                    GROUP BY DATE(created_at)
+                    ORDER BY date DESC
+                    LIMIT 30
+                """)
+            )
+            pnl_rows = pnl_result.all()
+
+            performance_trends = []
+            for row in pnl_rows:
+                performance_trends.append({
+                    "date": row[0].isoformat() if row[0] else None,
+                    "profits": float(row[1]) if row[1] else 0.0,
+                    "losses": float(row[2]) if row[2] else 0.0,
+                    "net_pnl": float(row[3]) if row[3] else 0.0,
+                    "trade_count": row[4] if row[4] else 0,
+                })
+
+            # Get win rate trends
+            win_rate_result = await session.execute(
+                text("""
+                    SELECT
+                        DATE(created_at) as date,
+                        COUNT(*) as total_trades,
+                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades
+                    FROM orders
+                    WHERE created_at >= DATE('now', '-30 days')
+                    GROUP BY DATE(created_at)
+                    ORDER BY date DESC
+                    LIMIT 30
+                """)
+            )
+            win_rate_rows = win_rate_result.all()
+
+            win_rate_trends = []
+            for row in win_rate_rows:
+                win_rate = (row[2] / row[1] * 100) if row[1] > 0 else 0.0
+                win_rate_trends.append({
+                    "date": row[0].isoformat() if row[0] else None,
+                    "win_rate": win_rate,
+                    "total_trades": row[1] if row[1] else 0,
+                    "winning_trades": row[2] if row[2] else 0,
+                })
+
+            return {
+                "pnl_trends": performance_trends,
+                "win_rate_trends": win_rate_trends,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+    except Exception:
+        log_structured("error", "performance trends failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.post("/kill-switch")
+async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, Any]:
+    """Toggle the trading kill switch."""
+    try:
+        redis_client = await get_redis()
+
+        # Store kill switch state in Redis
+        await redis_client.set("kill_switch:active", "true" if active else "false")
+        await redis_client.set("kill_switch:updated_at", datetime.now(timezone.utc).isoformat())
+
+        # Log the action
+        log_structured(
+            "info",
+            "kill_switch_toggled",
+            active=active,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+
+        return {
+            "active": active,
+            "message": f"Kill switch {'activated' if active else 'deactivated'}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "kill switch toggle failed", active=active, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None

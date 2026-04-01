@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { api } from '@/lib/apiClient'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,9 +48,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [orders, positions])
 
   const handleKillSwitch = async (activate: boolean) => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
     try {
-      const response = await fetch(`${apiBase}/v1/dashboard/kill_switch`, {
+      const response = await fetch(api("/dashboard/kill-switch"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: activate }),

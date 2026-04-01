@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 
+import { api } from '@/lib/apiClient'
+
 // Import new Obsidian-Pro components
 import { ProTradingCard } from './ProTradingCard'
 import { SentimentGauge } from './SentimentGauge'
@@ -29,8 +31,6 @@ import { LogViewer } from './LogViewer'
 import { StatusChip, AgentStatusChip, TrendChip } from './StatusChip'
 import { MarketEmptyState } from './EmptyStates'
 import { KillSwitchState } from './KillSwitchState'
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
 
 // Memoized components for performance optimization
 const PnLHero = memo(({ dailyPnl }: { dailyPnl: number }) => {
@@ -389,7 +389,7 @@ export function ObsidianDashboard() {
 
   const handleKillSwitch = async () => {
     try {
-      const response = await fetch(`${API_BASE}/kill-switch`, { method: 'POST' })
+      const response = await fetch(api("/dashboard/kill-switch"), { method: 'POST' })
       if (response.ok) {
         // Force refresh
         window.location.reload()

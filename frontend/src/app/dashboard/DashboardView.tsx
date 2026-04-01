@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
+import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import {
   Activity,
@@ -387,9 +388,9 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchLearning = async () => {
       try {
         const [proposalsRes, icRes, gradesRes] = await Promise.all([
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/proposals`),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/ic-weights`),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/grades`),
+          fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS)),
+          fetch(api(API_ENDPOINTS.LEARNING_IC_WEIGHTS)),
+          fetch(api(API_ENDPOINTS.LEARNING_GRADES)),
         ])
         if (proposalsRes.ok) {
           const data = await proposalsRes.json()
