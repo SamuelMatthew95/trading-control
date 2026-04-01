@@ -31,11 +31,18 @@ async def get_redis() -> Redis:
             log_structured("error", "redis_url_missing", event_name="redis_url_missing")
             raise RuntimeError("Missing REDIS_URL")
 
+        try:
+            from api.config import settings as _s
+
+            _max_conn = _s.REDIS_MAX_CONNECTIONS
+        except Exception:
+            _max_conn = 20
+
         _redis_pool = ConnectionPool.from_url(
             redis_url,
             encoding="utf-8",
             decode_responses=True,
-            max_connections=30,
+            max_connections=_max_conn,
             socket_connect_timeout=5,
             socket_timeout=5,
             health_check_interval=30,

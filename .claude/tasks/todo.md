@@ -1,29 +1,22 @@
-# Task Todo
+# Fix: DB High-Scale Connections, SafeWriter Bugs, Redis Config, WebSocket Page-Load
 
-For any task that involves more than 2 files or 3 steps:
+## Issues
+1. [ ] SafeWriter bugs: missing raise, KeyError, error=str(e) violations
+2. [ ] DB: no pool settings → add pool_size/max_overflow/pool_timeout/pool_recycle
+3. [ ] Config: add DB pool + Redis pool env vars
+4. [ ] Redis: hardcoded max_connections=30 → configurable
+5. [ ] WebSocket: depends on page-load HTTP polling → push initial snapshot + periodic updates
+6. [ ] Frontend: remove setInterval polling → use WS store data
 
-1. Write the plan here before writing any code
-2. Show the plan and wait for confirmation  
-3. Mark items complete as you go: [x] done, [ ] pending
-4. Give a one-line summary after each major step
-5. Add a ## Results section when done
-6. Update lessons.md if anything went wrong
-
-Never start implementation without a written plan for complex tasks.
-
----
-
-## Current Tasks
-
-[x] Create .claude/tasks/ directory structure
-[x] Add lessons.md template for mistake tracking
-[x] Add todo.md template for task planning
-[x] Create ruff.toml configuration
-[x] Update requirements-dev.txt with ruff
-[x] Create comprehensive CLAUDE.md with task management and Definition of Done
+## Files
+- api/core/writer/safe_writer.py
+- api/database.py
+- api/config.py
+- api/redis_client.py
+- api/routes/ws.py
+- api/services/websocket_broadcaster.py
+- frontend/src/stores/useCodexStore.ts
+- frontend/src/app/dashboard/DashboardView.tsx
+- frontend/src/hooks/useGlobalWebSocket.ts
 
 ## Results
-- Task management system established in .claude/tasks/
-- Comprehensive Definition of Done with automated verification
-- Linting tools configured (ruff, mypy)
-- Lessons learned tracking system ready

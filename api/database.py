@@ -65,7 +65,28 @@ def _run_alembic_upgrade(url: str) -> None:
 
 
 database_url = _resolve_database_url()
-async_engine = create_async_engine(database_url, echo=False, pool_pre_ping=True)
+
+
+def _engine_kwargs() -> dict:
+    """Build SQLAlchemy engine kwargs, skipping pool args for SQLite."""
+    kwargs: dict = {"echo": False, "pool_pre_ping": True}
+    if _uses_postgres(database_url):
+        try:
+            from api.config import settings as _s
+
+            kwargs["pool_size"] = _s.DB_POOL_SIZE
+            kwargs["max_overflow"] = _s.DB_MAX_OVERFLOW
+            kwargs["pool_timeout"] = _s.DB_POOL_TIMEOUT
+            kwargs["pool_recycle"] = _s.DB_POOL_RECYCLE
+        except Exception:
+            # Fallback to safe defaults if settings unavailable
+            kwargs.update(
+                {"pool_size": 5, "max_overflow": 5, "pool_timeout": 30, "pool_recycle": 1800}
+            )
+    return kwargs
+
+
+async_engine = create_async_engine(database_url, **_engine_kwargs())
 engine = async_engine
 AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 AsyncSessionFactory = AsyncSessionLocal

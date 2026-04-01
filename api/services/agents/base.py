@@ -13,7 +13,12 @@ from api.services.agent_state import AgentStateRegistry
 
 
 class MultiStreamAgent:
-    """Dispatches Redis stream messages to ``process()`` for each stream in ``streams``."""
+    """Dispatches Redis stream messages to ``process()`` for each stream in ``streams``.
+
+    Each running instance registers itself in ``agent_instances`` on start and
+    marks itself retired on stop, giving full lifecycle traceability even as
+    agents are hot-restarted or scaled out.
+    """
 
     _state_name: str = ""  # Override in subclass to enable AgentStateRegistry tracking
 
@@ -33,10 +38,56 @@ class MultiStreamAgent:
         self.agent_state = agent_state
         self._task: asyncio.Task[None] | None = None
         self._running = False
+        self._instance_id: str | None = None
+
+    # ------------------------------------------------------------------
+    # Instance lifecycle registration
+    # ------------------------------------------------------------------
+
+    async def _register_instance(self) -> None:
+        """Register this agent instance in the DB. Non-fatal on error."""
+        try:
+            from api.services.agents.db_helpers import register_agent_instance
+
+            pool_name = self._state_name or self.consumer
+            self._instance_id = await register_agent_instance(
+                instance_key=self.consumer,
+                pool_name=pool_name,
+            )
+            log_structured(
+                "info",
+                "agent_instance_registered",
+                consumer=self.consumer,
+                instance_id=self._instance_id,
+            )
+        except Exception:
+            log_structured("warning", "agent_instance_register_skipped", exc_info=True)
+
+    async def _retire_instance(self) -> None:
+        """Mark this instance as retired in the DB. Non-fatal on error."""
+        if self._instance_id is None:
+            return
+        try:
+            from api.services.agents.db_helpers import retire_agent_instance
+
+            await retire_agent_instance(self._instance_id)
+            log_structured(
+                "info",
+                "agent_instance_retired",
+                consumer=self.consumer,
+                instance_id=self._instance_id,
+            )
+        except Exception:
+            log_structured("warning", "agent_instance_retire_skipped", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Start / stop
+    # ------------------------------------------------------------------
 
     async def start(self) -> None:
         if self._running:
             return
+        await self._register_instance()
         self._running = True
         self._task = asyncio.create_task(self._run(), name=f"agent:{self.consumer}")
 
@@ -47,6 +98,11 @@ class MultiStreamAgent:
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+        await self._retire_instance()
+
+    # ------------------------------------------------------------------
+    # Message dispatch
+    # ------------------------------------------------------------------
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         raise NotImplementedError
@@ -69,6 +125,16 @@ class MultiStreamAgent:
                             self.agent_state.record_event(
                                 self._state_name, task=f"{stream}:{data.get('type', 'event')}"
                             )
+                        # Best-effort event counter on instance row
+                        if self._instance_id:
+                            try:
+                                from api.services.agents.db_helpers import (
+                                    increment_instance_event_count,
+                                )
+
+                                await increment_instance_event_count(self._instance_id)
+                            except Exception:  # noqa: BLE001
+                                pass
                     except Exception as exc:  # noqa: BLE001
                         log_structured(
                             "error",

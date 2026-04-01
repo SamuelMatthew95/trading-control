@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from sqlalchemy import text
 
 from api.database import AsyncSessionFactory
@@ -467,6 +467,122 @@ async def get_worker_health() -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=error_data) from None
 
 
+# ---------------------------------------------------------------------------
+# Proposals panel (queries events table)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/proposals")
+async def list_proposals() -> dict[str, Any]:
+    """Get recent strategy proposals from events table."""
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT id, data, created_at, source
+                    FROM events
+                    WHERE event_type = 'strategy.proposal'
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """)
+            )
+            rows = result.all()
+            proposals = []
+            for row in rows:
+                raw = row[1]
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                proposals.append(
+                    {
+                        "id": str(row[0]),
+                        "symbol": data.get("symbol"),
+                        "action": data.get("action"),
+                        "grade_score": data.get("grade_score"),
+                        "bias": data.get("bias"),
+                        "buys": data.get("buys"),
+                        "sells": data.get("sells"),
+                        "strategy_name": data.get("strategy_name"),
+                        "trace_id": data.get("trace_id"),
+                        "created_at": row[2].isoformat() if row[2] else None,
+                        "source": row[3],
+                        "status": data.get("status", "pending"),
+                    }
+                )
+        return {
+            "proposals": proposals,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "proposals fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(proposal_id: str) -> dict[str, Any]:
+    """Mark a strategy proposal as approved."""
+    try:
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "SELECT id, data FROM events "
+                        "WHERE id = :id AND event_type = 'strategy.proposal'"
+                    ),
+                    {"id": proposal_id},
+                )
+                row = result.first()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Proposal not found") from None
+                raw = row[1]
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                data["status"] = "approved"
+                await session.execute(
+                    text("UPDATE events SET data = :data WHERE id = :id"),
+                    {"data": json.dumps(data), "id": proposal_id},
+                )
+        return {"status": "approved", "id": proposal_id}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal approve failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(proposal_id: str) -> dict[str, Any]:
+    """Mark a strategy proposal as rejected."""
+    try:
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "SELECT id, data FROM events "
+                        "WHERE id = :id AND event_type = 'strategy.proposal'"
+                    ),
+                    {"id": proposal_id},
+                )
+                row = result.first()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Proposal not found") from None
+                raw = row[1]
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                data["status"] = "rejected"
+                await session.execute(
+                    text("UPDATE events SET data = :data WHERE id = :id"),
+                    {"data": json.dumps(data), "id": proposal_id},
+                )
+        return {"status": "rejected", "id": proposal_id}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal reject failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Learning analytics
+# ---------------------------------------------------------------------------
+
+
 @router.get("/learning/proposals")
 async def get_proposals(limit: int = 50) -> dict[str, Any]:
     """Get recent strategy proposals from agent_logs."""
@@ -649,4 +765,409 @@ async def update_proposal_status(
         raise
     except Exception:
         log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Trace view
+# ---------------------------------------------------------------------------
+
+
+@router.get("/trace/{trace_id}")
+async def get_trace(trace_id: str) -> dict[str, Any]:
+    """Return the full trace for a trace_id: agent_runs + agent_logs + agent_grades."""
+    try:
+        async with AsyncSessionFactory() as session:
+            run_result = await session.execute(
+                text("""
+                    SELECT id, source, run_type, status,
+                           input_data, output_data, execution_time_ms, created_at
+                    FROM agent_runs
+                    WHERE trace_id = :trace_id
+                    ORDER BY created_at ASC
+                """),
+                {"trace_id": trace_id},
+            )
+            runs = [
+                {
+                    "id": str(r[0]),
+                    "agent_name": r[1],
+                    "run_type": r[2],
+                    "status": r[3],
+                    "input_data": r[4],
+                    "output_data": r[5],
+                    "execution_time_ms": r[6],
+                    "created_at": r[7].isoformat() if r[7] else None,
+                }
+                for r in run_result.all()
+            ]
+
+            log_result = await session.execute(
+                text("""
+                    SELECT id, log_type, payload, created_at
+                    FROM agent_logs
+                    WHERE trace_id = :trace_id
+                    ORDER BY created_at ASC
+                """),
+                {"trace_id": trace_id},
+            )
+            logs = [
+                {
+                    "id": str(lg[0]),
+                    "log_type": lg[1],
+                    "payload": lg[2],
+                    "created_at": lg[3].isoformat() if lg[3] else None,
+                }
+                for lg in log_result.all()
+            ]
+
+            grade_result = await session.execute(
+                text("""
+                    SELECT id, agent_id, grade_type, score, metrics, created_at
+                    FROM agent_grades
+                    WHERE trace_id = :trace_id
+                    ORDER BY created_at ASC
+                """),
+                {"trace_id": trace_id},
+            )
+            grades = [
+                {
+                    "id": str(g[0]),
+                    "agent_id": str(g[1]),
+                    "grade_type": g[2],
+                    "score": float(g[3]) if g[3] is not None else None,
+                    "metrics": g[4],
+                    "created_at": g[5].isoformat() if g[5] else None,
+                }
+                for g in grade_result.all()
+            ]
+
+        if not runs and not logs and not grades:
+            raise HTTPException(status_code=404, detail="Trace not found") from None
+
+        return {
+            "trace_id": trace_id,
+            "agent_runs": runs,
+            "agent_logs": logs,
+            "agent_grades": grades,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "trace fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Trade feed — end-to-end lifecycle per trade
+# ---------------------------------------------------------------------------
+
+
+@router.get("/trade-feed")
+async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
+    """Return the most recent trades with full lifecycle state.
+
+    Each row shows what happened end-to-end: filled price, P&L, grade, and
+    whether a reflection has been written.  The frontend displays these as a
+    clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
+    """
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT
+                        id, symbol, side, qty, entry_price, exit_price,
+                        pnl, pnl_percent, order_id,
+                        execution_trace_id, signal_trace_id,
+                        grade, grade_score, grade_label,
+                        status, filled_at, graded_at, reflected_at,
+                        created_at
+                    FROM trade_lifecycle
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": min(limit, 200)},
+            )
+            rows = result.all()
+
+        def _fmt(row: Any) -> dict[str, Any]:
+            pnl = float(row[6]) if row[6] is not None else None
+            pnl_pct = float(row[7]) if row[7] is not None else None
+            return {
+                "id": str(row[0]),
+                "symbol": row[1],
+                "side": row[2],
+                "qty": float(row[3]) if row[3] is not None else None,
+                "entry_price": float(row[4]) if row[4] is not None else None,
+                "exit_price": float(row[5]) if row[5] is not None else None,
+                "pnl": round(pnl, 2) if pnl is not None else None,
+                "pnl_percent": round(pnl_pct, 4) if pnl_pct is not None else None,
+                "order_id": str(row[8]) if row[8] else None,
+                "execution_trace_id": row[9],
+                "signal_trace_id": row[10],
+                "grade": row[11],
+                "grade_score": float(row[12]) if row[12] is not None else None,
+                "grade_label": row[13],
+                "status": row[14],
+                "filled_at": row[15].isoformat() if row[15] else None,
+                "graded_at": row[16].isoformat() if row[16] else None,
+                "reflected_at": row[17].isoformat() if row[17] else None,
+                "created_at": row[18].isoformat() if row[18] else None,
+            }
+
+        return {
+            "trades": [_fmt(r) for r in rows],
+            "count": len(rows),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "trade_feed_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Performance trends — agent grade history + P&L by day
+# ---------------------------------------------------------------------------
+
+
+@router.get("/performance-trends")
+async def get_performance_trends() -> dict[str, Any]:
+    """Return agent grade history and daily P&L for the last 30 days."""
+    try:
+        async with AsyncSessionFactory() as session:
+            # Daily P&L from trade_lifecycle
+            pnl_result = await session.execute(
+                text("""
+                    SELECT
+                        DATE(filled_at AT TIME ZONE 'UTC') AS day,
+                        SUM(pnl)                           AS daily_pnl,
+                        COUNT(*)                           AS trade_count,
+                        COUNT(*) FILTER (WHERE pnl > 0)    AS wins,
+                        COUNT(*) FILTER (WHERE pnl <= 0)   AS losses,
+                        AVG(pnl)                           AS avg_pnl
+                    FROM trade_lifecycle
+                    WHERE filled_at >= NOW() - INTERVAL '30 days'
+                      AND status IN ('filled', 'graded', 'reflected')
+                    GROUP BY day
+                    ORDER BY day DESC
+                """)
+            )
+            daily_pnl = [
+                {
+                    "day": str(r[0]),
+                    "pnl": round(float(r[1]), 2) if r[1] is not None else 0.0,
+                    "trade_count": int(r[2]),
+                    "wins": int(r[3]),
+                    "losses": int(r[4]),
+                    "avg_pnl": round(float(r[5]), 2) if r[5] is not None else 0.0,
+                }
+                for r in pnl_result.all()
+            ]
+
+            # Grade distribution from agent_grades
+            grade_result = await session.execute(
+                text("""
+                    SELECT
+                        DATE(created_at AT TIME ZONE 'UTC') AS day,
+                        AVG(score) * 100                    AS avg_score_pct
+                    FROM agent_grades
+                    WHERE created_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY day
+                    ORDER BY day DESC
+                """)
+            )
+            grade_trend = [
+                {
+                    "day": str(r[0]),
+                    "avg_score_pct": round(float(r[1]), 1) if r[1] is not None else None,
+                }
+                for r in grade_result.all()
+            ]
+
+            # Summary stats
+            summary_result = await session.execute(
+                text("""
+                    SELECT
+                        COALESCE(SUM(pnl), 0)                       AS total_pnl,
+                        COUNT(*)                                     AS total_trades,
+                        COUNT(*) FILTER (WHERE pnl > 0)             AS total_wins,
+                        COALESCE(AVG(pnl) FILTER (WHERE pnl > 0), 0) AS avg_win,
+                        COALESCE(AVG(pnl) FILTER (WHERE pnl < 0), 0) AS avg_loss,
+                        COALESCE(MAX(pnl), 0)                        AS best_trade,
+                        COALESCE(MIN(pnl), 0)                        AS worst_trade
+                    FROM trade_lifecycle
+                    WHERE status IN ('filled', 'graded', 'reflected')
+                """)
+            )
+            s = summary_result.first()
+            total_trades = int(s[1]) if s else 0
+            total_wins = int(s[2]) if s else 0
+            summary = {
+                "total_pnl": round(float(s[0]), 2) if s else 0.0,
+                "total_trades": total_trades,
+                "win_rate": round(total_wins / total_trades * 100, 1) if total_trades else 0.0,
+                "avg_win": round(float(s[3]), 2) if s else 0.0,
+                "avg_loss": round(float(s[4]), 2) if s else 0.0,
+                "best_trade": round(float(s[5]), 2) if s else 0.0,
+                "worst_trade": round(float(s[6]), 2) if s else 0.0,
+            }
+
+        return {
+            "summary": summary,
+            "daily_pnl": daily_pnl,
+            "grade_trend": grade_trend,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "performance_trends_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Agent instances — lifecycle view
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent-instances")
+async def get_agent_instances() -> dict[str, Any]:
+    """Return all agent instances with lifecycle info.
+
+    Active instances show how long they have been running and how many events
+    they have processed.  Retired instances are kept for audit.
+    """
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT
+                        id, instance_key, pool_name, status,
+                        started_at, retired_at, event_count, metadata,
+                        EXTRACT(EPOCH FROM (
+                            COALESCE(retired_at, NOW()) - started_at
+                        ))::int AS uptime_seconds
+                    FROM agent_instances
+                    ORDER BY started_at DESC
+                    LIMIT 100
+                """)
+            )
+            rows = result.all()
+
+        instances = [
+            {
+                "id": str(r[0]),
+                "instance_key": r[1],
+                "pool_name": r[2],
+                "status": r[3],
+                "started_at": r[4].isoformat() if r[4] else None,
+                "retired_at": r[5].isoformat() if r[5] else None,
+                "event_count": int(r[6]) if r[6] is not None else 0,
+                "uptime_seconds": int(r[8]) if r[8] is not None else 0,
+            }
+            for r in rows
+        ]
+
+        active = [i for i in instances if i["status"] == "active"]
+        retired = [i for i in instances if i["status"] == "retired"]
+
+        return {
+            "instances": instances,
+            "active_count": len(active),
+            "retired_count": len(retired),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "agent_instances_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# Challenger agent management
+# ---------------------------------------------------------------------------
+
+
+@router.post("/challengers/spawn")
+async def spawn_challenger(
+    request: Request,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Spawn a new ChallengerAgent from an approved new_agent proposal.
+
+    Body: { "challenger_config": {...}, "max_fills": 200 }
+
+    The challenger runs in parallel with the existing pipeline agents,
+    tracks its own grades, and retires itself after max_fills events,
+    publishing a summary to the proposals stream.
+    """
+    try:
+        from api.services.agents.pipeline_agents import ChallengerAgent
+
+        event_bus = getattr(request.app.state, "event_bus", None)
+        dlq_manager = getattr(request.app.state, "dlq_manager", None)
+        agents: list[Any] = getattr(request.app.state, "agents", [])
+
+        if event_bus is None or dlq_manager is None:
+            raise HTTPException(status_code=503, detail="Event bus not ready") from None
+
+        challenger_config = body.get("challenger_config", {})
+        max_fills = int(body.get("max_fills", ChallengerAgent.DEFAULT_MAX_FILLS))
+
+        challenger = ChallengerAgent(
+            event_bus,
+            dlq_manager,
+            challenger_config=challenger_config,
+            max_fills=max_fills,
+        )
+        await challenger.start()
+        agents.append(challenger)
+
+        log_structured(
+            "info",
+            "challenger_spawned",
+            challenger_id=challenger._challenger_id,
+            instance_id=challenger._instance_id,
+            max_fills=max_fills,
+        )
+        return {
+            "challenger_id": challenger._challenger_id,
+            "instance_id": challenger._instance_id,
+            "consumer": challenger.consumer,
+            "max_fills": max_fills,
+            "status": "spawned",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "challenger_spawn_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/challengers")
+async def list_challengers(request: Request) -> dict[str, Any]:
+    """List all active challenger agent instances."""
+    try:
+        from api.services.agents.pipeline_agents import ChallengerAgent
+
+        agents: list[Any] = getattr(request.app.state, "agents", [])
+        challengers = [a for a in agents if isinstance(a, ChallengerAgent)]
+
+        return {
+            "challengers": [
+                {
+                    "challenger_id": c._challenger_id,
+                    "instance_id": c._instance_id,
+                    "consumer": c.consumer,
+                    "fills": c._fills,
+                    "max_fills": c._max_fills,
+                    "config": c._config,
+                    "running": c._running,
+                }
+                for c in challengers
+            ],
+            "count": len(challengers),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "challengers_list_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None

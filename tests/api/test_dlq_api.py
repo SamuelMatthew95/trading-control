@@ -219,16 +219,20 @@ class TestDLQAPI:
         assert "DLQ manager not available" in data["detail"]
 
     @pytest.mark.asyncio
-    async def test_redis_max_connections_is_20(self):
-        """Test that Redis client configures max_connections=30."""
+    async def test_redis_max_connections_is_configurable(self):
+        """Test that Redis client uses a configurable max_connections (REDIS_MAX_CONNECTIONS)."""
         import inspect
 
         from api import redis_client
 
         redis_source_code = inspect.getsource(redis_client)
 
-        assert "max_connections=30" in redis_source_code, (
-            "Redis client should have max_connections=30"
+        # max_connections is now driven by settings.REDIS_MAX_CONNECTIONS
+        assert "REDIS_MAX_CONNECTIONS" in redis_source_code, (
+            "Redis client max_connections should be driven by settings.REDIS_MAX_CONNECTIONS"
+        )
+        assert "max_connections=_max_conn" in redis_source_code, (
+            "Redis client should pass _max_conn (from settings) to ConnectionPool"
         )
 
     @pytest.mark.asyncio

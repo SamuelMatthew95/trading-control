@@ -58,7 +58,7 @@ class TestRedisConnectionFixes:
                 mock_pool_class.from_url.assert_called_once()
                 call_kwargs = mock_pool_class.from_url.call_args[1]
 
-                assert call_kwargs["max_connections"] == 30
+                assert call_kwargs["max_connections"] == 20
                 assert call_kwargs["health_check_interval"] == 30
                 assert call_kwargs["socket_timeout"] == 5
                 assert call_kwargs["socket_connect_timeout"] == 5
