@@ -8,10 +8,6 @@ and the poll loop in ``base``.
 from __future__ import annotations
 
 import json
-
-# ---------------------------------------------------------------------------
-# Helper: heartbeat writer (preserves extra param for grade score propagation)
-# ---------------------------------------------------------------------------
 import time as _time
 import uuid
 from collections import deque
