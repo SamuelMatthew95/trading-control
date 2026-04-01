@@ -1171,3 +1171,31 @@ async def list_challengers(request: Request) -> dict[str, Any]:
     except Exception:
         log_structured("error", "challengers_list_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.post("/kill-switch")
+async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, Any]:
+    """Toggle the trading kill switch."""
+    try:
+        redis_client = await get_redis()
+
+        # Store kill switch state in Redis
+        await redis_client.set("kill_switch:active", "true" if active else "false")
+        await redis_client.set("kill_switch:updated_at", datetime.now(timezone.utc).isoformat())
+
+        # Log the action
+        log_structured(
+            "info",
+            "kill_switch_toggled",
+            active=active,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        return {
+            "active": active,
+            "message": f"Kill switch {'activated' if active else 'deactivated'}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "kill switch toggle failed", active=active, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None

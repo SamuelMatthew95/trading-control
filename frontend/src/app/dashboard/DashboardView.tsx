@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
+import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import {
   Activity,
@@ -574,9 +575,9 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchLearning = async () => {
       try {
         const [proposalsRes, icRes, gradesRes] = await Promise.all([
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/proposals`),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/ic-weights`),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/dashboard/learning/grades`),
+          fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS)),
+          fetch(api(API_ENDPOINTS.LEARNING_IC_WEIGHTS)),
+          fetch(api(API_ENDPOINTS.LEARNING_GRADES)),
         ])
         if (proposalsRes.ok) {
           const data = await proposalsRes.json()
@@ -609,8 +610,7 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchTradeFeed = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || ''
-        const r = await fetch(`${base}/api/dashboard/trade-feed`)
+        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_TRADE_FEED))
         const d = await r.json()
         useCodexStore.getState().setTradeFeed(d.trades ?? [])
       } catch {
@@ -626,8 +626,7 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchPerformance = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || ''
-        const r = await fetch(`${base}/api/dashboard/performance-trends`)
+        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
         const d = await r.json()
         if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
       } catch {
@@ -641,8 +640,7 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchAgentInstances = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || ''
-        const r = await fetch(`${base}/api/dashboard/agent-instances`)
+        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
         const d = await r.json()
         useCodexStore.getState().setAgentInstances(d.instances ?? [])
       } catch {
