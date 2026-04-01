@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { useCodexStore, type AgentStatus, type Proposal } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 
 // --- Types ---
 type WebSocketMessage = {
