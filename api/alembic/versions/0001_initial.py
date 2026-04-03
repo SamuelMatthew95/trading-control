@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.sql.sqltypes import NullType
 from sqlalchemy.types import UserDefinedType
 
 revision = "0001_initial"
@@ -51,12 +52,15 @@ def _create_table(table_name: str, *columns: sa.Column) -> None:
 
 
 def _table_id_type(table_name: str) -> sa.types.TypeEngine:
+    """Best-effort lookup of <table>.id type for legacy-compatible FK columns."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     try:
         for column in inspector.get_columns(table_name):
             if column["name"] == "id":
-                return column["type"]
+                detected_type = column.get("type")
+                if detected_type is not None and not isinstance(detected_type, NullType):
+                    return detected_type
     except NoSuchTableError:
         return postgresql.UUID(as_uuid=True)
     return postgresql.UUID(as_uuid=True)
