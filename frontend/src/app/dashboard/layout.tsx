@@ -27,6 +27,7 @@ const NAV = [
   { href: '/dashboard/agents', label: 'Agents', Icon: Bot },
   { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
   { href: '/dashboard/system', label: 'System', Icon: Settings2 },
+  { href: '/dashboard/history', label: 'History', Icon: Activity },
 ]
 
 const formatUSD = (value?: number | null): string => {
