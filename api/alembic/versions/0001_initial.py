@@ -185,8 +185,7 @@ def upgrade() -> None:
                         || 'USING embedding::vector';
                 EXCEPTION WHEN OTHERS THEN
                     RAISE NOTICE
-                        'Skipping vector index creation because vector_memory.embedding '
-                        || 'could not be converted to vector(1536): %',
+                        'Skipping vector index creation because vector_memory.embedding could not be converted to vector(1536): %',
                         SQLERRM;
                     RETURN;
                 END;
