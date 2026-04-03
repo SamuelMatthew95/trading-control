@@ -54,41 +54,71 @@ def _create_table(table_name: str, *columns: sa.Column) -> None:
 def _table_id_type(table_name: str) -> sa.types.TypeEngine:
     """Best-effort lookup of <table>.id type for legacy-compatible FK columns."""
     bind = op.get_bind()
+    inspector = sa.inspect(bind)
 
-    # Prefer a catalog lookup in the active schema search path. This is more
-    # reliable than SQLAlchemy inspector in environments where legacy tables
-    # may already exist in a non-default schema.
-    catalog_type = bind.execute(
+    schema_name: str | None = None
+    relation_name = table_name
+    if "." in table_name:
+        schema_name, relation_name = table_name.split(".", 1)
+
+    # Resolve candidate schemas from the live catalog. When the table name is
+    # unqualified we prioritize search_path schemas first, then public, then
+    # any remaining non-system schemas.
+    schema_rows = bind.execute(
         sa.text(
             """
-            SELECT format_type(a.atttypid, a.atttypmod) AS id_type
+            SELECT n.nspname,
+                   format_type(a.atttypid, a.atttypmod) AS id_type,
+                   CASE
+                     WHEN n.nspname = ANY (current_schemas(TRUE))
+                       THEN array_position(current_schemas(TRUE), n.nspname)
+                     WHEN n.nspname = 'public' THEN 10000
+                     ELSE 20000
+                   END AS schema_rank
               FROM pg_attribute a
               JOIN pg_class c ON c.oid = a.attrelid
               JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE c.relname = :table_name
+             WHERE c.relname = :relation_name
                AND a.attname = 'id'
                AND a.attnum > 0
                AND NOT a.attisdropped
-               AND n.nspname = ANY (current_schemas(TRUE))
-             ORDER BY array_position(current_schemas(TRUE), n.nspname)
-             LIMIT 1
+               AND (:schema_name IS NULL OR n.nspname = :schema_name)
+               AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+             ORDER BY schema_rank, n.nspname
             """
         ),
-        {"table_name": table_name},
-    ).scalar_one_or_none()
+        {"relation_name": relation_name, "schema_name": schema_name},
+    ).fetchall()
 
-    if isinstance(catalog_type, str):
+    # Use SQLAlchemy reflection against the selected schema first so we return
+    # the most faithful SQLAlchemy type for FK compatibility.
+    for row in schema_rows:
+        candidate_schema = row.nspname
+        try:
+            for column in inspector.get_columns(relation_name, schema=candidate_schema):
+                if column["name"] == "id":
+                    detected_type = column.get("type")
+                    if detected_type is not None and not isinstance(detected_type, NullType):
+                        return detected_type
+        except NoSuchTableError:
+            continue
+
+    # Fallback to normalized catalog type mapping when inspector cannot reflect
+    # the table in the current migration context.
+    for row in schema_rows:
+        catalog_type = row.id_type
+        if not isinstance(catalog_type, str):
+            continue
         normalized = catalog_type.lower()
         if normalized == "uuid":
             return postgresql.UUID(as_uuid=True)
         if normalized.startswith("character varying") or normalized.startswith("varchar"):
-            return sa.String(length=255)
+            return sa.String()
         if normalized == "text":
             return sa.Text()
 
-    inspector = sa.inspect(bind)
     try:
-        for column in inspector.get_columns(table_name):
+        for column in inspector.get_columns(relation_name, schema=schema_name):
             if column["name"] == "id":
                 detected_type = column.get("type")
                 if detected_type is not None and not isinstance(detected_type, NullType):
