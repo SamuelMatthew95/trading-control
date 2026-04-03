@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.exc import NoSuchTableError, SQLAlchemyError
 from sqlalchemy.sql.sqltypes import NullType
 from sqlalchemy.types import UserDefinedType
 
@@ -55,13 +55,79 @@ def _table_id_type(table_name: str) -> sa.types.TypeEngine:
     """Best-effort lookup of <table>.id type for legacy-compatible FK columns."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+
+    schema_name: str | None = None
+    relation_name = table_name
+    if "." in table_name:
+        schema_name, relation_name = table_name.split(".", 1)
+
+    # Resolve candidate schemas from the live catalog. When the table name is
+    # unqualified we prioritize search_path schemas first, then public, then
+    # any remaining non-system schemas.
+    schema_rows = bind.execute(
+        sa.text(
+            """
+            SELECT n.nspname,
+                   format_type(a.atttypid, a.atttypmod) AS id_type,
+                   CASE
+                     WHEN n.nspname = ANY (current_schemas(TRUE))
+                       THEN array_position(current_schemas(TRUE), n.nspname)
+                     WHEN n.nspname = 'public' THEN 10000
+                     ELSE 20000
+                   END AS schema_rank
+              FROM pg_attribute a
+              JOIN pg_class c ON c.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE c.relname = :relation_name
+               AND a.attname = 'id'
+               AND a.attnum > 0
+               AND NOT a.attisdropped
+               AND (:schema_name IS NULL OR n.nspname = :schema_name)
+               AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+             ORDER BY schema_rank, n.nspname
+            """
+        ),
+        {"relation_name": relation_name, "schema_name": schema_name},
+    ).fetchall()
+
+    # Use SQLAlchemy reflection against the selected schema first so we return
+    # the most faithful SQLAlchemy type for FK compatibility.
+    for row in schema_rows:
+        candidate_schema = row.nspname
+        try:
+            for column in inspector.get_columns(relation_name, schema=candidate_schema):
+                if column["name"] == "id":
+                    detected_type = column.get("type")
+                    if detected_type is not None and not isinstance(detected_type, NullType):
+                        return detected_type
+        except (NoSuchTableError, SQLAlchemyError):
+            continue
+
+    # Fallback to normalized catalog type mapping when inspector cannot reflect
+    # the table in the current migration context.
+    for row in schema_rows:
+        catalog_type = row.id_type
+        if not isinstance(catalog_type, str):
+            continue
+        normalized = catalog_type.lower()
+        if normalized == "uuid":
+            return postgresql.UUID(as_uuid=True)
+        if normalized.startswith("character varying") or normalized.startswith("varchar"):
+            return sa.String()
+        if normalized == "text":
+            return sa.Text()
+        if normalized in {"integer", "int4"}:
+            return sa.Integer()
+        if normalized in {"bigint", "int8"}:
+            return sa.BigInteger()
+
     try:
-        for column in inspector.get_columns(table_name):
+        for column in inspector.get_columns(relation_name, schema=schema_name):
             if column["name"] == "id":
                 detected_type = column.get("type")
                 if detected_type is not None and not isinstance(detected_type, NullType):
                     return detected_type
-    except NoSuchTableError:
+    except (NoSuchTableError, SQLAlchemyError):
         return postgresql.UUID(as_uuid=True)
     return postgresql.UUID(as_uuid=True)
 
