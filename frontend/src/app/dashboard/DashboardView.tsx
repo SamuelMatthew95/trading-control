@@ -69,6 +69,20 @@ type AgentSummary = {
   tier: 'active' | 'challenger' | 'inactive'
 }
 
+type PersistedStreamCount = {
+  stream: string
+  processed_count: number
+  last_processed_at: string | null
+}
+
+type PersistedHistoryItem = {
+  id: string
+  kind: string
+  source?: string | null
+  trace_id?: string | null
+  created_at: string | null
+}
+
 const TRACKED_AGENTS = [
   'SIGNAL_AGENT',
   'REASONING_AGENT',
@@ -359,13 +373,12 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useState(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL || ''
-    fetch(`${base}/api/dashboard/trace/${encodeURIComponent(traceId)}`)
+  useEffect(() => {
+    fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
       .then((r) => r.json())
       .then((d) => { setData(d as TraceData); setLoading(false) })
       .catch(() => { setError('Failed to load trace'); setLoading(false) })
-  })
+  }, [traceId])
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16" onClick={onClose}>
@@ -445,8 +458,7 @@ function ProposalsSection() {
     setPendingAction(id)
     const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || ''
-      await fetch(`${base}/api/dashboard/learning/proposals/${encodeURIComponent(id)}`, {
+      await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
@@ -565,6 +577,9 @@ export function DashboardView({ section }: { section: Section }) {
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [icWeights, setIcWeights] = useState<Record<string, number>>({})
   const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
+  const [persistedCounts, setPersistedCounts] = useState<PersistedStreamCount[]>([])
+  const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
+  const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
 
   // Prices arrive via the WS dashboard_update snapshot on connect — no REST call needed
   const pricesLoading = Object.keys(prices).length === 0
@@ -649,6 +664,25 @@ export function DashboardView({ section }: { section: Section }) {
     }
     fetchAgentInstances()
     const interval = setInterval(fetchAgentInstances, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch persisted history view so operators can confirm durable writes.
+  useEffect(() => {
+    const fetchPersistedHistory = async () => {
+      try {
+        const r = await fetch(api(API_ENDPOINTS.EVENTS_HISTORY))
+        if (!r.ok) return
+        const d = await r.json()
+        setPersistedCounts((d.stream_counts ?? []) as PersistedStreamCount[])
+        setPersistedEvents((d.persisted_events ?? []) as PersistedHistoryItem[])
+        setPersistedLogs((d.persisted_logs ?? []) as PersistedHistoryItem[])
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchPersistedHistory()
+    const interval = setInterval(fetchPersistedHistory, 30_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -1338,6 +1372,62 @@ export function DashboardView({ section }: { section: Section }) {
                 ))}
               </div>
             )}
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Persisted Event History</p>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={cn(mutedClass, 'mb-2')}>Processed counts by stream</p>
+                {persistedCounts.length === 0 ? (
+                  <p className={mutedClass}>No persisted stream counts yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {persistedCounts.slice(0, 8).map((row) => (
+                      <div key={row.stream} className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-slate-600 dark:text-slate-300">{row.stream}</span>
+                        <span className="text-slate-900 dark:text-slate-100">{row.processed_count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={cn(mutedClass, 'mb-2')}>Latest persisted events</p>
+                {persistedEvents.length === 0 ? (
+                  <p className={mutedClass}>No events persisted yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {persistedEvents.slice(0, 8).map((evt) => (
+                      <div key={evt.id} className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-slate-600 dark:text-slate-300">{sanitizeValue(evt.kind)}</span>
+                        <span className="text-slate-500">{formatTimestamp(evt.created_at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+              <p className={cn(mutedClass, 'mb-2')}>Latest persisted agent logs</p>
+              {persistedLogs.length === 0 ? (
+                <p className={mutedClass}>No logs persisted yet.</p>
+              ) : (
+                <div className="space-y-1">
+                  {persistedLogs.slice(0, 10).map((log) => (
+                    <button
+                      key={log.id}
+                      type="button"
+                      className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-xs font-mono hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={() => log.trace_id && setActiveTraceId(log.trace_id)}
+                    >
+                      <span className="text-slate-600 dark:text-slate-300">{sanitizeValue(log.kind)}</span>
+                      <span className="text-slate-500">{formatTimestamp(log.created_at)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

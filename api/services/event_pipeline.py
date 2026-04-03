@@ -7,6 +7,8 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
+from api.core.writer.safe_writer import SafeWriter
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -37,6 +39,7 @@ class EventPipeline:
         self._recent_events: deque[dict[str, Any]] = deque(maxlen=200)
         self._recent_failures: deque[dict[str, Any]] = deque(maxlen=200)
         self._last_error: str | None = None
+        self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def start(self) -> None:
         if self._running:
@@ -189,6 +192,8 @@ class EventPipeline:
             redis_id=redis_id,
         )
 
+        await self._persist_event(stream=stream, msg_id=msg_id, event=event)
+
         outbound = {
             "type": "event",
             "stream": stream,
@@ -248,3 +253,25 @@ class EventPipeline:
             stream=stream,
         )
         self._recent_events.appendleft(outbound)
+
+    async def _persist_event(self, stream: str, msg_id: str, event: dict[str, Any]) -> None:
+        writer_methods = {
+            "orders": self.safe_writer.write_order,
+            "executions": self.safe_writer.write_execution,
+            "agent_logs": self.safe_writer.write_agent_log,
+            "system_metrics": self.safe_writer.write_system_metric,
+            "trade_performance": self.safe_writer.write_trade_performance,
+            "risk_alerts": self.safe_writer.write_risk_alert,
+            "learning_events": self.safe_writer.write_vector_memory,
+            "agent_grades": self.safe_writer.write_agent_grade,
+            "factor_ic_history": self.safe_writer.write_ic_weight,
+            "reflection_outputs": self.safe_writer.write_reflection_output,
+            "proposals": self.safe_writer.write_strategy_proposal,
+            "notifications": self.safe_writer.write_notification,
+        }
+        writer = writer_methods.get(stream)
+        if writer is None:
+            return
+        ok = await writer(msg_id=msg_id, stream=stream, data=event)
+        if not ok:
+            raise RuntimeError(f"persist_failed:{stream}")

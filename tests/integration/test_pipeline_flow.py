@@ -34,6 +34,48 @@ class _FakeBroadcaster:
         self.sent.append(payload)
 
 
+class _FakeWriter:
+    def __init__(self):
+        self.calls = []
+
+    async def write_order(self, msg_id, stream, data):
+        self.calls.append((msg_id, stream, data))
+        return True
+
+    async def write_execution(self, *args, **kwargs):
+        return True
+
+    async def write_agent_log(self, *args, **kwargs):
+        return True
+
+    async def write_system_metric(self, *args, **kwargs):
+        return True
+
+    async def write_trade_performance(self, *args, **kwargs):
+        return True
+
+    async def write_risk_alert(self, *args, **kwargs):
+        return True
+
+    async def write_vector_memory(self, *args, **kwargs):
+        return True
+
+    async def write_agent_grade(self, *args, **kwargs):
+        return True
+
+    async def write_ic_weight(self, *args, **kwargs):
+        return True
+
+    async def write_reflection_output(self, *args, **kwargs):
+        return True
+
+    async def write_strategy_proposal(self, *args, **kwargs):
+        return True
+
+    async def write_notification(self, *args, **kwargs):
+        return True
+
+
 @pytest.mark.asyncio
 async def test_pipeline_processes_and_broadcasts_event():
     bus = _FakeBus()
@@ -54,3 +96,19 @@ async def test_pipeline_processes_and_broadcasts_event():
     assert ws.sent[0]["msg_id"] == "m1"
     assert ws.sent[0]["type"] == "event"
     assert bus.acked == [("market_ticks", "workers", "1-0")]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_persists_orders_before_ack():
+    bus = _FakeBus()
+    ws = _FakeBroadcaster()
+    dlq = DLQManager(_FakeRedis(), bus)
+    pipeline = EventPipeline(bus, ws, dlq)
+    writer = _FakeWriter()
+    pipeline.safe_writer = writer
+
+    event = {"type": "order", "msg_id": "o1", "symbol": "AAPL"}
+    await pipeline._process_message("orders", "2-0", event, "order", "o1", "2026-01-01T00:00:00Z")
+
+    assert writer.calls == [("o1", "orders", event)]
+    assert bus.acked == [("orders", "workers", "2-0")]

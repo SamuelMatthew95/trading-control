@@ -65,13 +65,16 @@ class ReasoningAgent(BaseStreamConsumer):
 
         async with AsyncSessionFactory() as session:
             async with session.begin():
-                await self._store_agent_run(
+                agent_run_id = await self._store_agent_run(
                     data, summary, trace_id, fallback_reason is not None, session
                 )
                 await self._store_cost_tracking(today, tokens_used, cost_usd, session)
 
         await write_agent_log(
-            trace_id, "reasoning_summary", {**summary, "fallback_reason": fallback_reason}
+            trace_id,
+            "reasoning_summary",
+            {**summary, "fallback_reason": fallback_reason, "source": "reasoning_agent"},
+            agent_run_id=agent_run_id,
         )
 
         # Vector memory is best-effort — separate session so failures do not abort the main write
@@ -204,9 +207,9 @@ class ReasoningAgent(BaseStreamConsumer):
         trace_id: str,
         fallback: bool,
         session,
-    ) -> None:
+    ) -> str:
         try:
-            await session.execute(
+            result = await session.execute(
                 text("""
                     INSERT INTO agent_runs (
                         strategy_id, symbol, signal_data, action, confidence,
@@ -235,6 +238,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     "fallback": fallback,
                 },
             )
+            return str(result.scalar_one())
         except Exception:
             log_structured("error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id)
             raise

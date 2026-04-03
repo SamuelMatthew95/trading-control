@@ -15,6 +15,7 @@ from sqlalchemy import text
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
+from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.services.metrics_aggregator import MetricsAggregator
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -107,6 +108,86 @@ async def get_order_metrics() -> dict[str, Any]:
 
     except Exception:
         log_structured("error", "order metrics failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/flow-status")
+async def get_flow_status() -> dict[str, Any]:
+    """Operational view to verify data is flowing end-to-end for UI/debugging."""
+    try:
+        async with AsyncSessionFactory() as session:
+            counts_sql = text("""
+                SELECT
+                    (SELECT COUNT(*) FROM agent_runs) AS agent_runs,
+                    (SELECT COUNT(*) FROM agent_logs) AS agent_logs,
+                    (SELECT COUNT(*) FROM agent_grades) AS agent_grades,
+                    (SELECT COUNT(*) FROM orders) AS orders,
+                    (SELECT COUNT(*) FROM trade_lifecycle) AS trade_lifecycle
+            """)
+            counts_row = (await session.execute(counts_sql)).mappings().first() or {}
+
+            recent_trace_sql = text("""
+                SELECT ar.trace_id
+                FROM agent_runs ar
+                WHERE ar.trace_id IS NOT NULL
+                ORDER BY ar.created_at DESC
+                LIMIT 1
+            """)
+            recent_trace = (await session.execute(recent_trace_sql)).scalar()
+
+            trace_coverage = {
+                "trace_id": recent_trace,
+                "in_agent_runs": 0,
+                "in_agent_logs": 0,
+                "in_trade_lifecycle": 0,
+            }
+            if recent_trace:
+                trace_coverage["in_agent_runs"] = int(
+                    (
+                        await session.execute(
+                            text("SELECT COUNT(*) FROM agent_runs WHERE trace_id = :t"),
+                            {"t": recent_trace},
+                        )
+                    ).scalar()
+                    or 0
+                )
+                trace_coverage["in_agent_logs"] = int(
+                    (
+                        await session.execute(
+                            text("SELECT COUNT(*) FROM agent_logs WHERE trace_id = :t"),
+                            {"t": recent_trace},
+                        )
+                    ).scalar()
+                    or 0
+                )
+                trace_coverage["in_trade_lifecycle"] = int(
+                    (
+                        await session.execute(
+                            text(
+                                """
+                                SELECT COUNT(*) FROM trade_lifecycle
+                                WHERE execution_trace_id = :t
+                                   OR decision_trace_id = :t
+                                   OR signal_trace_id = :t
+                                   OR grade_trace_id = :t
+                                   OR reflection_trace_id = :t
+                                """
+                            ),
+                            {"t": recent_trace},
+                        )
+                    ).scalar()
+                    or 0
+                )
+
+        return {
+            "api_version": DASHBOARD_API_VERSION,
+            "db_schema_version": DB_SCHEMA_VERSION,
+            "counts": {k: int(v or 0) for k, v in dict(counts_row).items()},
+            "trace_coverage": trace_coverage,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "flow status failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
@@ -207,6 +288,7 @@ async def get_agents_status() -> dict[str, Any]:
 
 
 @router.get("/system/metrics")
+@router.get("/system-metrics")
 async def get_system_stream_metrics() -> dict[str, Any]:
     """Get Redis stream lengths for pipeline health display."""
     try:
@@ -286,6 +368,99 @@ async def get_recent_events() -> dict[str, Any]:
     except Exception:
         log_structured("error", "recent events failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/history/events")
+async def get_event_history(limit: int = 50) -> dict[str, Any]:
+    """Persisted event history + processed counts for operator visibility."""
+    safe_limit = max(1, min(limit, 200))
+    try:
+        async with AsyncSessionFactory() as session:
+            stream_counts = []
+            try:
+                counts_result = await session.execute(
+                    text("""
+                        SELECT
+                            stream,
+                            COUNT(*) AS processed_count,
+                            MAX(COALESCE(processed_at, created_at)) AS last_processed_at
+                        FROM processed_events
+                        GROUP BY stream
+                        ORDER BY processed_count DESC
+                    """)
+                )
+                stream_counts = [
+                    {
+                        "stream": row[0],
+                        "processed_count": int(row[1] or 0),
+                        "last_processed_at": row[2].isoformat() if row[2] else None,
+                    }
+                    for row in counts_result.all()
+                ]
+            except Exception:
+                stream_counts = []
+
+            persisted_events = []
+            try:
+                events_result = await session.execute(
+                    text("""
+                        SELECT id, event_type, source, created_at
+                        FROM events
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": safe_limit},
+                )
+                persisted_events = [
+                    {
+                        "id": str(row[0]),
+                        "kind": row[1],
+                        "source": row[2],
+                        "created_at": row[3].isoformat() if row[3] else None,
+                    }
+                    for row in events_result.all()
+                ]
+            except Exception:
+                persisted_events = []
+
+            persisted_logs = []
+            try:
+                logs_result = await session.execute(
+                    text("""
+                        SELECT id, trace_id, log_type, created_at
+                        FROM agent_logs
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": safe_limit},
+                )
+                persisted_logs = [
+                    {
+                        "id": str(row[0]),
+                        "trace_id": row[1],
+                        "kind": row[2],
+                        "created_at": row[3].isoformat() if row[3] else None,
+                    }
+                    for row in logs_result.all()
+                ]
+            except Exception:
+                persisted_logs = []
+
+        return {
+            "stream_counts": stream_counts,
+            "persisted_events": persisted_events,
+            "persisted_logs": persisted_logs,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "event history failed", exc_info=True)
+        return {
+            "stream_counts": [],
+            "persisted_events": [],
+            "persisted_logs": [],
+            "error": "event_history_unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.get("/health/worker")
@@ -923,7 +1098,12 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "trade_feed_failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "trades": [],
+            "count": 0,
+            "error": "trade_feed_unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1021,7 +1201,21 @@ async def get_performance_trends() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "performance_trends_failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "summary": {
+                "total_pnl": 0.0,
+                "total_trades": 0,
+                "win_rate": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "best_trade": 0.0,
+                "worst_trade": 0.0,
+            },
+            "daily_pnl": [],
+            "grade_trend": [],
+            "error": "performance_trends_unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1078,7 +1272,13 @@ async def get_agent_instances() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "agent_instances_failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "instances": [],
+            "active_count": 0,
+            "retired_count": 0,
+            "error": "agent_instances_unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 # ---------------------------------------------------------------------------

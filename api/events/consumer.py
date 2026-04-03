@@ -13,8 +13,9 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.schema_version import ACCEPTED_DB_SCHEMA_VERSIONS
 
-ACCEPTED_SCHEMA_VERSIONS = {"v3", "legacy", None, ""}
+ACCEPTED_SCHEMA_VERSIONS = ACCEPTED_DB_SCHEMA_VERSIONS
 
 
 class BaseStreamConsumer(ABC):

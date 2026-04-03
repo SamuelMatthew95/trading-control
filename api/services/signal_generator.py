@@ -18,6 +18,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 
 AGENT_NAME = "SIGNAL_AGENT"
 
@@ -94,7 +95,7 @@ class SignalGenerator(BaseStreamConsumer):
                              created_at, updated_at)
                         VALUES
                             (:id, :agent_id, :trace_id, 'analysis', :trigger,
-                             :input_data, 'v3', :source, 'running',
+                             :input_data, :schema_version, :source, 'running',
                              NOW(), NOW())
                     """),
                     {
@@ -103,6 +104,7 @@ class SignalGenerator(BaseStreamConsumer):
                         "trace_id": trace_id,
                         "trigger": msg_id,
                         "input_data": json.dumps(payload),
+                        "schema_version": DB_SCHEMA_VERSION,
                         "source": AGENT_NAME,
                     },
                 )
@@ -152,13 +154,14 @@ class SignalGenerator(BaseStreamConsumer):
                                  idempotency_key, source, schema_version)
                             VALUES
                                 ('signal.generated', 'signal', :data,
-                                 :idem_key, :source, 'v3')
+                                 :idem_key, :source, :schema_version)
                             ON CONFLICT (idempotency_key) DO NOTHING
                         """),
                         {
                             "data": json.dumps(signal_payload),
                             "idem_key": f"signal-{symbol}-{trace_id}",
                             "source": AGENT_NAME,
+                            "schema_version": DB_SCHEMA_VERSION,
                         },
                     )
 
@@ -166,17 +169,19 @@ class SignalGenerator(BaseStreamConsumer):
                     await session.execute(
                         text("""
                             INSERT INTO agent_grades
-                                (agent_id, grade_type, score, metrics,
+                                (agent_id, agent_run_id, grade_type, score, metrics,
                                  trace_id, schema_version, source)
                             VALUES
-                                (:agent_id, 'accuracy', :score, :metrics,
-                                 :trace_id, 'v3', :source)
+                                (:agent_id, :agent_run_id, 'accuracy', :score, CAST(:metrics AS JSONB),
+                                 :trace_id, :schema_version, :source)
                         """),
                         {
                             "agent_id": agent_pool_id or None,
+                            "agent_run_id": run_id,
                             "score": score,
                             "metrics": json.dumps({"signal_type": signal_type, "symbol": symbol}),
                             "trace_id": trace_id,
+                            "schema_version": DB_SCHEMA_VERSION,
                             "source": AGENT_NAME,
                         },
                     )
@@ -214,12 +219,18 @@ class SignalGenerator(BaseStreamConsumer):
                 async with session.begin():
                     await session.execute(
                         text("""
-                            INSERT INTO agent_logs (trace_id, log_type, payload)
-                            VALUES (:trace_id, 'signal_generated', :payload)
+                            INSERT INTO agent_logs
+                                (agent_run_id, trace_id, log_type, payload, schema_version, source)
+                            VALUES
+                                (:agent_run_id, :trace_id, 'signal_generated',
+                                 CAST(:payload AS JSONB), :schema_version, :source)
                         """),
                         {
+                            "agent_run_id": run_id,
                             "trace_id": trace_id,
                             "payload": json.dumps(signal_payload),
+                            "schema_version": DB_SCHEMA_VERSION,
+                            "source": AGENT_NAME,
                         },
                     )
 

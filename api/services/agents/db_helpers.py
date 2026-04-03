@@ -15,21 +15,34 @@ from sqlalchemy import text
 
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 
 
-async def write_agent_log(trace_id: str, log_type: str, payload: dict[str, Any]) -> None:
+async def write_agent_log(
+    trace_id: str,
+    log_type: str,
+    payload: dict[str, Any],
+    *,
+    agent_run_id: str | None = None,
+) -> None:
     """Insert a row into agent_logs. Logs a warning on failure and does not raise."""
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
                 text("""
-                    INSERT INTO agent_logs (trace_id, log_type, payload)
-                    VALUES (:trace_id, :log_type, CAST(:payload AS JSONB))
+                    INSERT INTO agent_logs
+                        (agent_run_id, trace_id, log_type, payload, schema_version, source)
+                    VALUES
+                        (:agent_run_id::uuid, :trace_id, :log_type, CAST(:payload AS JSONB),
+                         :schema_version, :source)
                 """),
                 {
+                    "agent_run_id": agent_run_id,
                     "trace_id": trace_id,
                     "log_type": log_type,
                     "payload": json.dumps(payload, default=str),
+                    "schema_version": DB_SCHEMA_VERSION,
+                    "source": payload.get("source", "agent"),
                 },
             )
             await session.commit()
@@ -47,12 +60,20 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
                 text("""
                     INSERT INTO agent_grades
                         (grade_type, score, metrics, trace_id, schema_version, source)
-                    VALUES ('pipeline', :score, CAST(:metrics AS JSONB), :trace_id, 'v3', 'grade_agent')
+                    VALUES (
+                        'pipeline',
+                        :score,
+                        CAST(:metrics AS JSONB),
+                        :trace_id,
+                        :schema_version,
+                        'grade_agent'
+                    )
                 """),
                 {
                     "score": score_pct,
                     "metrics": json.dumps(metrics, default=str),
                     "trace_id": trace_id,
+                    "schema_version": DB_SCHEMA_VERSION,
                 },
             )
             await session.commit()
@@ -83,10 +104,20 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
         async with AsyncSessionFactory() as session:
             await session.execute(
                 text("""
-                    INSERT INTO agent_logs (trace_id, log_type, payload)
-                    VALUES (:trace_id, 'proposal', CAST(:payload AS JSONB))
+                    INSERT INTO agent_logs (trace_id, log_type, payload, schema_version, source)
+                    VALUES (
+                        :trace_id,
+                        'proposal',
+                        CAST(:payload AS JSONB),
+                        :schema_version,
+                        'strategy_proposer'
+                    )
                 """),
-                {"trace_id": trace_id, "payload": json.dumps(proposal, default=str)},
+                {
+                    "trace_id": trace_id,
+                    "payload": json.dumps(proposal, default=str),
+                    "schema_version": DB_SCHEMA_VERSION,
+                },
             )
             await session.commit()
     except Exception:
@@ -138,9 +169,14 @@ async def register_agent_instance(instance_key: str, pool_name: str) -> str:
                     INSERT INTO agent_instances
                         (id, instance_key, pool_name, status, started_at, schema_version)
                     VALUES
-                        (:id, :key, :pool, 'active', NOW(), 'v3')
+                        (:id, :key, :pool, 'active', NOW(), :schema_version)
                 """),
-                {"id": instance_id, "key": instance_key, "pool": pool_name},
+                {
+                    "id": instance_id,
+                    "key": instance_key,
+                    "pool": pool_name,
+                    "schema_version": DB_SCHEMA_VERSION,
+                },
             )
             await session.commit()
     except Exception:
@@ -249,7 +285,7 @@ async def upsert_trade_lifecycle(
                         :filled_at::timestamptz,
                         :graded_at::timestamptz,
                         :reflected_at::timestamptz,
-                        'v3', 'execution_engine', NOW(), NOW()
+                        :schema_version, 'execution_engine', NOW(), NOW()
                     )
                     ON CONFLICT (execution_trace_id)
                     DO UPDATE SET
@@ -291,6 +327,7 @@ async def upsert_trade_lifecycle(
                     "filled_at": filled_at or now_iso,
                     "graded_at": graded_at,
                     "reflected_at": reflected_at,
+                    "schema_version": DB_SCHEMA_VERSION,
                 },
             )
             await session.commit()
