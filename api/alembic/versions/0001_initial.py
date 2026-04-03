@@ -150,6 +150,13 @@ def upgrade() -> None:
         DO $$
         DECLARE _embedding_udt TEXT;
         BEGIN
+            IF to_regtype('vector') IS NULL THEN
+                RAISE NOTICE
+                    'Skipping vector index creation because pgvector type is not available in schema %',
+                    current_schema();
+                RETURN;
+            END IF;
+
             SELECT format_type(a.atttypid, a.atttypmod)
               INTO _embedding_udt
               FROM pg_attribute a
