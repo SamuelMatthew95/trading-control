@@ -77,8 +77,13 @@ async def test_run_alembic_upgrade_with_lock_uses_advisory_lock(monkeypatch):
 
     statements = []
     to_thread_calls = []
+    execution_options_calls = []
 
     class FakeConn:
+        async def execution_options(self, **kwargs):
+            execution_options_calls.append(kwargs)
+            return self
+
         async def execute(self, statement, params):
             statements.append((str(statement), params))
 
@@ -112,6 +117,7 @@ async def test_run_alembic_upgrade_with_lock_uses_advisory_lock(monkeypatch):
             {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID},
         ),
     ]
+    assert execution_options_calls == [{"isolation_level": "AUTOCOMMIT"}]
     assert to_thread_calls == [
         (database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")
     ]
