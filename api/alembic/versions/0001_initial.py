@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.exc import NoSuchTableError, SQLAlchemyError
 from sqlalchemy.sql.sqltypes import NullType
 from sqlalchemy.types import UserDefinedType
 
@@ -100,7 +100,7 @@ def _table_id_type(table_name: str) -> sa.types.TypeEngine:
                     detected_type = column.get("type")
                     if detected_type is not None and not isinstance(detected_type, NullType):
                         return detected_type
-        except NoSuchTableError:
+        except (NoSuchTableError, SQLAlchemyError):
             continue
 
     # Fallback to normalized catalog type mapping when inspector cannot reflect
@@ -116,6 +116,10 @@ def _table_id_type(table_name: str) -> sa.types.TypeEngine:
             return sa.String()
         if normalized == "text":
             return sa.Text()
+        if normalized in {"integer", "int4"}:
+            return sa.Integer()
+        if normalized in {"bigint", "int8"}:
+            return sa.BigInteger()
 
     try:
         for column in inspector.get_columns(relation_name, schema=schema_name):
@@ -123,7 +127,7 @@ def _table_id_type(table_name: str) -> sa.types.TypeEngine:
                 detected_type = column.get("type")
                 if detected_type is not None and not isinstance(detected_type, NullType):
                     return detected_type
-    except NoSuchTableError:
+    except (NoSuchTableError, SQLAlchemyError):
         return postgresql.UUID(as_uuid=True)
     return postgresql.UUID(as_uuid=True)
 
