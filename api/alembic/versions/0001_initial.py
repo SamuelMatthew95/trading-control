@@ -150,17 +150,22 @@ def upgrade() -> None:
         DO $$
         DECLARE _embedding_udt TEXT;
         BEGIN
-            SELECT c.udt_name
+            SELECT format_type(a.atttypid, a.atttypmod)
               INTO _embedding_udt
-              FROM information_schema.columns c
-             WHERE c.table_name = 'vector_memory'
-               AND c.column_name = 'embedding';
+              FROM pg_attribute a
+              JOIN pg_class t ON t.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+             WHERE n.nspname = current_schema()
+               AND t.relname = 'vector_memory'
+               AND a.attname = 'embedding'
+               AND a.attnum > 0
+               AND NOT a.attisdropped;
 
             IF _embedding_udt IS NULL THEN
                 RETURN;
             END IF;
 
-            IF _embedding_udt <> 'vector' THEN
+            IF _embedding_udt NOT LIKE 'vector%' THEN
                 BEGIN
                     EXECUTE
                         'ALTER TABLE vector_memory '
