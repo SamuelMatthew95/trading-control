@@ -370,6 +370,99 @@ async def get_recent_events() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
+@router.get("/history/events")
+async def get_event_history(limit: int = 50) -> dict[str, Any]:
+    """Persisted event history + processed counts for operator visibility."""
+    safe_limit = max(1, min(limit, 200))
+    try:
+        async with AsyncSessionFactory() as session:
+            stream_counts = []
+            try:
+                counts_result = await session.execute(
+                    text("""
+                        SELECT
+                            stream,
+                            COUNT(*) AS processed_count,
+                            MAX(COALESCE(processed_at, created_at)) AS last_processed_at
+                        FROM processed_events
+                        GROUP BY stream
+                        ORDER BY processed_count DESC
+                    """)
+                )
+                stream_counts = [
+                    {
+                        "stream": row[0],
+                        "processed_count": int(row[1] or 0),
+                        "last_processed_at": row[2].isoformat() if row[2] else None,
+                    }
+                    for row in counts_result.all()
+                ]
+            except Exception:
+                stream_counts = []
+
+            persisted_events = []
+            try:
+                events_result = await session.execute(
+                    text("""
+                        SELECT id, event_type, source, created_at
+                        FROM events
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": safe_limit},
+                )
+                persisted_events = [
+                    {
+                        "id": str(row[0]),
+                        "kind": row[1],
+                        "source": row[2],
+                        "created_at": row[3].isoformat() if row[3] else None,
+                    }
+                    for row in events_result.all()
+                ]
+            except Exception:
+                persisted_events = []
+
+            persisted_logs = []
+            try:
+                logs_result = await session.execute(
+                    text("""
+                        SELECT id, trace_id, log_type, created_at
+                        FROM agent_logs
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": safe_limit},
+                )
+                persisted_logs = [
+                    {
+                        "id": str(row[0]),
+                        "trace_id": row[1],
+                        "kind": row[2],
+                        "created_at": row[3].isoformat() if row[3] else None,
+                    }
+                    for row in logs_result.all()
+                ]
+            except Exception:
+                persisted_logs = []
+
+        return {
+            "stream_counts": stream_counts,
+            "persisted_events": persisted_events,
+            "persisted_logs": persisted_logs,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "event history failed", exc_info=True)
+        return {
+            "stream_counts": [],
+            "persisted_events": [],
+            "persisted_logs": [],
+            "error": "event_history_unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
 @router.get("/health/worker")
 async def get_worker_health() -> dict[str, Any]:
     """

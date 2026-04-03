@@ -55,3 +55,13 @@ async def test_agent_instances_falls_back_when_query_fails(monkeypatch):
 def test_system_metrics_alias_route_exists():
     paths = {route.path for route in dashboard_v2.router.routes}
     assert "/dashboard/system-metrics" in paths
+
+
+@pytest.mark.asyncio
+async def test_event_history_falls_back_when_query_fails(monkeypatch):
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    payload = await dashboard_v2.get_event_history()
+
+    assert payload["stream_counts"] == []
+    assert payload["persisted_events"] == []
+    assert payload["persisted_logs"] == []
