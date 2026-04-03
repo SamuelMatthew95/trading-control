@@ -190,20 +190,36 @@ def upgrade() -> None:
     # Additive compatibility columns for existing installs.
     op.execute("ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS agent_run_id UUID")
     op.execute("ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS payload JSONB DEFAULT '{}'::jsonb")
-    op.execute("ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
-    op.execute("ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW()")
+    op.execute(
+        "ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"
+    )
+    op.execute(
+        "ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW()"
+    )
 
     op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS trace_id VARCHAR(255)")
-    op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS input_data JSONB DEFAULT '{}'::jsonb")
+    op.execute(
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS input_data JSONB DEFAULT '{}'::jsonb"
+    )
     op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS output_data JSONB")
-    op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'running'")
-    op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
-    op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+    op.execute(
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'running'"
+    )
+    op.execute(
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"
+    )
+    op.execute(
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"
+    )
 
     op.execute("ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS agent_run_id UUID")
     op.execute("ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS trace_id VARCHAR(255)")
-    op.execute("ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS metrics JSONB DEFAULT '{}'::jsonb")
-    op.execute("ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
+    op.execute(
+        "ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS metrics JSONB DEFAULT '{}'::jsonb"
+    )
+    op.execute(
+        "ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"
+    )
 
     op.execute("ALTER TABLE trade_lifecycle ADD COLUMN IF NOT EXISTS agent_run_id UUID")
 

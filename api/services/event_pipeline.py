@@ -7,11 +7,11 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
+from api.core.writer.safe_writer import SafeWriter
+from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.core.writer.safe_writer import SafeWriter
-from api.database import AsyncSessionFactory
 from api.services.agent_state import AgentStateRegistry
 
 

@@ -143,11 +143,21 @@ async def get_flow_status() -> dict[str, Any]:
             }
             if recent_trace:
                 trace_coverage["in_agent_runs"] = int(
-                    (await session.execute(text("SELECT COUNT(*) FROM agent_runs WHERE trace_id = :t"), {"t": recent_trace})).scalar()
+                    (
+                        await session.execute(
+                            text("SELECT COUNT(*) FROM agent_runs WHERE trace_id = :t"),
+                            {"t": recent_trace},
+                        )
+                    ).scalar()
                     or 0
                 )
                 trace_coverage["in_agent_logs"] = int(
-                    (await session.execute(text("SELECT COUNT(*) FROM agent_logs WHERE trace_id = :t"), {"t": recent_trace})).scalar()
+                    (
+                        await session.execute(
+                            text("SELECT COUNT(*) FROM agent_logs WHERE trace_id = :t"),
+                            {"t": recent_trace},
+                        )
+                    ).scalar()
                     or 0
                 )
                 trace_coverage["in_trade_lifecycle"] = int(
