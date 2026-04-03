@@ -59,7 +59,7 @@ const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
-type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system' | 'history'
+type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system'
 
 type AgentSummary = {
   name: string
@@ -335,12 +335,11 @@ function MobileNavigation({ section }: { section: Section }) {
     { key: 'agents', label: 'Agents' },
     { key: 'learning', label: 'Learning' },
     { key: 'system', label: 'System' },
-    { key: 'history', label: 'History' },
   ]
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-100/95 px-2 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
-      <div className="mx-auto grid max-w-7xl grid-cols-6 gap-1">
+      <div className="mx-auto grid max-w-7xl grid-cols-5 gap-1">
         {links.map((link) => (
           <div
             key={link.key}
@@ -1317,7 +1316,7 @@ export function DashboardView({ section }: { section: Section }) {
         </div>
       )}
 
-      {(section === 'system' || section === 'history') && (
+      {section === 'system' && (
         <div className="space-y-4">
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
