@@ -148,25 +148,39 @@ def upgrade() -> None:
     op.execute(
         """
         DO $$
+        DECLARE _embedding_udt TEXT;
         BEGIN
-            IF EXISTS (
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_name = 'vector_memory'
-                  AND column_name = 'embedding'
-                  AND udt_name <> 'vector'
-            ) THEN
-                EXECUTE
-                    'ALTER TABLE vector_memory '
-                    || 'ALTER COLUMN embedding TYPE vector(1536) '
-                    || 'USING embedding::vector';
+            SELECT c.udt_name
+              INTO _embedding_udt
+              FROM information_schema.columns c
+             WHERE c.table_name = 'vector_memory'
+               AND c.column_name = 'embedding';
+
+            IF _embedding_udt IS NULL THEN
+                RETURN;
             END IF;
+
+            IF _embedding_udt <> 'vector' THEN
+                BEGIN
+                    EXECUTE
+                        'ALTER TABLE vector_memory '
+                        || 'ALTER COLUMN embedding TYPE vector(1536) '
+                        || 'USING embedding::vector';
+                EXCEPTION WHEN OTHERS THEN
+                    RAISE NOTICE
+                        'Skipping vector index creation because vector_memory.embedding '
+                        || 'could not be converted to vector(1536): %',
+                        SQLERRM;
+                    RETURN;
+                END;
+            END IF;
+
+            EXECUTE
+                'CREATE INDEX IF NOT EXISTS vector_memory_embedding_idx '
+                || 'ON vector_memory USING ivfflat '
+                || '(embedding vector_cosine_ops) WITH (lists = 100)';
         END $$;
         """
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS vector_memory_embedding_idx "
-        "ON vector_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
     )
 
     op.create_table(
@@ -272,9 +286,12 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.execute("CREATE INDEX audit_log_created_at_desc_idx ON audit_log (created_at DESC)")
     op.execute(
-        "CREATE INDEX system_metrics_metric_name_timestamp_desc_idx ON system_metrics (metric_name, timestamp DESC)"
+        "CREATE INDEX IF NOT EXISTS audit_log_created_at_desc_idx ON audit_log (created_at DESC)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS system_metrics_metric_name_timestamp_desc_idx "
+        "ON system_metrics (metric_name, timestamp DESC)"
     )
 
     strategies_table = sa.table(
