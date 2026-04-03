@@ -81,7 +81,7 @@ export const API_ENDPOINTS = {
   
   // System
   SYSTEM_HEALTH: "/dashboard/system-health",
-  SYSTEM_METRICS: "/dashboard/system/metrics",
+  SYSTEM_METRICS: "/dashboard/system-metrics",
   
   // Agents
   AGENTS_STATUS: "/dashboard/agents/status",

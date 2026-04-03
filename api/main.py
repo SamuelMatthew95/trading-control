@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
 from api.core.schemas import ErrorResponse
-from api.database import engine, get_settings_info, test_database_connection
+from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, create_redis_groups
 from api.events.dlq import DLQManager
 from api.observability import (
@@ -88,6 +88,9 @@ async def lifespan(app: FastAPI):
     agent_state = AgentStateRegistry()
 
     try:
+        # Ensure latest schema exists before service components start.
+        await init_database()
+
         db_ok = await test_database_connection()
         if not db_ok:
             raise RuntimeError("Database connection failed during startup")

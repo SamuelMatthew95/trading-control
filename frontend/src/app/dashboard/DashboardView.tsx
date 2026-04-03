@@ -359,13 +359,12 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useState(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL || ''
-    fetch(`${base}/api/dashboard/trace/${encodeURIComponent(traceId)}`)
+  useEffect(() => {
+    fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
       .then((r) => r.json())
       .then((d) => { setData(d as TraceData); setLoading(false) })
       .catch(() => { setError('Failed to load trace'); setLoading(false) })
-  })
+  }, [traceId])
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16" onClick={onClose}>
@@ -445,8 +444,7 @@ function ProposalsSection() {
     setPendingAction(id)
     const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || ''
-      await fetch(`${base}/api/dashboard/learning/proposals/${encodeURIComponent(id)}`, {
+      await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
