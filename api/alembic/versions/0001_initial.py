@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -52,7 +50,6 @@ def _create_table(table_name: str, *columns: sa.Column) -> None:
     op.create_table(table_name, *columns, if_not_exists=True)
 
 
-@lru_cache(maxsize=None)
 def _table_id_type(table_name: str) -> sa.types.TypeEngine:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
