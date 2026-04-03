@@ -96,8 +96,12 @@ async def test_run_alembic_upgrade_with_lock_uses_advisory_lock(monkeypatch):
     async def fake_to_thread(func, url):
         to_thread_calls.append((func, url))
 
+    async def fake_bootstrap(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(database_module, "async_engine", FakeEngine())
     monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(database_module, "_bootstrap_existing_schema_revision", fake_bootstrap)
 
     await database_module._run_alembic_upgrade_with_lock("postgresql+asyncpg://db/test")
 
@@ -106,3 +110,51 @@ async def test_run_alembic_upgrade_with_lock_uses_advisory_lock(monkeypatch):
         ("SELECT pg_advisory_unlock(:lock_id)", {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID}),
     ]
     assert to_thread_calls == [(database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")]
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_existing_schema_revision_stamps_initial_revision(monkeypatch):
+    import api.database as database_module
+
+    to_thread_calls = []
+
+    class FakeConn:
+        async def scalar(self, statement, params=None):
+            sql = str(statement)
+            if "to_regclass" in sql:
+                return None
+            return 2
+
+    async def fake_to_thread(func, *args):
+        to_thread_calls.append((func, *args))
+
+    monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
+
+    await database_module._bootstrap_existing_schema_revision(FakeConn(), "postgresql+asyncpg://db/test")
+
+    assert to_thread_calls == [
+        (database_module._run_alembic_stamp, "postgresql+asyncpg://db/test", database_module.INITIAL_REVISION)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_existing_schema_revision_skips_when_version_table_exists(monkeypatch):
+    import api.database as database_module
+
+    to_thread_calls = []
+
+    class FakeConn:
+        async def scalar(self, statement, params=None):
+            sql = str(statement)
+            if "to_regclass" in sql:
+                return "alembic_version"
+            return 0
+
+    async def fake_to_thread(func, *args):
+        to_thread_calls.append((func, *args))
+
+    monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
+
+    await database_module._bootstrap_existing_schema_revision(FakeConn(), "postgresql+asyncpg://db/test")
+
+    assert to_thread_calls == []

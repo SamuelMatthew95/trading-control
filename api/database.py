@@ -33,6 +33,8 @@ except ImportError:  # pragma: no cover
 
 SQLITE_FALLBACK_URL = "sqlite+aiosqlite:///./trading-control.db"
 ALEMBIC_STARTUP_LOCK_ID = 78451233
+INITIAL_REVISION = "0001_initial"
+BOOTSTRAP_TABLE_SENTINELS = ("strategies", "orders", "positions", "agent_runs")
 
 
 def _resolve_database_url() -> str:
@@ -63,6 +65,12 @@ def _run_alembic_upgrade(url: str) -> None:
     if command is None:
         raise RuntimeError("Alembic is required for PostgreSQL schema bootstrap")
     command.upgrade(_build_alembic_config(url), "head")
+
+
+def _run_alembic_stamp(url: str, revision: str) -> None:
+    if command is None:
+        raise RuntimeError("Alembic is required for PostgreSQL schema bootstrap")
+    command.stamp(_build_alembic_config(url), revision)
 
 
 database_url = _resolve_database_url()
@@ -125,11 +133,33 @@ async def _run_alembic_upgrade_with_lock(url: str) -> None:
     async with async_engine.connect() as conn:
         await conn.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID})
         try:
+            await _bootstrap_existing_schema_revision(conn, url)
             await asyncio.to_thread(_run_alembic_upgrade, url)
         finally:
             await conn.execute(
                 text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID}
             )
+
+
+async def _bootstrap_existing_schema_revision(conn, url: str) -> None:
+    """Stamp base revision when schema exists but alembic_version table is missing."""
+    version_table_exists = await conn.scalar(text("SELECT to_regclass('public.alembic_version')"))
+    if version_table_exists:
+        return
+
+    sentinel_count = await conn.scalar(
+        text(
+            """
+            SELECT count(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = ANY(:table_names)
+            """
+        ),
+        {"table_names": list(BOOTSTRAP_TABLE_SENTINELS)},
+    )
+    if sentinel_count and int(sentinel_count) > 0:
+        await asyncio.to_thread(_run_alembic_stamp, url, INITIAL_REVISION)
 
 
 async def test_database_connection() -> bool:
