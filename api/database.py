@@ -32,6 +32,38 @@ except ImportError:  # pragma: no cover
 
 
 SQLITE_FALLBACK_URL = "sqlite+aiosqlite:///./trading-control.db"
+ALEMBIC_STARTUP_LOCK_ID = 78451233
+INITIAL_REVISION = "0001_initial"
+INITIAL_BASELINE_TABLES = (
+    "strategies",
+    "orders",
+    "positions",
+    "agent_runs",
+    "agent_logs",
+    "vector_memory",
+    "trade_performance",
+    "strategy_metrics",
+    "factor_ic_history",
+    "system_metrics",
+    "audit_log",
+    "order_reconciliation",
+    "llm_cost_tracking",
+)
+INITIAL_BASELINE_REQUIRED_COLUMNS = {
+    "strategies": ("id", "name", "rules", "risk_limits", "created_at"),
+    "orders": ("id", "strategy_id", "symbol", "qty", "status", "idempotency_key"),
+    "positions": ("id", "strategy_id", "symbol", "qty", "entry_price"),
+    "agent_runs": ("id", "strategy_id", "trace_id", "created_at"),
+    "agent_logs": ("id", "trace_id", "payload", "created_at"),
+    "vector_memory": ("id", "content", "embedding", "metadata_", "created_at"),
+    "trade_performance": ("id", "order_id", "symbol", "pnl", "created_at"),
+    "strategy_metrics": ("id", "strategy_id", "win_rate", "updated_at"),
+    "factor_ic_history": ("id", "factor_name", "ic_score", "computed_at"),
+    "system_metrics": ("id", "metric_name", "value", "timestamp"),
+    "audit_log": ("id", "event_type", "payload", "created_at"),
+    "order_reconciliation": ("id", "order_id", "discrepancy", "created_at"),
+    "llm_cost_tracking": ("id", "date", "tokens_used", "cost_usd", "created_at"),
+}
 
 
 def _resolve_database_url() -> str:
@@ -62,6 +94,12 @@ def _run_alembic_upgrade(url: str) -> None:
     if command is None:
         raise RuntimeError("Alembic is required for PostgreSQL schema bootstrap")
     command.upgrade(_build_alembic_config(url), "head")
+
+
+def _run_alembic_stamp(url: str, revision: str) -> None:
+    if command is None:
+        raise RuntimeError("Alembic is required for PostgreSQL schema bootstrap")
+    command.stamp(_build_alembic_config(url), revision)
 
 
 database_url = _resolve_database_url()
@@ -112,11 +150,66 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_database() -> None:
     """Runtime helper retained for compatibility tests; app startup does not call this."""
     if _uses_postgres(database_url):
-        await asyncio.to_thread(_run_alembic_upgrade, database_url)
+        await _run_alembic_upgrade_with_lock(database_url)
         return
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def _run_alembic_upgrade_with_lock(url: str) -> None:
+    """Serialize startup migrations across instances to avoid duplicate DDL races."""
+    async with async_engine.connect() as conn:
+        lock_conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        await lock_conn.execute(
+            text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID}
+        )
+        try:
+            await _bootstrap_existing_schema_revision(lock_conn, url)
+            await asyncio.to_thread(_run_alembic_upgrade, url)
+        finally:
+            await lock_conn.execute(
+                text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID}
+            )
+
+
+async def _bootstrap_existing_schema_revision(conn, url: str) -> None:
+    """Stamp base revision when schema exists but alembic_version table is missing."""
+    version_table_exists = await conn.scalar(text("SELECT to_regclass('public.alembic_version')"))
+    if version_table_exists:
+        return
+
+    baseline_table_count = await conn.scalar(
+        text(
+            """
+            SELECT count(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = ANY(:table_names)
+            """
+        ),
+        {"table_names": list(INITIAL_BASELINE_TABLES)},
+    )
+    if not baseline_table_count or int(baseline_table_count) != len(INITIAL_BASELINE_TABLES):
+        return
+
+    for table_name, required_columns in INITIAL_BASELINE_REQUIRED_COLUMNS.items():
+        present_required_columns = await conn.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+                  AND column_name = ANY(:column_names)
+                """
+            ),
+            {"table_name": table_name, "column_names": list(required_columns)},
+        )
+        if int(present_required_columns or 0) != len(required_columns):
+            return
+
+    await asyncio.to_thread(_run_alembic_stamp, url, INITIAL_REVISION)
 
 
 async def test_database_connection() -> bool:
