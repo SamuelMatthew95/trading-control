@@ -257,7 +257,9 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.execute("CREATE INDEX IF NOT EXISTS audit_log_created_at_desc_idx ON audit_log (created_at DESC)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS audit_log_created_at_desc_idx ON audit_log (created_at DESC)"
+    )
     op.execute(
         "CREATE INDEX IF NOT EXISTS system_metrics_metric_name_timestamp_desc_idx "
         "ON system_metrics (metric_name, timestamp DESC)"
