@@ -45,11 +45,15 @@ def _timestamp_column(name: str = "created_at") -> sa.Column:
     )
 
 
+def _create_table(table_name: str, *columns: sa.Column) -> None:
+    op.create_table(table_name, *columns, if_not_exists=True)
+
+
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    op.create_table(
+    _create_table(
         "strategies",
         _uuid_column(),
         sa.Column("name", sa.String(length=255), nullable=False, unique=True),
@@ -59,7 +63,7 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.create_table(
+    _create_table(
         "orders",
         _uuid_column(),
         sa.Column(
@@ -79,7 +83,7 @@ def upgrade() -> None:
         sa.Column("filled_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
     )
 
-    op.create_table(
+    _create_table(
         "positions",
         _uuid_column(),
         sa.Column("symbol", sa.String(length=64), nullable=False),
@@ -102,7 +106,7 @@ def upgrade() -> None:
         ),
     )
 
-    op.create_table(
+    _create_table(
         "agent_runs",
         _uuid_column(),
         sa.Column(
@@ -127,7 +131,7 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.create_table(
+    _create_table(
         "agent_logs",
         _uuid_column(),
         sa.Column("trace_id", sa.String(length=255), nullable=False),
@@ -136,7 +140,7 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.create_table(
+    _create_table(
         "vector_memory",
         _uuid_column(),
         sa.Column("content", sa.Text(), nullable=False),
@@ -146,11 +150,11 @@ def upgrade() -> None:
         _timestamp_column(),
     )
     op.execute(
-        "CREATE INDEX vector_memory_embedding_idx "
+        "CREATE INDEX IF NOT EXISTS vector_memory_embedding_idx "
         "ON vector_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
     )
 
-    op.create_table(
+    _create_table(
         "trade_performance",
         _uuid_column(),
         sa.Column(
@@ -173,7 +177,7 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.create_table(
+    _create_table(
         "strategy_metrics",
         _uuid_column(),
         sa.Column(
@@ -195,7 +199,7 @@ def upgrade() -> None:
         ),
     )
 
-    op.create_table(
+    _create_table(
         "factor_ic_history",
         _uuid_column(),
         sa.Column("factor_name", sa.String(length=128), nullable=False),
@@ -208,7 +212,7 @@ def upgrade() -> None:
         ),
     )
 
-    op.create_table(
+    _create_table(
         "system_metrics",
         _uuid_column(),
         sa.Column("metric_name", sa.String(length=255), nullable=False),
@@ -222,7 +226,7 @@ def upgrade() -> None:
         ),
     )
 
-    op.create_table(
+    _create_table(
         "audit_log",
         _uuid_column(),
         sa.Column("event_type", sa.String(length=255), nullable=False),
@@ -230,7 +234,7 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.create_table(
+    _create_table(
         "order_reconciliation",
         _uuid_column(),
         sa.Column(
@@ -244,7 +248,7 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.create_table(
+    _create_table(
         "llm_cost_tracking",
         _uuid_column(),
         sa.Column("date", sa.Date(), nullable=False),
@@ -253,9 +257,12 @@ def upgrade() -> None:
         _timestamp_column(),
     )
 
-    op.execute("CREATE INDEX audit_log_created_at_desc_idx ON audit_log (created_at DESC)")
     op.execute(
-        "CREATE INDEX system_metrics_metric_name_timestamp_desc_idx ON system_metrics (metric_name, timestamp DESC)"
+        "CREATE INDEX IF NOT EXISTS audit_log_created_at_desc_idx ON audit_log (created_at DESC)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS system_metrics_metric_name_timestamp_desc_idx "
+        "ON system_metrics (metric_name, timestamp DESC)"
     )
 
     strategies_table = sa.table(
@@ -266,65 +273,79 @@ def upgrade() -> None:
         sa.column("is_active", sa.Boolean),
     )
 
-    op.bulk_insert(
-        strategies_table,
-        [
-            {
-                "name": "BTC_MOMENTUM_V3",
-                "rules": {
-                    "universe": ["BTC/USD"],
-                    "entry": {
-                        "trend_window": "4h",
-                        "trigger": "breakout_with_volume_confirmation",
-                        "minimum_composite_score": 0.72,
-                    },
-                    "exit": {
-                        "stop_loss": "2.2_atr",
-                        "take_profit": "trailing_3.5_atr",
-                        "time_stop_hours": 18,
-                    },
-                    "filters": {
-                        "avoid_high_impact_news_minutes": 30,
-                        "require_positive_funding_regime": False,
-                    },
+    strategy_seed_rows = [
+        {
+            "name": "BTC_MOMENTUM_V3",
+            "rules": {
+                "universe": ["BTC/USD"],
+                "entry": {
+                    "trend_window": "4h",
+                    "trigger": "breakout_with_volume_confirmation",
+                    "minimum_composite_score": 0.72,
                 },
-                "risk_limits": {
-                    "max_position_pct": 0.08,
-                    "max_daily_loss_pct": 0.025,
-                    "max_open_positions": 1,
-                    "slippage_bps_cap": 18,
+                "exit": {
+                    "stop_loss": "2.2_atr",
+                    "take_profit": "trailing_3.5_atr",
+                    "time_stop_hours": 18,
                 },
-                "is_active": True,
+                "filters": {
+                    "avoid_high_impact_news_minutes": 30,
+                    "require_positive_funding_regime": False,
+                },
             },
-            {
-                "name": "ETH_REVERSAL_V2",
-                "rules": {
-                    "universe": ["ETH/USD"],
-                    "entry": {
-                        "signal_family": "mean_reversion",
-                        "oversold_rsi_threshold": 28,
-                        "require_orderflow_divergence": True,
-                    },
-                    "exit": {
-                        "stop_loss": "1.6_atr",
-                        "first_target": "session_vwap",
-                        "final_target": "2.8_atr",
-                    },
-                    "filters": {
-                        "min_liquidity_usd": 5000000,
-                        "disable_during_fomc_window": True,
-                    },
-                },
-                "risk_limits": {
-                    "max_position_pct": 0.06,
-                    "max_daily_loss_pct": 0.02,
-                    "max_open_positions": 1,
-                    "slippage_bps_cap": 15,
-                },
-                "is_active": True,
+            "risk_limits": {
+                "max_position_pct": 0.08,
+                "max_daily_loss_pct": 0.025,
+                "max_open_positions": 1,
+                "slippage_bps_cap": 18,
             },
-        ],
-    )
+            "is_active": True,
+        },
+        {
+            "name": "ETH_REVERSAL_V2",
+            "rules": {
+                "universe": ["ETH/USD"],
+                "entry": {
+                    "signal_family": "mean_reversion",
+                    "oversold_rsi_threshold": 28,
+                    "require_orderflow_divergence": True,
+                },
+                "exit": {
+                    "stop_loss": "1.6_atr",
+                    "first_target": "session_vwap",
+                    "final_target": "2.8_atr",
+                },
+                "filters": {
+                    "min_liquidity_usd": 5000000,
+                    "disable_during_fomc_window": True,
+                },
+            },
+            "risk_limits": {
+                "max_position_pct": 0.06,
+                "max_daily_loss_pct": 0.02,
+                "max_open_positions": 1,
+                "slippage_bps_cap": 15,
+            },
+            "is_active": True,
+        },
+    ]
+    existing_strategy_names = {
+        row[0]
+        for row in op.get_bind().execute(
+            sa.text(
+                """
+                SELECT name
+                FROM strategies
+                WHERE name IN ('BTC_MOMENTUM_V3', 'ETH_REVERSAL_V2')
+                """
+            )
+        )
+    }
+    missing_seed_rows = [
+        row for row in strategy_seed_rows if row["name"] not in existing_strategy_names
+    ]
+    if missing_seed_rows:
+        op.bulk_insert(strategies_table, missing_seed_rows)
 
 
 def downgrade() -> None:
