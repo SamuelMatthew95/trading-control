@@ -54,6 +54,38 @@ def _create_table(table_name: str, *columns: sa.Column) -> None:
 def _table_id_type(table_name: str) -> sa.types.TypeEngine:
     """Best-effort lookup of <table>.id type for legacy-compatible FK columns."""
     bind = op.get_bind()
+
+    # Prefer a catalog lookup in the active schema search path. This is more
+    # reliable than SQLAlchemy inspector in environments where legacy tables
+    # may already exist in a non-default schema.
+    catalog_type = bind.execute(
+        sa.text(
+            """
+            SELECT format_type(a.atttypid, a.atttypmod) AS id_type
+              FROM pg_attribute a
+              JOIN pg_class c ON c.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE c.relname = :table_name
+               AND a.attname = 'id'
+               AND a.attnum > 0
+               AND NOT a.attisdropped
+               AND n.nspname = ANY (current_schemas(TRUE))
+             ORDER BY array_position(current_schemas(TRUE), n.nspname)
+             LIMIT 1
+            """
+        ),
+        {"table_name": table_name},
+    ).scalar_one_or_none()
+
+    if isinstance(catalog_type, str):
+        normalized = catalog_type.lower()
+        if normalized == "uuid":
+            return postgresql.UUID(as_uuid=True)
+        if normalized.startswith("character varying") or normalized.startswith("varchar"):
+            return sa.String(length=255)
+        if normalized == "text":
+            return sa.Text()
+
     inspector = sa.inspect(bind)
     try:
         for column in inspector.get_columns(table_name):
