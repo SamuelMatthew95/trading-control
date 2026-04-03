@@ -49,6 +49,24 @@ def _create_table(table_name: str, *columns: sa.Column) -> None:
     op.create_table(table_name, *columns, if_not_exists=True)
 
 
+def _orders_id_type() -> sa.types.TypeEngine:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    for column in inspector.get_columns("orders"):
+        if column["name"] == "id":
+            return column["type"]
+    return postgresql.UUID(as_uuid=True)
+
+
+def _orders_fk_column(name: str = "order_id") -> sa.Column:
+    return sa.Column(
+        name,
+        _orders_id_type(),
+        sa.ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -219,12 +237,7 @@ def upgrade() -> None:
     _create_table(
         "trade_performance",
         _uuid_column(),
-        sa.Column(
-            "order_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        _orders_fk_column(),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("pnl", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("holding_secs", sa.Integer(), nullable=False),
@@ -299,12 +312,7 @@ def upgrade() -> None:
     _create_table(
         "order_reconciliation",
         _uuid_column(),
-        sa.Column(
-            "order_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        _orders_fk_column(),
         sa.Column("discrepancy", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         _timestamp_column(),
