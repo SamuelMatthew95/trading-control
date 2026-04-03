@@ -9,16 +9,16 @@ async def test_init_database_uses_alembic_for_postgres(monkeypatch):
 
     calls = []
 
-    async def fake_to_thread(func, url):
-        calls.append((func, url))
+    async def fake_upgrade_with_lock(url):
+        calls.append(url)
         return
 
     monkeypatch.setattr(database_module, "database_url", "postgresql+asyncpg://db/test")
-    monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(database_module, "_run_alembic_upgrade_with_lock", fake_upgrade_with_lock)
 
     await database_module.init_database()
 
-    assert calls == [(database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")]
+    assert calls == ["postgresql+asyncpg://db/test"]
 
 
 @pytest.mark.asyncio
@@ -69,3 +69,40 @@ def test_resolve_database_url_requires_database_in_production(monkeypatch):
 
     with pytest.raises(RuntimeError, match="DATABASE_URL is required in production"):
         database_module._resolve_database_url()
+
+
+@pytest.mark.asyncio
+async def test_run_alembic_upgrade_with_lock_uses_advisory_lock(monkeypatch):
+    import api.database as database_module
+
+    statements = []
+    to_thread_calls = []
+
+    class FakeConn:
+        async def execute(self, statement, params):
+            statements.append((str(statement), params))
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return FakeConn()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeEngine:
+        def connect(self):
+            return FakeConnect()
+
+    async def fake_to_thread(func, url):
+        to_thread_calls.append((func, url))
+
+    monkeypatch.setattr(database_module, "async_engine", FakeEngine())
+    monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
+
+    await database_module._run_alembic_upgrade_with_lock("postgresql+asyncpg://db/test")
+
+    assert statements == [
+        ("SELECT pg_advisory_lock(:lock_id)", {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID}),
+        ("SELECT pg_advisory_unlock(:lock_id)", {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID}),
+    ]
+    assert to_thread_calls == [(database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")]

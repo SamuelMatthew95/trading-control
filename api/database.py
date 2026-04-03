@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover
 
 
 SQLITE_FALLBACK_URL = "sqlite+aiosqlite:///./trading-control.db"
+ALEMBIC_STARTUP_LOCK_ID = 78451233
 
 
 def _resolve_database_url() -> str:
@@ -112,11 +113,23 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_database() -> None:
     """Runtime helper retained for compatibility tests; app startup does not call this."""
     if _uses_postgres(database_url):
-        await asyncio.to_thread(_run_alembic_upgrade, database_url)
+        await _run_alembic_upgrade_with_lock(database_url)
         return
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def _run_alembic_upgrade_with_lock(url: str) -> None:
+    """Serialize startup migrations across instances to avoid duplicate DDL races."""
+    async with async_engine.connect() as conn:
+        await conn.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID})
+        try:
+            await asyncio.to_thread(_run_alembic_upgrade, url)
+        finally:
+            await conn.execute(
+                text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID}
+            )
 
 
 async def test_database_connection() -> bool:
