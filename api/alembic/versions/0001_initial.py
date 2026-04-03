@@ -146,7 +146,26 @@ def upgrade() -> None:
         _timestamp_column(),
     )
     op.execute(
-        "CREATE INDEX vector_memory_embedding_idx "
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'vector_memory'
+                  AND column_name = 'embedding'
+                  AND udt_name <> 'vector'
+            ) THEN
+                EXECUTE
+                    'ALTER TABLE vector_memory '
+                    || 'ALTER COLUMN embedding TYPE vector(1536) '
+                    || 'USING embedding::vector';
+            END IF;
+        END $$;
+        """
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS vector_memory_embedding_idx "
         "ON vector_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
     )
 
