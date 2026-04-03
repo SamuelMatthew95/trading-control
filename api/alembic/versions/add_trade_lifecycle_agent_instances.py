@@ -15,12 +15,30 @@ Adds:
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.sql.sqltypes import NullType
 
 revision: str = "add_trade_lifecycle_v1"
 down_revision: str | None = "upgrade_to_v3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+
+def _id_sql_type(table_name: str, default: str = "UUID") -> str:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    try:
+        for column in inspector.get_columns(table_name):
+            if column["name"] == "id":
+                detected_type = column.get("type")
+                if detected_type is None or isinstance(detected_type, NullType):
+                    return default
+                return str(detected_type.compile(dialect=bind.dialect))
+    except NoSuchTableError:
+        return default
+    return default
 
 
 def upgrade() -> None:
@@ -51,9 +69,10 @@ def upgrade() -> None:
     )
 
     # Add instance_id to agent_runs (nullable — old rows have no instance)
-    op.execute("""
+    agent_instances_id_type = _id_sql_type("agent_instances")
+    op.execute(f"""
         ALTER TABLE agent_runs
-            ADD COLUMN IF NOT EXISTS instance_id UUID
+            ADD COLUMN IF NOT EXISTS instance_id {agent_instances_id_type}
                 REFERENCES agent_instances(id) ON DELETE SET NULL
     """)
     op.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_instance ON agent_runs(instance_id)")

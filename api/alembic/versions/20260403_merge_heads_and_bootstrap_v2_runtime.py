@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.sql.sqltypes import NullType
 
 revision: str = "20260403_v2_bootstrap"
 down_revision: str | Sequence[str] | None = ("add_prices_snapshot", "add_trade_lifecycle_v1")
@@ -17,9 +20,28 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _id_sql_type(table_name: str, default: str = "UUID") -> str:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    try:
+        for column in inspector.get_columns(table_name):
+            if column["name"] == "id":
+                detected_type = column.get("type")
+                if detected_type is None or isinstance(detected_type, NullType):
+                    return default
+                return str(detected_type.compile(dialect=bind.dialect))
+    except NoSuchTableError:
+        return default
+    return default
+
+
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+    agent_pool_id_type = _id_sql_type("agent_pool")
+    agent_instances_id_type = _id_sql_type("agent_instances")
+    agent_runs_id_type = _id_sql_type("agent_runs")
 
     op.execute(
         """
@@ -42,7 +64,7 @@ def upgrade() -> None:
         """
         CREATE TABLE IF NOT EXISTS agent_runs (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            agent_id UUID REFERENCES agent_pool(id) ON DELETE SET NULL,
+            agent_id %s REFERENCES agent_pool(id) ON DELETE SET NULL,
             agent_run_id UUID,
             trace_id VARCHAR(255) NOT NULL,
             run_type VARCHAR(32) NOT NULL DEFAULT 'analysis',
@@ -68,18 +90,19 @@ def upgrade() -> None:
             error_message TEXT,
             execution_time_ms INTEGER,
             tokens_used INTEGER NOT NULL DEFAULT 0,
-            instance_id UUID REFERENCES agent_instances(id) ON DELETE SET NULL,
+            instance_id %s REFERENCES agent_instances(id) ON DELETE SET NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
+        % (agent_pool_id_type, agent_instances_id_type)
     )
 
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_logs (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            agent_run_id UUID REFERENCES agent_runs(id) ON DELETE CASCADE,
+            agent_run_id %s REFERENCES agent_runs(id) ON DELETE CASCADE,
             trace_id VARCHAR(255) NOT NULL,
             log_type VARCHAR(100) NOT NULL,
             payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -93,14 +116,15 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
+        % agent_runs_id_type
     )
 
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_grades (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            agent_id UUID REFERENCES agent_pool(id) ON DELETE SET NULL,
-            agent_run_id UUID REFERENCES agent_runs(id) ON DELETE CASCADE,
+            agent_id %s REFERENCES agent_pool(id) ON DELETE SET NULL,
+            agent_run_id %s REFERENCES agent_runs(id) ON DELETE CASCADE,
             trace_id VARCHAR(255),
             grade_type VARCHAR(32) NOT NULL,
             score NUMERIC NOT NULL,
@@ -111,6 +135,7 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
+        % (agent_pool_id_type, agent_runs_id_type)
     )
 
     op.execute(

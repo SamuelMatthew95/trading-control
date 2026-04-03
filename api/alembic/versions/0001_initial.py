@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.sql.sqltypes import NullType
 from sqlalchemy.types import UserDefinedType
 
 revision = "0001_initial"
@@ -49,6 +51,32 @@ def _create_table(table_name: str, *columns: sa.Column) -> None:
     op.create_table(table_name, *columns, if_not_exists=True)
 
 
+def _table_id_type(table_name: str) -> sa.types.TypeEngine:
+    """Best-effort lookup of <table>.id type for legacy-compatible FK columns."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    try:
+        for column in inspector.get_columns(table_name):
+            if column["name"] == "id":
+                detected_type = column.get("type")
+                if detected_type is not None and not isinstance(detected_type, NullType):
+                    return detected_type
+    except NoSuchTableError:
+        return postgresql.UUID(as_uuid=True)
+    return postgresql.UUID(as_uuid=True)
+
+
+def _fk_id_column(
+    referenced_table: str, name: str, *, ondelete: str, nullable: bool = False
+) -> sa.Column:
+    return sa.Column(
+        name,
+        _table_id_type(referenced_table),
+        sa.ForeignKey(f"{referenced_table}.id", ondelete=ondelete),
+        nullable=nullable,
+    )
+
+
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -66,12 +94,7 @@ def upgrade() -> None:
     _create_table(
         "orders",
         _uuid_column(),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="RESTRICT"),
-            nullable=False,
-        ),
+        _fk_id_column("strategies", "strategy_id", ondelete="RESTRICT"),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("side", sa.String(length=16), nullable=False),
         sa.Column("qty", sa.Numeric(precision=18, scale=8), nullable=False),
@@ -92,12 +115,7 @@ def upgrade() -> None:
         sa.Column("entry_price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("current_price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("unrealised_pnl", sa.Numeric(precision=18, scale=8), nullable=False),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="RESTRICT"),
-            nullable=False,
-        ),
+        _fk_id_column("strategies", "strategy_id", ondelete="RESTRICT"),
         sa.Column(
             "opened_at",
             postgresql.TIMESTAMP(timezone=True),
@@ -109,12 +127,7 @@ def upgrade() -> None:
     _create_table(
         "agent_runs",
         _uuid_column(),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="RESTRICT"),
-            nullable=False,
-        ),
+        _fk_id_column("strategies", "strategy_id", ondelete="RESTRICT"),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("signal_data", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("action", sa.String(length=32), nullable=False),
@@ -219,12 +232,7 @@ def upgrade() -> None:
     _create_table(
         "trade_performance",
         _uuid_column(),
-        sa.Column(
-            "order_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        _fk_id_column("orders", "order_id", ondelete="CASCADE"),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("pnl", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("holding_secs", sa.Integer(), nullable=False),
@@ -242,13 +250,7 @@ def upgrade() -> None:
     _create_table(
         "strategy_metrics",
         _uuid_column(),
-        sa.Column(
-            "strategy_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("strategies.id", ondelete="CASCADE"),
-            nullable=False,
-            unique=True,
-        ),
+        _fk_id_column("strategies", "strategy_id", ondelete="CASCADE"),
         sa.Column("win_rate", sa.Float(), nullable=False),
         sa.Column("avg_pnl", sa.Float(), nullable=False),
         sa.Column("sharpe", sa.Float(), nullable=False),
@@ -259,6 +261,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=UTC_NOW,
         ),
+        sa.UniqueConstraint("strategy_id", name="uq_strategy_metrics_strategy_id"),
     )
 
     _create_table(
@@ -299,12 +302,7 @@ def upgrade() -> None:
     _create_table(
         "order_reconciliation",
         _uuid_column(),
-        sa.Column(
-            "order_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        _fk_id_column("orders", "order_id", ondelete="CASCADE"),
         sa.Column("discrepancy", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         _timestamp_column(),
