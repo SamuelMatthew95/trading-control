@@ -153,6 +153,7 @@ def upgrade() -> None:
         """
         DO $$
         DECLARE _embedding_udt TEXT;
+        DECLARE _is_vector_type BOOLEAN := FALSE;
         BEGIN
             IF to_regtype('vector') IS NULL THEN
                 RAISE NOTICE
@@ -189,6 +190,23 @@ def upgrade() -> None:
                         SQLERRM;
                     RETURN;
                 END;
+            END IF;
+
+            SELECT (a.atttypid = to_regtype('vector'))
+              INTO _is_vector_type
+              FROM pg_attribute a
+              JOIN pg_class t ON t.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+             WHERE n.nspname = current_schema()
+               AND t.relname = 'vector_memory'
+               AND a.attname = 'embedding'
+               AND a.attnum > 0
+               AND NOT a.attisdropped;
+
+            IF NOT COALESCE(_is_vector_type, FALSE) THEN
+                RAISE NOTICE
+                    'Skipping vector index creation because vector_memory.embedding is not pgvector type';
+                RETURN;
             END IF;
 
             EXECUTE
