@@ -134,6 +134,8 @@ async def test_bootstrap_existing_schema_revision_stamps_initial_revision(monkey
             sql = str(statement)
             if "to_regclass" in sql:
                 return None
+            if "information_schema.columns" in sql:
+                return len(params["column_names"])
             return len(database_module.INITIAL_BASELINE_TABLES)
 
     async def fake_to_thread(func, *args):
@@ -190,7 +192,38 @@ async def test_bootstrap_existing_schema_revision_skips_partial_baseline(monkeyp
             sql = str(statement)
             if "to_regclass" in sql:
                 return None
+            if "information_schema.columns" in sql:
+                return len(params["column_names"])
             return len(database_module.INITIAL_BASELINE_TABLES) - 1
+
+    async def fake_to_thread(func, *args):
+        to_thread_calls.append((func, *args))
+
+    monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
+
+    await database_module._bootstrap_existing_schema_revision(
+        FakeConn(), "postgresql+asyncpg://db/test"
+    )
+
+    assert to_thread_calls == []
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_existing_schema_revision_skips_when_columns_missing(monkeypatch):
+    import api.database as database_module
+
+    to_thread_calls = []
+
+    class FakeConn:
+        async def scalar(self, statement, params=None):
+            sql = str(statement)
+            if "to_regclass" in sql:
+                return None
+            if "information_schema.columns" in sql:
+                if params["table_name"] == "orders":
+                    return len(params["column_names"]) - 1
+                return len(params["column_names"])
+            return len(database_module.INITIAL_BASELINE_TABLES)
 
     async def fake_to_thread(func, *args):
         to_thread_calls.append((func, *args))

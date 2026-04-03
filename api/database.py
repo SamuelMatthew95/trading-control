@@ -49,6 +49,21 @@ INITIAL_BASELINE_TABLES = (
     "order_reconciliation",
     "llm_cost_tracking",
 )
+INITIAL_BASELINE_REQUIRED_COLUMNS = {
+    "strategies": ("id", "name", "rules", "risk_limits", "created_at"),
+    "orders": ("id", "strategy_id", "symbol", "qty", "status", "idempotency_key"),
+    "positions": ("id", "strategy_id", "symbol", "qty", "entry_price"),
+    "agent_runs": ("id", "strategy_id", "trace_id", "created_at"),
+    "agent_logs": ("id", "trace_id", "payload", "created_at"),
+    "vector_memory": ("id", "content", "embedding", "metadata_", "created_at"),
+    "trade_performance": ("id", "order_id", "symbol", "pnl", "created_at"),
+    "strategy_metrics": ("id", "strategy_id", "win_rate", "updated_at"),
+    "factor_ic_history": ("id", "factor_name", "ic_score", "computed_at"),
+    "system_metrics": ("id", "metric_name", "value", "timestamp"),
+    "audit_log": ("id", "event_type", "payload", "created_at"),
+    "order_reconciliation": ("id", "order_id", "discrepancy", "created_at"),
+    "llm_cost_tracking": ("id", "date", "tokens_used", "cost_usd", "created_at"),
+}
 
 
 def _resolve_database_url() -> str:
@@ -175,8 +190,26 @@ async def _bootstrap_existing_schema_revision(conn, url: str) -> None:
         ),
         {"table_names": list(INITIAL_BASELINE_TABLES)},
     )
-    if baseline_table_count and int(baseline_table_count) == len(INITIAL_BASELINE_TABLES):
-        await asyncio.to_thread(_run_alembic_stamp, url, INITIAL_REVISION)
+    if not baseline_table_count or int(baseline_table_count) != len(INITIAL_BASELINE_TABLES):
+        return
+
+    for table_name, required_columns in INITIAL_BASELINE_REQUIRED_COLUMNS.items():
+        present_required_columns = await conn.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+                  AND column_name = ANY(:column_names)
+                """
+            ),
+            {"table_name": table_name, "column_names": list(required_columns)},
+        )
+        if int(present_required_columns or 0) != len(required_columns):
+            return
+
+    await asyncio.to_thread(_run_alembic_stamp, url, INITIAL_REVISION)
 
 
 async def test_database_connection() -> bool:
