@@ -131,7 +131,9 @@ async def init_database() -> None:
 async def _run_alembic_upgrade_with_lock(url: str) -> None:
     """Serialize startup migrations across instances to avoid duplicate DDL races."""
     async with async_engine.connect() as conn:
-        await conn.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID})
+        await conn.execute(
+            text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": ALEMBIC_STARTUP_LOCK_ID}
+        )
         try:
             await _bootstrap_existing_schema_revision(conn, url)
             await asyncio.to_thread(_run_alembic_upgrade, url)

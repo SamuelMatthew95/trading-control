@@ -107,9 +107,14 @@ async def test_run_alembic_upgrade_with_lock_uses_advisory_lock(monkeypatch):
 
     assert statements == [
         ("SELECT pg_advisory_lock(:lock_id)", {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID}),
-        ("SELECT pg_advisory_unlock(:lock_id)", {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID}),
+        (
+            "SELECT pg_advisory_unlock(:lock_id)",
+            {"lock_id": database_module.ALEMBIC_STARTUP_LOCK_ID},
+        ),
     ]
-    assert to_thread_calls == [(database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")]
+    assert to_thread_calls == [
+        (database_module._run_alembic_upgrade, "postgresql+asyncpg://db/test")
+    ]
 
 
 @pytest.mark.asyncio
@@ -130,10 +135,16 @@ async def test_bootstrap_existing_schema_revision_stamps_initial_revision(monkey
 
     monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
 
-    await database_module._bootstrap_existing_schema_revision(FakeConn(), "postgresql+asyncpg://db/test")
+    await database_module._bootstrap_existing_schema_revision(
+        FakeConn(), "postgresql+asyncpg://db/test"
+    )
 
     assert to_thread_calls == [
-        (database_module._run_alembic_stamp, "postgresql+asyncpg://db/test", database_module.INITIAL_REVISION)
+        (
+            database_module._run_alembic_stamp,
+            "postgresql+asyncpg://db/test",
+            database_module.INITIAL_REVISION,
+        )
     ]
 
 
@@ -155,6 +166,8 @@ async def test_bootstrap_existing_schema_revision_skips_when_version_table_exist
 
     monkeypatch.setattr(database_module.asyncio, "to_thread", fake_to_thread)
 
-    await database_module._bootstrap_existing_schema_revision(FakeConn(), "postgresql+asyncpg://db/test")
+    await database_module._bootstrap_existing_schema_revision(
+        FakeConn(), "postgresql+asyncpg://db/test"
+    )
 
     assert to_thread_calls == []
