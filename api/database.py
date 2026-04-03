@@ -34,7 +34,21 @@ except ImportError:  # pragma: no cover
 SQLITE_FALLBACK_URL = "sqlite+aiosqlite:///./trading-control.db"
 ALEMBIC_STARTUP_LOCK_ID = 78451233
 INITIAL_REVISION = "0001_initial"
-BOOTSTRAP_TABLE_SENTINELS = ("strategies", "orders", "positions", "agent_runs")
+INITIAL_BASELINE_TABLES = (
+    "strategies",
+    "orders",
+    "positions",
+    "agent_runs",
+    "agent_logs",
+    "vector_memory",
+    "trade_performance",
+    "strategy_metrics",
+    "factor_ic_history",
+    "system_metrics",
+    "audit_log",
+    "order_reconciliation",
+    "llm_cost_tracking",
+)
 
 
 def _resolve_database_url() -> str:
@@ -150,7 +164,7 @@ async def _bootstrap_existing_schema_revision(conn, url: str) -> None:
     if version_table_exists:
         return
 
-    sentinel_count = await conn.scalar(
+    baseline_table_count = await conn.scalar(
         text(
             """
             SELECT count(*)
@@ -159,9 +173,9 @@ async def _bootstrap_existing_schema_revision(conn, url: str) -> None:
               AND table_name = ANY(:table_names)
             """
         ),
-        {"table_names": list(BOOTSTRAP_TABLE_SENTINELS)},
+        {"table_names": list(INITIAL_BASELINE_TABLES)},
     )
-    if sentinel_count and int(sentinel_count) > 0:
+    if baseline_table_count and int(baseline_table_count) == len(INITIAL_BASELINE_TABLES):
         await asyncio.to_thread(_run_alembic_stamp, url, INITIAL_REVISION)
 
 
