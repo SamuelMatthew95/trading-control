@@ -150,8 +150,53 @@ def upgrade() -> None:
         _timestamp_column(),
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS vector_memory_embedding_idx "
-        "ON vector_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+        """
+        DO $$
+        DECLARE _embedding_udt TEXT;
+        BEGIN
+            IF to_regtype('vector') IS NULL THEN
+                RAISE NOTICE
+                    'Skipping vector index creation because pgvector type is not available in schema %',
+                    current_schema();
+                RETURN;
+            END IF;
+
+            SELECT format_type(a.atttypid, a.atttypmod)
+              INTO _embedding_udt
+              FROM pg_attribute a
+              JOIN pg_class t ON t.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+             WHERE n.nspname = current_schema()
+               AND t.relname = 'vector_memory'
+               AND a.attname = 'embedding'
+               AND a.attnum > 0
+               AND NOT a.attisdropped;
+
+            IF _embedding_udt IS NULL THEN
+                RETURN;
+            END IF;
+
+            IF _embedding_udt NOT LIKE 'vector%' THEN
+                BEGIN
+                    EXECUTE
+                        'ALTER TABLE vector_memory '
+                        || 'ALTER COLUMN embedding TYPE vector(1536) '
+                        || 'USING embedding::vector';
+                EXCEPTION WHEN OTHERS THEN
+                    RAISE NOTICE
+                        'Skipping vector index creation because vector_memory.embedding '
+                        || 'could not be converted to vector(1536): %',
+                        SQLERRM;
+                    RETURN;
+                END;
+            END IF;
+
+            EXECUTE
+                'CREATE INDEX IF NOT EXISTS vector_memory_embedding_idx '
+                || 'ON vector_memory USING ivfflat '
+                || '(embedding vector_cosine_ops) WITH (lists = 100)';
+        END $$;
+        """
     )
 
     _create_table(
