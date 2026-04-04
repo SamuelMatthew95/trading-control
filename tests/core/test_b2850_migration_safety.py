@@ -56,16 +56,13 @@ def test_has_column_and_index_honor_resolved_schema(monkeypatch, migration_modul
     assert migration_module._has_index("agent_runs", "ix_agent_runs_trace_id") is True
 
 
-def test_upgrade_only_adds_missing_columns_and_drops_legacy(monkeypatch, migration_module):
+def test_upgrade_only_adds_missing_columns(monkeypatch, migration_module):
     added_columns = []
-    dropped_columns = []
     created_indexes = []
 
     existing_columns = {
         "symbol",
         "trace_id",
-        "task_id",
-        "decision_json",
     }
     existing_indexes = {"some_other_index"}
 
@@ -77,7 +74,6 @@ def test_upgrade_only_adds_missing_columns_and_drops_legacy(monkeypatch, migrati
         "create_index",
         lambda index_name, _table, _cols: created_indexes.append(index_name),
     )
-    monkeypatch.setattr(migration_module.op, "drop_column", lambda _table, name: dropped_columns.append(name))
     monkeypatch.setattr(
         migration_module,
         "_has_column",
@@ -97,13 +93,11 @@ def test_upgrade_only_adds_missing_columns_and_drops_legacy(monkeypatch, migrati
         set(added_columns)
     )
     assert created_indexes == ["ix_agent_runs_trace_id"]
-    assert dropped_columns == ["task_id", "decision_json"]
 
 
 def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_module):
     dropped_columns = []
     dropped_indexes = []
-    added_columns = []
 
     existing_columns = {"symbol", "trace_id", "fallback"}
     existing_indexes = {"ix_agent_runs_trace_id"}
@@ -114,7 +108,6 @@ def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_
         "drop_index",
         lambda index_name, table_name=None: dropped_indexes.append((index_name, table_name)),
     )
-    monkeypatch.setattr(migration_module.op, "add_column", lambda _table, column: added_columns.append(column.name))
     monkeypatch.setattr(migration_module.op, "alter_column", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         migration_module,
@@ -131,4 +124,3 @@ def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_
 
     assert dropped_columns == ["symbol", "trace_id", "fallback"]
     assert dropped_indexes == [("ix_agent_runs_trace_id", "agent_runs")]
-    assert added_columns == ["task_id", "decision_json", "trace_json"]

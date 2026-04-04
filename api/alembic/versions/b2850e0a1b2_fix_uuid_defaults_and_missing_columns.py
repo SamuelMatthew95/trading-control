@@ -96,12 +96,6 @@ def upgrade() -> None:
     if _has_column("agent_runs", "trace_id") and not _has_index("agent_runs", "ix_agent_runs_trace_id"):
         op.create_index("ix_agent_runs_trace_id", "agent_runs", ["trace_id"])
 
-    # Remove old unused columns from agent_runs
-    for column_name in ("task_id", "decision_json", "trace_json"):
-        if _has_column("agent_runs", column_name):
-            op.drop_column("agent_runs", column_name)
-
-
 def downgrade() -> None:
     # Remove added columns from agent_runs
     for column_name in (
@@ -123,16 +117,6 @@ def downgrade() -> None:
             op.drop_column("agent_runs", column_name)
     if _has_index("agent_runs", "ix_agent_runs_trace_id"):
         op.drop_index("ix_agent_runs_trace_id", table_name="agent_runs")
-
-    # Restore old columns to agent_runs
-    old_columns = [
-        sa.Column("task_id", sa.String(), nullable=False),
-        sa.Column("decision_json", sa.Text(), nullable=False),
-        sa.Column("trace_json", sa.Text(), nullable=False),
-    ]
-    for column in old_columns:
-        if not _has_column("agent_runs", column.name):
-            op.add_column("agent_runs", column)
 
     # Remove server defaults from id columns
     op.alter_column("vector_memory", "id", server_default=None)
