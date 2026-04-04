@@ -208,20 +208,37 @@ class MetricsAggregator:
             Dict with agent information
         """
         try:
-            # Get recent agent activity
+            # Get recent agent activity (schema compatible across legacy/new agent_logs)
             five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
-
-            agent_activity_query = (
-                select(
-                    AgentLog.agent_run_id,
-                    func.max(AgentLog.timestamp).label("last_seen"),
-                    func.count(AgentLog.id).label("message_count"),
+            columns_result = await self.session.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'agent_logs'
+                    """
                 )
-                .where(AgentLog.timestamp >= five_min_ago)
-                .group_by(AgentLog.agent_run_id)
             )
+            available_columns = {row[0] for row in columns_result}
 
-            result = await self.session.execute(agent_activity_query)
+            time_col = "created_at" if "created_at" in available_columns else "timestamp"
+            run_col = "agent_run_id" if "agent_run_id" in available_columns else "source"
+
+            result = await self.session.execute(
+                text(
+                    f"""
+                    SELECT
+                        {run_col} AS agent_run_id,
+                        MAX({time_col}) AS last_seen,
+                        COUNT(id) AS message_count
+                    FROM agent_logs
+                    WHERE {time_col} >= :five_min_ago
+                    GROUP BY {run_col}
+                    """
+                ),
+                {"five_min_ago": five_min_ago},
+            )
             rows = result.fetchall()
 
             active_agents = []
@@ -413,6 +430,15 @@ class MetricsAggregator:
             def _select(col: str, fallback_sql: str = "NULL") -> str:
                 return col if col in available_columns else fallback_sql
 
+            payload_message = (
+                "payload->>'message'" if "payload" in available_columns else "NULL"
+            )
+            payload_content = (
+                "payload->>'content'" if "payload" in available_columns else "NULL"
+            )
+            payload_reason = "payload->>'reason'" if "payload" in available_columns else "NULL"
+            legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
+
             logs_sql = text(
                 f"""
                 SELECT
@@ -421,12 +447,12 @@ class MetricsAggregator:
                     {_select("source", "'agent'")} AS agent_name,
                     COALESCE(
                         {_select("message")},
-                        payload->>'message',
-                        payload->>'content',
-                        payload->>'reason',
-                        log_type
+                        {payload_message},
+                        {payload_content},
+                        {payload_reason},
+                        {legacy_log_type}
                     ) AS message,
-                    {_select("log_level", "log_type")} AS log_level,
+                    {_select("log_level", legacy_log_type)} AS log_level,
                     {_select(order_column)} AS ts
                 FROM agent_logs
                 ORDER BY {_select(order_column)} DESC

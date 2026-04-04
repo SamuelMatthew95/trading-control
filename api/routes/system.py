@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from ..core.config import get_settings
-from ..core.models import AgentLog, Order, SystemMetrics
+from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
@@ -38,19 +38,36 @@ async def get_system_status():
     """Aggregate system status including stream lag, agent pulse, and database health."""
 
     async with session_factory() as session:
-        # Agent Pulse - last created_at for each agent type
-        agent_pulse_query = (
-            select(
-                AgentLog.agent_run_id,
-                func.max(AgentLog.timestamp).label("last_seen"),
-                func.max(AgentLog.log_level).label("last_level"),
+        # Agent Pulse - schema compatible for legacy/new agent_logs layouts
+        col_result = await session.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'agent_logs'
+                """
             )
-            .group_by(AgentLog.agent_run_id)
-            .order_by(func.max(AgentLog.timestamp).desc())
-            .limit(8)  # Last 8 agents
         )
+        available_columns = {row[0] for row in col_result}
+        time_col = "created_at" if "created_at" in available_columns else "timestamp"
+        run_col = "agent_run_id" if "agent_run_id" in available_columns else "source"
+        level_col = "log_level" if "log_level" in available_columns else "log_type"
 
-        agent_result = await session.execute(agent_pulse_query)
+        agent_result = await session.execute(
+            text(
+                f"""
+                SELECT
+                    {run_col} AS agent_run_id,
+                    MAX({time_col}) AS last_seen,
+                    MAX({level_col}) AS last_level
+                FROM agent_logs
+                GROUP BY {run_col}
+                ORDER BY MAX({time_col}) DESC
+                LIMIT 8
+                """
+            )
+        )
         agent_pulse = [
             {
                 "agent_id": row.agent_run_id,
@@ -170,15 +187,55 @@ async def stream_agent_logs(
         try:
             # Get initial logs
             async with session_factory() as session:
-                query = select(AgentLog).order_by(AgentLog.timestamp.desc()).limit(limit)
-
+                col_result = await session.execute(
+                    text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'agent_logs'
+                        """
+                    )
+                )
+                available_columns = {row[0] for row in col_result}
+                time_col = "created_at" if "created_at" in available_columns else "timestamp"
+                run_col = "agent_run_id" if "agent_run_id" in available_columns else "source"
+                level_col = "log_level" if "log_level" in available_columns else "log_type"
+                trace_col = "trace_id" if "trace_id" in available_columns else "NULL"
+                step_name_col = "step_name" if "step_name" in available_columns else "NULL"
+                step_data_col = "step_data" if "step_data" in available_columns else "NULL"
+                payload_message = (
+                    "payload->>'message'" if "payload" in available_columns else "NULL"
+                )
+                payload_content = (
+                    "payload->>'content'" if "payload" in available_columns else "NULL"
+                )
+                legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
+                message_col = "message" if "message" in available_columns else "NULL"
+                base_sql = f"""
+                    SELECT
+                        id,
+                        {trace_col} AS trace_id,
+                        {run_col} AS agent_run_id,
+                        {level_col} AS log_level,
+                        COALESCE({message_col}, {payload_message}, {payload_content}, {legacy_log_type}) AS message,
+                        {step_name_col} AS step_name,
+                        {step_data_col} AS step_data,
+                        {time_col} AS ts
+                    FROM agent_logs
+                    WHERE 1=1
+                """
+                params: dict[str, Any] = {"limit": limit}
                 if agent_id:
-                    query = query.where(AgentLog.agent_run_id == agent_id)
+                    base_sql += " AND " + run_col + " = :agent_id"
+                    params["agent_id"] = agent_id
                 if level:
-                    query = query.where(AgentLog.log_level == level.upper())
+                    base_sql += " AND LOWER(COALESCE(" + level_col + "::text, '')) = :level"
+                    params["level"] = level.lower()
+                base_sql += f" ORDER BY {time_col} DESC LIMIT :limit"
 
-                result = await session.execute(query)
-                logs = result.scalars().all()
+                result = await session.execute(text(base_sql), params)
+                logs = result.fetchall()
 
                 # Send initial logs
                 for log in reversed(logs):  # Send in chronological order
@@ -189,32 +246,26 @@ async def stream_agent_logs(
                         "message": log.message,
                         "step_name": log.step_name,
                         "step_data": log.step_data,
-                        "timestamp": log.timestamp.isoformat(),
+                        "timestamp": log.ts.isoformat() if log.ts else None,
                     }
                     yield f"data: {json.dumps(log_data)}\n\n"
 
                 # Continue streaming new logs
-                last_timestamp = logs[0].timestamp if logs else datetime.now(timezone.utc)
+                last_timestamp = logs[0].ts if logs else datetime.now(timezone.utc)
 
                 while True:
                     await asyncio.sleep(1)  # Log streaming interval - allowed
 
                     async with session_factory() as session:
-                        new_logs_query = (
-                            select(AgentLog)
-                            .where(AgentLog.timestamp > last_timestamp)
-                            .order_by(AgentLog.timestamp.asc())
+                        poll_sql = base_sql.replace(
+                            f" ORDER BY {time_col} DESC LIMIT :limit",
+                            f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
                         )
-
-                        if agent_id:
-                            new_logs_query = new_logs_query.where(AgentLog.agent_run_id == agent_id)
-                        if level:
-                            new_logs_query = new_logs_query.where(
-                                AgentLog.log_level == level.upper()
-                            )
-
-                        result = await session.execute(new_logs_query)
-                        new_logs = result.scalars().all()
+                        poll_params = dict(params)
+                        poll_params["last_timestamp"] = last_timestamp
+                        poll_params.pop("limit", None)
+                        result = await session.execute(text(poll_sql), poll_params)
+                        new_logs = result.fetchall()
 
                         for log in new_logs:
                             log_data = {
@@ -224,10 +275,10 @@ async def stream_agent_logs(
                                 "message": log.message,
                                 "step_name": log.step_name,
                                 "step_data": log.step_data,
-                                "timestamp": log.timestamp.isoformat(),
+                                "timestamp": log.ts.isoformat() if log.ts else None,
                             }
                             yield f"data: {json.dumps(log_data)}\n\n"
-                            last_timestamp = max(last_timestamp, log.timestamp)
+                            last_timestamp = max(last_timestamp, log.ts)
 
         except Exception as e:
             log_structured("error", "log stream error", error=str(e))
