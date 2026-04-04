@@ -27,10 +27,55 @@ def upgrade() -> None:
             recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     """)
-    op.execute("""
+    op.execute(
+        """
+        ALTER TABLE prices_snapshot
+        ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMPTZ
+        """
+    )
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'prices_snapshot'
+                  AND column_name = 'created_at'
+            ) THEN
+                EXECUTE '
+                    UPDATE prices_snapshot
+                    SET recorded_at = COALESCE(recorded_at, created_at, NOW())
+                    WHERE recorded_at IS NULL
+                ';
+            ELSE
+                EXECUTE '
+                    UPDATE prices_snapshot
+                    SET recorded_at = COALESCE(recorded_at, NOW())
+                    WHERE recorded_at IS NULL
+                ';
+            END IF;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE prices_snapshot
+        ALTER COLUMN recorded_at SET DEFAULT NOW()
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE prices_snapshot
+        ALTER COLUMN recorded_at SET NOT NULL
+        """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS ix_prices_snapshot_symbol_recorded_at
         ON prices_snapshot (symbol, recorded_at DESC)
-    """)
+        """
+    )
 
 
 def downgrade() -> None:

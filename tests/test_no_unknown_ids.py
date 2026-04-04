@@ -35,8 +35,9 @@ class _FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_write_system_metric_logs_real_id(capsys, safe_writer, monkeypatch):
+async def test_write_system_metric_logs_real_id(safe_writer, monkeypatch):
     """Prevents regression of id=unknown bug."""
+    logged_events: list[dict] = []
 
     @asynccontextmanager
     async def fake_transaction():
@@ -47,8 +48,12 @@ async def test_write_system_metric_logs_real_id(capsys, safe_writer, monkeypatch
     async def _fake_claim(*args, **kwargs):
         return True
 
+    def _fake_log_structured(level, message, **extra_data):
+        logged_events.append({"level": level, "message": message, **extra_data})
+
     safe_writer._claim_message = _fake_claim
     monkeypatch.setattr(safe_writer_module, "pg_insert", lambda _model: _FakePgInsert())
+    monkeypatch.setattr(safe_writer_module, "log_structured", _fake_log_structured)
 
     msg_id = "123e4567-e89b-12d3-a456-426614174000"
 
@@ -63,9 +68,7 @@ async def test_write_system_metric_logs_real_id(capsys, safe_writer, monkeypatch
         timestamp=datetime.now(timezone.utc),
     )
 
-    # structlog writes to stdout — check the UUID appears there
-    captured = capsys.readouterr()
-    log_output = captured.out + captured.err
-    assert msg_id in log_output
-    assert "id=unknown" not in log_output
-    assert '"id": "unknown"' not in log_output
+    write_audit_events = [event for event in logged_events if event["message"] == "write audit"]
+    assert write_audit_events
+    assert write_audit_events[0]["id"] == msg_id
+    assert all(event.get("id") != "unknown" for event in logged_events if "id" in event)
