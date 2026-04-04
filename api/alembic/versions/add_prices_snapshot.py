@@ -72,8 +72,40 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE INDEX IF NOT EXISTS ix_prices_snapshot_symbol_recorded_at
-        ON prices_snapshot (symbol, recorded_at DESC)
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'prices_snapshot'
+                  AND column_name = 'recorded_at'
+            ) THEN
+                EXECUTE '
+                    CREATE INDEX IF NOT EXISTS ix_prices_snapshot_symbol_recorded_at
+                    ON prices_snapshot (symbol, recorded_at DESC)
+                ';
+            ELSIF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'prices_snapshot'
+                  AND column_name = 'updated_at'
+            ) THEN
+                EXECUTE '
+                    CREATE INDEX IF NOT EXISTS ix_prices_snapshot_symbol_updated_at
+                    ON prices_snapshot (symbol, updated_at DESC)
+                ';
+            ELSIF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'prices_snapshot'
+                  AND column_name = 'created_at'
+            ) THEN
+                EXECUTE '
+                    CREATE INDEX IF NOT EXISTS ix_prices_snapshot_symbol_created_at
+                    ON prices_snapshot (symbol, created_at DESC)
+                ';
+            END IF;
+        END $$;
         """
     )
 
