@@ -189,26 +189,25 @@ async def stream_agent_logs(
                 col_result = await session.execute(
                     text(
                         """
-                        SELECT column_name
+                        SELECT column_name, udt_name
                         FROM information_schema.columns
                         WHERE table_schema = current_schema()
                           AND table_name = 'agent_logs'
                         """
                     )
                 )
-                available_columns = {row[0] for row in col_result}
+                column_types = {row[0]: row[1] for row in col_result}
+                available_columns = set(column_types)
                 time_col = "created_at" if "created_at" in available_columns else "timestamp"
                 run_col = "agent_run_id" if "agent_run_id" in available_columns else "source"
                 level_col = "log_level" if "log_level" in available_columns else "log_type"
                 trace_col = "trace_id" if "trace_id" in available_columns else "NULL"
                 step_name_col = "step_name" if "step_name" in available_columns else "NULL"
                 step_data_col = "step_data" if "step_data" in available_columns else "NULL"
-                payload_message = (
-                    "payload->>'message'" if "payload" in available_columns else "NULL"
-                )
-                payload_content = (
-                    "payload->>'content'" if "payload" in available_columns else "NULL"
-                )
+                payload_is_json = column_types.get("payload") in {"json", "jsonb"}
+                payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
+                payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
+                payload_text = "payload::text" if "payload" in available_columns else "NULL"
                 legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
                 message_col = "message" if "message" in available_columns else "NULL"
 
@@ -218,7 +217,7 @@ async def stream_agent_logs(
                         {trace_col} AS trace_id,
                         {run_col} AS agent_run_id,
                         {level_col} AS log_level,
-                        COALESCE({message_col}, {payload_message}, {payload_content}, {legacy_log_type}) AS message,
+                        COALESCE({message_col}, {payload_message}, {payload_content}, {payload_text}, {legacy_log_type}) AS message,
                         {step_name_col} AS step_name,
                         {step_data_col} AS step_data,
                         {time_col} AS ts
