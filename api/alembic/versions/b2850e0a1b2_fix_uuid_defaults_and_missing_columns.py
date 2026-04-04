@@ -16,37 +16,63 @@ branch_labels = None
 depends_on = None
 
 
-def _has_column(table_name: str, column_name: str) -> bool:
+def _split_table_name(table_name: str) -> tuple[str | None, str]:
+    if "." not in table_name:
+        return None, table_name
+    schema, relation = table_name.split(".", 1)
+    return schema, relation
+
+
+def _has_column(table_name: str, column_name: str, schema: str | None = None) -> bool:
     bind = op.get_bind()
-    table_schema = _resolve_table_schema(table_name)
+    table_schema = schema if schema is not None else _resolve_table_schema(table_name)
+    _, relation_name = _split_table_name(table_name)
     inspector = sa.inspect(bind)
     return any(
         column["name"] == column_name
-        for column in inspector.get_columns(table_name, schema=table_schema)
+        for column in inspector.get_columns(relation_name, schema=table_schema)
     )
 
 
-def _has_index(table_name: str, index_name: str) -> bool:
+def _has_index(table_name: str, index_name: str, schema: str | None = None) -> bool:
     bind = op.get_bind()
-    table_schema = _resolve_table_schema(table_name)
+    table_schema = schema if schema is not None else _resolve_table_schema(table_name)
+    _, relation_name = _split_table_name(table_name)
     inspector = sa.inspect(bind)
-    return any(index["name"] == index_name for index in inspector.get_indexes(table_name, schema=table_schema))
+    return any(
+        index["name"] == index_name
+        for index in inspector.get_indexes(relation_name, schema=table_schema)
+    )
 
 
 def _resolve_table_schema(table_name: str) -> str | None:
+    explicit_schema, relation_name = _split_table_name(table_name)
+    if explicit_schema is not None:
+        return explicit_schema
+
     bind = op.get_bind()
-    schema = bind.execute(
+    schema_rows = bind.execute(
         sa.text(
             """
-            SELECT n.nspname
-            FROM pg_class AS c
-            JOIN pg_namespace AS n ON n.oid = c.relnamespace
-            WHERE c.oid = to_regclass(:table_name)
+            SELECT table_schema
+            FROM information_schema.tables
+            WHERE table_name = :table_name
+              AND table_type = 'BASE TABLE'
+              AND table_schema NOT IN ('pg_catalog', 'information_schema')
             """
         ),
-        {"table_name": table_name},
-    ).scalar()
-    return schema
+        {"table_name": relation_name},
+    ).fetchall()
+
+    schemas = [row[0] for row in schema_rows]
+    if len(schemas) == 1:
+        return schemas[0]
+    if len(schemas) > 1:
+        raise RuntimeError(
+            f"Ambiguous table '{table_name}' found in multiple schemas ({schemas}); "
+            "use a schema-qualified table reference."
+        )
+    return None
 
 
 def upgrade() -> None:
@@ -72,6 +98,7 @@ def upgrade() -> None:
         server_default=sa.text("gen_random_uuid()::text"),
         existing_type=sa.String(),
     )
+    agent_runs_schema = _resolve_table_schema("agent_runs")
 
     # Add missing columns to agent_runs (matching reasoning_agent.py raw SQL)
     agent_runs_additions = [
@@ -90,13 +117,22 @@ def upgrade() -> None:
         sa.Column("fallback", sa.Boolean(), server_default="false"),
     ]
     for column in agent_runs_additions:
-        if not _has_column("agent_runs", column.name):
-            op.add_column("agent_runs", column)
+        if not _has_column("agent_runs", column.name, schema=agent_runs_schema):
+            op.add_column("agent_runs", column, schema=agent_runs_schema)
 
-    if _has_column("agent_runs", "trace_id") and not _has_index("agent_runs", "ix_agent_runs_trace_id"):
-        op.create_index("ix_agent_runs_trace_id", "agent_runs", ["trace_id"])
+    if _has_column("agent_runs", "trace_id", schema=agent_runs_schema) and not _has_index(
+        "agent_runs", "ix_agent_runs_trace_id", schema=agent_runs_schema
+    ):
+        op.create_index(
+            "ix_agent_runs_trace_id",
+            "agent_runs",
+            ["trace_id"],
+            schema=agent_runs_schema,
+        )
 
 def downgrade() -> None:
+    agent_runs_schema = _resolve_table_schema("agent_runs")
+
     # Remove added columns from agent_runs
     for column_name in (
         "symbol",
@@ -113,10 +149,14 @@ def downgrade() -> None:
         "trace_id",
         "fallback",
     ):
-        if _has_column("agent_runs", column_name):
-            op.drop_column("agent_runs", column_name)
-    if _has_index("agent_runs", "ix_agent_runs_trace_id"):
-        op.drop_index("ix_agent_runs_trace_id", table_name="agent_runs")
+        if _has_column("agent_runs", column_name, schema=agent_runs_schema):
+            op.drop_column("agent_runs", column_name, schema=agent_runs_schema)
+    if _has_index("agent_runs", "ix_agent_runs_trace_id", schema=agent_runs_schema):
+        op.drop_index(
+            "ix_agent_runs_trace_id",
+            table_name="agent_runs",
+            schema=agent_runs_schema,
+        )
 
     # Remove server defaults from id columns
     op.alter_column("vector_memory", "id", server_default=None)

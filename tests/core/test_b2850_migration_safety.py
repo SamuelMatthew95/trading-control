@@ -13,12 +13,12 @@ def migration_module():
     )
 
 
-def test_resolve_table_schema_uses_to_regclass(monkeypatch, migration_module):
+def test_resolve_table_schema_detects_single_non_system_schema(monkeypatch, migration_module):
     captured = {}
 
     class FakeResult:
-        def scalar(self):
-            return "alt_schema"
+        def fetchall(self):
+            return [("alt_schema",)]
 
     class FakeBind:
         def execute(self, _statement, params):
@@ -33,10 +33,29 @@ def test_resolve_table_schema_uses_to_regclass(monkeypatch, migration_module):
     assert captured == {"table_name": "agent_runs"}
 
 
+def test_resolve_table_schema_honors_schema_qualified_name(migration_module):
+    assert migration_module._resolve_table_schema("audit.agent_runs") == "audit"
+
+
+def test_resolve_table_schema_raises_for_ambiguous_tables(monkeypatch, migration_module):
+    class FakeResult:
+        def fetchall(self):
+            return [("public",), ("audit",)]
+
+    class FakeBind:
+        def execute(self, _statement, _params):
+            return FakeResult()
+
+    monkeypatch.setattr(migration_module.op, "get_bind", lambda: FakeBind())
+
+    with pytest.raises(RuntimeError, match="Ambiguous table"):
+        migration_module._resolve_table_schema("agent_runs")
+
+
 def test_has_column_and_index_honor_resolved_schema(monkeypatch, migration_module):
     class FakeBind:
         def execute(self, _statement, _params):
-            return SimpleNamespace(scalar=lambda: "alt_schema")
+            return SimpleNamespace(fetchall=lambda: [("alt_schema",)])
 
     class FakeInspector:
         def get_columns(self, table_name, schema=None):
@@ -68,31 +87,36 @@ def test_upgrade_only_adds_missing_columns(monkeypatch, migration_module):
 
     monkeypatch.setattr(migration_module.op, "execute", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(migration_module.op, "alter_column", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(migration_module.op, "add_column", lambda _table, column: added_columns.append(column.name))
+    monkeypatch.setattr(
+        migration_module.op,
+        "add_column",
+        lambda _table, column, schema=None: added_columns.append((column.name, schema)),
+    )
     monkeypatch.setattr(
         migration_module.op,
         "create_index",
-        lambda index_name, _table, _cols: created_indexes.append(index_name),
+        lambda index_name, _table, _cols, schema=None: created_indexes.append((index_name, schema)),
     )
+    monkeypatch.setattr(migration_module, "_resolve_table_schema", lambda _table: "alt_schema")
     monkeypatch.setattr(
         migration_module,
         "_has_column",
-        lambda _table, col: col in existing_columns,
+        lambda _table, col, schema=None: col in existing_columns,
     )
     monkeypatch.setattr(
         migration_module,
         "_has_index",
-        lambda _table, idx: idx in existing_indexes,
+        lambda _table, idx, schema=None: idx in existing_indexes,
     )
 
     migration_module.upgrade()
 
-    assert "symbol" not in added_columns
-    assert "trace_id" not in added_columns
-    assert set(["signal_data", "action", "confidence", "primary_edge", "risk_factors"]).issubset(
-        set(added_columns)
-    )
-    assert created_indexes == ["ix_agent_runs_trace_id"]
+    added_column_names = [column_name for column_name, _schema in added_columns]
+    assert "symbol" not in added_column_names
+    assert "trace_id" not in added_column_names
+    assert set(["signal_data", "action", "confidence", "primary_edge", "risk_factors"]).issubset(set(added_column_names))
+    assert set([schema for _, schema in added_columns]) == {"alt_schema"}
+    assert created_indexes == [("ix_agent_runs_trace_id", "alt_schema")]
 
 
 def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_module):
@@ -102,25 +126,30 @@ def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_
     existing_columns = {"symbol", "trace_id", "fallback"}
     existing_indexes = {"ix_agent_runs_trace_id"}
 
-    monkeypatch.setattr(migration_module.op, "drop_column", lambda _table, name: dropped_columns.append(name))
+    monkeypatch.setattr(
+        migration_module.op,
+        "drop_column",
+        lambda _table, name, schema=None: dropped_columns.append((name, schema)),
+    )
     monkeypatch.setattr(
         migration_module.op,
         "drop_index",
-        lambda index_name, table_name=None: dropped_indexes.append((index_name, table_name)),
+        lambda index_name, table_name=None, schema=None: dropped_indexes.append((index_name, table_name, schema)),
     )
     monkeypatch.setattr(migration_module.op, "alter_column", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(migration_module, "_resolve_table_schema", lambda _table: "alt_schema")
     monkeypatch.setattr(
         migration_module,
         "_has_column",
-        lambda _table, col: col in existing_columns,
+        lambda _table, col, schema=None: col in existing_columns,
     )
     monkeypatch.setattr(
         migration_module,
         "_has_index",
-        lambda _table, idx: idx in existing_indexes,
+        lambda _table, idx, schema=None: idx in existing_indexes,
     )
 
     migration_module.downgrade()
 
-    assert dropped_columns == ["symbol", "trace_id", "fallback"]
-    assert dropped_indexes == [("ix_agent_runs_trace_id", "agent_runs")]
+    assert dropped_columns == [("symbol", "alt_schema"), ("trace_id", "alt_schema"), ("fallback", "alt_schema")]
+    assert dropped_indexes == [("ix_agent_runs_trace_id", "agent_runs", "alt_schema")]
