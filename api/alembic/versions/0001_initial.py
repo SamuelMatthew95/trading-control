@@ -63,7 +63,8 @@ def _table_id_type(table_name: str) -> sa.types.TypeEngine:
 
     # Resolve candidate schemas from the live catalog. When the table name is
     # unqualified we prioritize search_path schemas first, then public, then
-    # any remaining non-system schemas.
+    # any remaining non-system schemas. Cast schema_name to text so asyncpg can
+    # type-check NULL safely during startup migrations.
     schema_rows = bind.execute(
         sa.text(
             """
@@ -82,7 +83,10 @@ def _table_id_type(table_name: str) -> sa.types.TypeEngine:
                AND a.attname = 'id'
                AND a.attnum > 0
                AND NOT a.attisdropped
-               AND (:schema_name IS NULL OR n.nspname = :schema_name)
+               AND (
+                    CAST(:schema_name AS text) IS NULL
+                    OR n.nspname = CAST(:schema_name AS text)
+               )
                AND n.nspname NOT IN ('pg_catalog', 'information_schema')
              ORDER BY schema_rank, n.nspname
             """
