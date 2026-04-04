@@ -58,6 +58,7 @@ def upgrade() -> None:
         op.execute("""
         ALTER TABLE agent_runs
         DROP CONSTRAINT IF EXISTS check_agent_runs_schema_v2,
+        DROP CONSTRAINT IF EXISTS check_agent_runs_schema_v3,
         ADD CONSTRAINT check_agent_runs_schema_v3 CHECK (schema_version = 'v3')
     """)
 
@@ -66,6 +67,7 @@ def upgrade() -> None:
         op.execute("""
         ALTER TABLE agent_logs
         DROP CONSTRAINT IF EXISTS check_agent_logs_schema_v2,
+        DROP CONSTRAINT IF EXISTS check_agent_logs_schema_v3,
         ADD CONSTRAINT check_agent_logs_schema_v3 CHECK (schema_version = 'v3')
     """)
 
@@ -74,6 +76,7 @@ def upgrade() -> None:
         op.execute("""
         ALTER TABLE agent_grades
         DROP CONSTRAINT IF EXISTS check_agent_grades_schema_v2,
+        DROP CONSTRAINT IF EXISTS check_agent_grades_schema_v3,
         ADD CONSTRAINT check_agent_grades_schema_v3 CHECK (schema_version = 'v3')
     """)
 
