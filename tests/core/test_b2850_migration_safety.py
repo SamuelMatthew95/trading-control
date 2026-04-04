@@ -99,8 +99,10 @@ def test_upgrade_only_adds_missing_columns(monkeypatch, migration_module):
     added_column_names = [column_name for column_name, _schema in added_columns]
     assert "symbol" not in added_column_names
     assert "trace_id" not in added_column_names
-    assert set(["signal_data", "action", "confidence", "primary_edge", "risk_factors"]).issubset(set(added_column_names))
-    assert set([schema for _, schema in added_columns]) == {"alt_schema"}
+    assert {"signal_data", "action", "confidence", "primary_edge", "risk_factors"}.issubset(
+        set(added_column_names)
+    )
+    assert {schema for _, schema in added_columns} == {"alt_schema"}
     assert created_indexes == [("ix_agent_runs_trace_id", "alt_schema")]
 
 

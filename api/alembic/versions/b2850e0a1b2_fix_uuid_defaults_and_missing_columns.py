@@ -51,7 +51,7 @@ def _resolve_table_schema(table_name: str) -> str | None:
         return explicit_schema
 
     bind = op.get_bind()
-    schema = bind.execute(
+    return bind.execute(
         sa.text(
             """
             SELECT n.nspname
@@ -62,7 +62,6 @@ def _resolve_table_schema(table_name: str) -> str | None:
         ),
         {"table_name": relation_name},
     ).scalar()
-    return schema
 
 
 def upgrade() -> None:
