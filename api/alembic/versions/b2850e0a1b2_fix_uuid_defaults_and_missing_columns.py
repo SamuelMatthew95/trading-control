@@ -119,6 +119,7 @@ def upgrade() -> None:
             schema=agent_runs_schema,
         )
 
+
 def downgrade() -> None:
     agent_runs_schema = _resolve_table_schema("agent_runs")
 

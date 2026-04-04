@@ -121,7 +121,9 @@ def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_
     monkeypatch.setattr(
         migration_module.op,
         "drop_index",
-        lambda index_name, table_name=None, schema=None: dropped_indexes.append((index_name, table_name, schema)),
+        lambda index_name, table_name=None, schema=None: dropped_indexes.append(
+            (index_name, table_name, schema)
+        ),
     )
     monkeypatch.setattr(migration_module.op, "alter_column", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(migration_module, "_resolve_table_schema", lambda _table: "alt_schema")
@@ -138,5 +140,9 @@ def test_downgrade_only_drops_existing_columns_and_index(monkeypatch, migration_
 
     migration_module.downgrade()
 
-    assert dropped_columns == [("symbol", "alt_schema"), ("trace_id", "alt_schema"), ("fallback", "alt_schema")]
+    assert dropped_columns == [
+        ("symbol", "alt_schema"),
+        ("trace_id", "alt_schema"),
+        ("fallback", "alt_schema"),
+    ]
     assert dropped_indexes == [("ix_agent_runs_trace_id", "agent_runs", "alt_schema")]
