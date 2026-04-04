@@ -662,46 +662,97 @@ async def get_worker_health() -> dict[str, Any]:
 
 @router.get("/proposals")
 async def list_proposals() -> dict[str, Any]:
-    """Get recent strategy proposals from events table."""
+    """Get recent strategy proposals.
+
+    Prefer events-based proposals when available, but degrade gracefully on
+    older schemas where the events table/columns do not exist.
+    """
     try:
-        async with AsyncSessionFactory() as session:
-            result = await session.execute(
-                text("""
-                    SELECT id, data, created_at, source
-                    FROM events
-                    WHERE event_type = 'strategy.proposal'
-                    ORDER BY created_at DESC
-                    LIMIT 20
-                """)
-            )
-            rows = result.all()
-            proposals = []
-            for row in rows:
-                raw = row[1]
-                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
-                proposals.append(
-                    {
-                        "id": str(row[0]),
-                        "symbol": data.get("symbol"),
-                        "action": data.get("action"),
-                        "grade_score": data.get("grade_score"),
-                        "bias": data.get("bias"),
-                        "buys": data.get("buys"),
-                        "sells": data.get("sells"),
-                        "strategy_name": data.get("strategy_name"),
-                        "trace_id": data.get("trace_id"),
-                        "created_at": row[2].isoformat() if row[2] else None,
-                        "source": row[3],
-                        "status": data.get("status", "pending"),
-                    }
+        proposals = []
+
+        # Primary source for newer schemas.
+        try:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT
+                            e.id,
+                            COALESCE(
+                                to_jsonb(e)->'data',
+                                to_jsonb(e)->'payload',
+                                '{}'::jsonb
+                            ) AS payload,
+                            e.created_at,
+                            e.source
+                        FROM events e
+                        WHERE event_type = 'strategy.proposal'
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
                 )
+                rows = result.all()
+                for row in rows:
+                    raw = row[1]
+                    data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                    proposals.append(
+                        {
+                            "id": str(row[0]),
+                            "symbol": data.get("symbol"),
+                            "action": data.get("action"),
+                            "grade_score": data.get("grade_score"),
+                            "bias": data.get("bias"),
+                            "buys": data.get("buys"),
+                            "sells": data.get("sells"),
+                            "strategy_name": data.get("strategy_name"),
+                            "trace_id": data.get("trace_id"),
+                            "created_at": row[2].isoformat() if row[2] else None,
+                            "source": row[3],
+                            "status": data.get("status", "pending"),
+                        }
+                    )
+        except Exception:
+            # Compatibility fallback for deployments without events table.
+            log_structured("warning", "proposals events query unavailable", exc_info=True)
+
+        if not proposals:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT trace_id, payload, created_at
+                        FROM agent_logs
+                        WHERE log_type = 'proposal'
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
+                )
+                for row in result.all():
+                    payload = _as_dict(row[1])
+                    proposals.append(
+                        {
+                            "id": str(row[0]),
+                            "symbol": payload.get("symbol"),
+                            "action": payload.get("action"),
+                            "grade_score": payload.get("grade_score"),
+                            "bias": payload.get("bias"),
+                            "buys": payload.get("buys"),
+                            "sells": payload.get("sells"),
+                            "strategy_name": payload.get("strategy_name"),
+                            "trace_id": row[0],
+                            "created_at": row[2].isoformat() if row[2] else None,
+                            "source": "agent_logs",
+                            "status": payload.get("status", "pending"),
+                        }
+                    )
         return {
             "proposals": proposals,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "proposals": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.post("/proposals/{proposal_id}/approve")
@@ -805,31 +856,45 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
 
         # Backward compatibility: some deployments store proposals in events only.
         if not proposals:
-            async with AsyncSessionFactory() as session:
-                fallback_result = await session.execute(
-                    text("""
-                        SELECT id, data, created_at
-                        FROM events
-                        WHERE event_type = 'strategy.proposal'
-                        ORDER BY created_at DESC
-                        LIMIT :limit
-                    """),
-                    {"limit": limit},
-                )
-                for row in fallback_result.all():
-                    data = _as_dict(row[1])
-                    proposals.append(
-                        {
-                            "id": str(row[0]),
-                            "proposal_type": data.get("proposal_type", "strategy_proposal"),
-                            "content": data,
-                            "requires_approval": True,
-                            "confidence": data.get("confidence"),
-                            "reflection_trace_id": data.get("trace_id"),
-                            "status": data.get("status", "pending"),
-                            "timestamp": row[2].isoformat() if row[2] else None,
-                        }
+            try:
+                async with AsyncSessionFactory() as session:
+                    fallback_result = await session.execute(
+                        text("""
+                            SELECT
+                                e.id,
+                                COALESCE(
+                                    to_jsonb(e)->'data',
+                                    to_jsonb(e)->'payload',
+                                    '{}'::jsonb
+                                ) AS payload,
+                                e.created_at
+                            FROM events e
+                            WHERE event_type = 'strategy.proposal'
+                            ORDER BY created_at DESC
+                            LIMIT :limit
+                        """),
+                        {"limit": limit},
                     )
+                    for row in fallback_result.all():
+                        data = _as_dict(row[1])
+                        proposals.append(
+                            {
+                                "id": str(row[0]),
+                                "proposal_type": data.get("proposal_type", "strategy_proposal"),
+                                "content": data,
+                                "requires_approval": True,
+                                "confidence": data.get("confidence"),
+                                "reflection_trace_id": data.get("trace_id"),
+                                "status": data.get("status", "pending"),
+                                "timestamp": row[2].isoformat() if row[2] else None,
+                            }
+                        )
+            except Exception:
+                log_structured(
+                    "warning",
+                    "learning proposals events fallback unavailable",
+                    exc_info=True,
+                )
         return {
             "proposals": proposals,
             "total": len(proposals),
@@ -837,7 +902,11 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "proposals": [],
+            "total": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.get("/learning/grades")
@@ -1170,9 +1239,17 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
             async with AsyncSessionFactory() as session:
                 fallback_result = await session.execute(
                     text("""
-                        SELECT id, symbol, side, COALESCE(filled_quantity, qty), price, status,
-                               trace_id, created_at, filled_at
-                        FROM orders
+                        SELECT
+                            o.id,
+                            o.symbol,
+                            o.side,
+                            COALESCE(NULLIF(to_jsonb(o)->>'filled_quantity', '')::numeric, o.qty),
+                            o.price,
+                            o.status,
+                            to_jsonb(o)->>'trace_id',
+                            o.created_at,
+                            o.filled_at
+                        FROM orders o
                         WHERE status IN ('filled', 'executed')
                         ORDER BY COALESCE(filled_at, created_at) DESC
                         LIMIT :limit
