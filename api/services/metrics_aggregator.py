@@ -415,22 +415,31 @@ class MetricsAggregator:
             columns_result = await self.session.execute(
                 text(
                     """
-                    SELECT column_name
+                    SELECT column_name, udt_name
                     FROM information_schema.columns
                     WHERE table_schema = current_schema()
                       AND table_name = 'agent_logs'
                     """
                 )
             )
-            available_columns = {row[0] for row in columns_result}
+            column_types = {row[0]: row[1] for row in columns_result}
+            available_columns = set(column_types)
             order_column = "created_at" if "created_at" in available_columns else "timestamp"
 
             def _select(col: str, fallback_sql: str = "NULL") -> str:
                 return col if col in available_columns else fallback_sql
 
-            payload_message = "payload->>'message'" if "payload" in available_columns else "NULL"
-            payload_content = "payload->>'content'" if "payload" in available_columns else "NULL"
-            payload_reason = "payload->>'reason'" if "payload" in available_columns else "NULL"
+            payload_is_json = column_types.get("payload") in {"json", "jsonb"}
+            payload_message = (
+                "payload::jsonb->>'message'" if payload_is_json else "NULL"
+            )
+            payload_content = (
+                "payload::jsonb->>'content'" if payload_is_json else "NULL"
+            )
+            payload_reason = (
+                "payload::jsonb->>'reason'" if payload_is_json else "NULL"
+            )
+            payload_text = "payload::text" if "payload" in available_columns else "NULL"
             legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
 
             logs_sql = text(
@@ -444,6 +453,7 @@ class MetricsAggregator:
                         {payload_message},
                         {payload_content},
                         {payload_reason},
+                        {payload_text},
                         {legacy_log_type}
                     ) AS message,
                     {_select("log_level", legacy_log_type)} AS log_level,
