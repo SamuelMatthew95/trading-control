@@ -24,6 +24,19 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 PROCESS_START_TIME = datetime.now(timezone.utc)
 
 
+def _as_dict(payload: Any) -> dict[str, Any]:
+    """Return payload as dict for mixed JSONB/text storage compatibility."""
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, str):
+        try:
+            loaded = json.loads(payload)
+            return loaded if isinstance(loaded, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
 @router.get("/snapshot")
 async def get_dashboard_snapshot() -> dict[str, Any]:
     """
@@ -774,19 +787,49 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                 {"limit": limit},
             )
             rows = result.all()
-        proposals = [
-            {
-                "id": row[0],
-                "proposal_type": row[1].get("proposal_type", "parameter_change"),
-                "content": row[1].get("content", {}),
-                "requires_approval": row[1].get("requires_approval", True),
-                "confidence": row[1].get("confidence"),
-                "reflection_trace_id": row[1].get("reflection_trace_id"),
-                "status": row[1].get("status", "pending"),
-                "timestamp": row[2].isoformat() if row[2] else None,
-            }
-            for row in rows
-        ]
+        proposals = []
+        for row in rows:
+            payload = _as_dict(row[1])
+            proposals.append(
+                {
+                    "id": row[0],
+                    "proposal_type": payload.get("proposal_type", "parameter_change"),
+                    "content": payload.get("content", {}),
+                    "requires_approval": payload.get("requires_approval", True),
+                    "confidence": payload.get("confidence"),
+                    "reflection_trace_id": payload.get("reflection_trace_id"),
+                    "status": payload.get("status", "pending"),
+                    "timestamp": row[2].isoformat() if row[2] else None,
+                }
+            )
+
+        # Backward compatibility: some deployments store proposals in events only.
+        if not proposals:
+            async with AsyncSessionFactory() as session:
+                fallback_result = await session.execute(
+                    text("""
+                        SELECT id, data, created_at
+                        FROM events
+                        WHERE event_type = 'strategy.proposal'
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": limit},
+                )
+                for row in fallback_result.all():
+                    data = _as_dict(row[1])
+                    proposals.append(
+                        {
+                            "id": str(row[0]),
+                            "proposal_type": data.get("proposal_type", "strategy_proposal"),
+                            "content": data,
+                            "requires_approval": True,
+                            "confidence": data.get("confidence"),
+                            "reflection_trace_id": data.get("trace_id"),
+                            "status": data.get("status", "pending"),
+                            "timestamp": row[2].isoformat() if row[2] else None,
+                        }
+                    )
         return {
             "proposals": proposals,
             "total": len(proposals),
@@ -813,18 +856,47 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                 {"limit": limit},
             )
             rows = result.all()
-        grades = [
-            {
-                "trace_id": row[0],
-                "grade": row[1].get("grade"),
-                "score": row[1].get("score"),
-                "score_pct": row[1].get("score_pct"),
-                "metrics": row[1].get("metrics", {}),
-                "fills_graded": row[1].get("fills_graded"),
-                "timestamp": row[2].isoformat() if row[2] else None,
-            }
-            for row in rows
-        ]
+        grades = []
+        for row in rows:
+            payload = _as_dict(row[1])
+            grades.append(
+                {
+                    "trace_id": row[0],
+                    "grade": payload.get("grade"),
+                    "score": payload.get("score"),
+                    "score_pct": payload.get("score_pct"),
+                    "metrics": payload.get("metrics", {}),
+                    "fills_graded": payload.get("fills_graded"),
+                    "timestamp": row[2].isoformat() if row[2] else None,
+                }
+            )
+
+        # Backward compatibility: older deployments only write agent_grades rows.
+        if not grades:
+            async with AsyncSessionFactory() as session:
+                fallback_result = await session.execute(
+                    text("""
+                        SELECT trace_id, score, metrics, created_at
+                        FROM agent_grades
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": limit},
+                )
+                for row in fallback_result.all():
+                    metrics = _as_dict(row[2])
+                    score = float(row[1]) if row[1] is not None else None
+                    grades.append(
+                        {
+                            "trace_id": row[0],
+                            "grade": None,
+                            "score": score,
+                            "score_pct": round(score * 100, 2) if score is not None else None,
+                            "metrics": metrics,
+                            "fills_graded": metrics.get("fills_graded"),
+                            "timestamp": row[3].isoformat() if row[3] else None,
+                        }
+                    )
         return {
             "grades": grades,
             "total": len(grades),
@@ -1091,9 +1163,50 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                 "created_at": row[18].isoformat() if row[18] else None,
             }
 
+        trades = [_fmt(r) for r in rows]
+
+        # Backward compatibility: if trade_lifecycle is empty, surface filled orders.
+        if not trades:
+            async with AsyncSessionFactory() as session:
+                fallback_result = await session.execute(
+                    text("""
+                        SELECT id, symbol, side, COALESCE(filled_quantity, qty), price, status,
+                               trace_id, created_at, filled_at
+                        FROM orders
+                        WHERE status IN ('filled', 'executed')
+                        ORDER BY COALESCE(filled_at, created_at) DESC
+                        LIMIT :limit
+                    """),
+                    {"limit": min(limit, 200)},
+                )
+                for row in fallback_result.all():
+                    trades.append(
+                        {
+                            "id": str(row[0]),
+                            "symbol": row[1],
+                            "side": row[2],
+                            "qty": float(row[3]) if row[3] is not None else None,
+                            "entry_price": float(row[4]) if row[4] is not None else None,
+                            "exit_price": None,
+                            "pnl": None,
+                            "pnl_percent": None,
+                            "order_id": str(row[0]),
+                            "execution_trace_id": row[6],
+                            "signal_trace_id": None,
+                            "grade": None,
+                            "grade_score": None,
+                            "grade_label": None,
+                            "status": row[5],
+                            "filled_at": row[8].isoformat() if row[8] else None,
+                            "graded_at": None,
+                            "reflected_at": None,
+                            "created_at": row[7].isoformat() if row[7] else None,
+                        }
+                    )
+
         return {
-            "trades": [_fmt(r) for r in rows],
-            "count": len(rows),
+            "trades": trades,
+            "count": len(trades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
