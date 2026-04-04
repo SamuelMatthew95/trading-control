@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.models import AgentLog, Order, Position, TradePerformance
+from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 
 logger = logging.getLogger(__name__)
@@ -392,19 +392,58 @@ class MetricsAggregator:
             ]
 
             # Recent agent logs (last 50)
-            logs_result = await self.session.execute(
-                select(AgentLog).order_by(AgentLog.created_at.desc()).limit(50)
+            # NOTE: agent_logs has historically had multiple schemas in production
+            # (legacy: log_type/payload; newer: log_level/message/source/timestamp).
+            # Resolve available columns first and build a backward-compatible query.
+            columns_result = await self.session.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'agent_logs'
+                    """
+                )
             )
+            available_columns = {row[0] for row in columns_result}
+            order_column = (
+                "created_at" if "created_at" in available_columns else "timestamp"
+            )
+
+            def _select(col: str, fallback_sql: str = "NULL") -> str:
+                return col if col in available_columns else fallback_sql
+
+            logs_sql = text(
+                f"""
+                SELECT
+                    id,
+                    {_select("trace_id")} AS trace_id,
+                    {_select("source", "'agent'")} AS agent_name,
+                    COALESCE(
+                        {_select("message")},
+                        payload->>'message',
+                        payload->>'content',
+                        payload->>'reason',
+                        log_type
+                    ) AS message,
+                    {_select("log_level", "log_type")} AS log_level,
+                    {_select(order_column)} AS ts
+                FROM agent_logs
+                ORDER BY {_select(order_column)} DESC
+                LIMIT 50
+                """
+            )
+            logs_result = await self.session.execute(logs_sql)
             agent_logs = [
                 {
-                    "id": _safe_str(lg.id),
-                    "agent_name": lg.source or "agent",
-                    "message": lg.message,
-                    "timestamp": lg.created_at.isoformat() if lg.created_at else None,
-                    "log_level": lg.log_level,
-                    "trace_id": lg.trace_id,
+                    "id": _safe_str(row.id),
+                    "agent_name": _safe_str(row.agent_name) or "agent",
+                    "message": _safe_str(row.message),
+                    "timestamp": row.ts.isoformat() if row.ts else None,
+                    "log_level": _safe_str(row.log_level),
+                    "trace_id": _safe_str(row.trace_id),
                 }
-                for lg in logs_result.scalars().all()
+                for row in logs_result
             ]
 
             return {
