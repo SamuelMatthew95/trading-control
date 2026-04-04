@@ -16,6 +16,39 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table_name: str, column_name: str) -> bool:
+    bind = op.get_bind()
+    table_schema = _resolve_table_schema(table_name)
+    inspector = sa.inspect(bind)
+    return any(
+        column["name"] == column_name
+        for column in inspector.get_columns(table_name, schema=table_schema)
+    )
+
+
+def _has_index(table_name: str, index_name: str) -> bool:
+    bind = op.get_bind()
+    table_schema = _resolve_table_schema(table_name)
+    inspector = sa.inspect(bind)
+    return any(index["name"] == index_name for index in inspector.get_indexes(table_name, schema=table_schema))
+
+
+def _resolve_table_schema(table_name: str) -> str | None:
+    bind = op.get_bind()
+    schema = bind.execute(
+        sa.text(
+            """
+            SELECT n.nspname
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE c.oid = to_regclass(:table_name)
+            """
+        ),
+        {"table_name": table_name},
+    ).scalar()
+    return schema
+
+
 def upgrade() -> None:
     # Enable pgvector
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -41,48 +74,65 @@ def upgrade() -> None:
     )
 
     # Add missing columns to agent_runs (matching reasoning_agent.py raw SQL)
-    op.add_column("agent_runs", sa.Column("symbol", sa.String(64), nullable=True))
-    op.add_column("agent_runs", sa.Column("signal_data", sa.Text(), nullable=True))
-    op.add_column("agent_runs", sa.Column("action", sa.String(32), nullable=True))
-    op.add_column("agent_runs", sa.Column("confidence", sa.Float(), nullable=True))
-    op.add_column("agent_runs", sa.Column("primary_edge", sa.Text(), nullable=True))
-    op.add_column("agent_runs", sa.Column("risk_factors", sa.Text(), nullable=True))
-    op.add_column("agent_runs", sa.Column("size_pct", sa.Float(), nullable=True))
-    op.add_column("agent_runs", sa.Column("stop_atr_x", sa.Float(), nullable=True))
-    op.add_column("agent_runs", sa.Column("rr_ratio", sa.Float(), nullable=True))
-    op.add_column("agent_runs", sa.Column("latency_ms", sa.Integer(), nullable=True))
-    op.add_column("agent_runs", sa.Column("cost_usd", sa.Float(), nullable=True))
-    op.add_column("agent_runs", sa.Column("trace_id", sa.String(255), nullable=True))
-    op.add_column("agent_runs", sa.Column("fallback", sa.Boolean(), server_default="false"))
-    op.create_index("ix_agent_runs_trace_id", "agent_runs", ["trace_id"])
+    agent_runs_additions = [
+        sa.Column("symbol", sa.String(64), nullable=True),
+        sa.Column("signal_data", sa.Text(), nullable=True),
+        sa.Column("action", sa.String(32), nullable=True),
+        sa.Column("confidence", sa.Float(), nullable=True),
+        sa.Column("primary_edge", sa.Text(), nullable=True),
+        sa.Column("risk_factors", sa.Text(), nullable=True),
+        sa.Column("size_pct", sa.Float(), nullable=True),
+        sa.Column("stop_atr_x", sa.Float(), nullable=True),
+        sa.Column("rr_ratio", sa.Float(), nullable=True),
+        sa.Column("latency_ms", sa.Integer(), nullable=True),
+        sa.Column("cost_usd", sa.Float(), nullable=True),
+        sa.Column("trace_id", sa.String(255), nullable=True),
+        sa.Column("fallback", sa.Boolean(), server_default="false"),
+    ]
+    for column in agent_runs_additions:
+        if not _has_column("agent_runs", column.name):
+            op.add_column("agent_runs", column)
+
+    if _has_column("agent_runs", "trace_id") and not _has_index("agent_runs", "ix_agent_runs_trace_id"):
+        op.create_index("ix_agent_runs_trace_id", "agent_runs", ["trace_id"])
 
     # Remove old unused columns from agent_runs
-    op.drop_column("agent_runs", "task_id")
-    op.drop_column("agent_runs", "decision_json")
-    op.drop_column("agent_runs", "trace_json")
+    for column_name in ("task_id", "decision_json", "trace_json"):
+        if _has_column("agent_runs", column_name):
+            op.drop_column("agent_runs", column_name)
 
 
 def downgrade() -> None:
     # Remove added columns from agent_runs
-    op.drop_column("agent_runs", "symbol")
-    op.drop_column("agent_runs", "signal_data")
-    op.drop_column("agent_runs", "action")
-    op.drop_column("agent_runs", "confidence")
-    op.drop_column("agent_runs", "primary_edge")
-    op.drop_column("agent_runs", "risk_factors")
-    op.drop_column("agent_runs", "size_pct")
-    op.drop_column("agent_runs", "stop_atr_x")
-    op.drop_column("agent_runs", "rr_ratio")
-    op.drop_column("agent_runs", "latency_ms")
-    op.drop_column("agent_runs", "cost_usd")
-    op.drop_column("agent_runs", "trace_id")
-    op.drop_column("agent_runs", "fallback")
-    op.drop_index("ix_agent_runs_trace_id")
+    for column_name in (
+        "symbol",
+        "signal_data",
+        "action",
+        "confidence",
+        "primary_edge",
+        "risk_factors",
+        "size_pct",
+        "stop_atr_x",
+        "rr_ratio",
+        "latency_ms",
+        "cost_usd",
+        "trace_id",
+        "fallback",
+    ):
+        if _has_column("agent_runs", column_name):
+            op.drop_column("agent_runs", column_name)
+    if _has_index("agent_runs", "ix_agent_runs_trace_id"):
+        op.drop_index("ix_agent_runs_trace_id", table_name="agent_runs")
 
     # Restore old columns to agent_runs
-    op.add_column("agent_runs", sa.Column("task_id", sa.String(), nullable=False))
-    op.add_column("agent_runs", sa.Column("decision_json", sa.Text(), nullable=False))
-    op.add_column("agent_runs", sa.Column("trace_json", sa.Text(), nullable=False))
+    old_columns = [
+        sa.Column("task_id", sa.String(), nullable=False),
+        sa.Column("decision_json", sa.Text(), nullable=False),
+        sa.Column("trace_json", sa.Text(), nullable=False),
+    ]
+    for column in old_columns:
+        if not _has_column("agent_runs", column.name):
+            op.add_column("agent_runs", column)
 
     # Remove server defaults from id columns
     op.alter_column("vector_memory", "id", server_default=None)
