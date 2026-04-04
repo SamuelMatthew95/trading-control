@@ -196,6 +196,20 @@ def upgrade() -> None:
         """
     )
 
+    # Keep runtime bootstrap schema compatible with ORM Order model fields.
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(32)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS quantity NUMERIC(20, 8)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS filled_quantity NUMERIC(20, 8)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS filled_price NUMERIC(20, 8)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS exchange VARCHAR(64)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission NUMERIC(20, 8)")
+    op.execute(
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_metadata JSONB DEFAULT '{}'::jsonb"
+    )
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS schema_version VARCHAR(16)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS source VARCHAR(64)")
+    op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS vector_memory (
