@@ -146,7 +146,7 @@ async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeyp
 async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
     session_rows = [
         [[]],
-        [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", "trace-1", None, None)]],
+        [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None)]],
     ]
     monkeypatch.setattr(
         dashboard_v2,
@@ -160,6 +160,26 @@ async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
     assert payload["trades"][0]["id"] == "ord-1"
     assert payload["trades"][0]["symbol"] == "AAPL"
     assert payload["trades"][0]["status"] == "filled"
+    assert payload["trades"][0]["execution_trace_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_proposals_endpoint_falls_back_to_agent_logs_when_events_unavailable(monkeypatch):
+    session_rows = [
+        [[]],
+        [[("trace-99", {"symbol": "TSLA", "status": "pending"}, None)]],
+    ]
+    monkeypatch.setattr(
+        dashboard_v2,
+        "AsyncSessionFactory",
+        _FactoryWithQueuedSessions(session_rows),
+    )
+
+    payload = await dashboard_v2.list_proposals()
+
+    assert len(payload["proposals"]) == 1
+    assert payload["proposals"][0]["id"] == "trace-99"
+    assert payload["proposals"][0]["source"] == "agent_logs"
 
 
 @pytest.mark.asyncio

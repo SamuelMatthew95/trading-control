@@ -662,46 +662,89 @@ async def get_worker_health() -> dict[str, Any]:
 
 @router.get("/proposals")
 async def list_proposals() -> dict[str, Any]:
-    """Get recent strategy proposals from events table."""
+    """Get recent strategy proposals.
+
+    Prefer events-based proposals when available, but degrade gracefully on
+    older schemas where the events table/columns do not exist.
+    """
     try:
-        async with AsyncSessionFactory() as session:
-            result = await session.execute(
-                text("""
-                    SELECT id, data, created_at, source
-                    FROM events
-                    WHERE event_type = 'strategy.proposal'
-                    ORDER BY created_at DESC
-                    LIMIT 20
-                """)
-            )
-            rows = result.all()
-            proposals = []
-            for row in rows:
-                raw = row[1]
-                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
-                proposals.append(
-                    {
-                        "id": str(row[0]),
-                        "symbol": data.get("symbol"),
-                        "action": data.get("action"),
-                        "grade_score": data.get("grade_score"),
-                        "bias": data.get("bias"),
-                        "buys": data.get("buys"),
-                        "sells": data.get("sells"),
-                        "strategy_name": data.get("strategy_name"),
-                        "trace_id": data.get("trace_id"),
-                        "created_at": row[2].isoformat() if row[2] else None,
-                        "source": row[3],
-                        "status": data.get("status", "pending"),
-                    }
+        proposals = []
+
+        # Primary source for newer schemas.
+        try:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT id, data, created_at, source
+                        FROM events
+                        WHERE event_type = 'strategy.proposal'
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
                 )
+                rows = result.all()
+                for row in rows:
+                    raw = row[1]
+                    data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                    proposals.append(
+                        {
+                            "id": str(row[0]),
+                            "symbol": data.get("symbol"),
+                            "action": data.get("action"),
+                            "grade_score": data.get("grade_score"),
+                            "bias": data.get("bias"),
+                            "buys": data.get("buys"),
+                            "sells": data.get("sells"),
+                            "strategy_name": data.get("strategy_name"),
+                            "trace_id": data.get("trace_id"),
+                            "created_at": row[2].isoformat() if row[2] else None,
+                            "source": row[3],
+                            "status": data.get("status", "pending"),
+                        }
+                    )
+        except Exception:
+            # Compatibility fallback for deployments without events table.
+            log_structured("warning", "proposals events query unavailable", exc_info=True)
+
+        if not proposals:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT trace_id, payload, created_at
+                        FROM agent_logs
+                        WHERE log_type = 'proposal'
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
+                )
+                for row in result.all():
+                    payload = _as_dict(row[1])
+                    proposals.append(
+                        {
+                            "id": str(row[0]),
+                            "symbol": payload.get("symbol"),
+                            "action": payload.get("action"),
+                            "grade_score": payload.get("grade_score"),
+                            "bias": payload.get("bias"),
+                            "buys": payload.get("buys"),
+                            "sells": payload.get("sells"),
+                            "strategy_name": payload.get("strategy_name"),
+                            "trace_id": row[0],
+                            "created_at": row[2].isoformat() if row[2] else None,
+                            "source": "agent_logs",
+                            "status": payload.get("status", "pending"),
+                        }
+                    )
         return {
             "proposals": proposals,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "proposals": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.post("/proposals/{proposal_id}/approve")
@@ -1170,8 +1213,7 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
             async with AsyncSessionFactory() as session:
                 fallback_result = await session.execute(
                     text("""
-                        SELECT id, symbol, side, COALESCE(filled_quantity, qty), price, status,
-                               trace_id, created_at, filled_at
+                        SELECT id, symbol, side, qty, price, status, created_at, filled_at
                         FROM orders
                         WHERE status IN ('filled', 'executed')
                         ORDER BY COALESCE(filled_at, created_at) DESC
@@ -1191,16 +1233,16 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                             "pnl": None,
                             "pnl_percent": None,
                             "order_id": str(row[0]),
-                            "execution_trace_id": row[6],
+                            "execution_trace_id": None,
                             "signal_trace_id": None,
                             "grade": None,
                             "grade_score": None,
                             "grade_label": None,
                             "status": row[5],
-                            "filled_at": row[8].isoformat() if row[8] else None,
+                            "filled_at": row[7].isoformat() if row[7] else None,
                             "graded_at": None,
                             "reflected_at": None,
-                            "created_at": row[7].isoformat() if row[7] else None,
+                            "created_at": row[6].isoformat() if row[6] else None,
                         }
                     )
 
