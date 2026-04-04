@@ -83,12 +83,16 @@ def upgrade() -> None:
     # """)
 
     # Create indexes for better traceability
-    if _has_table("agent_runs") and _has_column("agent_runs", "trace_id") and not _has_index(
-        "agent_runs", "idx_agent_runs_trace_v3"
+    if (
+        _has_table("agent_runs")
+        and _has_column("agent_runs", "trace_id")
+        and not _has_index("agent_runs", "idx_agent_runs_trace_v3")
     ):
         op.create_index("idx_agent_runs_trace_v3", "agent_runs", ["trace_id"], unique=False)
-    if _has_table("agent_logs") and _has_column("agent_logs", "trace_id") and not _has_index(
-        "agent_logs", "idx_agent_logs_trace_v3"
+    if (
+        _has_table("agent_logs")
+        and _has_column("agent_logs", "trace_id")
+        and not _has_index("agent_logs", "idx_agent_logs_trace_v3")
     ):
         op.create_index("idx_agent_logs_trace_v3", "agent_logs", ["trace_id"], unique=False)
 

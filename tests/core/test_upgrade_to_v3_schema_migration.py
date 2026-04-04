@@ -51,7 +51,11 @@ def test_upgrade_skips_missing_tables(monkeypatch):
             return ["agent_runs"]
 
         def get_columns(self, table_name):
-            return [{"name": "schema_version"}, {"name": "trace_id"}] if table_name == "agent_runs" else []
+            return (
+                [{"name": "schema_version"}, {"name": "trace_id"}]
+                if table_name == "agent_runs"
+                else []
+            )
 
         def get_indexes(self, _table_name):
             return []
