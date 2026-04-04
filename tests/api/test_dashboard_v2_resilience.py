@@ -183,7 +183,7 @@ async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeyp
 async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
     session_rows = [
         [[]],
-        [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None)]],
+        [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None, None)]],
     ]
     monkeypatch.setattr(
         dashboard_v2,

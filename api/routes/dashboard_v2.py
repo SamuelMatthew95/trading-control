@@ -675,8 +675,16 @@ async def list_proposals() -> dict[str, Any]:
             async with AsyncSessionFactory() as session:
                 result = await session.execute(
                     text("""
-                        SELECT id, data, created_at, source
-                        FROM events
+                        SELECT
+                            e.id,
+                            COALESCE(
+                                to_jsonb(e)->'data',
+                                to_jsonb(e)->'payload',
+                                '{}'::jsonb
+                            ) AS payload,
+                            e.created_at,
+                            e.source
+                        FROM events e
                         WHERE event_type = 'strategy.proposal'
                         ORDER BY created_at DESC
                         LIMIT 20
@@ -852,8 +860,15 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                 async with AsyncSessionFactory() as session:
                     fallback_result = await session.execute(
                         text("""
-                            SELECT id, data, created_at
-                            FROM events
+                            SELECT
+                                e.id,
+                                COALESCE(
+                                    to_jsonb(e)->'data',
+                                    to_jsonb(e)->'payload',
+                                    '{}'::jsonb
+                                ) AS payload,
+                                e.created_at
+                            FROM events e
                             WHERE event_type = 'strategy.proposal'
                             ORDER BY created_at DESC
                             LIMIT :limit
@@ -1224,8 +1239,17 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
             async with AsyncSessionFactory() as session:
                 fallback_result = await session.execute(
                     text("""
-                        SELECT id, symbol, side, qty, price, status, created_at, filled_at
-                        FROM orders
+                        SELECT
+                            o.id,
+                            o.symbol,
+                            o.side,
+                            COALESCE(NULLIF(to_jsonb(o)->>'filled_quantity', '')::numeric, o.qty),
+                            o.price,
+                            o.status,
+                            to_jsonb(o)->>'trace_id',
+                            o.created_at,
+                            o.filled_at
+                        FROM orders o
                         WHERE status IN ('filled', 'executed')
                         ORDER BY COALESCE(filled_at, created_at) DESC
                         LIMIT :limit
@@ -1244,16 +1268,16 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                             "pnl": None,
                             "pnl_percent": None,
                             "order_id": str(row[0]),
-                            "execution_trace_id": None,
+                            "execution_trace_id": row[6],
                             "signal_trace_id": None,
                             "grade": None,
                             "grade_score": None,
                             "grade_label": None,
                             "status": row[5],
-                            "filled_at": row[7].isoformat() if row[7] else None,
+                            "filled_at": row[8].isoformat() if row[8] else None,
                             "graded_at": None,
                             "reflected_at": None,
-                            "created_at": row[6].isoformat() if row[6] else None,
+                            "created_at": row[7].isoformat() if row[7] else None,
                         }
                     )
 
