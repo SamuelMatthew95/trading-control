@@ -28,8 +28,12 @@ def upgrade() -> None:
         "ALTER TABLE positions ADD COLUMN IF NOT EXISTS schema_version VARCHAR(16) DEFAULT 'v2'"
     )
     op.execute("ALTER TABLE positions ADD COLUMN IF NOT EXISTS source VARCHAR(64)")
-    op.execute("ALTER TABLE positions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
-    op.execute("ALTER TABLE positions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+    op.execute(
+        "ALTER TABLE positions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"
+    )
+    op.execute(
+        "ALTER TABLE positions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"
+    )
 
     # Backfill v2 columns from legacy v1 column names where available.
     op.execute("UPDATE positions SET quantity = qty WHERE quantity IS NULL AND qty IS NOT NULL")
