@@ -423,19 +423,13 @@ class MetricsAggregator:
                 )
             )
             available_columns = {row[0] for row in columns_result}
-            order_column = (
-                "created_at" if "created_at" in available_columns else "timestamp"
-            )
+            order_column = "created_at" if "created_at" in available_columns else "timestamp"
 
             def _select(col: str, fallback_sql: str = "NULL") -> str:
                 return col if col in available_columns else fallback_sql
 
-            payload_message = (
-                "payload->>'message'" if "payload" in available_columns else "NULL"
-            )
-            payload_content = (
-                "payload->>'content'" if "payload" in available_columns else "NULL"
-            )
+            payload_message = "payload->>'message'" if "payload" in available_columns else "NULL"
+            payload_content = "payload->>'content'" if "payload" in available_columns else "NULL"
             payload_reason = "payload->>'reason'" if "payload" in available_columns else "NULL"
             legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
 
