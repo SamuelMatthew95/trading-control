@@ -430,15 +430,9 @@ class MetricsAggregator:
                 return col if col in available_columns else fallback_sql
 
             payload_is_json = column_types.get("payload") in {"json", "jsonb"}
-            payload_message = (
-                "payload::jsonb->>'message'" if payload_is_json else "NULL"
-            )
-            payload_content = (
-                "payload::jsonb->>'content'" if payload_is_json else "NULL"
-            )
-            payload_reason = (
-                "payload::jsonb->>'reason'" if payload_is_json else "NULL"
-            )
+            payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
+            payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
+            payload_reason = "payload::jsonb->>'reason'" if payload_is_json else "NULL"
             payload_text = "payload::text" if "payload" in available_columns else "NULL"
             legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
 

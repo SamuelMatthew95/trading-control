@@ -206,12 +206,8 @@ async def stream_agent_logs(
                 step_name_col = "step_name" if "step_name" in available_columns else "NULL"
                 step_data_col = "step_data" if "step_data" in available_columns else "NULL"
                 payload_is_json = column_types.get("payload") in {"json", "jsonb"}
-                payload_message = (
-                    "payload::jsonb->>'message'" if payload_is_json else "NULL"
-                )
-                payload_content = (
-                    "payload::jsonb->>'content'" if payload_is_json else "NULL"
-                )
+                payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
+                payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
                 payload_text = "payload::text" if "payload" in available_columns else "NULL"
                 legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
                 message_col = "message" if "message" in available_columns else "NULL"
