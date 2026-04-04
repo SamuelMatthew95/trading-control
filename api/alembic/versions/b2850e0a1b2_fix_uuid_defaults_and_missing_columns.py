@@ -51,28 +51,18 @@ def _resolve_table_schema(table_name: str) -> str | None:
         return explicit_schema
 
     bind = op.get_bind()
-    schema_rows = bind.execute(
+    schema = bind.execute(
         sa.text(
             """
-            SELECT table_schema
-            FROM information_schema.tables
-            WHERE table_name = :table_name
-              AND table_type = 'BASE TABLE'
-              AND table_schema NOT IN ('pg_catalog', 'information_schema')
+            SELECT n.nspname
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE c.oid = to_regclass(:table_name)
             """
         ),
         {"table_name": relation_name},
-    ).fetchall()
-
-    schemas = [row[0] for row in schema_rows]
-    if len(schemas) == 1:
-        return schemas[0]
-    if len(schemas) > 1:
-        raise RuntimeError(
-            f"Ambiguous table '{table_name}' found in multiple schemas ({schemas}); "
-            "use a schema-qualified table reference."
-        )
-    return None
+    ).scalar()
+    return schema
 
 
 def upgrade() -> None:

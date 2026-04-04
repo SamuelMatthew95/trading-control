@@ -17,8 +17,8 @@ def test_resolve_table_schema_detects_single_non_system_schema(monkeypatch, migr
     captured = {}
 
     class FakeResult:
-        def fetchall(self):
-            return [("alt_schema",)]
+        def scalar(self):
+            return "alt_schema"
 
     class FakeBind:
         def execute(self, _statement, params):
@@ -37,25 +37,10 @@ def test_resolve_table_schema_honors_schema_qualified_name(migration_module):
     assert migration_module._resolve_table_schema("audit.agent_runs") == "audit"
 
 
-def test_resolve_table_schema_raises_for_ambiguous_tables(monkeypatch, migration_module):
-    class FakeResult:
-        def fetchall(self):
-            return [("public",), ("audit",)]
-
-    class FakeBind:
-        def execute(self, _statement, _params):
-            return FakeResult()
-
-    monkeypatch.setattr(migration_module.op, "get_bind", lambda: FakeBind())
-
-    with pytest.raises(RuntimeError, match="Ambiguous table"):
-        migration_module._resolve_table_schema("agent_runs")
-
-
 def test_has_column_and_index_honor_resolved_schema(monkeypatch, migration_module):
     class FakeBind:
         def execute(self, _statement, _params):
-            return SimpleNamespace(fetchall=lambda: [("alt_schema",)])
+            return SimpleNamespace(scalar=lambda: "alt_schema")
 
     class FakeInspector:
         def get_columns(self, table_name, schema=None):
