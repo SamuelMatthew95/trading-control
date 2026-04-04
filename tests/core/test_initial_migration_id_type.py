@@ -20,8 +20,9 @@ def test_table_id_type_prefers_reflection_over_catalog_mapping(monkeypatch, migr
 
     class FakeBind:
         def execute(self, statement, params):
-            assert "CAST(:schema_name AS text)" in str(statement)
-            assert params == {"relation_name": "orders", "schema_name": None}
+            assert "CAST(:schema_name AS text)" not in str(statement)
+            assert ":schema_name" not in str(statement)
+            assert params == {"relation_name": "orders"}
             return FakeResult()
 
     class FakeInspector:
@@ -46,8 +47,9 @@ def test_table_id_type_uses_catalog_fallback_when_reflection_fails(monkeypatch, 
 
     class FakeBind:
         def execute(self, statement, params):
-            assert "CAST(:schema_name AS text)" in str(statement)
-            assert params == {"relation_name": "orders", "schema_name": None}
+            assert "CAST(:schema_name AS text)" not in str(statement)
+            assert ":schema_name" not in str(statement)
+            assert params == {"relation_name": "orders"}
             return FakeResult()
 
     class FakeInspector:
@@ -71,7 +73,7 @@ def test_table_id_type_honors_schema_qualified_name(monkeypatch, migration_modul
 
     class FakeBind:
         def execute(self, statement, params):
-            assert "CAST(:schema_name AS text)" in str(statement)
+            assert "n.nspname = :schema_name" in str(statement)
             captured.update(params)
             return FakeResult()
 
