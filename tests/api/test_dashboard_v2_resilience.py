@@ -54,6 +54,29 @@ class _FactoryWithQueuedSessions:
         return _SessionFromResults(self._sessions_rows.pop(0))
 
 
+class _SessionThatAlwaysFails:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def execute(self, *_args, **_kwargs):
+        raise RuntimeError("undefined column")
+
+
+class _FactoryOneSuccessThenFail:
+    def __init__(self, first_rows):
+        self._first_rows = first_rows
+        self._call_count = 0
+
+    def __call__(self):
+        self._call_count += 1
+        if self._call_count == 1:
+            return _SessionFromResults([self._first_rows])
+        return _SessionThatAlwaysFails()
+
+
 @pytest.mark.asyncio
 async def test_trade_feed_falls_back_when_query_fails(monkeypatch):
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
@@ -119,6 +142,20 @@ async def test_learning_proposals_fallbacks_to_events_when_agent_logs_empty(monk
     assert payload["total"] == 1
     assert payload["proposals"][0]["id"] == "evt-1"
     assert payload["proposals"][0]["content"]["confidence"] == 0.71
+
+
+@pytest.mark.asyncio
+async def test_learning_proposals_returns_empty_when_events_fallback_errors(monkeypatch):
+    monkeypatch.setattr(
+        dashboard_v2,
+        "AsyncSessionFactory",
+        _FactoryOneSuccessThenFail(first_rows=[]),
+    )
+
+    payload = await dashboard_v2.get_proposals(limit=10)
+
+    assert payload["total"] == 0
+    assert payload["proposals"] == []
 
 
 @pytest.mark.asyncio

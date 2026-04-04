@@ -848,31 +848,38 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
 
         # Backward compatibility: some deployments store proposals in events only.
         if not proposals:
-            async with AsyncSessionFactory() as session:
-                fallback_result = await session.execute(
-                    text("""
-                        SELECT id, data, created_at
-                        FROM events
-                        WHERE event_type = 'strategy.proposal'
-                        ORDER BY created_at DESC
-                        LIMIT :limit
-                    """),
-                    {"limit": limit},
-                )
-                for row in fallback_result.all():
-                    data = _as_dict(row[1])
-                    proposals.append(
-                        {
-                            "id": str(row[0]),
-                            "proposal_type": data.get("proposal_type", "strategy_proposal"),
-                            "content": data,
-                            "requires_approval": True,
-                            "confidence": data.get("confidence"),
-                            "reflection_trace_id": data.get("trace_id"),
-                            "status": data.get("status", "pending"),
-                            "timestamp": row[2].isoformat() if row[2] else None,
-                        }
+            try:
+                async with AsyncSessionFactory() as session:
+                    fallback_result = await session.execute(
+                        text("""
+                            SELECT id, data, created_at
+                            FROM events
+                            WHERE event_type = 'strategy.proposal'
+                            ORDER BY created_at DESC
+                            LIMIT :limit
+                        """),
+                        {"limit": limit},
                     )
+                    for row in fallback_result.all():
+                        data = _as_dict(row[1])
+                        proposals.append(
+                            {
+                                "id": str(row[0]),
+                                "proposal_type": data.get("proposal_type", "strategy_proposal"),
+                                "content": data,
+                                "requires_approval": True,
+                                "confidence": data.get("confidence"),
+                                "reflection_trace_id": data.get("trace_id"),
+                                "status": data.get("status", "pending"),
+                                "timestamp": row[2].isoformat() if row[2] else None,
+                            }
+                        )
+            except Exception:
+                log_structured(
+                    "warning",
+                    "learning proposals events fallback unavailable",
+                    exc_info=True,
+                )
         return {
             "proposals": proposals,
             "total": len(proposals),
@@ -880,7 +887,11 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "proposals": [],
+            "total": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.get("/learning/grades")
