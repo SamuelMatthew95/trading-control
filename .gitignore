@@ -274,3 +274,4 @@ trade-memory.json
 *.token
 *.secret
 # Formatting update
+frontend/coverage/

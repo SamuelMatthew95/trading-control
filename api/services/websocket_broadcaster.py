@@ -14,6 +14,7 @@ from api.observability import log_structured
 _AGENT_NAMES = [
     "SIGNAL_AGENT",
     "REASONING_AGENT",
+    "EXECUTION_ENGINE",
     "GRADE_AGENT",
     "IC_UPDATER",
     "REFLECTION_AGENT",
@@ -119,11 +120,9 @@ class WebSocketBroadcaster:
                         for msg_id, payload in stream_messages:
                             decoded_id = self._decode_redis_value(msg_id)
                             decoded_payload = self._decode_redis_payload(payload)
-                            outbound = {
-                                "stream": decoded_stream_name,
-                                "msg_id": decoded_id,
-                                **decoded_payload,
-                            }
+                            outbound = self._transform_stream_message(
+                                decoded_stream_name, decoded_id, decoded_payload
+                            )
                             await self.broadcast(outbound)
                             messages_read += 1
                             broadcasts_attempted += len(self._connections)
@@ -212,6 +211,41 @@ class WebSocketBroadcaster:
                 raise
             except Exception:
                 log_structured("warning", "agent_status_push_loop_error", exc_info=True)
+
+    def _transform_stream_message(
+        self, stream: str, msg_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Transform raw Redis stream payloads into frontend-friendly WS messages.
+
+        market_events  → type=price_update  (frontend: updatePrice)
+        signals        → type=signal        (frontend: addSignal via stream='signals')
+        orders         → stream=orders      (frontend: updateOrder)
+        everything else → raw passthrough with stream tag
+        """
+        base = {"stream": stream, "msg_id": msg_id}
+
+        if stream == "market_events":
+            # price_poller writes: {"payload": "<json-string>"}
+            raw_payload = payload.get("payload", payload)
+            if isinstance(raw_payload, str):
+                try:
+                    raw_payload = json.loads(raw_payload)
+                except (json.JSONDecodeError, TypeError):
+                    raw_payload = payload
+            if isinstance(raw_payload, dict) and raw_payload.get("symbol"):
+                return {
+                    **base,
+                    "type": "price_update",
+                    "symbol": raw_payload.get("symbol"),
+                    "price": raw_payload.get("price"),
+                    "change": raw_payload.get("change", 0),
+                    "pct": raw_payload.get("pct", 0),
+                    "ts": raw_payload.get("ts"),
+                    "trace_id": raw_payload.get("trace_id"),
+                    "timestamp": payload.get("timestamp"),
+                }
+
+        return {**base, **payload}
 
     @staticmethod
     def _decode_redis_value(value: Any) -> str:

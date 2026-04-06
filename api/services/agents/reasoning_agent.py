@@ -89,6 +89,25 @@ class ReasoningAgent(BaseStreamConsumer):
             "info", "agent_transaction_success", trace_id=trace_id, action=summary.get("action")
         )
 
+        # Write Redis + DB heartbeat so dashboard shows this agent as ACTIVE
+        try:
+            import time as _time
+
+            await self.redis.set(
+                "agent:status:REASONING_AGENT",
+                json.dumps(
+                    {
+                        "status": "ACTIVE",
+                        "last_event": f"action={summary.get('action')} symbol={data.get('symbol')}",
+                        "event_count": 0,
+                        "last_seen": int(_time.time()),
+                    }
+                ),
+                ex=120,
+            )
+        except Exception:
+            pass
+
         await self.redis.incrby(f"llm:tokens:{today}", tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
 
@@ -126,12 +145,15 @@ class ReasoningAgent(BaseStreamConsumer):
 
         action = summary.get("action", "").lower()
         if action not in NO_ORDER_ACTIONS:
+            # strategy_id must be a non-empty UUID; fall back to a generated one if the
+            # upstream signal didn't carry one (signals from SignalGenerator don't include it).
+            strategy_id = str(data.get("strategy_id") or uuid.uuid4())
             await self.bus.publish(
                 "orders",
                 {
                     "msg_id": str(uuid.uuid4()),
                     "source": "reasoning",
-                    "strategy_id": data.get("strategy_id"),
+                    "strategy_id": strategy_id,
                     "symbol": data.get("symbol"),
                     "side": action,
                     "qty": max(float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))),

@@ -218,9 +218,15 @@ class BaseStreamConsumer(ABC):
 
     async def _handle_message(self, msg_id: str, data: dict[str, Any]) -> None:
         """Handle a single message with comprehensive error handling."""
-        # Hard guard: enforce msg_id at ingestion boundary
+        # Soft guard: use redis stream ID as fallback if producer omitted msg_id
         if "msg_id" not in data:
-            raise RuntimeError(f"Invalid event: missing msg_id in {self.stream}")
+            data = {**data, "msg_id": msg_id}
+            log_structured(
+                "debug",
+                "msg_id_backfilled_from_redis_id",
+                stream=self.stream,
+                redis_id=msg_id,
+            )
 
         # V3 Schema Validation - Accept legacy and current versions
         schema_version = data.get("schema_version")

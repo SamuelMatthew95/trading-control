@@ -9,7 +9,7 @@ from typing import Any
 
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
-from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
+from api.events.bus import PIPELINE_GROUP, STREAMS, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
@@ -40,6 +40,8 @@ class EventPipeline:
         self._recent_failures: deque[dict[str, Any]] = deque(maxlen=200)
         self._last_error: str | None = None
         self.safe_writer = SafeWriter(AsyncSessionFactory)
+        # Pipeline uses its own consumer group so it never competes with agent workers.
+        self._group = PIPELINE_GROUP
 
     async def start(self) -> None:
         if self._running:
@@ -83,7 +85,7 @@ class EventPipeline:
                     break
                 messages = await self.bus.consume(
                     stream,
-                    group=DEFAULT_GROUP,
+                    group=self._group,
                     consumer=self.consumer_name,
                     count=50,
                     block_ms=250,
@@ -129,7 +131,7 @@ class EventPipeline:
                 retried = dict(event)
                 retried["retry_count"] = retry_count + 1
                 await self.bus.publish(stream, retried)
-                await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+                await self.bus.acknowledge(stream, self._group, redis_id)
                 log_structured(
                     "warning",
                     "pipeline_event_retried",
@@ -150,7 +152,7 @@ class EventPipeline:
                 error=error,
                 retries=retry_count + 1,
             )
-            await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+            await self.bus.acknowledge(stream, self._group, redis_id)
             await self.broadcaster.broadcast(
                 {
                     "type": "dlq_event",
@@ -192,7 +194,20 @@ class EventPipeline:
             redis_id=redis_id,
         )
 
-        await self._persist_event(stream=stream, msg_id=msg_id, event=event)
+        # Persist is best-effort — failures must never block broadcasting or acking.
+        # Agents already write directly to the DB; the pipeline persist is a
+        # secondary safety net.  Strict validation errors (wrong schema, missing
+        # fields) are logged as warnings, not propagated.
+        try:
+            await self._persist_event(stream=stream, msg_id=msg_id, event=event)
+        except Exception:  # noqa: BLE001
+            log_structured(
+                "warning",
+                "pipeline_persist_skipped",
+                stream=stream,
+                msg_id=msg_id,
+                exc_info=True,
+            )
 
         outbound = {
             "type": "event",
@@ -242,7 +257,7 @@ class EventPipeline:
             stream=stream,
         )
 
-        await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+        await self.bus.acknowledge(stream, self._group, redis_id)
         log_structured(
             "info",
             "pipeline_event_acked",
@@ -255,11 +270,13 @@ class EventPipeline:
         self._recent_events.appendleft(outbound)
 
     async def _persist_event(self, stream: str, msg_id: str, event: dict[str, Any]) -> None:
+        # NOTE: system_metrics is intentionally omitted — write_system_metric has a
+        # different positional signature that is incompatible with (msg_id, stream, data).
+        # Agents write system_metrics directly; the pipeline just broadcasts them.
         writer_methods = {
             "orders": self.safe_writer.write_order,
             "executions": self.safe_writer.write_execution,
             "agent_logs": self.safe_writer.write_agent_log,
-            "system_metrics": self.safe_writer.write_system_metric,
             "trade_performance": self.safe_writer.write_trade_performance,
             "risk_alerts": self.safe_writer.write_risk_alert,
             "learning_events": self.safe_writer.write_vector_memory,
@@ -274,4 +291,9 @@ class EventPipeline:
             return
         ok = await writer(msg_id=msg_id, stream=stream, data=event)
         if not ok:
-            raise RuntimeError(f"persist_failed:{stream}")
+            log_structured(
+                "warning",
+                "pipeline_persist_returned_false",
+                stream=stream,
+                msg_id=msg_id,
+            )

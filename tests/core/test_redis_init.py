@@ -15,7 +15,7 @@ from api.constants import (
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
 )
-from api.events.bus import DEFAULT_GROUP, STREAMS, EventBus
+from api.events.bus import DEFAULT_GROUP, PIPELINE_GROUP, STREAMS, EventBus
 
 
 @pytest.mark.asyncio
@@ -37,18 +37,23 @@ async def test_happy_path_stream_creation(fake_redis):
         STREAM_RISK_ALERTS,
         STREAM_LEARNING_EVENTS,
         STREAM_SYSTEM_METRICS,
-        STREAM_AGENT_LOGS,  # Use constant instead of hardcoded string
+        STREAM_AGENT_LOGS,
     }
 
-    # Check that groups exist for all streams
+    # Both DEFAULT_GROUP (agents) and PIPELINE_GROUP (broadcast pipeline) are created
+    expected_groups = {DEFAULT_GROUP, PIPELINE_GROUP}
+
     for stream in expected_streams:
-        # Try to get group info - this will fail if group doesn't exist
-        groups = await fake_redis.xinfo_groups(stream)  # async call
-        assert len(groups) == 1
-        group_name = groups[0]["name"]
-        if isinstance(group_name, bytes):
-            group_name = group_name.decode()
-        assert group_name == DEFAULT_GROUP
+        groups = await fake_redis.xinfo_groups(stream)
+        group_names = set()
+        for g in groups:
+            name = g["name"]
+            if isinstance(name, bytes):
+                name = name.decode()
+            group_names.add(name)
+        assert expected_groups <= group_names, (
+            f"Stream {stream!r} missing groups: {expected_groups - group_names}"
+        )
 
 
 @pytest.mark.asyncio
@@ -62,10 +67,14 @@ async def test_idempotency_multiple_calls(fake_redis):
     # This should not raise any exceptions
     await event_bus.create_groups()
 
-    # Verify groups still exist (no duplicates)
+    # Verify both groups still exist after idempotent second call
     for stream in STREAMS:
-        groups = await fake_redis.xinfo_groups(stream)  # async call
-        assert len(groups) == 1  # Only one group per stream
+        groups = await fake_redis.xinfo_groups(stream)
+        group_names = {
+            (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+        }
+        assert DEFAULT_GROUP in group_names, f"Stream {stream!r} missing DEFAULT_GROUP"
+        assert PIPELINE_GROUP in group_names, f"Stream {stream!r} missing PIPELINE_GROUP"
 
 
 @pytest.mark.asyncio

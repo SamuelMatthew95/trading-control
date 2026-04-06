@@ -5,7 +5,6 @@ Provides clean, normalized metrics for the UI and eliminates NaN issues.
 Computes lag per stream, system health, and PnL safely.
 """
 
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,8 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
-
-logger = logging.getLogger(__name__)
 
 # Health validation thresholds
 STALE_THRESHOLD_SECONDS = 30  # Mark stream as stale if no update in 30s

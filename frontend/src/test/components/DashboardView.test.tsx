@@ -118,6 +118,6 @@ describe('DashboardView — agents', () => {
   it('shows agents in waiting state when no logs', () => {
     render(<DashboardView section="agents" />)
     expect(screen.getByText('SIGNAL_AGENT')).toBeInTheDocument()
-    expect(screen.getAllByText('waiting')).toHaveLength(7)
+    expect(screen.getAllByText('waiting')).toHaveLength(8)
   })
 })

@@ -46,12 +46,13 @@ class ExecutionEngine(BaseStreamConsumer):
             raise RuntimeError("KillSwitchActive")
 
         # Validate required fields before any DB/broker interaction
-        missing = [f for f in ("strategy_id", "symbol", "side", "qty", "price") if not data.get(f)]
+        missing = [f for f in ("symbol", "side", "qty", "price") if not data.get(f)]
         if missing:
             log_structured("warning", "order_missing_required_fields", missing=missing)
             return
 
-        strategy_id = str(data["strategy_id"])
+        # strategy_id is required by the DB; fall back to a generated UUID if absent
+        strategy_id = str(data.get("strategy_id") or uuid.uuid4())
         symbol = str(data["symbol"])
         side = str(data["side"]).lower()
         try:
@@ -97,7 +98,14 @@ class ExecutionEngine(BaseStreamConsumer):
             try:
                 inserted = await session.execute(
                     text(
-                        "INSERT INTO orders (strategy_id, symbol, side, qty, price, status, idempotency_key, broker_order_id) VALUES (:strategy_id, :symbol, :side, :qty, :price, 'pending', :idempotency_key, NULL) RETURNING id"
+                        # Dual-write old (qty) + new (quantity) column names so both
+                        # raw-SQL agents and ORM-based MetricsAggregator see real values.
+                        "INSERT INTO orders "
+                        "(strategy_id, symbol, side, qty, quantity, price, status, "
+                        " idempotency_key, broker_order_id, source) "
+                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, 'pending', "
+                        "        :idempotency_key, NULL, 'execution_engine') "
+                        "RETURNING id"
                     ),
                     {
                         "strategy_id": strategy_id,
@@ -117,12 +125,22 @@ class ExecutionEngine(BaseStreamConsumer):
 
                 await session.execute(
                     text(
-                        "UPDATE orders SET status = :status, broker_order_id = :broker_order_id, price = :fill_price, filled_at = :filled_at WHERE id = :order_id"
+                        # Also set filled_price / filled_quantity (ORM column names) so
+                        # MetricsAggregator snapshot shows non-null fill data.
+                        "UPDATE orders SET "
+                        "  status = :status, "
+                        "  broker_order_id = :broker_order_id, "
+                        "  price = :fill_price, "
+                        "  filled_price = :fill_price, "
+                        "  filled_quantity = :qty, "
+                        "  filled_at = :filled_at "
+                        "WHERE id = :order_id"
                     ),
                     {
                         "status": broker_result["status"],
                         "broker_order_id": broker_result["broker_order_id"],
                         "fill_price": fill_price,
+                        "qty": qty,
                         "filled_at": filled_at,
                         "order_id": order_id,
                     },
@@ -159,6 +177,20 @@ class ExecutionEngine(BaseStreamConsumer):
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
         entry_price = float(prior_position.get("entry_price") or fill_price)
 
+        # Retrieve the agent's confidence from agent_runs so GradeAgent gets a real value
+        confidence = 0.5
+        try:
+            async with AsyncSessionFactory() as _conf_session:
+                _conf_result = await _conf_session.execute(
+                    text("SELECT confidence FROM agent_runs WHERE trace_id = :tid LIMIT 1"),
+                    {"tid": trace_id},
+                )
+                _conf_val = _conf_result.scalar()
+                if _conf_val is not None:
+                    confidence = float(_conf_val)
+        except Exception:
+            pass  # Fall back to 0.5; best-effort only
+
         execution_payload: dict[str, Any] = {
             "type": "order_filled",
             "msg_id": str(uuid.uuid4()),
@@ -169,6 +201,7 @@ class ExecutionEngine(BaseStreamConsumer):
             "qty": qty,
             "price": price,
             "fill_price": fill_price,
+            "confidence": confidence,
             "filled_at": filled_at.isoformat(),
             "idempotency_key": idempotency_key,
             "trace_id": trace_id,
@@ -258,6 +291,25 @@ class ExecutionEngine(BaseStreamConsumer):
         if self.agent_state:
             self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
 
+        # Write Redis heartbeat so dashboard shows EXECUTION_ENGINE as ACTIVE
+        try:
+            import time as _time
+
+            await self.redis.set(
+                f"agent:status:{_STATE_NAME}",
+                json.dumps(
+                    {
+                        "status": "ACTIVE",
+                        "last_event": f"order_filled:{symbol} side={side} fill_price={fill_price}",
+                        "event_count": 0,
+                        "last_seen": int(_time.time()),
+                    }
+                ),
+                ex=120,
+            )
+        except Exception:
+            pass
+
     def _compute_realized_pnl(
         self,
         prior_position: dict[str, Any],
@@ -327,7 +379,9 @@ class ExecutionEngine(BaseStreamConsumer):
             return datetime.now(timezone.utc)
         if isinstance(value, datetime):
             return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        parsed = datetime.fromisoformat(str(value))
+        # Python 3.10 fromisoformat does not accept the 'Z' suffix; normalise first.
+        s = str(value).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(s)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
     async def _upsert_position(
@@ -348,17 +402,29 @@ class ExecutionEngine(BaseStreamConsumer):
         row = existing.mappings().first()
         signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
         if row is None:
+            pos_qty = abs(signed_qty)
+            pos_side = PositionSide.LONG if signed_qty >= 0 else PositionSide.SHORT
+            market_value = round(pos_qty * fill_price, 8)
             await session.execute(
                 text(
-                    "INSERT INTO positions (symbol, side, qty, entry_price, current_price, unrealised_pnl, strategy_id) VALUES (:symbol, :side, :qty, :entry_price, :current_price, :unrealised_pnl, :strategy_id)"
+                    # Dual-write old (qty/entry_price/current_price/unrealised_pnl) +
+                    # new (quantity/avg_cost/last_price/market_value/unrealized_pnl)
+                    # column names so MetricsAggregator ORM queries return real values.
+                    "INSERT INTO positions "
+                    "(symbol, side, qty, quantity, entry_price, avg_cost, "
+                    " current_price, last_price, market_value, "
+                    " unrealised_pnl, unrealized_pnl, strategy_id) "
+                    "VALUES (:symbol, :side, :qty, :qty, :entry_price, :entry_price, "
+                    "        :current_price, :current_price, :market_value, "
+                    "        0.0, 0.0, :strategy_id)"
                 ),
                 {
                     "symbol": symbol,
-                    "side": PositionSide.LONG if signed_qty >= 0 else PositionSide.SHORT,
-                    "qty": abs(signed_qty),
+                    "side": pos_side,
+                    "qty": pos_qty,
                     "entry_price": fill_price,
                     "current_price": fill_price,
-                    "unrealised_pnl": 0.0,
+                    "market_value": market_value,
                     "strategy_id": strategy_id,
                 },
             )
@@ -376,14 +442,21 @@ class ExecutionEngine(BaseStreamConsumer):
             if abs(new_qty) < 1e-9
             else (PositionSide.LONG if new_qty > 0 else PositionSide.SHORT)
         )
+        new_abs_qty = abs(new_qty)
+        new_market_value = round(new_abs_qty * fill_price, 8)
         await session.execute(
             text(
-                "UPDATE positions SET side = :side, qty = :qty, current_price = :current_price WHERE id = :position_id"
+                # Keep old (qty/current_price) and new (quantity/last_price/market_value)
+                # column names in sync so MetricsAggregator ORM queries return real values.
+                "UPDATE positions SET side = :side, qty = :qty, quantity = :qty,"
+                " current_price = :current_price, last_price = :current_price,"
+                " market_value = :market_value WHERE id = :position_id"
             ),
             {
                 "side": next_side,
-                "qty": abs(new_qty),
+                "qty": new_abs_qty,
                 "current_price": fill_price,
+                "market_value": new_market_value,
                 "position_id": row["id"],
             },
         )

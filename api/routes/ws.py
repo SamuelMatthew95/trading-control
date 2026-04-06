@@ -18,6 +18,7 @@ router = APIRouter(tags=["ws"])
 _AGENT_NAMES = [
     "SIGNAL_AGENT",
     "REASONING_AGENT",
+    "EXECUTION_ENGINE",
     "GRADE_AGENT",
     "IC_UPDATER",
     "REFLECTION_AGENT",
