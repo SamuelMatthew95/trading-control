@@ -35,6 +35,9 @@ STREAMS = (
     "github_prs",
 )
 DEFAULT_GROUP = "workers"
+# Separate group for the broadcast pipeline so it reads independently
+# of the agent workers — prevents the pipeline from stealing agent messages.
+PIPELINE_GROUP = "broadcast_pipeline"
 
 
 def _serialize(value: Any) -> str:
@@ -264,13 +267,15 @@ class EventBus:
     async def create_groups(self) -> None:
         """Create all predefined streams and consumer groups."""
         for stream in STREAMS:
-            try:
-                await self.redis.xgroup_create(stream, DEFAULT_GROUP, "$", mkstream=True)
-            except ResponseError as exc:
-                if "BUSYGROUP" not in str(exc):
-                    raise
-                # Group already exists - check if it needs fast-forwarding
-                await self._maybe_fastforward_group(stream)
+            for group in (DEFAULT_GROUP, PIPELINE_GROUP):
+                try:
+                    await self.redis.xgroup_create(stream, group, "$", mkstream=True)
+                except ResponseError as exc:
+                    if "BUSYGROUP" not in str(exc):
+                        raise
+                    if group == DEFAULT_GROUP:
+                        # Check if the agents group needs fast-forwarding
+                        await self._maybe_fastforward_group(stream)
 
     async def _maybe_fastforward_group(self, stream: str) -> None:
         """If group's last-delivered-id is far behind, fast-forward to prevent replay."""

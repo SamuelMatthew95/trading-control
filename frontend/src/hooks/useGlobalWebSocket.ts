@@ -140,9 +140,16 @@ class WebSocketManager {
   // --- Private methods ---
   private _getWsUrl(): string {
     if (typeof window === 'undefined') return ''
-    let base = process.env.NEXT_PUBLIC_WS_URL || window.location.origin
-    base = base.replace(/\/$/, '')
-    return `${base}/ws/dashboard`
+    const envUrl = process.env.NEXT_PUBLIC_WS_URL
+    if (envUrl) {
+      // Convert http(s) base URLs to ws(s) so browsers accept them as WebSocket endpoints.
+      const wsBase = envUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/$/, '')
+      return `${wsBase}/ws/dashboard`
+    }
+    // Same-origin: derive ws(s) from current page protocol.
+    const { protocol, host } = window.location
+    const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${wsProtocol}//${host}/ws/dashboard`
   }
   private _getRetryDelay(attempt: number): number {
     const d = Math.min(this.BASE_DELAY * Math.pow(2, attempt), this.MAX_DELAY)
