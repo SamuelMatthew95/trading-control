@@ -21,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from ..core.config import get_settings
 from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
+from ..redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
@@ -124,12 +125,7 @@ async def get_system_status():
 async def get_stream_lag() -> dict[str, Any]:
     """Calculate stream lag by comparing Redis head ID to last processed ID."""
     try:
-        redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            decode_responses=True,
-        )
+        redis_client = await get_redis()
 
         streams = ["orders", "executions", "agent_logs", "system_metrics"]
         lag_info = {}
@@ -166,11 +162,10 @@ async def get_stream_lag() -> dict[str, Any]:
             except redis.ResponseError as e:
                 lag_info[stream] = {"error": str(e)}
 
-        await redis_client.close()
         return lag_info
 
     except Exception as e:
-        log_structured("error", "stream lag calculation failed", error=str(e))
+        log_structured("error", "stream lag calculation failed", exc_info=True)
         return {"error": str(e)}
 
 
@@ -280,7 +275,7 @@ async def stream_agent_logs(
                             last_timestamp = max(last_timestamp, log.ts)
 
         except Exception as e:
-            log_structured("error", "log stream error", error=str(e))
+            log_structured("error", "log stream error", exc_info=True)
             error_data = {
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -342,14 +337,8 @@ async def health_check():
             await session.execute(text("SELECT 1"))
 
         # Test Redis connection
-        redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            decode_responses=True,
-        )
+        redis_client = await get_redis()
         await redis_client.ping()
-        await redis_client.close()
 
         return {
             "status": "healthy",

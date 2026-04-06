@@ -58,7 +58,7 @@ def get_market_ingestor(request: Request) -> MarketIngestor:
 
 def get_redis(request: Request) -> Redis:
     """Return the initialized Redis client from FastAPI app state."""
-    obj = getattr(request.app.state, "redis", None)
+    obj = getattr(request.app.state, "redis_client", None)
     if obj is None:
         raise HTTPException(status_code=503, detail="redis not initialised")
     return obj

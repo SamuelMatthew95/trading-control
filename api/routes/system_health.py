@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from ..core.config import get_settings
 from ..core.models import Event, Order, Position
 from ..observability import log_structured
+from ..redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["system-health"])
@@ -42,12 +43,7 @@ async def get_system_pulse():
     """Real-time system pulse with traffic light status."""
     try:
         # Redis connection
-        redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            decode_responses=True,
-        )
+        redis_client = await get_redis()
 
         # Get stream health metrics
         stream_health = await get_stream_health(redis_client)
@@ -64,8 +60,6 @@ async def get_system_pulse():
         # Calculate traffic light status
         traffic_light = calculate_traffic_light(stream_health, dlq_count, db_pool_status)
 
-        await redis_client.close()
-
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "traffic_light": traffic_light,
@@ -76,7 +70,7 @@ async def get_system_pulse():
         }
 
     except Exception as e:
-        log_structured("error", "pulse api error", error=str(e))
+        log_structured("error", "pulse api error", exc_info=True)
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "traffic_light": "red",
@@ -114,7 +108,7 @@ async def get_idempotency_audit():
             }
 
     except Exception as e:
-        log_structured("error", "idempotency audit error", error=str(e))
+        log_structured("error", "idempotency audit error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -171,7 +165,7 @@ async def get_position_sync_status():
             }
 
     except Exception as e:
-        log_structured("error", "position sync error", error=str(e))
+        log_structured("error", "position sync error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -282,7 +276,7 @@ async def stream_agent_logs(
                             last_timestamp = max(last_timestamp, log.ts)
 
         except Exception as e:
-            log_structured("error", "log stream error", error=str(e))
+            log_structured("error", "log stream error", exc_info=True)
             error_data = {
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -304,17 +298,10 @@ async def stream_agent_logs(
 async def pause_consumers():
     """Kill switch - pause all consumers."""
     try:
-        redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            decode_responses=True,
-        )
+        redis_client = await get_redis()
 
         # Send pause signal to all workers
         await redis_client.publish("consumer:control", json.dumps({"action": "pause"}))
-
-        await redis_client.close()
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -323,7 +310,7 @@ async def pause_consumers():
         }
 
     except Exception as e:
-        log_structured("error", "pause command error", error=str(e))
+        log_structured("error", "pause command error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -331,17 +318,10 @@ async def pause_consumers():
 async def resume_consumers():
     """Resume all consumers."""
     try:
-        redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            decode_responses=True,
-        )
+        redis_client = await get_redis()
 
         # Send resume signal to all workers
         await redis_client.publish("consumer:control", json.dumps({"action": "resume"}))
-
-        await redis_client.close()
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -350,7 +330,7 @@ async def resume_consumers():
         }
 
     except Exception as e:
-        log_structured("error", "resume command error", error=str(e))
+        log_structured("error", "resume command error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
