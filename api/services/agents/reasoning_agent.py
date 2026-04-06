@@ -89,6 +89,25 @@ class ReasoningAgent(BaseStreamConsumer):
             "info", "agent_transaction_success", trace_id=trace_id, action=summary.get("action")
         )
 
+        # Write Redis + DB heartbeat so dashboard shows this agent as ACTIVE
+        try:
+            import time as _time
+
+            await self.redis.set(
+                "agent:status:REASONING_AGENT",
+                json.dumps(
+                    {
+                        "status": "ACTIVE",
+                        "last_event": f"action={summary.get('action')} symbol={data.get('symbol')}",
+                        "event_count": 0,
+                        "last_seen": int(_time.time()),
+                    }
+                ),
+                ex=120,
+            )
+        except Exception:
+            pass
+
         await self.redis.incrby(f"llm:tokens:{today}", tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
 

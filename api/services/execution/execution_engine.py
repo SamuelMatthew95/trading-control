@@ -160,6 +160,20 @@ class ExecutionEngine(BaseStreamConsumer):
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
         entry_price = float(prior_position.get("entry_price") or fill_price)
 
+        # Retrieve the agent's confidence from agent_runs so GradeAgent gets a real value
+        confidence = 0.5
+        try:
+            async with AsyncSessionFactory() as _conf_session:
+                _conf_result = await _conf_session.execute(
+                    text("SELECT confidence FROM agent_runs WHERE trace_id = :tid LIMIT 1"),
+                    {"tid": trace_id},
+                )
+                _conf_val = _conf_result.scalar()
+                if _conf_val is not None:
+                    confidence = float(_conf_val)
+        except Exception:
+            pass  # Fall back to 0.5; best-effort only
+
         execution_payload: dict[str, Any] = {
             "type": "order_filled",
             "msg_id": str(uuid.uuid4()),
@@ -170,6 +184,7 @@ class ExecutionEngine(BaseStreamConsumer):
             "qty": qty,
             "price": price,
             "fill_price": fill_price,
+            "confidence": confidence,
             "filled_at": filled_at.isoformat(),
             "idempotency_key": idempotency_key,
             "trace_id": trace_id,

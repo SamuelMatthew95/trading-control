@@ -524,6 +524,18 @@ class ICUpdater(MultiStreamAgent):
             },
         )
 
+        # Write heartbeat so dashboard shows IC_UPDATER as ACTIVE
+        try:
+            await _write_heartbeat(
+                self.redis,
+                self._state_name,
+                f"ic_update fills={self._fills} composite_ic={composite_ic:+.3f}",
+                self._fills,
+                extra={"composite_ic": round(composite_ic, 4), "weights": weights},
+            )
+        except Exception:
+            log_structured("warning", "ic_updater_heartbeat_failed", exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # ReflectionAgent — LLM-based pattern analysis across recent fills
@@ -675,6 +687,18 @@ class ReflectionAgent(MultiStreamAgent):
             },
         )
 
+        # Write heartbeat so dashboard shows REFLECTION_AGENT as ACTIVE
+        if redis is not None:
+            try:
+                await _write_heartbeat(
+                    redis,
+                    self._state_name,
+                    f"reflection fills={self._fills} hypotheses={len(reflection_data.get('hypotheses', []))}",
+                    self._fills,
+                )
+            except Exception:
+                log_structured("warning", "reflection_heartbeat_failed", exc_info=True)
+
     def _build_prompt(self) -> str:
         recent_fills = list(self._recent_fills)[-20:]
         total_pnl = sum(float(f.get("pnl") or 0) for f in recent_fills)
@@ -804,6 +828,20 @@ class StrategyProposer(MultiStreamAgent):
             strong_hypotheses=len(strong),
             reflection_trace_id=data.get("trace_id"),
         )
+
+        # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE
+        try:
+            from api.redis_client import get_redis as _get_redis
+
+            _redis = await _get_redis()
+            await _write_heartbeat(
+                _redis,
+                self._state_name,
+                f"proposals published strong={len(strong)}/{len(hypotheses)}",
+                len(strong),
+            )
+        except Exception:
+            log_structured("warning", "strategy_proposer_heartbeat_failed", exc_info=True)
 
     def _build_proposal(
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
@@ -940,6 +978,23 @@ class NotificationAgent(MultiStreamAgent):
 
         await self.bus.publish("notifications", notification)
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
+
+        # Write heartbeat so dashboard shows NOTIFICATION_AGENT as ACTIVE
+        try:
+            await self.redis.set(
+                f"agent:status:{self._state_name}",
+                json.dumps(
+                    {
+                        "status": "ACTIVE",
+                        "last_event": f"stream={stream} event_type={event_type}",
+                        "event_count": 0,
+                        "last_seen": int(datetime.now(timezone.utc).timestamp()),
+                    }
+                ),
+                ex=120,
+            )
+        except Exception:
+            pass
 
     def _classify_severity(self, stream: str, data: dict[str, Any]) -> str:
         if explicit := data.get("severity"):
