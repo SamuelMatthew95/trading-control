@@ -267,11 +267,12 @@ class WebSocketBroadcaster:
             decoded_payload[decoded_key] = decoded_value
         return decoded_payload
 
-    def register_stream(self, stream_name: str, last_id: str = "$") -> None:
+    def register_stream(self, stream_name: str, last_id: str = "$", overwrite: bool = True) -> None:
         stream = stream_name.strip()
         if not stream:
             return
-        self._stream_offsets[stream] = last_id
+        if overwrite or stream not in self._stream_offsets:
+            self._stream_offsets[stream] = last_id
 
     @property
     def active_connections(self) -> int:

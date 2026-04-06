@@ -62,8 +62,8 @@ class MetricsAggregator:
 
             return lag_metrics
 
-        except Exception as e:
-            log_structured("error", "stream lag metrics failed", error=str(e))
+        except Exception:
+            log_structured("error", "stream lag metrics failed", exc_info=True)
             return {}
 
     async def get_system_health(self) -> dict[str, Any]:
@@ -127,7 +127,7 @@ class MetricsAggregator:
             return health
 
         except Exception as e:
-            log_structured("error", "system health computation failed", error=str(e))
+            log_structured("error", "system health computation failed", exc_info=True)
             return {
                 "overall_status": "error",
                 "error": str(e),
@@ -184,7 +184,7 @@ class MetricsAggregator:
             log_structured(
                 "warning",
                 "Trade performance table unavailable - using fallback",
-                error=str(e),
+                exc_info=True,
             )
             return {
                 "total_pnl": 0.0,
@@ -255,7 +255,7 @@ class MetricsAggregator:
             }
 
         except Exception as e:
-            log_structured("error", "agent metrics failed", error=str(e))
+            log_structured("error", "agent metrics failed", exc_info=True)
             return {
                 "active_agents": [],
                 "active_agent_count": 0,
@@ -301,7 +301,7 @@ class MetricsAggregator:
             }
 
         except Exception as e:
-            log_structured("error", "order metrics failed", error=str(e))
+            log_structured("error", "order metrics failed", exc_info=True)
             return {
                 "orders_last_hour": {},
                 "total_orders_last_hour": 0,
