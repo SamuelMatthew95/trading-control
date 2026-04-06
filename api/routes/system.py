@@ -275,7 +275,7 @@ async def stream_agent_logs(
                             last_timestamp = max(last_timestamp, log.ts)
 
         except Exception as e:
-            log_structured("error", "log stream error", error=str(e))
+            log_structured("error", "log stream error", exc_info=True)
             error_data = {
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc).isoformat(),

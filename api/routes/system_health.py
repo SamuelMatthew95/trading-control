@@ -108,7 +108,7 @@ async def get_idempotency_audit():
             }
 
     except Exception as e:
-        log_structured("error", "idempotency audit error", error=str(e))
+        log_structured("error", "idempotency audit error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -165,7 +165,7 @@ async def get_position_sync_status():
             }
 
     except Exception as e:
-        log_structured("error", "position sync error", error=str(e))
+        log_structured("error", "position sync error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -276,7 +276,7 @@ async def stream_agent_logs(
                             last_timestamp = max(last_timestamp, log.ts)
 
         except Exception as e:
-            log_structured("error", "log stream error", error=str(e))
+            log_structured("error", "log stream error", exc_info=True)
             error_data = {
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -310,7 +310,7 @@ async def pause_consumers():
         }
 
     except Exception as e:
-        log_structured("error", "pause command error", error=str(e))
+        log_structured("error", "pause command error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -330,7 +330,7 @@ async def resume_consumers():
         }
 
     except Exception as e:
-        log_structured("error", "resume command error", error=str(e))
+        log_structured("error", "resume command error", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 

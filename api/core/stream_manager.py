@@ -89,7 +89,7 @@ class StreamManager:
         for stream in self.handler_registry.keys():
             try:
                 await self.redis_client.xgroup_create(
-                    stream, self.consumer_group, id="0", mkstream=True
+                    stream, self.consumer_group, "0", mkstream=True
                 )
             except redis.ResponseError as e:
                 if "BUSYGROUP" not in str(e):
