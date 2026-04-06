@@ -125,8 +125,11 @@ async def dashboard_ws(websocket: WebSocket) -> None:
         return
 
     await broadcaster.add_connection(websocket)
+    # Register any streams not yet tracked. overwrite=False preserves the
+    # broadcaster's existing read position — resetting to "$" on every new
+    # client connection would cause the broadcaster to skip in-flight messages.
     for stream in STREAMS:
-        register_result = broadcaster.register_stream(stream, "$")
+        register_result = broadcaster.register_stream(stream, "$", overwrite=False)
         if inspect.isawaitable(register_result):
             await register_result
     try:

@@ -582,8 +582,30 @@ export function DashboardView({ section }: { section: Section }) {
   const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
   const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
 
-  // Prices arrive via the WS dashboard_update snapshot on connect — no REST call needed
+  // Prices arrive via the WS dashboard_update snapshot on connect.
+  // Also fetch via REST immediately so price cards populate even before WS connects.
   const pricesLoading = Object.keys(prices).length === 0
+
+  // Fetch initial dashboard state via REST as a fallback for when WebSocket is
+  // slow to connect. WS data takes precedence once connected.
+  useEffect(() => {
+    const fetchInitialState = async () => {
+      try {
+        const r = await fetch(api('/dashboard/state'))
+        if (!r.ok) return
+        const d = await r.json()
+        useCodexStore.getState().hydrateDashboard(d)
+      } catch {
+        // non-fatal — WebSocket will provide data once connected
+      }
+    }
+    fetchInitialState()
+  }, [])
+
+  // Fetch prices via REST immediately on mount (fallback if WS snapshot is slow)
+  useEffect(() => {
+    useCodexStore.getState().fetchPrices()
+  }, [])
 
   // Fetch learning data (proposals, IC weights, grades) on mount and every 30s
   useEffect(() => {

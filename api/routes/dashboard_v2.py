@@ -55,6 +55,45 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
+@router.get("/state")
+async def get_dashboard_state() -> dict[str, Any]:
+    """
+    Get raw dashboard state in the format the frontend expects.
+
+    Returns orders[], positions[], agent_logs[] — same shape as the WebSocket
+    dashboard_update snapshot so the UI can hydrate via REST when the WebSocket
+    is slow to connect or unavailable.
+    """
+    try:
+        redis_client = await get_redis()
+        async with AsyncSessionFactory() as session:
+            aggregator = MetricsAggregator(session)
+            data = await aggregator.get_raw_snapshot()
+
+        # Enrich with current prices from Redis cache
+        symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
+        keys = [f"prices:{s}" for s in symbols]
+        try:
+            cached_values = await redis_client.mget(keys)
+            prices: dict[str, Any] = {}
+            for symbol, raw in zip(symbols, cached_values, strict=False):
+                if raw:
+                    try:
+                        prices[symbol] = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if prices:
+                data["prices"] = prices
+        except Exception:
+            log_structured("warning", "dashboard_state_prices_failed", exc_info=True)
+
+        return data
+
+    except Exception:
+        log_structured("error", "dashboard state failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
 @router.get("/stream-lag")
 async def get_stream_lag() -> dict[str, Any]:
     """Get stream lag metrics per stream."""
