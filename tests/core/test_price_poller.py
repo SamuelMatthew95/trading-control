@@ -203,6 +203,66 @@ async def test_publish_to_redis_adds_to_market_events_stream(redis):
     assert stream_len >= 1
 
 
+async def test_publish_to_redis_market_events_has_msg_id(redis):
+    """Every market_events entry must carry msg_id so BaseStreamConsumer never raises."""
+    payloads = [
+        {
+            "symbol": "BTC/USD",
+            "price": 60000.0,
+            "change": 0.0,
+            "pct": 0.0,
+            "ts": 1,
+            "trace_id": "t-msg-id",
+        }
+    ]
+    await publish_to_redis(redis, payloads)
+    messages = await redis.xread({"market_events": "0-0"}, count=10)
+    assert messages, "Expected at least one message in market_events"
+    _stream_name, entries = messages[0]
+    _redis_id, fields = entries[0]
+    assert "msg_id" in fields, "msg_id must be present in market_events xadd payload"
+    assert fields["msg_id"]  # non-empty
+
+
+async def test_publish_to_redis_market_events_has_schema_version(redis):
+    """Every market_events entry must carry schema_version='v3'."""
+    payloads = [
+        {
+            "symbol": "ETH/USD",
+            "price": 3000.0,
+            "change": 0.0,
+            "pct": 0.0,
+            "ts": 1,
+            "trace_id": "t-sv",
+        }
+    ]
+    await publish_to_redis(redis, payloads)
+    messages = await redis.xread({"market_events": "0-0"}, count=10)
+    _stream_name, entries = messages[0]
+    _redis_id, fields = entries[0]
+    assert fields.get("schema_version") == "v3"
+
+
+async def test_publish_to_redis_msg_ids_are_unique_per_symbol(redis):
+    """Each symbol tick must get its own unique msg_id."""
+    payloads = [
+        {
+            "symbol": "BTC/USD",
+            "price": 60000.0,
+            "change": 0.0,
+            "pct": 0.0,
+            "ts": 1,
+            "trace_id": "a",
+        },
+        {"symbol": "ETH/USD", "price": 3000.0, "change": 0.0, "pct": 0.0, "ts": 1, "trace_id": "b"},
+    ]
+    await publish_to_redis(redis, payloads)
+    messages = await redis.xread({"market_events": "0-0"}, count=10)
+    _stream_name, entries = messages[0]
+    msg_ids = [fields["msg_id"] for _rid, fields in entries]
+    assert len(set(msg_ids)) == len(msg_ids), "Each tick should have a unique msg_id"
+
+
 async def test_publish_to_redis_multiple_symbols(redis):
     payloads = [
         {

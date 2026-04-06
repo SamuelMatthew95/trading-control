@@ -126,12 +126,15 @@ class ReasoningAgent(BaseStreamConsumer):
 
         action = summary.get("action", "").lower()
         if action not in NO_ORDER_ACTIONS:
+            # strategy_id must be a non-empty UUID; fall back to a generated one if the
+            # upstream signal didn't carry one (signals from SignalGenerator don't include it).
+            strategy_id = str(data.get("strategy_id") or uuid.uuid4())
             await self.bus.publish(
                 "orders",
                 {
                     "msg_id": str(uuid.uuid4()),
                     "source": "reasoning",
-                    "strategy_id": data.get("strategy_id"),
+                    "strategy_id": strategy_id,
                     "symbol": data.get("symbol"),
                     "side": action,
                     "qty": max(float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))),

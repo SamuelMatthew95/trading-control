@@ -46,12 +46,13 @@ class ExecutionEngine(BaseStreamConsumer):
             raise RuntimeError("KillSwitchActive")
 
         # Validate required fields before any DB/broker interaction
-        missing = [f for f in ("strategy_id", "symbol", "side", "qty", "price") if not data.get(f)]
+        missing = [f for f in ("symbol", "side", "qty", "price") if not data.get(f)]
         if missing:
             log_structured("warning", "order_missing_required_fields", missing=missing)
             return
 
-        strategy_id = str(data["strategy_id"])
+        # strategy_id is required by the DB; fall back to a generated UUID if absent
+        strategy_id = str(data.get("strategy_id") or uuid.uuid4())
         symbol = str(data["symbol"])
         side = str(data["side"]).lower()
         try:

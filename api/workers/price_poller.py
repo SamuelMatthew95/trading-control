@@ -135,9 +135,11 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
         pipe.xadd(
             "market_events",
             {
+                "msg_id": str(uuid.uuid4()),
+                "schema_version": "v3",
                 "payload": json.dumps(
                     {k: p[k] for k in ("symbol", "price", "change", "pct", "ts", "trace_id")}
-                )
+                ),
             },
         )
         pipe.publish(
@@ -220,12 +222,6 @@ async def poll_prices() -> None:
     )
 
     redis_client = await get_redis()
-
-    try:
-        await redis_client.xgroup_create("market_events", "workers", "$", mkstream=True)
-    except Exception as exc:
-        if "BUSYGROUP" not in str(exc):
-            log_structured("error", "failed_to_create_consumer_group", exc_info=True)
 
     log_structured(
         "info", "price_poller_started", symbols=len(ALL_SYMBOLS), interval_secs=_POLL_INTERVAL
