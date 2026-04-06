@@ -379,7 +379,9 @@ class ExecutionEngine(BaseStreamConsumer):
             return datetime.now(timezone.utc)
         if isinstance(value, datetime):
             return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        parsed = datetime.fromisoformat(str(value))
+        # Python 3.10 fromisoformat does not accept the 'Z' suffix; normalise first.
+        s = str(value).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(s)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
     async def _upsert_position(

@@ -423,7 +423,7 @@ async def get_worker_heartbeats(redis_client) -> dict[str, Any]:
         for worker_id, data in heartbeat_data.items():
             try:
                 parsed = json.loads(data)
-                last_seen = datetime.fromisoformat(parsed["last_seen"])
+                last_seen = datetime.fromisoformat(parsed["last_seen"].replace("Z", "+00:00"))
                 age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
 
                 heartbeats[worker_id] = {
