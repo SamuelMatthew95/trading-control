@@ -86,6 +86,7 @@ type PersistedHistoryItem = {
 const TRACKED_AGENTS = [
   'SIGNAL_AGENT',
   'REASONING_AGENT',
+  'EXECUTION_ENGINE',
   'GRADE_AGENT',
   'IC_UPDATER',
   'REFLECTION_AGENT',
