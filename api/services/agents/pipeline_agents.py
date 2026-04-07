@@ -8,7 +8,6 @@ and the poll loop in ``base``.
 from __future__ import annotations
 
 import json
-import time as _time
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -20,17 +19,17 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_GRADE,
-    AGENT_HEARTBEAT_TTL_SECONDS,
     AGENT_IC_UPDATER,
     AGENT_NOTIFICATION,
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
-    REDIS_AGENT_STATUS_KEY,
+    LogType,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import (
@@ -48,46 +47,6 @@ from api.services.agents.scoring import (
     score_to_grade,
     spearman_correlation,
 )
-
-
-async def _write_heartbeat(
-    redis: Redis,
-    agent_name: str,
-    last_event: str,
-    event_count: int,
-    extra: dict[str, Any] | None = None,
-) -> None:
-    payload: dict[str, Any] = {
-        "status": "ACTIVE",
-        "last_event": last_event,
-        "event_count": event_count,
-        "last_seen": int(_time.time()),
-    }
-    if extra:
-        payload.update(extra)
-    await redis.set(
-        REDIS_AGENT_STATUS_KEY.format(name=agent_name),
-        json.dumps(payload),
-        ex=AGENT_HEARTBEAT_TTL_SECONDS,
-    )
-    async with AsyncSessionFactory() as session:
-        async with session.begin():
-            await session.execute(
-                text("""
-                    INSERT INTO agent_heartbeats
-                        (agent_name, status, last_event, event_count, last_seen)
-                    VALUES (:name, 'ACTIVE', :last_event, :count, NOW())
-                    ON CONFLICT (agent_name) DO UPDATE SET
-                        status='ACTIVE', last_event=EXCLUDED.last_event,
-                        event_count=EXCLUDED.event_count, last_seen=NOW()
-                """),
-                {
-                    "name": agent_name,
-                    "last_event": last_event,
-                    "count": event_count,
-                },
-            )
-
 
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
@@ -181,7 +140,7 @@ class GradeAgent(MultiStreamAgent):
         await self.bus.publish("agent_grades", payload)
         log_structured("info", "grade_computed", grade=grade, score=score, fills=self._fills, ic=ic)
 
-        await write_agent_log(trace_id, "grade", payload)
+        await write_agent_log(trace_id, LogType.GRADE, payload)
         await write_grade_to_db(trace_id, payload["score_pct"], payload["metrics"])
         await self._take_grade_action(grade, payload)
 
@@ -681,7 +640,7 @@ class ReflectionAgent(MultiStreamAgent):
         }
 
         await self.bus.publish("reflection_outputs", reflection_payload)
-        await write_agent_log(trace_id, "reflection", reflection_payload)
+        await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
         await self.bus.publish(
             "notifications",
             {

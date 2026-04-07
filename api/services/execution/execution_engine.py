@@ -13,8 +13,6 @@ from sqlalchemy import text
 
 from api.constants import (
     AGENT_EXECUTION,
-    AGENT_HEARTBEAT_TTL_SECONDS,
-    REDIS_AGENT_STATUS_KEY,
     OrderSide,
     PositionSide,
 )
@@ -23,6 +21,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
@@ -297,24 +296,15 @@ class ExecutionEngine(BaseStreamConsumer):
         if self.agent_state:
             self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
 
-        # Write Redis heartbeat so dashboard shows EXECUTION_ENGINE as ACTIVE
+        # Write Redis + Postgres heartbeat so dashboard shows EXECUTION_ENGINE as ACTIVE
         try:
-            import time as _time
-
-            await self.redis.set(
-                REDIS_AGENT_STATUS_KEY.format(name=_STATE_NAME),
-                json.dumps(
-                    {
-                        "status": "ACTIVE",
-                        "last_event": f"order_filled:{symbol} side={side} fill_price={fill_price}",
-                        "event_count": 0,
-                        "last_seen": int(_time.time()),
-                    }
-                ),
-                ex=AGENT_HEARTBEAT_TTL_SECONDS,
+            await _write_heartbeat(
+                self.redis,
+                _STATE_NAME,
+                f"order_filled:{symbol} side={side} fill_price={fill_price}",
             )
         except Exception:
-            pass
+            log_structured("warning", "execution_heartbeat_failed", exc_info=True)
 
     def _compute_realized_pnl(
         self,

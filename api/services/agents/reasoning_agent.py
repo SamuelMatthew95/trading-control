@@ -11,10 +11,8 @@ from sqlalchemy import text
 
 from api.config import settings
 from api.constants import (
-    AGENT_HEARTBEAT_TTL_SECONDS,
     AGENT_REASONING,
     NO_ORDER_ACTIONS,
-    REDIS_AGENT_STATUS_KEY,
     AgentAction,
 )
 from api.database import AsyncSessionFactory
@@ -22,6 +20,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
 from api.services.agents.vector_helpers import (
     build_vector_literal,
@@ -95,24 +94,15 @@ class ReasoningAgent(BaseStreamConsumer):
             "info", "agent_transaction_success", trace_id=trace_id, action=summary.get("action")
         )
 
-        # Write Redis + DB heartbeat so dashboard shows this agent as ACTIVE
+        # Write Redis + Postgres heartbeat so dashboard shows this agent as ACTIVE
         try:
-            import time as _time
-
-            await self.redis.set(
-                REDIS_AGENT_STATUS_KEY.format(name=AGENT_REASONING),
-                json.dumps(
-                    {
-                        "status": "ACTIVE",
-                        "last_event": f"action={summary.get('action')} symbol={data.get('symbol')}",
-                        "event_count": 0,
-                        "last_seen": int(_time.time()),
-                    }
-                ),
-                ex=AGENT_HEARTBEAT_TTL_SECONDS,
+            await _write_heartbeat(
+                self.redis,
+                AGENT_REASONING,
+                f"action={summary.get('action')} symbol={data.get('symbol')}",
             )
         except Exception:
-            pass
+            log_structured("warning", "reasoning_heartbeat_failed", exc_info=True)
 
         await self.redis.incrby(f"llm:tokens:{today}", tokens_used)
         await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)

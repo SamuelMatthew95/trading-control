@@ -519,7 +519,7 @@ export const useCodexStore = create<CodexState>((set) => ({
 
       if (data.trade_feed && Array.isArray(data.trade_feed)) {
         const existingTfIds = new Set(currentState.tradeFeed.map((t) => t.id))
-        const newTrades = data.trade_feed.filter((t) => !existingTfIds.has(t.id))
+        const newTrades = data.trade_feed.filter((t) => t?.id != null && !existingTfIds.has(t.id))
         if (newTrades.length > 0) {
           updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
         }
