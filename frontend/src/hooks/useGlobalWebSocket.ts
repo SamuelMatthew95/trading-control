@@ -140,13 +140,29 @@ class WebSocketManager {
   // --- Private methods ---
   private _getWsUrl(): string {
     if (typeof window === 'undefined') return ''
+
+    // 1. Explicit WS URL env var — always wins.
     const envUrl = process.env.NEXT_PUBLIC_WS_URL
     if (envUrl) {
-      // Convert http(s) base URLs to ws(s) so browsers accept them as WebSocket endpoints.
       const wsBase = envUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/$/, '')
       return `${wsBase}/ws/dashboard`
     }
-    // Same-origin: derive ws(s) from current page protocol.
+
+    // 2. Derive from the API base URL — handles the common case where only
+    //    NEXT_PUBLIC_API_URL is set. Strip any trailing /api path segment so
+    //    we end up at the service root (where /ws/dashboard lives).
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL
+    if (apiUrl && /^https?:\/\//.test(apiUrl)) {
+      const wsBase = apiUrl
+        .replace(/\/api\/?$/, '')          // strip trailing /api
+        .replace(/^https:\/\//, 'wss://')
+        .replace(/^http:\/\//, 'ws://')
+        .replace(/\/$/, '')
+      return `${wsBase}/ws/dashboard`
+    }
+
+    // 3. Same-origin fallback — only correct in local development where the
+    //    Next.js dev server proxies /ws/dashboard to the backend.
     const { protocol, host } = window.location
     const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
     return `${wsProtocol}//${host}/ws/dashboard`

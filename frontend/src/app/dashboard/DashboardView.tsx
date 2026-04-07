@@ -578,34 +578,48 @@ export function DashboardView({ section }: { section: Section }) {
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [icWeights, setIcWeights] = useState<Record<string, number>>({})
   const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
+  // Track whether we have attempted a price fetch so we stop showing skeleton
+  // loaders even when the price poller hasn't populated Redis yet.
+  const [pricesFetched, setPricesFetched] = useState(false)
   const [persistedCounts, setPersistedCounts] = useState<PersistedStreamCount[]>([])
   const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
   const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
 
-  // Prices arrive via the WS dashboard_update snapshot on connect.
-  // Also fetch via REST immediately so price cards populate even before WS connects.
-  const pricesLoading = Object.keys(prices).length === 0
+  // Show skeletons only on the very first render before we've attempted a fetch.
+  // Once we've tried (success or failure) show real cards so the UI doesn't
+  // get stuck in skeleton mode when the price poller hasn't run yet.
+  const pricesLoading = !pricesFetched && Object.keys(prices).length === 0
 
-  // Fetch initial dashboard state via REST as a fallback for when WebSocket is
-  // slow to connect. WS data takes precedence once connected.
+  // ── REST fallback data fetching ──────────────────────────────────────────
+  // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
+  // connected. Stops as soon as wsConnected flips to true (WS takes over).
+  // This is the primary defence against Render cold-starts, misconfigured WS
+  // URL env vars, and any brief network hiccup on first load.
   useEffect(() => {
-    const fetchInitialState = async () => {
+    const fetchState = async () => {
       try {
         const r = await fetch(api('/dashboard/state'))
-        if (!r.ok) return
-        const d = await r.json()
-        useCodexStore.getState().hydrateDashboard(d)
-      } catch {
-        // non-fatal — WebSocket will provide data once connected
-      }
+        if (r.ok) useCodexStore.getState().hydrateDashboard(await r.json())
+      } catch { /* non-fatal */ }
     }
-    fetchInitialState()
-  }, [])
+    const fetchPricesOnce = async () => {
+      await useCodexStore.getState().fetchPrices()
+      setPricesFetched(true)
+    }
 
-  // Fetch prices via REST immediately on mount (fallback if WS snapshot is slow)
-  useEffect(() => {
-    useCodexStore.getState().fetchPrices()
-  }, [])
+    // Immediate fetch on mount — don't wait for WS
+    fetchState()
+    fetchPricesOnce()
+
+    if (wsConnected) return // WS is up — stop REST polling
+
+    // Keep retrying every 15 s until WS connects
+    const t = setInterval(() => {
+      fetchState()
+      useCodexStore.getState().fetchPrices()
+    }, 15_000)
+    return () => clearInterval(t)
+  }, [wsConnected])
 
   // Fetch learning data (proposals, IC weights, grades) on mount and every 30s
   useEffect(() => {
@@ -1341,6 +1355,40 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'system' && (
         <div className="space-y-4">
+          {/* ── Connection Diagnostics ── always visible so broken configs are obvious */}
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Connection Diagnostics</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>WebSocket</p>
+                <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-rose-500')}>
+                  {wsConnected ? '● Connected' : '● Disconnected'}
+                </p>
+                <p className="mt-1 break-all text-[10px] font-mono text-slate-400">
+                  {typeof window !== 'undefined'
+                    ? (process.env.NEXT_PUBLIC_WS_URL
+                        ? process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
+                        : process.env.NEXT_PUBLIC_API_URL
+                          ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/^https?:\/\//, 'wss://') + '/ws/dashboard'
+                          : window.location.host + '/ws/dashboard (same-origin)')
+                    : '—'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>API Base</p>
+                <p className="mt-1 break-all text-xs font-mono text-slate-700 dark:text-slate-300">
+                  {process.env.NEXT_PUBLIC_API_URL ?? '/api (fallback)'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Prices / REST</p>
+                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-500' : pricesFetched ? 'text-amber-500' : 'text-slate-400')}>
+                  {Object.keys(prices).length > 0 ? `● ${Object.keys(prices).length} symbols` : pricesFetched ? '● Fetched – poller offline?' : '● Waiting…'}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
