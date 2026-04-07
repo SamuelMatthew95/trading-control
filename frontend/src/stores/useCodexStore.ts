@@ -526,7 +526,7 @@ export const useCodexStore = create<CodexState>((set) => ({
       }
 
       if (data.agent_statuses && Array.isArray(data.agent_statuses)) {
-        updates.agentStatuses = data.agent_statuses as AgentStatus[]
+        updates.agentStatuses = data.agent_statuses as unknown as AgentStatus[]
       }
 
       return updates
