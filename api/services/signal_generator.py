@@ -91,7 +91,7 @@ class SignalGenerator(BaseStreamConsumer):
                 await session.execute(
                     text("""
                         INSERT INTO agent_runs
-                            (id, strategy_id, trace_id, input_data, 
+                            (id, strategy_id, trace_id, input_data,
                              schema_version, source, status,
                              created_at, updated_at)
                         VALUES
