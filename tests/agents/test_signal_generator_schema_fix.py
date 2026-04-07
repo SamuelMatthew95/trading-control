@@ -71,21 +71,20 @@ class TestSignalGeneratorSchemaFix:
     def test_insert_statements_use_correct_columns(self):
         """Test that INSERT statements use the correct column names."""
         # Read the source code
-        with open("api/services/signal_generator.py") as f:
+        with open("api/services/signal_generator.py", "r") as f:
             source_code = f.read()
-
+        
         # Check agent_runs INSERT statement
         assert "INSERT INTO agent_runs" in source_code, "Should have agent_runs INSERT"
-        assert "(id, strategy_id, trace_id" in source_code, (
-            "agent_runs INSERT should use strategy_id column"
-        )
+        assert "(id, strategy_id, trace_id, trigger_event," in source_code, "agent_runs INSERT should use correct columns without run_type"
         assert ":strategy_id," in source_code, "agent_runs INSERT should use strategy_id parameter"
-
-        # Check agent_grades INSERT statement
+        
+        # Check that run_type is NOT used
+        assert "run_type" not in source_code, "agent_runs INSERT should NOT use run_type column"
+        
+        # Check agent_grades INSERT statement  
         assert "INSERT INTO agent_grades" in source_code, "Should have agent_grades INSERT"
-        assert ":strategy_id," in source_code, (
-            "agent_grades INSERT should use strategy_id parameter"
-        )
+        assert ":strategy_id," in source_code, "agent_grades INSERT should use strategy_id parameter"
 
     def test_error_message_pattern_fixed(self):
         """Test that the specific error pattern is fixed."""
