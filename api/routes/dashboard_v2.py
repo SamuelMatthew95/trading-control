@@ -12,7 +12,12 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from sqlalchemy import text
 
-from api.constants import AGENT_STALE_THRESHOLD_SECONDS, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
+from api.constants import (
+    AGENT_STALE_THRESHOLD_SECONDS,
+    ALL_AGENT_NAMES,
+    REDIS_AGENT_STATUS_KEY,
+    LogType,
+)
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
@@ -781,10 +786,10 @@ async def list_proposals() -> dict[str, Any]:
         if not proposals:
             async with AsyncSessionFactory() as session:
                 result = await session.execute(
-                    text("""
+                    text(f"""
                         SELECT trace_id, payload, created_at
                         FROM agent_logs
-                        WHERE log_type = 'proposal'
+                        WHERE log_type = '{LogType.PROPOSAL}'
                         ORDER BY created_at DESC
                         LIMIT 20
                     """)
@@ -892,10 +897,10 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text("""
+                text(f"""
                     SELECT trace_id, payload, created_at
                     FROM agent_logs
-                    WHERE log_type = 'proposal'
+                    WHERE log_type = '{LogType.PROPOSAL}'
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
@@ -979,10 +984,10 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text("""
+                text(f"""
                     SELECT trace_id, payload, created_at
                     FROM agent_logs
-                    WHERE log_type = 'grade'
+                    WHERE log_type = '{LogType.GRADE}'
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
@@ -1085,10 +1090,10 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text("""
+                text(f"""
                     SELECT trace_id, payload, created_at
                     FROM agent_logs
-                    WHERE log_type = 'reflection'
+                    WHERE log_type = '{LogType.REFLECTION}'
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
@@ -1128,10 +1133,10 @@ async def update_proposal_status(
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text("""
+                text(f"""
                     UPDATE agent_logs
                     SET payload = payload || jsonb_build_object('status', :status::text)
-                    WHERE trace_id = :trace_id AND log_type = 'proposal'
+                    WHERE trace_id = :trace_id AND log_type = '{LogType.PROPOSAL}'
                     RETURNING trace_id
                 """),
                 {"trace_id": trace_id, "status": status},

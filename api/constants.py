@@ -145,6 +145,7 @@ STREAM_AGENT_LOGS: Final[str] = "agent_logs"
 # Default values
 DEFAULT_PAPER_CASH: Final[float] = 100_000.0
 ORDER_LOCK_TTL_SECONDS: Final[int] = 5
+WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key TTL
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
 TICK_INTERVAL_SECONDS: Final[float] = 0.25

@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from api.constants import LogType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
@@ -129,9 +130,9 @@ async def get_last_reflection() -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text("""
+                text(f"""
                     SELECT payload FROM agent_logs
-                    WHERE log_type = 'reflection'
+                    WHERE log_type = '{LogType.REFLECTION}'
                     ORDER BY created_at DESC
                     LIMIT 1
                 """)

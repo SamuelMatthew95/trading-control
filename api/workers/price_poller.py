@@ -28,6 +28,7 @@ from alpaca.data.requests import CryptoLatestQuoteRequest, StockLatestQuoteReque
 from sqlalchemy import text
 
 from api.config import settings
+from api.constants import WORKER_HEARTBEAT_TTL_SECONDS
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
@@ -264,7 +265,7 @@ async def poll_prices() -> None:
                 await redis_client.set(
                     "worker:heartbeat",
                     datetime.now(timezone.utc).isoformat(),
-                    ex=120,
+                    ex=WORKER_HEARTBEAT_TTL_SECONDS,
                 )
 
                 elapsed_ms = round((time.perf_counter() - cycle_start) * 1000)
