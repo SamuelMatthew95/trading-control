@@ -249,7 +249,7 @@ class SignalGenerator(BaseStreamConsumer):
                         "last_seen": int(time.time()),
                     }
                 ),
-                ex=60,
+                ex=120,
             )
 
             # Postgres heartbeat

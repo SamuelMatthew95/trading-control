@@ -66,10 +66,18 @@ async def get_dashboard_state() -> dict[str, Any]:
     is slow to connect or unavailable.
     """
     try:
-        redis_client = await get_redis()
+        # DB query first — must succeed even when Redis is unavailable
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
             data = await aggregator.get_raw_snapshot()
+
+        # Redis enrichment is best-effort: a Redis outage must not prevent
+        # the frontend from receiving its DB-backed hydration data.
+        try:
+            redis_client = await get_redis()
+        except Exception:
+            log_structured("warning", "dashboard_state_redis_unavailable", exc_info=True)
+            return data
 
         # Enrich with current prices from Redis cache
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
@@ -313,20 +321,10 @@ async def get_agents_status() -> dict[str, Any]:
     """Get agent status from Redis heartbeats."""
     try:
         redis_client = await get_redis()
-        agent_names = [
-            "SIGNAL_AGENT",
-            "REASONING_AGENT",
-            "EXECUTION_ENGINE",
-            "GRADE_AGENT",
-            "IC_UPDATER",
-            "REFLECTION_AGENT",
-            "STRATEGY_PROPOSER",
-            "NOTIFICATION_AGENT",
-        ]
         now = int(datetime.now(timezone.utc).timestamp())
         agents = []
-        for name in agent_names:
-            raw = await redis_client.get(f"agent:status:{name}")
+        for name in ALL_AGENT_NAMES:
+            raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
             if raw:
                 data = json.loads(raw)
                 last_seen = data.get("last_seen", 0)

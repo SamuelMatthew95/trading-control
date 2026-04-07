@@ -990,7 +990,7 @@ class NotificationAgent(MultiStreamAgent):
         # Write heartbeat so dashboard shows NOTIFICATION_AGENT as ACTIVE
         try:
             await self.redis.set(
-                f"agent:status:{self._state_name}",
+                REDIS_AGENT_STATUS_KEY.format(name=self._state_name),
                 json.dumps(
                     {
                         "status": "ACTIVE",
