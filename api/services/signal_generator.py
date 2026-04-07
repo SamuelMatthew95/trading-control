@@ -91,17 +91,17 @@ class SignalGenerator(BaseStreamConsumer):
                 await session.execute(
                     text("""
                         INSERT INTO agent_runs
-                            (id, agent_id, trace_id, run_type, trigger_event,
+                            (id, strategy_id, trace_id, run_type, trigger_event,
                              input_data, schema_version, source, status,
                              created_at, updated_at)
                         VALUES
-                            (:id, :agent_id, :trace_id, 'analysis', :trigger,
+                            (:id, :strategy_id, :trace_id, 'analysis', :trigger,
                              :input_data, :schema_version, :source, 'running',
                              NOW(), NOW())
                     """),
                     {
                         "id": run_id,
-                        "agent_id": agent_pool_id or None,
+                        "strategy_id": agent_pool_id or None,
                         "trace_id": trace_id,
                         "trigger": msg_id,
                         "input_data": json.dumps(payload),
@@ -173,11 +173,11 @@ class SignalGenerator(BaseStreamConsumer):
                                 (agent_id, agent_run_id, grade_type, score, metrics,
                                  trace_id, schema_version, source)
                             VALUES
-                                (:agent_id, :agent_run_id, 'accuracy', :score, CAST(:metrics AS JSONB),
+                                (:strategy_id, :agent_run_id, 'accuracy', :score, CAST(:metrics AS JSONB),
                                  :trace_id, :schema_version, :source)
                         """),
                         {
-                            "agent_id": agent_pool_id or None,
+                            "strategy_id": agent_pool_id or None,
                             "agent_run_id": run_id,
                             "score": score,
                             "metrics": json.dumps({"signal_type": signal_type, "symbol": symbol}),
