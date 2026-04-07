@@ -44,14 +44,25 @@ pytest tests/ -v --tb=short          # All tests pass
 All agent names live in `api/constants.py`. NEVER use string literals for agent names.
 
 ```python
-from api.constants import AGENT_SIGNAL, AGENT_REASONING, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
+from api.constants import (
+    AGENT_SIGNAL, AGENT_REASONING, ALL_AGENT_NAMES,
+    REDIS_AGENT_STATUS_KEY,
+    AGENT_HEARTBEAT_TTL_SECONDS,   # Redis key TTL — 300s (5 min)
+    AGENT_STALE_THRESHOLD_SECONDS, # Show STALE if last_seen > 120s
+)
 # Agents write heartbeat:
-await redis.set(REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL), ...)
+await redis.set(REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL), ..., ex=AGENT_HEARTBEAT_TTL_SECONDS)
 # Dashboard reads:
 keys = [REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES]
+# Dashboard stale check:
+status = "STALE" if age > AGENT_STALE_THRESHOLD_SECONDS else data["status"]
 ```
 
 Names are SCREAMING_SNAKE_CASE (`SIGNAL_AGENT`, not `SignalGenerator`).
+
+### Heartbeat timing invariant
+`AGENT_HEARTBEAT_TTL_SECONDS` > `AGENT_STALE_THRESHOLD_SECONDS` always — otherwise a slow-but-running
+agent expires before the dashboard can ever show it as STALE (goes straight to "offline").
 
 ## Data Fetch Pipeline (PostgreSQL → API → Frontend)
 How the dashboard is hydrated on load / reconnect:

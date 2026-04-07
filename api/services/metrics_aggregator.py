@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..constants import LogType
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 
@@ -504,11 +505,16 @@ class MetricsAggregator:
             # Recent proposals from agent_logs
             proposals: list[dict[str, Any]] = []
             try:
+                # Guard: only query log_type column if it exists in this schema
+                if "log_type" not in available_columns or "payload" not in available_columns:
+                    raise RuntimeError(
+                        "agent_logs missing log_type/payload columns — skipping proposals"
+                    )
                 proposals_result = await self.session.execute(
-                    text("""
+                    text(f"""
                         SELECT trace_id, payload, created_at
                         FROM agent_logs
-                        WHERE log_type = 'proposal'
+                        WHERE log_type = '{LogType.PROPOSAL}'
                         ORDER BY created_at DESC
                         LIMIT 20
                     """)

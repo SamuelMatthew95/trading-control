@@ -11,7 +11,13 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
-from api.constants import AGENT_EXECUTION, REDIS_AGENT_STATUS_KEY, OrderSide, PositionSide
+from api.constants import (
+    AGENT_EXECUTION,
+    AGENT_HEARTBEAT_TTL_SECONDS,
+    REDIS_AGENT_STATUS_KEY,
+    OrderSide,
+    PositionSide,
+)
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -305,7 +311,7 @@ class ExecutionEngine(BaseStreamConsumer):
                         "last_seen": int(_time.time()),
                     }
                 ),
-                ex=120,
+                ex=AGENT_HEARTBEAT_TTL_SECONDS,
             )
         except Exception:
             pass

@@ -20,6 +20,7 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_GRADE,
+    AGENT_HEARTBEAT_TTL_SECONDS,
     AGENT_IC_UPDATER,
     AGENT_NOTIFICATION,
     AGENT_REFLECTION,
@@ -67,7 +68,7 @@ async def _write_heartbeat(
     await redis.set(
         REDIS_AGENT_STATUS_KEY.format(name=agent_name),
         json.dumps(payload),
-        ex=60,
+        ex=AGENT_HEARTBEAT_TTL_SECONDS,
     )
     async with AsyncSessionFactory() as session:
         async with session.begin():
@@ -989,20 +990,14 @@ class NotificationAgent(MultiStreamAgent):
 
         # Write heartbeat so dashboard shows NOTIFICATION_AGENT as ACTIVE
         try:
-            await self.redis.set(
-                REDIS_AGENT_STATUS_KEY.format(name=self._state_name),
-                json.dumps(
-                    {
-                        "status": "ACTIVE",
-                        "last_event": f"stream={stream} event_type={event_type}",
-                        "event_count": 0,
-                        "last_seen": int(datetime.now(timezone.utc).timestamp()),
-                    }
-                ),
-                ex=120,
+            await _write_heartbeat(
+                self.redis,
+                self._state_name,
+                f"stream={stream} event_type={event_type}",
+                0,
             )
         except Exception:
-            pass
+            log_structured("warning", "notification_heartbeat_failed", exc_info=True)
 
     def _classify_severity(self, stream: str, data: dict[str, Any]) -> str:
         if explicit := data.get("severity"):

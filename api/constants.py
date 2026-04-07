@@ -111,6 +111,15 @@ ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
 
+# How long an agent heartbeat key lives in Redis after the last write.
+# Must be > AGENT_STALE_THRESHOLD_SECONDS so a slow-but-running agent
+# never flips to "offline" before it first appears as "STALE".
+AGENT_HEARTBEAT_TTL_SECONDS: Final[int] = 300  # 5 minutes
+
+# If an agent's last_seen is older than this, mark it STALE on the dashboard.
+# Keep well below AGENT_HEARTBEAT_TTL_SECONDS so "STALE" is reachable.
+AGENT_STALE_THRESHOLD_SECONDS: Final[int] = 120  # 2 minutes
+
 # ---------------------------------------------------------------------------
 # Redis key patterns
 REDIS_KEY_PAPER_CASH: Final[str] = "paper:cash"

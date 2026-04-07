@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import AGENT_SIGNAL, REDIS_AGENT_STATUS_KEY
+from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, AGENT_SIGNAL, REDIS_AGENT_STATUS_KEY
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -249,7 +249,7 @@ class SignalGenerator(BaseStreamConsumer):
                         "last_seen": int(time.time()),
                     }
                 ),
-                ex=120,
+                ex=AGENT_HEARTBEAT_TTL_SECONDS,
             )
 
             # Postgres heartbeat

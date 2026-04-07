@@ -10,7 +10,13 @@ from typing import Any
 from sqlalchemy import text
 
 from api.config import settings
-from api.constants import AGENT_REASONING, NO_ORDER_ACTIONS, REDIS_AGENT_STATUS_KEY, AgentAction
+from api.constants import (
+    AGENT_HEARTBEAT_TTL_SECONDS,
+    AGENT_REASONING,
+    NO_ORDER_ACTIONS,
+    REDIS_AGENT_STATUS_KEY,
+    AgentAction,
+)
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -103,7 +109,7 @@ class ReasoningAgent(BaseStreamConsumer):
                         "last_seen": int(_time.time()),
                     }
                 ),
-                ex=120,
+                ex=AGENT_HEARTBEAT_TTL_SECONDS,
             )
         except Exception:
             pass

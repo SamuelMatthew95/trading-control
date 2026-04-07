@@ -166,6 +166,8 @@ class TestRawSnapshotDataSources:
                     _Row(column_name="id", udt_name="uuid"),
                     _Row(column_name="trace_id", udt_name="text"),
                     _Row(column_name="source", udt_name="text"),
+                    _Row(column_name="log_type", udt_name="text"),  # required for proposals guard
+                    _Row(column_name="payload", udt_name="jsonb"),  # required for proposals guard
                     _Row(column_name="created_at", udt_name="timestamptz"),
                 ],
                 [],  # agent_logs (general)
@@ -211,6 +213,7 @@ class TestRawSnapshotDataSources:
             ts,  # created_at
         ]
 
+        # No log_type in columns → proposals guard skips execute(), no proposals slot needed
         session = _FakeSession(
             [
                 [],  # orders
@@ -223,7 +226,7 @@ class TestRawSnapshotDataSources:
                 ],
                 [],  # agent_logs
                 [],  # agent_grades
-                [],  # proposals
+                # proposals: skipped (no log_type column) — no queue slot consumed
                 [trade_row],  # trade_lifecycle  <-- the row we care about
             ]
         )
@@ -324,6 +327,8 @@ class TestRawSnapshotDataSources:
                 [],
                 [
                     _Row(column_name="id", udt_name="uuid"),
+                    _Row(column_name="log_type", udt_name="text"),  # guard requires this
+                    _Row(column_name="payload", udt_name="jsonb"),  # guard requires this
                     _Row(column_name="created_at", udt_name="timestamptz"),
                 ],
                 [],

@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from api.constants import ALL_AGENT_NAMES
+from api.constants import AGENT_STALE_THRESHOLD_SECONDS, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
 from api.observability import log_structured
 
 _AGENT_NAMES = ALL_AGENT_NAMES
@@ -156,12 +156,16 @@ class WebSocketBroadcaster:
                 now = int(datetime.now(timezone.utc).timestamp())
                 agents = []
                 for name in _AGENT_NAMES:
-                    raw = await self._redis_client.get(f"agent:status:{name}")
+                    raw = await self._redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
                     if raw:
                         data = json.loads(raw)
                         last_seen = data.get("last_seen", 0)
                         age = now - last_seen
-                        status = "STALE" if age > 120 else data.get("status", "ACTIVE")
+                        status = (
+                            "STALE"
+                            if age > AGENT_STALE_THRESHOLD_SECONDS
+                            else data.get("status", "ACTIVE")
+                        )
                         agents.append(
                             {
                                 "name": name,
