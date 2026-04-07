@@ -40,6 +40,37 @@ ruff check . --select=E9,F63,F7,F82   # Critical errors
 pytest tests/ -v --tb=short          # All tests pass
 ```
 
+## Agent Name Constants (CRITICAL — Prevents Dashboard Bugs)
+All agent names live in `api/constants.py`. NEVER use string literals for agent names.
+
+```python
+from api.constants import AGENT_SIGNAL, AGENT_REASONING, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
+# Agents write heartbeat:
+await redis.set(REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL), ...)
+# Dashboard reads:
+keys = [REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES]
+```
+
+Names are SCREAMING_SNAKE_CASE (`SIGNAL_AGENT`, not `SignalGenerator`).
+
+## Data Fetch Pipeline (PostgreSQL → API → Frontend)
+How the dashboard is hydrated on load / reconnect:
+
+| Data | Source Table | API Layer |
+|------|-------------|-----------|
+| `orders` | `orders` ORM | `MetricsAggregator.get_raw_snapshot()` |
+| `positions` | `positions` ORM | `MetricsAggregator.get_raw_snapshot()` |
+| `agent_logs` | `agent_logs` (schema-detected) | `MetricsAggregator.get_raw_snapshot()` |
+| `learning_events` | `agent_grades` | `MetricsAggregator.get_raw_snapshot()` |
+| `proposals` | `agent_logs WHERE log_type='proposal'` | `MetricsAggregator.get_raw_snapshot()` |
+| `trade_feed` | `trade_lifecycle` | `MetricsAggregator.get_raw_snapshot()` |
+| `agent_statuses` | Redis `agent:status:{AGENT_NAME}` | `/dashboard/state` enrichment |
+| `ic_weights` | Redis `alpha:ic_weights` | `/dashboard/state` enrichment |
+| `prices` | Redis `prices:{symbol}` | `/dashboard/state` enrichment |
+
+REST hydration endpoint: `GET /dashboard/state`
+Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_agent_constants.py`
+
 ## Additional Rules (Always Loaded)
 @./.claude/rules/memory-trading.md     # Alpaca trading specifics
 @./.claude/rules/memory-agents.md      # Agent hand-off protocols  
