@@ -467,12 +467,119 @@ class MetricsAggregator:
                 for row in logs_result
             ]
 
+            # Recent learning events from agent_grades (last 20)
+            learning_events: list[dict[str, Any]] = []
+            try:
+                grades_result = await self.session.execute(
+                    text("""
+                        SELECT trace_id, grade_type, score, metrics, created_at
+                        FROM agent_grades
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
+                )
+                for row in grades_result:
+                    metrics_val = row[3]
+                    if isinstance(metrics_val, str):
+                        import json as _json
+                        try:
+                            metrics_val = _json.loads(metrics_val)
+                        except Exception:
+                            metrics_val = {}
+                    learning_events.append({
+                        "id": _safe_str(row[0]),
+                        "type": "trade_evaluated",
+                        "grade_type": _safe_str(row[1]) or "pipeline",
+                        "score": _safe_float(row[2]),
+                        "score_pct": round(_safe_float(row[2]) * 100, 2),
+                        "metrics": metrics_val or {},
+                        "timestamp": row[4].isoformat() if row[4] else None,
+                    })
+            except Exception:
+                log_structured("warning", "raw_snapshot_grades_failed", exc_info=True)
+
+            # Recent proposals from agent_logs
+            proposals: list[dict[str, Any]] = []
+            try:
+                proposals_result = await self.session.execute(
+                    text("""
+                        SELECT trace_id, payload, created_at
+                        FROM agent_logs
+                        WHERE log_type = 'proposal'
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
+                )
+                for row in proposals_result:
+                    p = row[1]
+                    if isinstance(p, str):
+                        import json as _json
+                        try:
+                            p = _json.loads(p)
+                        except Exception:
+                            p = {}
+                    if not isinstance(p, dict):
+                        p = {}
+                    proposals.append({
+                        "id": _safe_str(row[0]) or _safe_str(p.get("msg_id")),
+                        "proposal_type": _safe_str(p.get("proposal_type")) or "parameter_change",
+                        "content": _safe_str(p.get("content") or p.get("description") or ""),
+                        "requires_approval": bool(p.get("requires_approval", True)),
+                        "confidence": _safe_float(p.get("confidence")) or None,
+                        "reflection_trace_id": _safe_str(p.get("reflection_trace_id")),
+                        "status": _safe_str(p.get("status")) or "pending",
+                        "timestamp": row[2].isoformat() if row[2] else None,
+                    })
+            except Exception:
+                log_structured("warning", "raw_snapshot_proposals_failed", exc_info=True)
+
+            # Recent trade lifecycle (last 20)
+            trade_feed: list[dict[str, Any]] = []
+            try:
+                tl_result = await self.session.execute(
+                    text("""
+                        SELECT
+                            id, symbol, side, qty, entry_price, exit_price,
+                            pnl, pnl_percent, grade, grade_score, grade_label,
+                            status, filled_at, graded_at, execution_trace_id,
+                            signal_trace_id, order_id, created_at
+                        FROM trade_lifecycle
+                        ORDER BY created_at DESC
+                        LIMIT 20
+                    """)
+                )
+                for row in tl_result:
+                    trade_feed.append({
+                        "id": _safe_str(row[0]),
+                        "symbol": _safe_str(row[1]) or "",
+                        "side": _safe_str(row[2]) or "buy",
+                        "qty": _safe_float(row[3]) or None,
+                        "entry_price": _safe_float(row[4]) or None,
+                        "exit_price": _safe_float(row[5]) or None,
+                        "pnl": _safe_float(row[6]) or None,
+                        "pnl_percent": _safe_float(row[7]) or None,
+                        "grade": _safe_str(row[8]),
+                        "grade_score": _safe_float(row[9]) or None,
+                        "grade_label": _safe_str(row[10]),
+                        "status": _safe_str(row[11]) or "filled",
+                        "filled_at": row[12].isoformat() if row[12] else None,
+                        "graded_at": row[13].isoformat() if row[13] else None,
+                        "execution_trace_id": _safe_str(row[14]),
+                        "signal_trace_id": _safe_str(row[15]),
+                        "order_id": _safe_str(row[16]),
+                        "created_at": row[17].isoformat() if row[17] else None,
+                    })
+            except Exception:
+                log_structured("warning", "raw_snapshot_trade_feed_failed", exc_info=True)
+
             return {
                 "orders": orders,
                 "positions": positions,
                 "agent_logs": agent_logs,
+                "learning_events": learning_events,
+                "proposals": proposals,
+                "trade_feed": trade_feed,
                 "signals": [],
-                "learning_events": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -483,8 +590,10 @@ class MetricsAggregator:
                 "orders": [],
                 "positions": [],
                 "agent_logs": [],
-                "signals": [],
                 "learning_events": [],
+                "proposals": [],
+                "trade_feed": [],
+                "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }

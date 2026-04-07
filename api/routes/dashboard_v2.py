@@ -87,6 +87,37 @@ async def get_dashboard_state() -> dict[str, Any]:
         except Exception:
             log_structured("warning", "dashboard_state_prices_failed", exc_info=True)
 
+        # Enrich with IC weights from Redis
+        try:
+            raw_weights = await redis_client.get("alpha:ic_weights")
+            if raw_weights:
+                data["ic_weights"] = json.loads(raw_weights)
+        except Exception:
+            log_structured("warning", "dashboard_state_ic_weights_failed", exc_info=True)
+
+        # Enrich with agent heartbeats from Redis
+        try:
+            agent_names = [
+                "SignalGenerator", "ReasoningAgent", "ExecutionEngine",
+                "GradeAgent", "ICUpdater", "ReflectionAgent",
+                "StrategyProposer", "NotificationAgent",
+            ]
+            agent_keys = [f"agent:status:{n}" for n in agent_names]
+            agent_values = await redis_client.mget(agent_keys)
+            agent_statuses: list[dict[str, Any]] = []
+            for name, raw in zip(agent_names, agent_values, strict=False):
+                if raw:
+                    try:
+                        status = json.loads(raw)
+                        agent_statuses.append({"name": name, **status})
+                    except (json.JSONDecodeError, TypeError):
+                        agent_statuses.append({"name": name, "status": "unknown"})
+                else:
+                    agent_statuses.append({"name": name, "status": "offline"})
+            data["agent_statuses"] = agent_statuses
+        except Exception:
+            log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
+
         return data
 
     except Exception:

@@ -180,6 +180,10 @@ type DashboardData = {
   signals?: Array<Record<string, unknown>>
   positions?: Position[]
   prices?: Record<string, PriceData>
+  proposals?: Array<Record<string, unknown>>
+  trade_feed?: TradeFeedItem[]
+  ic_weights?: Record<string, number>
+  agent_statuses?: Array<Record<string, unknown>>
   timestamp: string
 }
 
@@ -492,6 +496,37 @@ export const useCodexStore = create<CodexState>((set) => ({
 
       if (data.prices) {
         updates.prices = { ...currentState.prices, ...data.prices }
+      }
+
+      if (data.proposals && Array.isArray(data.proposals)) {
+        const existingIds = new Set(currentState.proposals.map((p) => p.id))
+        const newProposals = (data.proposals as Array<Record<string, unknown>>)
+          .filter((p) => !existingIds.has(p.id as string))
+          .map((p) => ({
+            id: (p.id as string) ?? String(Date.now()),
+            proposal_type: (p.proposal_type as import('@/stores/useCodexStore').ProposalType) ?? 'parameter_change',
+            content: String(p.content ?? ''),
+            requires_approval: p.requires_approval !== false,
+            confidence: typeof p.confidence === 'number' ? p.confidence : undefined,
+            reflection_trace_id: p.reflection_trace_id as string | undefined,
+            timestamp: (p.timestamp as string) ?? new Date().toISOString(),
+            status: (p.status as import('@/stores/useCodexStore').ProposalStatus) ?? 'pending',
+          }))
+        if (newProposals.length > 0) {
+          updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 100)
+        }
+      }
+
+      if (data.trade_feed && Array.isArray(data.trade_feed)) {
+        const existingTfIds = new Set(currentState.tradeFeed.map((t) => t.id))
+        const newTrades = data.trade_feed.filter((t) => !existingTfIds.has(t.id))
+        if (newTrades.length > 0) {
+          updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
+        }
+      }
+
+      if (data.agent_statuses && Array.isArray(data.agent_statuses)) {
+        updates.agentStatuses = data.agent_statuses as AgentStatus[]
       }
 
       return updates
