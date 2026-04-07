@@ -598,11 +598,11 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const fetchState = async () => {
       try {
-        console.log('[Dashboard] REST fetch /dashboard/state (wsConnected:', wsConnected, ')')
+        console.info('[Dashboard] REST fetch /dashboard/state (wsConnected:', wsConnected, ')')
         const r = await fetch(api('/dashboard/state'))
         if (r.ok) {
           const data = await r.json()
-          console.log('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
+          console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
           useCodexStore.getState().hydrateDashboard(data)
         } else {
           console.warn('[Dashboard] /dashboard/state responded', r.status)
@@ -612,10 +612,10 @@ export function DashboardView({ section }: { section: Section }) {
       }
     }
     const fetchPricesOnce = async () => {
-      console.log('[Dashboard] Fetching prices via REST')
+      console.info('[Dashboard] Fetching prices via REST')
       await useCodexStore.getState().fetchPrices()
       const count = Object.keys(useCodexStore.getState().prices).length
-      console.log('[Dashboard] Prices fetched —', count, 'symbols in store')
+      console.info('[Dashboard] Prices fetched —', count, 'symbols in store')
       setPricesFetched(true)
     }
 
@@ -624,11 +624,11 @@ export function DashboardView({ section }: { section: Section }) {
     fetchPricesOnce()
 
     if (wsConnected) {
-      console.log('[Dashboard] WS connected — REST polling stopped')
+      console.info('[Dashboard] WS connected — REST polling stopped')
       return
     }
 
-    console.log('[Dashboard] WS not connected — starting 15 s REST polling fallback')
+    console.info('[Dashboard] WS not connected — starting 15 s REST polling fallback')
     // Keep retrying every 15 s until WS connects
     const t = setInterval(() => {
       fetchState()

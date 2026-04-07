@@ -97,7 +97,7 @@ class WebSocketManager {
       this._state === ConnectionState.CONNECTED ||
       this._state === ConnectionState.RECONNECTING
     ) {
-      console.log('[WS] connect() skipped — already in state:', this._state)
+      console.info('[WS] connect() skipped — already in state:', this._state)
       return
     }
     this._cleanupSocket()
@@ -110,7 +110,7 @@ class WebSocketManager {
       this._updateStoreState()
       return
     }
-    console.log('[WS] Connecting to', url, '(attempt', this._retry + 1, ')')
+    console.info('[WS] Connecting to', url, '(attempt', this._retry + 1, ')')
     try {
       this._socket = new WebSocket(url)
       this._lastConnectAt = Date.now()
@@ -153,7 +153,7 @@ class WebSocketManager {
     if (envUrl) {
       const wsBase = envUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/$/, '')
       const url = `${wsBase}/ws/dashboard`
-      console.log('[WS] URL source: NEXT_PUBLIC_WS_URL →', url)
+      console.info('[WS] URL source: NEXT_PUBLIC_WS_URL →', url)
       return url
     }
 
@@ -168,7 +168,7 @@ class WebSocketManager {
         .replace(/^http:\/\//, 'ws://')
         .replace(/\/$/, '')
       const url = `${wsBase}/ws/dashboard`
-      console.log('[WS] URL source: NEXT_PUBLIC_API_URL (derived) →', url)
+      console.info('[WS] URL source: NEXT_PUBLIC_API_URL (derived) →', url)
       return url
     }
 
@@ -211,7 +211,7 @@ class WebSocketManager {
   private _setupSocketHandlers() {
     if (!this._socket) return
     this._socket.onopen = () => {
-      console.log('[WS] Connected ✓', this._socket?.url)
+      console.info('[WS] Connected ✓', this._socket?.url)
       this._state = ConnectionState.CONNECTED
       this._retry = 0
       if (this._connTimeout) clearTimeout(this._connTimeout)
@@ -411,7 +411,7 @@ class WebSocketManager {
         this._state = ConnectionState.RECONNECTING
         this._retry++
         const delay = this._getRetryDelay(this._retry)
-        console.log('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
+        console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
         this._reconnectTimer = setTimeout(() => this.connect(), delay)
       } else if (this._retry >= this.MAX_RETRIES) {
         console.error('[WS] Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
