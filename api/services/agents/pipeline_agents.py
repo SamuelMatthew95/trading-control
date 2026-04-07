@@ -8,7 +8,6 @@ and the poll loop in ``base``.
 from __future__ import annotations
 
 import json
-import time as _time
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -18,10 +17,21 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from api.config import settings
+from api.constants import (
+    AGENT_GRADE,
+    AGENT_IC_UPDATER,
+    AGENT_NOTIFICATION,
+    AGENT_REFLECTION,
+    AGENT_STRATEGY_PROPOSER,
+    REDIS_IC_WEIGHTS_TTL_SECONDS,
+    REDIS_KEY_IC_WEIGHTS,
+    LogType,
+)
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import (
@@ -40,46 +50,6 @@ from api.services.agents.scoring import (
     spearman_correlation,
 )
 
-
-async def _write_heartbeat(
-    redis: Redis,
-    agent_name: str,
-    last_event: str,
-    event_count: int,
-    extra: dict[str, Any] | None = None,
-) -> None:
-    payload: dict[str, Any] = {
-        "status": "ACTIVE",
-        "last_event": last_event,
-        "event_count": event_count,
-        "last_seen": int(_time.time()),
-    }
-    if extra:
-        payload.update(extra)
-    await redis.set(
-        f"agent:status:{agent_name}",
-        json.dumps(payload),
-        ex=60,
-    )
-    async with AsyncSessionFactory() as session:
-        async with session.begin():
-            await session.execute(
-                text("""
-                    INSERT INTO agent_heartbeats
-                        (agent_name, status, last_event, event_count, last_seen)
-                    VALUES (:name, 'ACTIVE', :last_event, :count, NOW())
-                    ON CONFLICT (agent_name) DO UPDATE SET
-                        status='ACTIVE', last_event=EXCLUDED.last_event,
-                        event_count=EXCLUDED.event_count, last_seen=NOW()
-                """),
-                {
-                    "name": agent_name,
-                    "last_event": last_event,
-                    "count": event_count,
-                },
-            )
-
-
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
 # ---------------------------------------------------------------------------
@@ -91,7 +61,7 @@ class GradeAgent(MultiStreamAgent):
     Score = accuracy×0.35 + IC×0.30 + cost_efficiency×0.20 + latency×0.15
     """
 
-    _state_name = "GRADE_AGENT"
+    _state_name = AGENT_GRADE
 
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
@@ -172,7 +142,7 @@ class GradeAgent(MultiStreamAgent):
         await self.bus.publish("agent_grades", payload)
         log_structured("info", "grade_computed", grade=grade, score=score, fills=self._fills, ic=ic)
 
-        await write_agent_log(trace_id, "grade", payload)
+        await write_agent_log(trace_id, LogType.GRADE, payload)
         await write_grade_to_db(trace_id, payload["score_pct"], payload["metrics"])
         await self._take_grade_action(grade, payload)
 
@@ -397,7 +367,7 @@ class ICUpdater(MultiStreamAgent):
     Writes updated weights to Redis key ``alpha:ic_weights``.
     """
 
-    _state_name = "IC_UPDATER"
+    _state_name = AGENT_IC_UPDATER
 
     def __init__(
         self,
@@ -479,7 +449,9 @@ class ICUpdater(MultiStreamAgent):
             else {k: round(v / total, 6) for k, v in active.items()}
         )
 
-        await self.redis.set("alpha:ic_weights", json.dumps(weights), ex=90000)
+        await self.redis.set(
+            REDIS_KEY_IC_WEIGHTS, json.dumps(weights), ex=REDIS_IC_WEIGHTS_TTL_SECONDS
+        )
 
         log_structured(
             "info",
@@ -545,7 +517,7 @@ class ICUpdater(MultiStreamAgent):
 class ReflectionAgent(MultiStreamAgent):
     """Analyzes recent fills via LLM and generates improvement hypotheses."""
 
-    _state_name = "REFLECTION_AGENT"
+    _state_name = AGENT_REFLECTION
 
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
@@ -672,7 +644,7 @@ class ReflectionAgent(MultiStreamAgent):
         }
 
         await self.bus.publish("reflection_outputs", reflection_payload)
-        await write_agent_log(trace_id, "reflection", reflection_payload)
+        await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
         await self.bus.publish(
             "notifications",
             {
@@ -749,7 +721,7 @@ class ReflectionAgent(MultiStreamAgent):
 class StrategyProposer(MultiStreamAgent):
     """Turns reflection hypotheses into typed proposals that require human approval."""
 
-    _state_name = "STRATEGY_PROPOSER"
+    _state_name = AGENT_STRATEGY_PROPOSER
 
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
@@ -911,7 +883,7 @@ _STREAM_SEVERITY: dict[str, str] = {
 class NotificationAgent(MultiStreamAgent):
     """Observes all output streams, deduplicates events, and persists notifications."""
 
-    _state_name = "NOTIFICATION_AGENT"
+    _state_name = AGENT_NOTIFICATION
 
     def __init__(
         self,
@@ -981,20 +953,14 @@ class NotificationAgent(MultiStreamAgent):
 
         # Write heartbeat so dashboard shows NOTIFICATION_AGENT as ACTIVE
         try:
-            await self.redis.set(
-                f"agent:status:{self._state_name}",
-                json.dumps(
-                    {
-                        "status": "ACTIVE",
-                        "last_event": f"stream={stream} event_type={event_type}",
-                        "event_count": 0,
-                        "last_seen": int(datetime.now(timezone.utc).timestamp()),
-                    }
-                ),
-                ex=120,
+            await _write_heartbeat(
+                self.redis,
+                self._state_name,
+                f"stream={stream} event_type={event_type}",
+                0,
             )
         except Exception:
-            pass
+            log_structured("warning", "notification_heartbeat_failed", exc_info=True)
 
     def _classify_severity(self, stream: str, data: dict[str, Any]) -> str:
         if explicit := data.get("severity"):

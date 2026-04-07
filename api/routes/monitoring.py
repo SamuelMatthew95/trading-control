@@ -20,7 +20,7 @@ async def get_alerts() -> dict[str, Any]:
         alerts = []
         return {"success": True, "alerts": alerts, "count": len(alerts)}
     except Exception as e:
-        log_structured("error", "alerts failed", error=str(e))
+        log_structured("error", "alerts failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -32,7 +32,7 @@ async def get_system_metrics() -> dict[str, Any]:
         system_metrics = {}
         return {"success": True, "system_metrics": system_metrics}
     except Exception as e:
-        log_structured("error", "system metrics failed", error=str(e))
+        log_structured("error", "system metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -44,7 +44,7 @@ async def get_performance_metrics() -> dict[str, Any]:
         performance_metrics = {}
         return {"success": True, "performance_metrics": performance_metrics}
     except Exception as e:
-        log_structured("error", "performance metrics failed", error=str(e))
+        log_structured("error", "performance metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -56,7 +56,7 @@ async def get_agent_metrics() -> dict[str, Any]:
         agent_metrics = {}
         return {"success": True, "agent_metrics": agent_metrics}
     except Exception as e:
-        log_structured("error", "agent metrics failed", error=str(e))
+        log_structured("error", "agent metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -68,7 +68,7 @@ async def get_data_metrics() -> dict[str, Any]:
         data_metrics = {}
         return {"success": True, "data_metrics": data_metrics}
     except Exception as e:
-        log_structured("error", "data metrics failed", error=str(e))
+        log_structured("error", "data metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -80,7 +80,7 @@ async def get_task_metrics() -> dict[str, Any]:
         task_metrics = {}
         return {"success": True, "task_metrics": task_metrics}
     except Exception as e:
-        log_structured("error", "task metrics failed", error=str(e))
+        log_structured("error", "task metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -105,7 +105,7 @@ async def get_monitoring_summary() -> dict[str, Any]:
         }
         return {"success": True, "summary": summary}
     except Exception as e:
-        log_structured("error", "monitoring summary failed", error=str(e))
+        log_structured("error", "monitoring summary failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
@@ -119,5 +119,5 @@ async def monitoring_health_check() -> dict[str, Any]:
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
-        log_structured("error", "monitoring health check failed", error=str(e))
+        log_structured("error", "monitoring health check failed", exc_info=True)
         return {"status": "unhealthy", "monitoring_active": False, "error": str(e)}

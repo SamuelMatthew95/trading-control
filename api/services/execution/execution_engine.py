@@ -11,17 +11,23 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
-from api.constants import OrderSide, PositionSide
+from api.constants import (
+    AGENT_EXECUTION,
+    REDIS_KEY_KILL_SWITCH,
+    OrderSide,
+    PositionSide,
+)
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
 LARGE_ORDER_THRESHOLD = 10.0
-_STATE_NAME = "EXECUTION_ENGINE"
+_STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
 
 class ExecutionEngine(BaseStreamConsumer):
@@ -42,7 +48,7 @@ class ExecutionEngine(BaseStreamConsumer):
         self.agent_state = agent_state
 
     async def process(self, data: dict[str, Any]) -> None:
-        if await self.redis.get("kill_switch:active") == "1":
+        if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Validate required fields before any DB/broker interaction
@@ -291,24 +297,15 @@ class ExecutionEngine(BaseStreamConsumer):
         if self.agent_state:
             self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
 
-        # Write Redis heartbeat so dashboard shows EXECUTION_ENGINE as ACTIVE
+        # Write Redis + Postgres heartbeat so dashboard shows EXECUTION_ENGINE as ACTIVE
         try:
-            import time as _time
-
-            await self.redis.set(
-                f"agent:status:{_STATE_NAME}",
-                json.dumps(
-                    {
-                        "status": "ACTIVE",
-                        "last_event": f"order_filled:{symbol} side={side} fill_price={fill_price}",
-                        "event_count": 0,
-                        "last_seen": int(_time.time()),
-                    }
-                ),
-                ex=120,
+            await _write_heartbeat(
+                self.redis,
+                _STATE_NAME,
+                f"order_filled:{symbol} side={side} fill_price={fill_price}",
             )
         except Exception:
-            pass
+            log_structured("warning", "execution_heartbeat_failed", exc_info=True)
 
     def _compute_realized_pnl(
         self,

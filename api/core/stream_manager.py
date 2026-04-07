@@ -121,16 +121,16 @@ class StreamManager:
 
             return result
 
-        except Exception as e:
-            log_structured("error", "stream read failed", stream=stream, error=str(e))
+        except Exception:
+            log_structured("error", "stream read failed", stream=stream, exc_info=True)
             return []
 
     async def _atomic_ack(self, stream: str, message_id: str) -> None:
         """Atomically acknowledge message processing."""
         try:
             await self.redis_client.xack(stream, self.consumer_group, message_id)
-        except Exception as e:
-            log_structured("error", "message ack failed", message_id=message_id, error=str(e))
+        except Exception:
+            log_structured("error", "message ack failed", message_id=message_id, exc_info=True)
 
     async def _send_to_dlq(self, message: dict[str, Any], error: str) -> None:
         """Send message to dead-letter queue."""
@@ -142,12 +142,12 @@ class StreamManager:
 
             log_structured("warning", "sent to dlq", message_id=message["message_id"])
 
-        except Exception as e:
+        except Exception:
             log_structured(
                 "error",
                 "dlq send failed",
                 message_id=message["message_id"],
-                error=str(e),
+                exc_info=True,
             )
 
     async def _process_message(self, message: dict[str, Any]) -> bool:
@@ -200,7 +200,7 @@ class StreamManager:
                 log_structured("error", "circuit breaker triggered")
                 self.paused = True
 
-            log_structured("error", "processing error", msg_id=msg_id, error=str(e))
+            log_structured("error", "processing error", msg_id=msg_id, exc_info=True)
             return False
 
     async def _consumer_loop(self) -> None:
@@ -241,9 +241,9 @@ class StreamManager:
                 consecutive_errors = 0
                 self.backpressure_controller.reset()
 
-            except Exception as e:
+            except Exception:
                 consecutive_errors += 1
-                log_structured("error", "consumer loop error", error=str(e))
+                log_structured("error", "consumer loop error", exc_info=True)
 
                 if consecutive_errors >= self.max_consecutive_errors:
                     log_structured(
@@ -269,8 +269,8 @@ class StreamManager:
         await self.start()
         try:
             await self._consumer_loop()
-        except Exception as e:
-            log_structured("critical", "fatal error", error=str(e))
+        except Exception:
+            log_structured("critical", "fatal error", exc_info=True)
         finally:
             await self.stop()
 

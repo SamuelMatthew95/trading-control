@@ -6,6 +6,7 @@ from typing import Annotated
 from api.services.trading_service import TradingService
 from fastapi import APIRouter, Depends, HTTPException
 
+from api.constants import AGENT_EXECUTION, AGENT_GRADE, AGENT_REASONING, AGENT_SIGNAL
 from api.core.schemas import StandardResponse, TradeDecision, TradeRequest
 from api.database import get_async_session
 from api.main_state import (
@@ -13,6 +14,10 @@ from api.main_state import (
 )
 from api.observability import log_structured, metrics_store
 from api.utils import with_retries
+
+# Agents involved in a single /analyze call (in-memory metrics_store tracking only —
+# not the same as Redis heartbeats; the real agent pipeline uses Redis Streams).
+_ANALYZE_AGENTS = [AGENT_SIGNAL, AGENT_REASONING, AGENT_EXECUTION, AGENT_GRADE]
 
 router = APIRouter(tags=["analysis"])
 
@@ -32,18 +37,13 @@ async def analyze_trade(
             return trading_service.analyze(request.symbol, request.price, request.signals or [])
 
         metrics_store.log_event("task_started", symbol=request.symbol, task="analyze")
-        for agent in ["SIGNAL_AGENT", "CONSENSUS_AGENT", "RISK_AGENT", "SIZING_AGENT"]:
+        for agent in _ANALYZE_AGENTS:
             metrics_store.update_agent(agent, "running", current_task=f"analyze {request.symbol}")
 
         try:
             result = await with_retries(_run_analysis)
         except Exception as exc:  # noqa: BLE001
-            for agent in [
-                "SIGNAL_AGENT",
-                "CONSENSUS_AGENT",
-                "RISK_AGENT",
-                "SIZING_AGENT",
-            ]:
+            for agent in _ANALYZE_AGENTS:
                 metrics_store.update_agent(
                     agent,
                     "failed",
@@ -58,12 +58,7 @@ async def analyze_trade(
 
         async with get_async_session():
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-            for agent in [
-                "SIGNAL_AGENT",
-                "RISK_AGENT",
-                "CONSENSUS_AGENT",
-                "SIZING_AGENT",
-            ]:
+            for agent in _ANALYZE_AGENTS:
                 # Removed learning_service reference - service deleted
                 metrics_store.update_agent(
                     agent,

@@ -26,8 +26,8 @@ async def safe_redis_check():
         await asyncio.wait_for(redis.ping(), timeout=2.0)
         await close_redis()
         return True
-    except Exception as e:
-        log_structured("warning", "redis health check failed", error=str(e))
+    except Exception:
+        log_structured("warning", "redis health check failed", exc_info=True)
         return False
 
 
@@ -37,8 +37,8 @@ async def safe_database_check():
         async with AsyncSessionFactory() as session:
             await asyncio.wait_for(session.execute("SELECT 1"), timeout=2.0)
         return True
-    except Exception as e:
-        log_structured("warning", "database health check failed", error=str(e))
+    except Exception:
+        log_structured("warning", "database health check failed", exc_info=True)
         return False
 
 

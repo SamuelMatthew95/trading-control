@@ -10,21 +10,18 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from api.constants import (
+    AGENT_STALE_THRESHOLD_SECONDS,
+    ALL_AGENT_NAMES,
+    REDIS_AGENT_STATUS_KEY,
+    REDIS_KEY_PRICES,
+)
 from api.events.bus import STREAMS
 from api.observability import log_structured
 
 router = APIRouter(tags=["ws"])
 
-_AGENT_NAMES = [
-    "SIGNAL_AGENT",
-    "REASONING_AGENT",
-    "EXECUTION_ENGINE",
-    "GRADE_AGENT",
-    "IC_UPDATER",
-    "REFLECTION_AGENT",
-    "STRATEGY_PROPOSER",
-    "NOTIFICATION_AGENT",
-]
+_AGENT_NAMES = ALL_AGENT_NAMES
 
 _PIPELINE_STREAMS = ["market_events", "signals", "decisions", "graded_decisions"]
 
@@ -46,7 +43,7 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     # Enrich with current prices from Redis cache
     if redis_client is not None:
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
-        keys = [f"prices:{s}" for s in symbols]
+        keys = [REDIS_KEY_PRICES.format(symbol=s) for s in symbols]
         try:
             cached_values = await redis_client.mget(keys)
             prices: dict[str, Any] = {}
@@ -73,12 +70,14 @@ async def _build_snapshot(redis_client: Any) -> dict[str, Any]:
     now = int(datetime.now(timezone.utc).timestamp())
     agents = []
     for name in _AGENT_NAMES:
-        raw = await redis_client.get(f"agent:status:{name}")
+        raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
         if raw:
             data = json.loads(raw)
             last_seen = data.get("last_seen", 0)
             age = now - last_seen
-            status = "STALE" if age > 120 else data.get("status", "ACTIVE")
+            status = (
+                "STALE" if age > AGENT_STALE_THRESHOLD_SECONDS else data.get("status", "ACTIVE")
+            )
             agents.append(
                 {
                     "name": name,

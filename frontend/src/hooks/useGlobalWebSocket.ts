@@ -96,28 +96,35 @@ class WebSocketManager {
       this._state === ConnectionState.CONNECTING ||
       this._state === ConnectionState.CONNECTED ||
       this._state === ConnectionState.RECONNECTING
-    ) return
+    ) {
+      console.info('[WS] connect() skipped — already in state:', this._state)
+      return
+    }
     this._cleanupSocket()
     this._state = ConnectionState.CONNECTING
     this._updateStoreState()
     const url = this._getWsUrl()
     if (!url) {
+      console.error('[WS] No URL resolved — cannot connect')
       this._state = ConnectionState.ERROR
       this._updateStoreState()
       return
     }
+    console.info('[WS] Connecting to', url, '(attempt', this._retry + 1, ')')
     try {
       this._socket = new WebSocket(url)
       this._lastConnectAt = Date.now()
       this._setupSocketHandlers()
       this._connTimeout = setTimeout(() => {
         if (this._state === ConnectionState.CONNECTING) {
+          console.error('[WS] Connection timed out after', this.CONN_TIMEOUT, 'ms →', url)
           this._state = ConnectionState.ERROR
           this._cleanupSocket()
           this._updateStoreState()
         }
       }, this.CONN_TIMEOUT)
-    } catch {
+    } catch (err) {
+      console.error('[WS] Failed to create WebSocket:', err)
       this._state = ConnectionState.ERROR
       this._updateStoreState()
     }
@@ -140,16 +147,38 @@ class WebSocketManager {
   // --- Private methods ---
   private _getWsUrl(): string {
     if (typeof window === 'undefined') return ''
+
+    // 1. Explicit WS URL env var — always wins.
     const envUrl = process.env.NEXT_PUBLIC_WS_URL
     if (envUrl) {
-      // Convert http(s) base URLs to ws(s) so browsers accept them as WebSocket endpoints.
       const wsBase = envUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/$/, '')
-      return `${wsBase}/ws/dashboard`
+      const url = `${wsBase}/ws/dashboard`
+      console.info('[WS] URL source: NEXT_PUBLIC_WS_URL →', url)
+      return url
     }
-    // Same-origin: derive ws(s) from current page protocol.
+
+    // 2. Derive from the API base URL — handles the common case where only
+    //    NEXT_PUBLIC_API_URL is set. Strip any trailing /api path segment so
+    //    we end up at the service root (where /ws/dashboard lives).
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL
+    if (apiUrl && /^https?:\/\//.test(apiUrl)) {
+      const wsBase = apiUrl
+        .replace(/\/api\/?$/, '')          // strip trailing /api
+        .replace(/^https:\/\//, 'wss://')
+        .replace(/^http:\/\//, 'ws://')
+        .replace(/\/$/, '')
+      const url = `${wsBase}/ws/dashboard`
+      console.info('[WS] URL source: NEXT_PUBLIC_API_URL (derived) →', url)
+      return url
+    }
+
+    // 3. Same-origin fallback — only correct in local development where the
+    //    Next.js dev server proxies /ws/dashboard to the backend.
     const { protocol, host } = window.location
     const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${wsProtocol}//${host}/ws/dashboard`
+    const url = `${wsProtocol}//${host}/ws/dashboard`
+    console.warn('[WS] URL source: same-origin fallback (NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_URL are not set) →', url)
+    return url
   }
   private _getRetryDelay(attempt: number): number {
     const d = Math.min(this.BASE_DELAY * Math.pow(2, attempt), this.MAX_DELAY)
@@ -182,6 +211,7 @@ class WebSocketManager {
   private _setupSocketHandlers() {
     if (!this._socket) return
     this._socket.onopen = () => {
+      console.info('[WS] Connected ✓', this._socket?.url)
       this._state = ConnectionState.CONNECTED
       this._retry = 0
       if (this._connTimeout) clearTimeout(this._connTimeout)
@@ -369,8 +399,9 @@ class WebSocketManager {
         if (norm) store.addAgentLog(norm)
       }
     }
-    this._socket.onclose = (_event) => {
+    this._socket.onclose = (event) => {
       const wasConnected = this._state === ConnectionState.CONNECTED
+      console.warn('[WS] Closed — code:', event.code, 'reason:', event.reason || '(none)', 'wasConnected:', wasConnected)
       this._state = ConnectionState.DISCONNECTED
       this._cleanupSocket()
       this._updateStoreState()
@@ -380,13 +411,16 @@ class WebSocketManager {
         this._state = ConnectionState.RECONNECTING
         this._retry++
         const delay = this._getRetryDelay(this._retry)
+        console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
         this._reconnectTimer = setTimeout(() => this.connect(), delay)
       } else if (this._retry >= this.MAX_RETRIES) {
+        console.error('[WS] Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
         this._state = ConnectionState.ERROR
         this._updateStoreState()
       }
     }
-    this._socket.onerror = () => {
+    this._socket.onerror = (event) => {
+      console.error('[WS] Socket error — state was:', this._state, event)
       if (this._state === ConnectionState.CONNECTING) {
         this._state = ConnectionState.ERROR
         this._updateStoreState()

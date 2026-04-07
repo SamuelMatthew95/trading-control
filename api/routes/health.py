@@ -32,8 +32,8 @@ async def _database_ready(request: Request) -> bool:
         async with engine.connect() as connection:
             await asyncio.wait_for(connection.execute(text("SELECT 1")), timeout=2.0)
         return True
-    except Exception as e:
-        log_structured("warning", "database health check failed", error=str(e))
+    except Exception:
+        log_structured("warning", "database health check failed", exc_info=True)
         return False
 
 
@@ -44,8 +44,8 @@ async def _redis_ready(request: Request) -> bool:
             return False
         result = await asyncio.wait_for(redis_client.ping(), timeout=2.0)
         return bool(result)
-    except Exception as e:
-        log_structured("warning", "redis health check failed", error=str(e))
+    except Exception:
+        log_structured("warning", "redis health check failed", exc_info=True)
         return False
 
 

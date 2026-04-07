@@ -5,6 +5,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from api.constants import REDIS_KEY_KILL_SWITCH
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -61,7 +62,7 @@ class ExecutionsConsumer(SimpleConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         """Process execution message by writing to database."""
-        if await self.redis.get("kill_switch:active") == "1":
+        if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Use centralized msg_id extraction
@@ -89,13 +90,13 @@ class ExecutionsConsumer(SimpleConsumer):
                     msg_id=msg_id,
                 )
 
-        except Exception as e:
+        except Exception:
             log_structured(
                 "error",
                 "execution_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e),
+                exc_info=True,
             )
             raise
 
@@ -109,7 +110,7 @@ class RiskAlertsConsumer(SimpleConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         """Process risk alert message by writing to database."""
-        if await self.redis.get("kill_switch:active") == "1":
+        if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Use centralized msg_id extraction
@@ -137,13 +138,13 @@ class RiskAlertsConsumer(SimpleConsumer):
                     msg_id=msg_id,
                 )
 
-        except Exception as e:
+        except Exception:
             log_structured(
                 "error",
                 "risk_alert_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e),
+                exc_info=True,
             )
             raise
 
@@ -157,7 +158,7 @@ class LearningEventsConsumer(SimpleConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         """Process learning event message by writing to database."""
-        if await self.redis.get("kill_switch:active") == "1":
+        if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Use centralized msg_id extraction
@@ -185,13 +186,13 @@ class LearningEventsConsumer(SimpleConsumer):
                     msg_id=msg_id,
                 )
 
-        except Exception as e:
+        except Exception:
             log_structured(
                 "error",
                 "learning_event_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e),
+                exc_info=True,
             )
             raise
 
@@ -205,7 +206,7 @@ class AgentLogsConsumer(SimpleConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         """Process agent log message by writing to database."""
-        if await self.redis.get("kill_switch:active") == "1":
+        if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Use centralized msg_id extraction
@@ -233,12 +234,12 @@ class AgentLogsConsumer(SimpleConsumer):
                     msg_id=msg_id,
                 )
 
-        except Exception as e:
+        except Exception:
             log_structured(
                 "error",
                 "agent_log_processing_error",
                 stream=self.stream,
                 msg_id=msg_id,
-                error=str(e),
+                exc_info=True,
             )
             raise

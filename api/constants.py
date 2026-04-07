@@ -81,6 +81,46 @@ class LogType(StrEnum):
     PROPOSAL = "proposal"
 
 
+# ---------------------------------------------------------------------------
+# Agent identity constants — single source of truth for all agent names.
+# These must match the Redis heartbeat keys written by each agent.
+# ---------------------------------------------------------------------------
+
+# Individual agent name constants
+AGENT_SIGNAL: Final[str] = "SIGNAL_AGENT"
+AGENT_REASONING: Final[str] = "REASONING_AGENT"
+AGENT_EXECUTION: Final[str] = "EXECUTION_ENGINE"
+AGENT_GRADE: Final[str] = "GRADE_AGENT"
+AGENT_IC_UPDATER: Final[str] = "IC_UPDATER"
+AGENT_REFLECTION: Final[str] = "REFLECTION_AGENT"
+AGENT_STRATEGY_PROPOSER: Final[str] = "STRATEGY_PROPOSER"
+AGENT_NOTIFICATION: Final[str] = "NOTIFICATION_AGENT"
+
+# Ordered tuple used everywhere agent iteration is needed
+ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
+    AGENT_SIGNAL,
+    AGENT_REASONING,
+    AGENT_EXECUTION,
+    AGENT_GRADE,
+    AGENT_IC_UPDATER,
+    AGENT_REFLECTION,
+    AGENT_STRATEGY_PROPOSER,
+    AGENT_NOTIFICATION,
+)
+
+# Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
+REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
+
+# How long an agent heartbeat key lives in Redis after the last write.
+# Must be > AGENT_STALE_THRESHOLD_SECONDS so a slow-but-running agent
+# never flips to "offline" before it first appears as "STALE".
+AGENT_HEARTBEAT_TTL_SECONDS: Final[int] = 300  # 5 minutes
+
+# If an agent's last_seen is older than this, mark it STALE on the dashboard.
+# Keep well below AGENT_HEARTBEAT_TTL_SECONDS so "STALE" is reachable.
+AGENT_STALE_THRESHOLD_SECONDS: Final[int] = 120  # 2 minutes
+
+# ---------------------------------------------------------------------------
 # Redis key patterns
 REDIS_KEY_PAPER_CASH: Final[str] = "paper:cash"
 REDIS_KEY_PAPER_POSITION: Final[str] = "paper:positions:{symbol}"
@@ -88,8 +128,11 @@ REDIS_KEY_ORDER_LOCK: Final[str] = "order_lock:{symbol}"
 REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
+REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_REFLECTION_COUNT: Final[str] = "reflection:trade_count"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
+REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
+REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
 
 # Stream names
@@ -105,6 +148,9 @@ STREAM_AGENT_LOGS: Final[str] = "agent_logs"
 # Default values
 DEFAULT_PAPER_CASH: Final[float] = 100_000.0
 ORDER_LOCK_TTL_SECONDS: Final[int] = 5
+WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key TTL
+REDIS_PRICES_TTL_SECONDS: Final[int] = 30  # How long price cache entries live
+REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
 TICK_INTERVAL_SECONDS: Final[float] = 0.25
