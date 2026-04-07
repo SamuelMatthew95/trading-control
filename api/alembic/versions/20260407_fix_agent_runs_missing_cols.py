@@ -1,14 +1,34 @@
-"""Add missing source column to agent_runs, agent_logs, and agent_grades.
+"""Fix schema drift across agent_runs, agent_logs, agent_grades, and events.
 
-The 20260403_v2_bootstrap migration added `source` inside CREATE TABLE IF NOT
-EXISTS blocks for all three tables, but its ALTER TABLE fallback path (which
-runs when the tables already exist) omitted `source` for all of them.
+Root cause: 20260403_v2_bootstrap used CREATE TABLE IF NOT EXISTS for all
+tables. When tables pre-existed, that was a no-op. The ALTER TABLE fallback
+path in that migration was incomplete — it omitted several columns that the
+application code expects. This migration closes all known gaps found by
+comparing the live production schema against every INSERT in the codebase.
 
-Databases upgraded from 0001_initial (agent_runs, agent_logs) or from a
-pre-migration schema (agent_grades) are missing this column, causing every
-INSERT that references it to fail with UndefinedColumnError.
+Changes per table
+-----------------
+agent_runs:
+  - source (VARCHAR 64, NOT NULL DEFAULT 'reasoning_agent') — writer identity
+  - run_type (VARCHAR 32, NOT NULL DEFAULT 'analysis') — required by ORM
+  - execution_time_ms (INTEGER, nullable) — written by success UPDATE
 
-Also adds run_type to agent_runs, which has the same gap.
+agent_logs:
+  - source (VARCHAR 64, NOT NULL DEFAULT 'agent') — writer identity
+
+agent_grades:
+  - source (VARCHAR 64, NOT NULL DEFAULT 'grade_agent') — writer identity
+  - agent_id: DROP NOT NULL — pre-migration schema created it NOT NULL;
+    write_grade_to_db omits it (acceptable NULL), and signal_generator
+    passes agent_pool_id which may be NULL when no pool row exists
+  - agent_run_id: DROP NOT NULL — same reason
+
+events:
+  - data (JSONB, DEFAULT '{}') — signal payload stored here
+  - idempotency_key (VARCHAR 255, nullable) — used for ON CONFLICT dedup
+  - processed (BOOLEAN, NOT NULL DEFAULT false) — event processing flag
+  - schema_version (VARCHAR 16, DEFAULT 'v3') — v3 audit field
+  - UNIQUE index on idempotency_key (required for ON CONFLICT clause)
 
 Revision ID: 20260407_fix_agent_runs_missing_cols
 Revises: 20260404_positions_snapshot_fix
@@ -28,7 +48,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # agent_runs — source, run_type, execution_time_ms were in CREATE TABLE but not ALTER TABLE fallback
+    # ------------------------------------------------------------------
+    # agent_runs
+    # ------------------------------------------------------------------
     op.execute(
         "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS "
         "source VARCHAR(64) NOT NULL DEFAULT 'reasoning_agent'"
@@ -39,20 +61,73 @@ def upgrade() -> None:
     )
     op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS execution_time_ms INTEGER")
 
-    # agent_logs — source was in CREATE TABLE but not ALTER TABLE fallback
+    # ------------------------------------------------------------------
+    # agent_logs
+    # ------------------------------------------------------------------
     op.execute(
         "ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS "
         "source VARCHAR(64) NOT NULL DEFAULT 'agent'"
     )
 
-    # agent_grades — source was in CREATE TABLE but not ALTER TABLE fallback
-    # (agent_grades may pre-date the migration system entirely)
+    # ------------------------------------------------------------------
+    # agent_grades
+    # ------------------------------------------------------------------
     op.execute(
         "ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS "
         "source VARCHAR(64) NOT NULL DEFAULT 'grade_agent'"
     )
+    # Pre-migration schema created these as NOT NULL with no default.
+    # write_grade_to_db omits them entirely (NULL is correct semantics
+    # when no pool/run context is available).
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='agent_grades' AND column_name='agent_id'
+                  AND is_nullable='NO'
+            ) THEN
+                ALTER TABLE agent_grades ALTER COLUMN agent_id DROP NOT NULL;
+            END IF;
+        END $$
+        """
+    )
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='agent_grades' AND column_name='agent_run_id'
+                  AND is_nullable='NO'
+            ) THEN
+                ALTER TABLE agent_grades ALTER COLUMN agent_run_id DROP NOT NULL;
+            END IF;
+        END $$
+        """
+    )
+
+    # ------------------------------------------------------------------
+    # events — columns used by signal_generator INSERT are absent
+    # ------------------------------------------------------------------
+    op.execute(
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS data JSONB NOT NULL DEFAULT '{}'::jsonb"
+    )
+    op.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255)")
+    op.execute(
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS processed BOOLEAN NOT NULL DEFAULT false"
+    )
+    op.execute(
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS schema_version VARCHAR(16) DEFAULT 'v3'"
+    )
+    # Required for ON CONFLICT (idempotency_key) DO NOTHING
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS events_idempotency_key_idx "
+        "ON events (idempotency_key) WHERE idempotency_key IS NOT NULL"
+    )
 
 
 def downgrade() -> None:
-    # No destructive downgrade — columns with NOT NULL defaults are safe to keep.
+    # No destructive downgrade — additive changes are safe to keep.
     pass
