@@ -504,13 +504,13 @@ export const useCodexStore = create<CodexState>((set) => ({
           .filter((p) => !existingIds.has(p.id as string))
           .map((p) => ({
             id: (p.id as string) ?? String(Date.now()),
-            proposal_type: (p.proposal_type as import('@/stores/useCodexStore').ProposalType) ?? 'parameter_change',
+            proposal_type: (p.proposal_type as ProposalType) ?? 'parameter_change' as ProposalType,
             content: String(p.content ?? ''),
             requires_approval: p.requires_approval !== false,
             confidence: typeof p.confidence === 'number' ? p.confidence : undefined,
             reflection_trace_id: p.reflection_trace_id as string | undefined,
             timestamp: (p.timestamp as string) ?? new Date().toISOString(),
-            status: (p.status as import('@/stores/useCodexStore').ProposalStatus) ?? 'pending',
+            status: (p.status as ProposalStatus) ?? 'pending' as ProposalStatus,
           }))
         if (newProposals.length > 0) {
           updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 100)

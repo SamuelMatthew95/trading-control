@@ -98,9 +98,14 @@ async def get_dashboard_state() -> dict[str, Any]:
         # Enrich with agent heartbeats from Redis
         try:
             agent_names = [
-                "SignalGenerator", "ReasoningAgent", "ExecutionEngine",
-                "GradeAgent", "ICUpdater", "ReflectionAgent",
-                "StrategyProposer", "NotificationAgent",
+                "SignalGenerator",
+                "ReasoningAgent",
+                "ExecutionEngine",
+                "GradeAgent",
+                "ICUpdater",
+                "ReflectionAgent",
+                "StrategyProposer",
+                "NotificationAgent",
             ]
             agent_keys = [f"agent:status:{n}" for n in agent_names]
             agent_values = await redis_client.mget(agent_keys)
