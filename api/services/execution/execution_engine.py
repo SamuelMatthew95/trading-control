@@ -15,6 +15,7 @@ from api.constants import (
     AGENT_EXECUTION,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
+    REDIS_KEY_ORDER_LOCK,
     OrderSide,
     PositionSide,
 )
@@ -73,7 +74,7 @@ class ExecutionEngine(BaseStreamConsumer):
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
         )
-        lock_key = f"order_lock:{symbol}"
+        lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
         # Snapshot position BEFORE order to compute realized PnL

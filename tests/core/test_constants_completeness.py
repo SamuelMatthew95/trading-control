@@ -107,7 +107,7 @@ def test_log_type_enum_covers_all_known_values() -> None:
     """LogType must define every value used in SQL queries."""
     from api.constants import LogType
 
-    required = {"proposal", "grade", "reflection", "reasoning_summary"}
+    required = {"proposal", "grade", "reflection", "reasoning_summary", "signal_generated"}
     defined = {member.value for member in LogType}
     missing = required - defined
     assert not missing, f"LogType is missing values used in SQL: {missing}"

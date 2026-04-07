@@ -1639,6 +1639,22 @@ async def list_challengers(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
+@router.get("/kill-switch")
+async def get_kill_switch() -> dict[str, Any]:
+    """Get current kill switch state."""
+    try:
+        redis_client = await get_redis()
+        value = await redis_client.get(REDIS_KEY_KILL_SWITCH)
+        updated_at = await redis_client.get(REDIS_KEY_KILL_SWITCH_UPDATED_AT)
+        return {
+            "active": value == "1",
+            "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "kill_switch_read_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
 @router.post("/kill-switch")
 async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, Any]:
     """Toggle the trading kill switch."""

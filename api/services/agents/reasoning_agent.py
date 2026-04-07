@@ -13,6 +13,8 @@ from api.config import settings
 from api.constants import (
     AGENT_REASONING,
     NO_ORDER_ACTIONS,
+    REDIS_KEY_LLM_COST,
+    REDIS_KEY_LLM_TOKENS,
     AgentAction,
 )
 from api.database import AsyncSessionFactory
@@ -43,7 +45,7 @@ class ReasoningAgent(BaseStreamConsumer):
         today = date.today().isoformat()
         trace_id = str(uuid.uuid4())
 
-        budget_used = int(await self.redis.get(f"llm:tokens:{today}") or 0)
+        budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         signal_summary = self._build_signal_summary(data)
         embedding = await embed_text(signal_summary)
 
@@ -104,12 +106,12 @@ class ReasoningAgent(BaseStreamConsumer):
         except Exception:
             log_structured("warning", "reasoning_heartbeat_failed", exc_info=True)
 
-        await self.redis.incrby(f"llm:tokens:{today}", tokens_used)
-        await self.redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
+        await self.redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_used)
+        await self.redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_usd)
 
         # Publish live cost metric for WebSocket dashboard clients
         try:
-            current_cost = float(await self.redis.get(f"llm:cost:{today}") or 0.0)
+            current_cost = float(await self.redis.get(REDIS_KEY_LLM_COST.format(date=today)) or 0.0)
             await self.bus.publish(
                 "system_metrics",
                 {
@@ -122,7 +124,7 @@ class ReasoningAgent(BaseStreamConsumer):
         except Exception:
             pass
 
-        updated_budget = int(await self.redis.get(f"llm:tokens:{today}") or 0)
+        updated_budget = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         if updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             await self.bus.publish(
                 "risk_alerts",

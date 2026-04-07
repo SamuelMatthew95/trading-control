@@ -79,6 +79,7 @@ class LogType(StrEnum):
     GRADE = "grade"
     REFLECTION = "reflection"
     PROPOSAL = "proposal"
+    SIGNAL_GENERATED = "signal_generated"
 
 
 # ---------------------------------------------------------------------------
