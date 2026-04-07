@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from sqlalchemy import text
 
+from api.constants import ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
@@ -95,22 +96,12 @@ async def get_dashboard_state() -> dict[str, Any]:
         except Exception:
             log_structured("warning", "dashboard_state_ic_weights_failed", exc_info=True)
 
-        # Enrich with agent heartbeats from Redis
+        # Enrich with agent heartbeats from Redis (keys must match what agents write)
         try:
-            agent_names = [
-                "SignalGenerator",
-                "ReasoningAgent",
-                "ExecutionEngine",
-                "GradeAgent",
-                "ICUpdater",
-                "ReflectionAgent",
-                "StrategyProposer",
-                "NotificationAgent",
-            ]
-            agent_keys = [f"agent:status:{n}" for n in agent_names]
+            agent_keys = [REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES]
             agent_values = await redis_client.mget(agent_keys)
             agent_statuses: list[dict[str, Any]] = []
-            for name, raw in zip(agent_names, agent_values, strict=False):
+            for name, raw in zip(ALL_AGENT_NAMES, agent_values, strict=False):
                 if raw:
                     try:
                         status = json.loads(raw)

@@ -81,6 +81,37 @@ class LogType(StrEnum):
     PROPOSAL = "proposal"
 
 
+# ---------------------------------------------------------------------------
+# Agent identity constants — single source of truth for all agent names.
+# These must match the Redis heartbeat keys written by each agent.
+# ---------------------------------------------------------------------------
+
+# Individual agent name constants
+AGENT_SIGNAL: Final[str] = "SIGNAL_AGENT"
+AGENT_REASONING: Final[str] = "REASONING_AGENT"
+AGENT_EXECUTION: Final[str] = "EXECUTION_ENGINE"
+AGENT_GRADE: Final[str] = "GRADE_AGENT"
+AGENT_IC_UPDATER: Final[str] = "IC_UPDATER"
+AGENT_REFLECTION: Final[str] = "REFLECTION_AGENT"
+AGENT_STRATEGY_PROPOSER: Final[str] = "STRATEGY_PROPOSER"
+AGENT_NOTIFICATION: Final[str] = "NOTIFICATION_AGENT"
+
+# Ordered tuple used everywhere agent iteration is needed
+ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
+    AGENT_SIGNAL,
+    AGENT_REASONING,
+    AGENT_EXECUTION,
+    AGENT_GRADE,
+    AGENT_IC_UPDATER,
+    AGENT_REFLECTION,
+    AGENT_STRATEGY_PROPOSER,
+    AGENT_NOTIFICATION,
+)
+
+# Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
+REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
+
+# ---------------------------------------------------------------------------
 # Redis key patterns
 REDIS_KEY_PAPER_CASH: Final[str] = "paper:cash"
 REDIS_KEY_PAPER_POSITION: Final[str] = "paper:positions:{symbol}"

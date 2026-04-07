@@ -18,6 +18,14 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from api.config import settings
+from api.constants import (
+    AGENT_GRADE,
+    AGENT_IC_UPDATER,
+    AGENT_NOTIFICATION,
+    AGENT_REFLECTION,
+    AGENT_STRATEGY_PROPOSER,
+    REDIS_AGENT_STATUS_KEY,
+)
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -57,7 +65,7 @@ async def _write_heartbeat(
     if extra:
         payload.update(extra)
     await redis.set(
-        f"agent:status:{agent_name}",
+        REDIS_AGENT_STATUS_KEY.format(name=agent_name),
         json.dumps(payload),
         ex=60,
     )
@@ -91,7 +99,7 @@ class GradeAgent(MultiStreamAgent):
     Score = accuracy×0.35 + IC×0.30 + cost_efficiency×0.20 + latency×0.15
     """
 
-    _state_name = "GRADE_AGENT"
+    _state_name = AGENT_GRADE
 
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
@@ -397,7 +405,7 @@ class ICUpdater(MultiStreamAgent):
     Writes updated weights to Redis key ``alpha:ic_weights``.
     """
 
-    _state_name = "IC_UPDATER"
+    _state_name = AGENT_IC_UPDATER
 
     def __init__(
         self,
@@ -545,7 +553,7 @@ class ICUpdater(MultiStreamAgent):
 class ReflectionAgent(MultiStreamAgent):
     """Analyzes recent fills via LLM and generates improvement hypotheses."""
 
-    _state_name = "REFLECTION_AGENT"
+    _state_name = AGENT_REFLECTION
 
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
@@ -749,7 +757,7 @@ class ReflectionAgent(MultiStreamAgent):
 class StrategyProposer(MultiStreamAgent):
     """Turns reflection hypotheses into typed proposals that require human approval."""
 
-    _state_name = "STRATEGY_PROPOSER"
+    _state_name = AGENT_STRATEGY_PROPOSER
 
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
@@ -911,7 +919,7 @@ _STREAM_SEVERITY: dict[str, str] = {
 class NotificationAgent(MultiStreamAgent):
     """Observes all output streams, deduplicates events, and persists notifications."""
 
-    _state_name = "NOTIFICATION_AGENT"
+    _state_name = AGENT_NOTIFICATION
 
     def __init__(
         self,

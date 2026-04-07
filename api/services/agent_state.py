@@ -5,17 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-# Names match the actual running agents in main.py lifespan
-AGENT_NAMES = (
-    "SIGNAL_AGENT",
-    "REASONING_AGENT",
-    "EXECUTION_ENGINE",
-    "GRADE_AGENT",
-    "IC_UPDATER",
-    "REFLECTION_AGENT",
-    "STRATEGY_PROPOSER",
-    "NOTIFICATION_AGENT",
-)
+from api.constants import ALL_AGENT_NAMES
+
+# Re-export for backwards compatibility with existing importers
+AGENT_NAMES = ALL_AGENT_NAMES
 
 
 class AgentStateRegistry:

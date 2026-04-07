@@ -11,7 +11,7 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
-from api.constants import OrderSide, PositionSide
+from api.constants import AGENT_EXECUTION, REDIS_AGENT_STATUS_KEY, OrderSide, PositionSide
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -21,7 +21,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
 LARGE_ORDER_THRESHOLD = 10.0
-_STATE_NAME = "EXECUTION_ENGINE"
+_STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
 
 class ExecutionEngine(BaseStreamConsumer):
@@ -296,7 +296,7 @@ class ExecutionEngine(BaseStreamConsumer):
             import time as _time
 
             await self.redis.set(
-                f"agent:status:{_STATE_NAME}",
+                REDIS_AGENT_STATUS_KEY.format(name=_STATE_NAME),
                 json.dumps(
                     {
                         "status": "ACTIVE",

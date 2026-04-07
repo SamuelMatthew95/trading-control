@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import text
 
 from api.config import settings
-from api.constants import NO_ORDER_ACTIONS, AgentAction
+from api.constants import AGENT_REASONING, NO_ORDER_ACTIONS, REDIS_AGENT_STATUS_KEY, AgentAction
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -94,7 +94,7 @@ class ReasoningAgent(BaseStreamConsumer):
             import time as _time
 
             await self.redis.set(
-                "agent:status:REASONING_AGENT",
+                REDIS_AGENT_STATUS_KEY.format(name=AGENT_REASONING),
                 json.dumps(
                     {
                         "status": "ACTIVE",

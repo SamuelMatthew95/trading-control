@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from api.constants import AGENT_SIGNAL, REDIS_AGENT_STATUS_KEY
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -20,7 +21,7 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
 
-AGENT_NAME = "SIGNAL_AGENT"
+AGENT_NAME = AGENT_SIGNAL  # single source of truth from constants
 
 
 class SignalGenerator(BaseStreamConsumer):
@@ -239,7 +240,7 @@ class SignalGenerator(BaseStreamConsumer):
             # Redis heartbeat
             redis = self.bus.redis
             await redis.set(
-                f"agent:status:{AGENT_NAME}",
+                REDIS_AGENT_STATUS_KEY.format(name=AGENT_NAME),
                 json.dumps(
                     {
                         "status": "ACTIVE",
