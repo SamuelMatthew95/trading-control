@@ -1646,7 +1646,7 @@ async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, 
         redis_client = await get_redis()
 
         # Store kill switch state in Redis
-        await redis_client.set(REDIS_KEY_KILL_SWITCH, "true" if active else "false")
+        await redis_client.set(REDIS_KEY_KILL_SWITCH, "1" if active else "0")
         await redis_client.set(
             REDIS_KEY_KILL_SWITCH_UPDATED_AT, datetime.now(timezone.utc).isoformat()
         )

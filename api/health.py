@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
+from sqlalchemy import text
 
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
@@ -35,7 +36,7 @@ async def safe_database_check():
     """Safe database health check with timeout and graceful degradation."""
     try:
         async with AsyncSessionFactory() as session:
-            await asyncio.wait_for(session.execute("SELECT 1"), timeout=2.0)
+            await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2.0)
         return True
     except Exception:
         log_structured("warning", "database health check failed", exc_info=True)

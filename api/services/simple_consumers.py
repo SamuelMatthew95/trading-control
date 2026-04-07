@@ -32,9 +32,9 @@ class SimpleConsumer(BaseStreamConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         """Process message by logging and acknowledging with UUID-safe msg_id."""
-        # Kill switch - fix Redis bytes comparison
-        value = await self.redis.get("kill_switch:active")
-        if value and value.decode() == "1":
+        # Kill switch check — Redis is decode_responses=True so get() returns str
+        value = await self.redis.get(REDIS_KEY_KILL_SWITCH)
+        if value == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Use centralized msg_id extraction

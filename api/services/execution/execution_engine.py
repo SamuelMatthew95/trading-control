@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from api.constants import (
     AGENT_EXECUTION,
+    ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
     OrderSide,
     PositionSide,
@@ -95,7 +96,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 )
                 return
 
-            lock_acquired = await self.redis.set(lock_key, lock_value, ex=5, nx=True)
+            lock_acquired = await self.redis.set(
+                lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
+            )
             if not lock_acquired:
                 raise RuntimeError(f"Order lock already held for {symbol}")
 
