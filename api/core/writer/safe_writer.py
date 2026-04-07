@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 
 from ..models import (
     AgentGrades,
@@ -45,9 +46,9 @@ class SafeWriter:
         if "schema_version" not in data:
             raise ValueError(f"{model_name}: Missing required field 'schema_version'")
 
-        if data["schema_version"] != "v3":
+        if data["schema_version"] != DB_SCHEMA_VERSION:
             raise ValueError(
-                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v3'"
+                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected '{DB_SCHEMA_VERSION}'"
             )
 
         # Source field validation for models that have it
@@ -668,7 +669,7 @@ class SafeWriter:
                     "score": data["score"],
                     "metrics": data.get("metrics", {}),
                     "feedback": data.get("feedback"),
-                    "schema_version": data.get("schema_version", "v3"),
+                    "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
                     "source": data.get("source", "unknown"),
                 }
 
@@ -756,12 +757,12 @@ class SafeWriter:
                         "reflection_type": data.get("reflection_type"),
                         "agent_id": data.get("agent_id"),
                         "trace_id": data.get("trace_id"),
-                        "schema_version": data.get("schema_version", "v3"),
+                        "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
                         "source": data.get("source", "reflection_agent"),
                     },
                     "agent_id": data.get("agent_id"),
                     "strategy_id": data.get("strategy_id"),
-                    "schema_version": data.get("schema_version", "v3"),
+                    "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
                     "source": data.get("source", "reflection_agent"),
                 }
 

@@ -39,9 +39,9 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         Process a system metric message safely.
         Ensures exactly-once writes with SafeWriter and proper msg_id validation.
         """
-        # Kill switch - fix Redis bytes comparison
+        # Kill switch check — Redis is decode_responses=True so get() returns str
         value = await self.redis.get(REDIS_KEY_KILL_SWITCH)
-        if value and value.decode() == "1":
+        if value == "1":
             raise RuntimeError("KillSwitchActive")
         # Use centralized msg_id extraction
         msg_id = self.extract_msg_id(data)

@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, AGENT_SIGNAL, REDIS_AGENT_STATUS_KEY
+from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, AGENT_SIGNAL, REDIS_AGENT_STATUS_KEY, LogType
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -223,12 +223,13 @@ class SignalGenerator(BaseStreamConsumer):
                             INSERT INTO agent_logs
                                 (agent_run_id, trace_id, log_type, payload, schema_version, source)
                             VALUES
-                                (:agent_run_id, :trace_id, 'signal_generated',
+                                (:agent_run_id, :trace_id, :log_type,
                                  CAST(:payload AS JSONB), :schema_version, :source)
                         """),
                         {
                             "agent_run_id": run_id,
                             "trace_id": trace_id,
+                            "log_type": LogType.SIGNAL_GENERATED,
                             "payload": json.dumps(signal_payload),
                             "schema_version": DB_SCHEMA_VERSION,
                             "source": AGENT_NAME,
