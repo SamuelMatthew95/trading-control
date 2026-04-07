@@ -76,10 +76,17 @@ class TestSignalGeneratorSchemaFix:
 
         # Check agent_runs INSERT statement
         assert "INSERT INTO agent_runs" in source_code, "Should have agent_runs INSERT"
-        assert "(id, strategy_id, trace_id" in source_code, (
-            "agent_runs INSERT should use strategy_id column"
+        assert "(id, strategy_id, trace_id, input_data," in source_code, (
+            "agent_runs INSERT should use correct columns without run_type/trigger_event"
         )
         assert ":strategy_id," in source_code, "agent_runs INSERT should use strategy_id parameter"
+
+        # Check that run_type and trigger_event are NOT used
+        assert "run_type" not in source_code, "agent_runs INSERT should NOT use run_type column"
+        assert "trigger_event" not in source_code, (
+            "agent_runs INSERT should NOT use trigger_event column"
+        )
+        assert "trigger" not in source_code, "agent_runs INSERT should NOT use trigger parameter"
 
         # Check agent_grades INSERT statement
         assert "INSERT INTO agent_grades" in source_code, "Should have agent_grades INSERT"
