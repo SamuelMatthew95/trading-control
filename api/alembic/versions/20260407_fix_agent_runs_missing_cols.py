@@ -1,8 +1,14 @@
-"""Add missing source/schema_version/run_type columns to agent_runs.
+"""Add missing source column to agent_runs, agent_logs, and agent_grades.
 
-These were included in the CREATE TABLE IF NOT EXISTS statement in
-20260403_v2_bootstrap but not in the ALTER TABLE fallback path, so
-databases upgraded from the original 0001_initial schema are missing them.
+The 20260403_v2_bootstrap migration added `source` inside CREATE TABLE IF NOT
+EXISTS blocks for all three tables, but its ALTER TABLE fallback path (which
+runs when the tables already exist) omitted `source` for all of them.
+
+Databases upgraded from 0001_initial (agent_runs, agent_logs) or from a
+pre-migration schema (agent_grades) are missing this column, causing every
+INSERT that references it to fail with UndefinedColumnError.
+
+Also adds run_type to agent_runs, which has the same gap.
 
 Revision ID: 20260407_fix_agent_runs_missing_cols
 Revises: 20260404_positions_snapshot_fix
@@ -22,20 +28,28 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # source: who wrote the row (e.g. 'SIGNAL_AGENT', 'reasoning_agent')
+    # agent_runs — source, run_type, execution_time_ms were in CREATE TABLE but not ALTER TABLE fallback
     op.execute(
         "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS "
         "source VARCHAR(64) NOT NULL DEFAULT 'reasoning_agent'"
     )
-    # schema_version: enforces v3 writes
-    op.execute(
-        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS "
-        "schema_version VARCHAR(16) NOT NULL DEFAULT 'v3'"
-    )
-    # run_type: required by ORM model
     op.execute(
         "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS "
         "run_type VARCHAR(32) NOT NULL DEFAULT 'analysis'"
+    )
+    op.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS execution_time_ms INTEGER")
+
+    # agent_logs — source was in CREATE TABLE but not ALTER TABLE fallback
+    op.execute(
+        "ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS "
+        "source VARCHAR(64) NOT NULL DEFAULT 'agent'"
+    )
+
+    # agent_grades — source was in CREATE TABLE but not ALTER TABLE fallback
+    # (agent_grades may pre-date the migration system entirely)
+    op.execute(
+        "ALTER TABLE agent_grades ADD COLUMN IF NOT EXISTS "
+        "source VARCHAR(64) NOT NULL DEFAULT 'grade_agent'"
     )
 
 

@@ -81,26 +81,28 @@ class SignalGenerator(BaseStreamConsumer):
                 )
                 return
 
-        # Create agent_runs row
+        # Create agent_runs row — id is a legacy integer sequence, so let DB generate it.
+        # run_id (UUID) is used as a correlation key in downstream tables only.
         run_id = str(uuid.uuid4())
+        db_run_id: int | None = None
         agent_pool_id = await self._ensure_agent_pool_id()
         start_time = time.perf_counter()
 
         async with AsyncSessionFactory() as session:
             async with session.begin():
-                await session.execute(
+                result = await session.execute(
                     text("""
                         INSERT INTO agent_runs
-                            (id, strategy_id, trace_id, input_data,
+                            (strategy_id, trace_id, input_data,
                              schema_version, source, status,
                              created_at, updated_at)
                         VALUES
-                            (:id, :strategy_id, :trace_id, :input_data,
+                            (:strategy_id, :trace_id, :input_data,
                              :schema_version, :source, 'running',
                              NOW(), NOW())
+                        RETURNING id
                     """),
                     {
-                        "id": run_id,
                         "strategy_id": agent_pool_id or None,
                         "trace_id": trace_id,
                         "input_data": json.dumps(payload),
@@ -108,6 +110,8 @@ class SignalGenerator(BaseStreamConsumer):
                         "source": AGENT_NAME,
                     },
                 )
+                row = result.first()
+                db_run_id = row[0] if row else None
 
         try:
             # Signal classification logic
@@ -198,21 +202,22 @@ class SignalGenerator(BaseStreamConsumer):
 
             # Update agent_runs — success
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            async with AsyncSessionFactory() as session:
-                async with session.begin():
-                    await session.execute(
-                        text("""
-                            UPDATE agent_runs SET status='completed',
-                                output_data=:output, execution_time_ms=:elapsed,
-                                updated_at=NOW()
-                            WHERE id=:id
-                        """),
-                        {
-                            "output": json.dumps(signal_payload),
-                            "elapsed": elapsed_ms,
-                            "id": run_id,
-                        },
-                    )
+            if db_run_id is not None:
+                async with AsyncSessionFactory() as session:
+                    async with session.begin():
+                        await session.execute(
+                            text("""
+                                UPDATE agent_runs SET status='completed',
+                                    output_data=:output, execution_time_ms=:elapsed,
+                                    updated_at=NOW()
+                                WHERE id=:id
+                            """),
+                            {
+                                "output": json.dumps(signal_payload),
+                                "elapsed": elapsed_ms,
+                                "id": db_run_id,
+                            },
+                        )
 
             # Write agent_logs
             async with AsyncSessionFactory() as session:
@@ -285,14 +290,15 @@ class SignalGenerator(BaseStreamConsumer):
         except Exception:
             log_structured("error", "signal agent processing failed", exc_info=True)
             # Update agent_runs — failure
-            async with AsyncSessionFactory() as session:
-                async with session.begin():
-                    await session.execute(
-                        text("""
-                            UPDATE agent_runs SET status='failed',
-                                error_message=:err, updated_at=NOW()
-                            WHERE id=:id
-                        """),
-                        {"err": "processing_error", "id": run_id},
-                    )
+            if db_run_id is not None:
+                async with AsyncSessionFactory() as session:
+                    async with session.begin():
+                        await session.execute(
+                            text("""
+                                UPDATE agent_runs SET status='failed',
+                                    error_message=:err, updated_at=NOW()
+                                WHERE id=:id
+                            """),
+                            {"err": "processing_error", "id": db_run_id},
+                        )
             raise
