@@ -8,6 +8,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from api.constants import REDIS_KEY_KILL_SWITCH
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -39,7 +40,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         Ensures exactly-once writes with SafeWriter and proper msg_id validation.
         """
         # Kill switch - fix Redis bytes comparison
-        value = await self.redis.get("kill_switch:active")
+        value = await self.redis.get(REDIS_KEY_KILL_SWITCH)
         if value and value.decode() == "1":
             raise RuntimeError("KillSwitchActive")
         # Use centralized msg_id extraction
@@ -76,6 +77,6 @@ class SystemMetricsConsumer(BaseStreamConsumer):
 
         try:
             return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError) as e:
-            log_structured("warning", "datetime parse failed", dt_str=dt_str, error=str(e))
+        except (ValueError, AttributeError):
+            log_structured("warning", "datetime parse failed", dt_str=dt_str, exc_info=True)
             return None

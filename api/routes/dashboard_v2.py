@@ -16,6 +16,11 @@ from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
+    REDIS_KEY_IC_WEIGHTS,
+    REDIS_KEY_KILL_SWITCH,
+    REDIS_KEY_KILL_SWITCH_UPDATED_AT,
+    REDIS_KEY_PRICES,
+    REDIS_KEY_WORKER_HEARTBEAT,
     LogType,
 )
 from api.database import AsyncSessionFactory
@@ -86,7 +91,7 @@ async def get_dashboard_state() -> dict[str, Any]:
 
         # Enrich with current prices from Redis cache
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
-        keys = [f"prices:{s}" for s in symbols]
+        keys = [REDIS_KEY_PRICES.format(symbol=s) for s in symbols]
         try:
             cached_values = await redis_client.mget(keys)
             prices: dict[str, Any] = {}
@@ -103,7 +108,7 @@ async def get_dashboard_state() -> dict[str, Any]:
 
         # Enrich with IC weights from Redis
         try:
-            raw_weights = await redis_client.get("alpha:ic_weights")
+            raw_weights = await redis_client.get(REDIS_KEY_IC_WEIGHTS)
             if raw_weights:
                 data["ic_weights"] = json.loads(raw_weights)
         except Exception:
@@ -296,7 +301,7 @@ async def get_prices() -> dict[str, Any]:
         redis_client = await get_redis()
 
         # Get all price keys from Redis
-        keys = [f"prices:{symbol}" for symbol in symbols]
+        keys = [REDIS_KEY_PRICES.format(symbol=symbol) for symbol in symbols]
         cached_values = await redis_client.mget(keys)
 
         prices = {}
@@ -594,7 +599,9 @@ async def get_worker_health() -> dict[str, Any]:
             }
 
         # Get all price keys and heartbeat from Redis with timeout
-        keys = [f"prices:{symbol}" for symbol in symbols] + ["worker:heartbeat"]
+        keys = [REDIS_KEY_PRICES.format(symbol=symbol) for symbol in symbols] + [
+            REDIS_KEY_WORKER_HEARTBEAT
+        ]
         try:
             cached_values = await asyncio.wait_for(redis_client.mget(keys), timeout=2.0)
         except asyncio.TimeoutError:
@@ -1050,7 +1057,7 @@ async def get_ic_weights() -> dict[str, Any]:
     """Get current IC factor weights from Redis."""
     try:
         redis_client = await get_redis()
-        raw = await redis_client.get("alpha:ic_weights")
+        raw = await redis_client.get(REDIS_KEY_IC_WEIGHTS)
         weights = json.loads(raw) if raw else {}
         history_result: list[dict[str, Any]] = []
         try:
@@ -1639,8 +1646,10 @@ async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, 
         redis_client = await get_redis()
 
         # Store kill switch state in Redis
-        await redis_client.set("kill_switch:active", "true" if active else "false")
-        await redis_client.set("kill_switch:updated_at", datetime.now(timezone.utc).isoformat())
+        await redis_client.set(REDIS_KEY_KILL_SWITCH, "true" if active else "false")
+        await redis_client.set(
+            REDIS_KEY_KILL_SWITCH_UPDATED_AT, datetime.now(timezone.utc).isoformat()
+        )
 
         # Log the action
         log_structured(

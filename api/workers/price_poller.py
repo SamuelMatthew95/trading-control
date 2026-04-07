@@ -28,7 +28,7 @@ from alpaca.data.requests import CryptoLatestQuoteRequest, StockLatestQuoteReque
 from sqlalchemy import text
 
 from api.config import settings
-from api.constants import WORKER_HEARTBEAT_TTL_SECONDS
+from api.constants import REDIS_KEY_PRICES, REDIS_PRICES_TTL_SECONDS, WORKER_HEARTBEAT_TTL_SECONDS
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
@@ -109,7 +109,7 @@ async def fetch_stock_prices(
 
 async def build_symbol_payload(redis_client, symbol: str, current_price: float) -> dict:
     """Compute change/pct from cached previous price, return full payload."""
-    prev_raw = await redis_client.get(f"prices:{symbol}")
+    prev_raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
     prev_data = json.loads(prev_raw) if prev_raw else None
     prev_price = float(prev_data["price"]) if prev_data else None
     change = round(current_price - prev_price, 4) if prev_price else 0.0
@@ -132,7 +132,7 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
         cache_val = json.dumps(
             {"price": p["price"], "change": p["change"], "pct": p["pct"], "ts": p["ts"]}
         )
-        pipe.set(f"prices:{symbol}", cache_val, ex=30)
+        pipe.set(REDIS_KEY_PRICES.format(symbol=symbol), cache_val, ex=REDIS_PRICES_TTL_SECONDS)
         pipe.xadd(
             "market_events",
             {

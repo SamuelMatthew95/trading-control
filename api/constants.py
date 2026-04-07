@@ -128,8 +128,11 @@ REDIS_KEY_ORDER_LOCK: Final[str] = "order_lock:{symbol}"
 REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
+REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_REFLECTION_COUNT: Final[str] = "reflection:trade_count"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
+REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
+REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
 
 # Stream names
@@ -146,6 +149,8 @@ STREAM_AGENT_LOGS: Final[str] = "agent_logs"
 DEFAULT_PAPER_CASH: Final[float] = 100_000.0
 ORDER_LOCK_TTL_SECONDS: Final[int] = 5
 WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key TTL
+REDIS_PRICES_TTL_SECONDS: Final[int] = 30  # How long price cache entries live
+REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
 TICK_INTERVAL_SECONDS: Final[float] = 0.25

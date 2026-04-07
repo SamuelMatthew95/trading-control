@@ -23,6 +23,8 @@ from api.constants import (
     AGENT_NOTIFICATION,
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
+    REDIS_IC_WEIGHTS_TTL_SECONDS,
+    REDIS_KEY_IC_WEIGHTS,
     LogType,
 )
 from api.database import AsyncSessionFactory
@@ -447,7 +449,9 @@ class ICUpdater(MultiStreamAgent):
             else {k: round(v / total, 6) for k, v in active.items()}
         )
 
-        await self.redis.set("alpha:ic_weights", json.dumps(weights), ex=90000)
+        await self.redis.set(
+            REDIS_KEY_IC_WEIGHTS, json.dumps(weights), ex=REDIS_IC_WEIGHTS_TTL_SECONDS
+        )
 
         log_structured(
             "info",

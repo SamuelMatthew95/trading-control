@@ -10,7 +10,12 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.constants import AGENT_STALE_THRESHOLD_SECONDS, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
+from api.constants import (
+    AGENT_STALE_THRESHOLD_SECONDS,
+    ALL_AGENT_NAMES,
+    REDIS_AGENT_STATUS_KEY,
+    REDIS_KEY_PRICES,
+)
 from api.events.bus import STREAMS
 from api.observability import log_structured
 
@@ -38,7 +43,7 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     # Enrich with current prices from Redis cache
     if redis_client is not None:
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
-        keys = [f"prices:{s}" for s in symbols]
+        keys = [REDIS_KEY_PRICES.format(symbol=s) for s in symbols]
         try:
             cached_values = await redis_client.mget(keys)
             prices: dict[str, Any] = {}

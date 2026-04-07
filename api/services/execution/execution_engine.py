@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from api.constants import (
     AGENT_EXECUTION,
+    REDIS_KEY_KILL_SWITCH,
     OrderSide,
     PositionSide,
 )
@@ -47,7 +48,7 @@ class ExecutionEngine(BaseStreamConsumer):
         self.agent_state = agent_state
 
     async def process(self, data: dict[str, Any]) -> None:
-        if await self.redis.get("kill_switch:active") == "1":
+        if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
 
         # Validate required fields before any DB/broker interaction
