@@ -22,6 +22,7 @@ from api.constants import (
     REDIS_KEY_PRICES,
     REDIS_KEY_WORKER_HEARTBEAT,
     LogType,
+    ProposalStatus,
 )
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
@@ -1135,7 +1136,7 @@ async def update_proposal_status(
     trace_id: str, status: str = Body(..., embed=True)
 ) -> dict[str, Any]:
     """Persist proposal approval or rejection back to agent_logs payload."""
-    if status not in {"approved", "rejected"}:
+    if status not in {ProposalStatus.APPROVED, ProposalStatus.REJECTED}:
         raise HTTPException(status_code=400, detail="status must be 'approved' or 'rejected'")
     try:
         async with AsyncSessionFactory() as session:

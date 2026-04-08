@@ -72,6 +72,25 @@ class ProposalType(StrEnum):
     SIGNAL_WEIGHT_REDUCTION = "signal_weight_reduction"
     AGENT_SUSPENSION = "agent_suspension"
     AGENT_RETIREMENT = "agent_retirement"
+    NEW_AGENT = "new_agent"
+
+
+class HypothesisType(StrEnum):
+    """Hypothesis types used by StrategyProposer to classify LLM reflection output."""
+
+    PARAMETER = "parameter"
+    RULE = "rule"
+    NEW_AGENT = "new_agent"
+
+
+class Grade(StrEnum):
+    """Letter grades assigned by GradeAgent to measure agent performance."""
+
+    A = "A"
+    B = "B"
+    C = "C"
+    D = "D"
+    F = "F"
 
 
 class ProposalStatus(StrEnum):
@@ -115,6 +134,7 @@ ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
     AGENT_NOTIFICATION,
+    AGENT_CHALLENGER,
 )
 
 # Source identifiers used in event payloads and DB source columns (lowercase by convention)

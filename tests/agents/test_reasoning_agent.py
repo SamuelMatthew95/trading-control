@@ -292,8 +292,10 @@ async def test_vector_memory_search_failure_graceful(
         await agent.process(_make_signal("buy"))
 
     # Agent still published to agent_logs
+    from api.constants import STREAM_AGENT_LOGS
+
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
-    assert "agent_logs" in published_streams
+    assert STREAM_AGENT_LOGS in published_streams
 
 
 @patch("api.services.agents.reasoning_agent.call_llm")
@@ -314,11 +316,15 @@ async def test_publishes_to_agent_logs(mock_embed, mock_call_llm, agent, mock_bu
         ):
             await agent.process(_make_signal("sell"))
 
-    published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
-    assert "agent_logs" in published_streams
+    from api.constants import SOURCE_REASONING, STREAM_AGENT_LOGS
 
-    agent_log_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "agent_logs")
+    published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
+    assert STREAM_AGENT_LOGS in published_streams
+
+    agent_log_call = next(
+        c for c in mock_bus.publish.call_args_list if c.args[0] == STREAM_AGENT_LOGS
+    )
     log_payload = agent_log_call.args[1]
     assert log_payload["type"] == "agent_log"
-    assert log_payload["source"] == "reasoning"
+    assert log_payload["source"] == SOURCE_REASONING
     assert "action" in log_payload

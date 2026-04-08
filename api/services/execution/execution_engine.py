@@ -18,6 +18,7 @@ from api.constants import (
     REDIS_KEY_ORDER_LOCK,
     SOURCE_EXECUTION,
     STREAM_EXECUTIONS,
+    STREAM_ORDERS,
     STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
     OrderSide,
@@ -48,7 +49,7 @@ class ExecutionEngine(BaseStreamConsumer):
         agent_state: AgentStateRegistry | None = None,
     ):
         super().__init__(
-            bus, dlq, stream="orders", group=DEFAULT_GROUP, consumer="execution-engine"
+            bus, dlq, stream=STREAM_ORDERS, group=DEFAULT_GROUP, consumer="execution-engine"
         )
         self.redis = redis_client
         self.broker = broker

@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.constants import PositionSide
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
 
@@ -532,7 +533,7 @@ class SafeWriter:
                     "max_drawdown": data.get("max_drawdown"),
                     "max_runup": data.get("max_runup"),
                     "sharpe_ratio": data.get("sharpe_ratio"),
-                    "trade_type": data.get("trade_type", "long"),
+                    "trade_type": data.get("trade_type", PositionSide.LONG),
                     "exit_reason": data.get("exit_reason"),
                     "regime": data.get("regime"),
                     "hour_utc": data.get("hour_utc"),

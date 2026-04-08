@@ -8,7 +8,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from api.constants import REDIS_KEY_KILL_SWITCH
+from api.constants import REDIS_KEY_KILL_SWITCH, STREAM_SYSTEM_METRICS
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -26,7 +26,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         super().__init__(
             bus,
             dlq,
-            stream="system_metrics",
+            stream=STREAM_SYSTEM_METRICS,
             group=DEFAULT_GROUP,
             consumer="system-metrics",
         )

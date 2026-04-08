@@ -14,6 +14,7 @@ from alpaca.data.live.crypto import CryptoDataStream
 from alpaca.data.live.stock import StockDataStream
 
 from api.config import settings
+from api.constants import STREAM_MARKET_TICKS
 from api.events.bus import EventBus
 from api.observability import log_structured
 
@@ -149,7 +150,7 @@ class MarketDataIngestor:
                 break
             if not self._is_valid_tick(tick):
                 continue
-            await self.bus.publish("market_ticks", tick, maxlen=10_000)
+            await self.bus.publish(STREAM_MARKET_TICKS, tick, maxlen=10_000)
 
     def _is_valid_tick(self, tick: dict[str, Any]) -> bool:
         try:

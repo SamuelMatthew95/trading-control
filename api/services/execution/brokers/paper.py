@@ -14,6 +14,7 @@ from api.constants import (
     REDIS_KEY_PAPER_CASH,
     REDIS_KEY_PAPER_ORDER,
     REDIS_KEY_PAPER_POSITION,
+    OrderSide,
     OrderStatus,
     PositionSide,
 )
@@ -31,7 +32,7 @@ class PaperBroker:
         await self.redis.setnx(REDIS_KEY_PAPER_CASH, DEFAULT_PAPER_CASH)
         normalized_side = side.lower()
         slippage = random.uniform(0.0001, 0.0005)
-        direction = 1 if normalized_side in {"buy", "long"} else -1
+        direction = 1 if normalized_side in {OrderSide.BUY, PositionSide.LONG} else -1
         fill_price = round(price + (direction * slippage), 8)
         notional = qty * fill_price
         cash = await self.get_cash()

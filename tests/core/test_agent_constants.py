@@ -5,12 +5,13 @@ Redis under one name (e.g. SIGNAL_AGENT) but the dashboard reads a different
 name (e.g. SignalGenerator), causing agent statuses to always show "offline".
 """
 
+import api.constants as _constants_module
 from api.constants import (
+    AGENT_CHALLENGER,
     AGENT_EXECUTION,
     AGENT_GRADE,
     AGENT_IC_UPDATER,
     AGENT_NOTIFICATION,
-    AGENT_REASONING,
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
@@ -20,20 +21,26 @@ from api.constants import (
 
 
 def test_all_agent_names_contains_every_constant() -> None:
-    """ALL_AGENT_NAMES must list every individual agent constant."""
-    expected = {
-        AGENT_SIGNAL,
-        AGENT_REASONING,
-        AGENT_EXECUTION,
-        AGENT_GRADE,
-        AGENT_IC_UPDATER,
-        AGENT_REFLECTION,
-        AGENT_STRATEGY_PROPOSER,
-        AGENT_NOTIFICATION,
+    """ALL_AGENT_NAMES must list every AGENT_* identity constant defined in constants.py.
+
+    This test is dynamic so that adding a new AGENT_* without updating ALL_AGENT_NAMES
+    immediately triggers a failure.
+    """
+    # Collect all module-level AGENT_* string constants (exclude TTL/threshold ints)
+    discovered = {
+        v
+        for k, v in vars(_constants_module).items()
+        if k.startswith("AGENT_") and isinstance(v, str)
     }
-    assert set(ALL_AGENT_NAMES) == expected, (
-        f"ALL_AGENT_NAMES is missing agents: {expected - set(ALL_AGENT_NAMES)}"
+    assert discovered == set(ALL_AGENT_NAMES), (
+        f"Mismatch — in constants but not ALL_AGENT_NAMES: {discovered - set(ALL_AGENT_NAMES)}, "
+        f"in ALL_AGENT_NAMES but not constants: {set(ALL_AGENT_NAMES) - discovered}"
     )
+
+
+def test_agent_challenger_in_all_agent_names() -> None:
+    """AGENT_CHALLENGER must be tracked by the dashboard (regression for missing-challenger bug)."""
+    assert AGENT_CHALLENGER in ALL_AGENT_NAMES
 
 
 def test_all_agent_names_no_duplicates() -> None:

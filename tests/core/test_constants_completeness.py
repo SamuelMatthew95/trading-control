@@ -142,3 +142,22 @@ def test_worker_heartbeat_ttl_defined() -> None:
 
     assert isinstance(WORKER_HEARTBEAT_TTL_SECONDS, int)
     assert WORKER_HEARTBEAT_TTL_SECONDS > 0
+
+
+def test_all_stream_constants_in_bus_streams() -> None:
+    """Every STREAM_* constant in constants.py must appear in bus.STREAMS.
+
+    This is a dynamic guardrail — adding a STREAM_* constant without adding it to
+    the STREAMS tuple means the stream is never initialised and events silently drop.
+    """
+    import api.constants as _const
+    from api.events.bus import STREAMS
+
+    stream_constants = {
+        v for k, v in vars(_const).items() if k.startswith("STREAM_") and isinstance(v, str)
+    }
+    missing = stream_constants - set(STREAMS)
+    assert not missing, (
+        f"STREAM_* constants not registered in bus.STREAMS (stream will never be initialised): "
+        f"{missing}"
+    )

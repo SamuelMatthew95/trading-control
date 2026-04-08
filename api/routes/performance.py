@@ -7,6 +7,7 @@ from api.services.learning_service import LearningService
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
+from api.constants import PositionSide
 from api.core.models import AgentRun, TradePerformance
 from api.database import get_async_session
 from api.main_state import get_learning_service
@@ -52,13 +53,15 @@ async def get_statistics(force_refresh: bool = False):
         ).scalar() or 0
         wins = (
             await session.execute(
-                select(func.count(TradePerformance.id)).where(TradePerformance.trade_type == "long")
+                select(func.count(TradePerformance.id)).where(
+                    TradePerformance.trade_type == PositionSide.LONG
+                )
             )
         ).scalar() or 0
         losses = (
             await session.execute(
                 select(func.count(TradePerformance.id)).where(
-                    TradePerformance.trade_type == "short"
+                    TradePerformance.trade_type == PositionSide.SHORT
                 )
             )
         ).scalar() or 0

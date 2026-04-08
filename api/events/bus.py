@@ -29,6 +29,7 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
+    STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
 )
 from api.observability import log_structured
@@ -53,6 +54,7 @@ STREAMS = (
     STREAM_PROPOSALS,
     STREAM_NOTIFICATIONS,
     STREAM_GITHUB_PRS,
+    STREAM_TRADE_LIFECYCLE,
 )
 DEFAULT_GROUP = "workers"
 # Separate group for the broadcast pipeline so it reads independently

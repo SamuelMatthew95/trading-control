@@ -14,6 +14,13 @@ from api.constants import (
     ALL_AGENT_NAMES,
     PIPELINE_STREAMS,
     REDIS_AGENT_STATUS_KEY,
+    STREAM_AGENT_LOGS,
+    STREAM_EXECUTIONS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_MARKET_EVENTS,
+    STREAM_ORDERS,
+    STREAM_RISK_ALERTS,
+    STREAM_SIGNALS,
     AgentStatus,
 )
 from api.observability import log_structured
@@ -33,12 +40,12 @@ class WebSocketBroadcaster:
         self._broadcast_task: asyncio.Task[None] | None = None
         self._redis_client = None
         self._stream_offsets: dict[str, str] = {
-            "signals": "$",
-            "orders": "$",
-            "executions": "$",
-            "risk_alerts": "$",
-            "learning_events": "$",
-            "agent_logs": "$",
+            STREAM_SIGNALS: "$",
+            STREAM_ORDERS: "$",
+            STREAM_EXECUTIONS: "$",
+            STREAM_RISK_ALERTS: "$",
+            STREAM_LEARNING_EVENTS: "$",
+            STREAM_AGENT_LOGS: "$",
         }
         self._idle_sleep_seconds = 0.1
         self._xread_streams_state: str | None = None
@@ -226,7 +233,7 @@ class WebSocketBroadcaster:
         """
         base = {"stream": stream, "msg_id": msg_id}
 
-        if stream == "market_events":
+        if stream == STREAM_MARKET_EVENTS:
             # price_poller writes: {"payload": "<json-string>"}
             raw_payload = payload.get("payload", payload)
             if isinstance(raw_payload, str):

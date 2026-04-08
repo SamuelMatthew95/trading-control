@@ -47,8 +47,11 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_TRADE_PERFORMANCE,
+    Grade,
+    HypothesisType,
     LogType,
     OrderSide,
+    ProposalType,
     Severity,
 )
 from api.database import AsyncSessionFactory
@@ -321,14 +324,14 @@ class GradeAgent(MultiStreamAgent):
                 },
             )
 
-        if grade == "C":
+        if grade == Grade.C:
             await self.bus.publish(
                 STREAM_PROPOSALS,
                 {
                     "msg_id": str(uuid.uuid4()),
                     "source": SOURCE_GRADE,
                     "type": "proposal",
-                    "proposal_type": "signal_weight_reduction",
+                    "proposal_type": ProposalType.SIGNAL_WEIGHT_REDUCTION,
                     "content": {
                         "action": "reduce_signal_weight",
                         "reduction_pct": 30,
@@ -340,7 +343,7 @@ class GradeAgent(MultiStreamAgent):
             )
             self._consecutive_low_grades += 1
 
-        elif grade == "D":
+        elif grade == Grade.D:
             self._consecutive_low_grades += 1
             if self._consecutive_low_grades >= int(settings.RETIRE_AFTER_N_GRADES):
                 await self.bus.publish(
@@ -349,7 +352,7 @@ class GradeAgent(MultiStreamAgent):
                         "msg_id": str(uuid.uuid4()),
                         "source": SOURCE_GRADE,
                         "type": "proposal",
-                        "proposal_type": "agent_suspension",
+                        "proposal_type": ProposalType.AGENT_SUSPENSION,
                         "content": {
                             "action": "suspend_from_live_stream",
                             "consecutive_low_grades": self._consecutive_low_grades,
@@ -359,7 +362,7 @@ class GradeAgent(MultiStreamAgent):
                     },
                 )
 
-        elif grade == "F":
+        elif grade == Grade.F:
             self._consecutive_low_grades += 1
             await self.bus.publish(
                 STREAM_PROPOSALS,
@@ -367,7 +370,7 @@ class GradeAgent(MultiStreamAgent):
                     "msg_id": str(uuid.uuid4()),
                     "source": SOURCE_GRADE,
                     "type": "proposal",
-                    "proposal_type": "agent_retirement",
+                    "proposal_type": ProposalType.AGENT_RETIREMENT,
                     "content": {
                         "action": "retire_immediately",
                         "reason": f"Grade F: score {payload['score_pct']}%",
@@ -779,7 +782,7 @@ class StrategyProposer(MultiStreamAgent):
         for hypothesis in strong:
             proposal = self._build_proposal(hypothesis, data, now_iso)
 
-            if proposal["proposal_type"] == "code_change":
+            if proposal["proposal_type"] == ProposalType.CODE_CHANGE:
                 await self.bus.publish(
                     STREAM_GITHUB_PRS,
                     {
@@ -861,17 +864,17 @@ class StrategyProposer(MultiStreamAgent):
             },
         }
 
-        if hyp_type == "parameter":
-            base["proposal_type"] = "parameter_change"
+        if hyp_type == HypothesisType.PARAMETER:
+            base["proposal_type"] = ProposalType.PARAMETER_CHANGE
             base["content"]["implementation"] = "db_update"
             base["content"]["note"] = "Update config parameter via DB — no deploy required."
-        elif hyp_type == "rule":
-            base["proposal_type"] = "code_change"
+        elif hyp_type == HypothesisType.RULE:
+            base["proposal_type"] = ProposalType.CODE_CHANGE
             base["content"]["implementation"] = "github_pr"
             base["content"]["note"] = "Rule change requires PR review and deploy."
-        elif hyp_type == "new_agent":
+        elif hyp_type == HypothesisType.NEW_AGENT:
             # Propose spawning a challenger agent instance with different config
-            base["proposal_type"] = "new_agent"
+            base["proposal_type"] = ProposalType.NEW_AGENT
             base["requires_approval"] = True
             base["content"]["implementation"] = "challenger_spawn"
             base["content"]["challenger_config"] = reflection_data.get("challenger_config", {})
@@ -880,7 +883,7 @@ class StrategyProposer(MultiStreamAgent):
                 "It runs alongside the current agent; retire it via the dashboard."
             )
         else:
-            base["proposal_type"] = "regime_adjustment"
+            base["proposal_type"] = ProposalType.REGIME_ADJUSTMENT
             base["content"]["regime_context"] = reflection_data.get("regime_edge", {})
 
         return base
@@ -969,7 +972,9 @@ class NotificationAgent(MultiStreamAgent):
             from api.core.writer.safe_writer import SafeWriter
 
             writer = SafeWriter(AsyncSessionFactory)
-            await writer.write_notification(notification["msg_id"], "notifications", notification)
+            await writer.write_notification(
+                notification["msg_id"], STREAM_NOTIFICATIONS, notification
+            )
         except Exception:
             log_structured("warning", "notification_persist_failed", stream=stream, exc_info=True)
 
@@ -991,11 +996,11 @@ class NotificationAgent(MultiStreamAgent):
         if explicit := data.get("severity"):
             return str(explicit)
         grade = str(data.get("grade") or "")
-        if grade == "F":
-            return "CRITICAL"
-        if grade == "D":
-            return "URGENT"
-        return _STREAM_SEVERITY.get(stream, "INFO")
+        if grade == Grade.F:
+            return Severity.CRITICAL
+        if grade == Grade.D:
+            return Severity.URGENT
+        return _STREAM_SEVERITY.get(stream, Severity.INFO)
 
 
 # ---------------------------------------------------------------------------
@@ -1088,7 +1093,7 @@ class ChallengerAgent(MultiStreamAgent):
                 "type": "challenger_grade",
                 "source": f"challenger-{self._challenger_id}",
                 "agent": "challenger",
-                "grade": "B" if win_rate >= 0.5 else "C",
+                "grade": Grade.B if win_rate >= 0.5 else Grade.C,
                 "score": win_rate,
                 "score_pct": round(win_rate * 100, 1),
                 "metrics": grade_result,

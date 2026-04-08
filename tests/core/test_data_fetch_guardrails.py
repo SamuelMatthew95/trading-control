@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from api.constants import (
+    AGENT_CHALLENGER,
     AGENT_EXECUTION,
     AGENT_GRADE,
     AGENT_IC_UPDATER,
@@ -596,6 +597,7 @@ class TestDashboardStateRedisKeys:
                 AGENT_REFLECTION,
                 AGENT_STRATEGY_PROPOSER,
                 AGENT_NOTIFICATION,
+                AGENT_CHALLENGER,
             ]
         }
         dashboard_read_keys = {REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES}
