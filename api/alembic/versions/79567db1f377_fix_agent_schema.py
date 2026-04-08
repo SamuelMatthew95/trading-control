@@ -1,7 +1,5 @@
 """Minimal migration to satisfy alembic lookup."""
 
-from alembic import op
-
 revision = "79567db1f377"
 down_revision = "20260404_positions_snapshot_fix"
 
