@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import SOURCE_DB_HELPERS, GradeType, LogType
+from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, GradeType, LogType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
@@ -43,7 +43,7 @@ async def write_agent_log(
                     "log_type": log_type,
                     "payload": json.dumps(payload, default=str),
                     "schema_version": DB_SCHEMA_VERSION,
-                    "source": "db_helpers",
+                    "source": SOURCE_DB_HELPERS,
                 },
             )
             await session.commit()
@@ -291,7 +291,7 @@ async def upsert_trade_lifecycle(
                         :filled_at::timestamptz,
                         :graded_at::timestamptz,
                         :reflected_at::timestamptz,
-                        :schema_version, 'execution_engine', NOW(), NOW()
+                        :schema_version, :source, NOW(), NOW()
                     )
                     ON CONFLICT (execution_trace_id)
                     DO UPDATE SET
@@ -334,6 +334,7 @@ async def upsert_trade_lifecycle(
                     "graded_at": graded_at,
                     "reflected_at": reflected_at,
                     "schema_version": DB_SCHEMA_VERSION,
+                    "source": SOURCE_EXECUTION,
                 },
             )
             await session.commit()

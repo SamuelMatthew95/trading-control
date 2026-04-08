@@ -18,7 +18,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, REDIS_AGENT_STATUS_KEY
+from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, REDIS_AGENT_STATUS_KEY, AgentStatus
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 
@@ -66,15 +66,16 @@ async def write_heartbeat(
                     text("""
                         INSERT INTO agent_heartbeats
                             (agent_name, status, last_event, event_count, last_seen)
-                        VALUES (:name, 'ACTIVE', :last_event, :count, NOW())
+                        VALUES (:name, :status, :last_event, :count, NOW())
                         ON CONFLICT (agent_name) DO UPDATE SET
-                            status       = 'ACTIVE',
+                            status       = :status,
                             last_event   = EXCLUDED.last_event,
                             event_count  = EXCLUDED.event_count,
                             last_seen    = NOW()
                     """),
                     {
                         "name": agent_name,
+                        "status": AgentStatus.ACTIVE,
                         "last_event": last_event,
                         "count": event_count,
                     },

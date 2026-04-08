@@ -164,7 +164,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 STREAM_ORDERS,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "reasoning",
+                    "source": SOURCE_REASONING,
                     "strategy_id": strategy_id,
                     "symbol": data.get("symbol"),
                     "side": action,

@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.constants import PositionSide
+from api.constants import SOURCE_REFLECTION, PositionSide
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
 
@@ -759,12 +759,12 @@ class SafeWriter:
                         "agent_id": data.get("agent_id"),
                         "trace_id": data.get("trace_id"),
                         "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
-                        "source": data.get("source", "reflection_agent"),
+                        "source": data.get("source", SOURCE_REFLECTION),
                     },
                     "agent_id": data.get("agent_id"),
                     "strategy_id": data.get("strategy_id"),
                     "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
-                    "source": data.get("source", "reflection_agent"),
+                    "source": data.get("source", SOURCE_REFLECTION),
                 }
 
                 await session.execute(insert(VectorMemory).values(**vector_data))

@@ -424,10 +424,11 @@ class ExecutionEngine(BaseStreamConsumer):
                     "INSERT INTO positions "
                     "(symbol, side, qty, quantity, entry_price, avg_cost, "
                     " current_price, last_price, market_value, "
-                    " unrealised_pnl, unrealized_pnl, strategy_id) "
+                    " unrealised_pnl, unrealized_pnl, strategy_id,"
+                    " schema_version, source) "
                     "VALUES (:symbol, :side, :qty, :qty, :entry_price, :entry_price, "
                     "        :current_price, :current_price, :market_value, "
-                    "        0.0, 0.0, :strategy_id)"
+                    "        0.0, 0.0, :strategy_id, :schema_version, :source)"
                 ),
                 {
                     "symbol": symbol,
@@ -437,6 +438,8 @@ class ExecutionEngine(BaseStreamConsumer):
                     "current_price": fill_price,
                     "market_value": market_value,
                     "strategy_id": strategy_id,
+                    "schema_version": DB_SCHEMA_VERSION,
+                    "source": SOURCE_EXECUTION,
                 },
             )
             return
