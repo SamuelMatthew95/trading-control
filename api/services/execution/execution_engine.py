@@ -31,6 +31,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
@@ -118,9 +119,9 @@ class ExecutionEngine(BaseStreamConsumer):
                         # raw-SQL agents and ORM-based MetricsAggregator see real values.
                         "INSERT INTO orders "
                         "(strategy_id, symbol, side, qty, quantity, price, status, "
-                        " idempotency_key, broker_order_id, source) "
+                        " idempotency_key, broker_order_id, source, schema_version) "
                         "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
-                        "        :idempotency_key, NULL, :source) "
+                        "        :idempotency_key, NULL, :source, :schema_version) "
                         "RETURNING id"
                     ),
                     {
@@ -132,6 +133,7 @@ class ExecutionEngine(BaseStreamConsumer):
                         "idempotency_key": idempotency_key,
                         "status": OrderStatus.PENDING,
                         "source": SOURCE_EXECUTION,
+                        "schema_version": DB_SCHEMA_VERSION,
                     },
                 )
                 order_id = str(inserted.scalar_one())

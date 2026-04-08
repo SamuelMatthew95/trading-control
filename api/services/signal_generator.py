@@ -20,6 +20,7 @@ from api.constants import (
     SOURCE_SIGNAL,
     STREAM_MARKET_EVENTS,
     STREAM_SIGNALS,
+    GradeType,
     LogType,
 )
 from api.database import AsyncSessionFactory
@@ -185,12 +186,13 @@ class SignalGenerator(BaseStreamConsumer):
                                 (agent_id, agent_run_id, grade_type, score, metrics,
                                  source, trace_id, schema_version)
                             VALUES
-                                (:strategy_id, :agent_run_id, 'accuracy', :score, CAST(:metrics AS JSONB),
+                                (:strategy_id, :agent_run_id, :grade_type, :score, CAST(:metrics AS JSONB),
                                  :source, :trace_id, :schema_version)
                         """),
                         {
                             "strategy_id": agent_pool_id or None,
                             "agent_run_id": run_id,
+                            "grade_type": GradeType.ACCURACY,
                             "score": score,
                             "metrics": json.dumps({"signal_type": signal_type, "symbol": symbol}),
                             "source": SOURCE_SIGNAL,

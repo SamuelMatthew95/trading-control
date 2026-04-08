@@ -93,6 +93,19 @@ class Grade(StrEnum):
     F = "F"
 
 
+class GradeType(StrEnum):
+    """Valid values for the agent_grades.grade_type PostgreSQL Enum column.
+
+    Must stay in sync with the DB Enum definition:
+    Enum("accuracy", "efficiency", "safety", "overall", name="grade_type")
+    """
+
+    ACCURACY = "accuracy"
+    EFFICIENCY = "efficiency"
+    SAFETY = "safety"
+    OVERALL = "overall"
+
+
 class ProposalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -146,6 +159,7 @@ SOURCE_IC_UPDATER: Final[str] = "ic_updater"
 SOURCE_REFLECTION: Final[str] = "reflection_agent"
 SOURCE_STRATEGY_PROPOSER: Final[str] = "strategy_proposer"
 SOURCE_NOTIFICATION: Final[str] = "notification_agent"
+SOURCE_DB_HELPERS: Final[str] = "db_helpers"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
