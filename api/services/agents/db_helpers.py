@@ -132,12 +132,13 @@ async def get_last_reflection() -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text(f"""
+                text("""
                     SELECT payload FROM agent_logs
-                    WHERE log_type = '{LogType.REFLECTION}'
+                    WHERE log_type = :log_type
                     ORDER BY created_at DESC
                     LIMIT 1
-                """)
+                """),
+                {"log_type": LogType.REFLECTION},
             )
             row = result.first()
             if row is None:

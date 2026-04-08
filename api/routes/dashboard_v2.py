@@ -794,13 +794,14 @@ async def list_proposals() -> dict[str, Any]:
         if not proposals:
             async with AsyncSessionFactory() as session:
                 result = await session.execute(
-                    text(f"""
+                    text("""
                         SELECT trace_id, payload, created_at
                         FROM agent_logs
-                        WHERE log_type = '{LogType.PROPOSAL}'
+                        WHERE log_type = :log_type
                         ORDER BY created_at DESC
                         LIMIT 20
-                    """)
+                    """),
+                    {"log_type": LogType.PROPOSAL},
                 )
                 for row in result.all():
                     payload = _as_dict(row[1])
@@ -905,14 +906,14 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text(f"""
+                text("""
                     SELECT trace_id, payload, created_at
                     FROM agent_logs
-                    WHERE log_type = '{LogType.PROPOSAL}'
+                    WHERE log_type = :log_type
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"limit": limit},
+                {"log_type": LogType.PROPOSAL, "limit": limit},
             )
             rows = result.all()
         proposals = []
@@ -992,14 +993,14 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text(f"""
+                text("""
                     SELECT trace_id, payload, created_at
                     FROM agent_logs
-                    WHERE log_type = '{LogType.GRADE}'
+                    WHERE log_type = :log_type
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"limit": limit},
+                {"log_type": LogType.GRADE, "limit": limit},
             )
             rows = result.all()
         grades = []
@@ -1098,14 +1099,14 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text(f"""
+                text("""
                     SELECT trace_id, payload, created_at
                     FROM agent_logs
-                    WHERE log_type = '{LogType.REFLECTION}'
+                    WHERE log_type = :log_type
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"limit": limit},
+                {"log_type": LogType.REFLECTION, "limit": limit},
             )
             rows = result.all()
         reflections = [
@@ -1141,13 +1142,13 @@ async def update_proposal_status(
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text(f"""
+                text("""
                     UPDATE agent_logs
                     SET payload = (payload::jsonb || jsonb_build_object('status', :status::text))::text
-                    WHERE trace_id = :trace_id AND log_type = '{LogType.PROPOSAL}'
+                    WHERE trace_id = :trace_id AND log_type = :log_type
                     RETURNING trace_id
                 """),
-                {"trace_id": trace_id, "status": status},
+                {"trace_id": trace_id, "status": status, "log_type": LogType.PROPOSAL},
             )
             updated = result.fetchone()
             await session.commit()

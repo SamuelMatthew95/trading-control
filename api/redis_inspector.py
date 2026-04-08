@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.config import settings
+from api.constants import STREAM_MARKET_TICKS
 from api.events.bus import STREAMS
 from api.observability import log_structured
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 
 class TestEventRequest(BaseModel):
-    stream: str = "market_ticks"
+    stream: str = STREAM_MARKET_TICKS
     payload: dict[str, Any] = {"message": "hello"}
 
 

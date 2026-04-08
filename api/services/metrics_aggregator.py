@@ -519,13 +519,14 @@ class MetricsAggregator:
                         "agent_logs missing log_type/payload columns — skipping proposals"
                     )
                 proposals_result = await self.session.execute(
-                    text(f"""
+                    text("""
                         SELECT trace_id, payload, created_at
                         FROM agent_logs
-                        WHERE log_type = '{LogType.PROPOSAL}'
+                        WHERE log_type = :log_type
                         ORDER BY created_at DESC
                         LIMIT 20
-                    """)
+                    """),
+                    {"log_type": LogType.PROPOSAL},
                 )
                 for row in proposals_result:
                     p = row[1]
