@@ -222,10 +222,10 @@ class SignalGenerator(BaseStreamConsumer):
                     await session.execute(
                         text("""
                             INSERT INTO agent_logs
-                                (agent_run_id, trace_id, log_type, payload, schema_version)
+                                (agent_run_id, trace_id, log_type, payload, schema_version, source)
                             VALUES
                                 (:agent_run_id, :trace_id, :log_type,
-                                 CAST(:payload AS JSONB), :schema_version)
+                                 CAST(:payload AS JSONB), :schema_version, :source)
                         """),
                         {
                             "agent_run_id": run_id,
@@ -233,6 +233,7 @@ class SignalGenerator(BaseStreamConsumer):
                             "log_type": LogType.SIGNAL_GENERATED,
                             "payload": json.dumps(signal_payload),
                             "schema_version": DB_SCHEMA_VERSION,
+                            "source": AGENT_NAME,
                         },
                     )
 
