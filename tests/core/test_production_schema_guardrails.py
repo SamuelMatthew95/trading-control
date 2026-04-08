@@ -193,27 +193,15 @@ class TestAgentGradesInsert:
 
     def test_source_in_signal_generator(self):
         """agent_grades INSERT in signal_generator.py must include source."""
-        # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
-        # This test is skipped as part of the temporary fix for production schema mismatch
-        import pytest
-
-        pytest.skip("Temporarily disabled - source column removed until migration is applied")
-
         src = _read("api/services/signal_generator.py")
         block = _sql_block_after(src, "INSERT INTO agent_grades")
         assert "source" in block, (
             "INSERT INTO agent_grades must include 'source' column. "
-            "Added by 20260407_fix_agent_runs_missing_cols migration."
+            "Added by 79567db1f377_fix_agent_schema migration."
         )
 
     def test_source_in_db_helpers(self):
         """write_grade_to_db in db_helpers.py must include source."""
-        # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
-        # This test is skipped as part of the temporary fix for production schema mismatch
-        import pytest
-
-        pytest.skip("Temporarily disabled - source column removed until migration is applied")
-
         src = _read("api/services/agents/db_helpers.py")
         block = _sql_block_after(src, "INSERT INTO agent_grades")
         assert "source" in block, "write_grade_to_db INSERT must include 'source' column."
@@ -257,19 +245,13 @@ class TestAgentLogsInsert:
 
     def test_source_column_in_all_inserts(self):
         """Every INSERT INTO agent_logs must include the source column."""
-        # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
-        # This test is skipped as part of the temporary fix for production schema mismatch
-        import pytest
-
-        pytest.skip("Temporarily disabled - source column removed until migration is applied")
-
         for path, src in self._files():
             if "INSERT INTO agent_logs" not in src:
                 continue
             block = _sql_block_after(src, "INSERT INTO agent_logs")
             assert "source" in block, (
                 f"{path}: INSERT INTO agent_logs must include 'source' column. "
-                "Added by 20260407 migration."
+                "Added by 79567db1f377_fix_agent_schema migration."
             )
 
     def test_log_type_column_used(self):
