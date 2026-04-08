@@ -151,8 +151,9 @@ class TestSignalGeneratorDBWrites:
         # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
         # This test is skipped as part of the temporary fix for production schema mismatch
         import pytest
+
         pytest.skip("Temporarily disabled - source column removed until migration is applied")
-        
+
         await self._run_process(monkeypatch)
         params = self._params_for("INSERT INTO agent_runs")
         assert params is not None, "No INSERT INTO agent_runs params found"
@@ -224,8 +225,9 @@ class TestSignalGeneratorDBWrites:
         # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
         # This test is skipped as part of the temporary fix for production schema mismatch
         import pytest
+
         pytest.skip("Temporarily disabled - source column removed until migration is applied")
-        
+
         await self._run_process(monkeypatch)
         params = self._params_for("INSERT INTO agent_grades")
         assert params is not None, "No INSERT INTO agent_grades executed"
@@ -247,8 +249,9 @@ class TestSignalGeneratorDBWrites:
         # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
         # This test is skipped as part of the temporary fix for production schema mismatch
         import pytest
+
         pytest.skip("Temporarily disabled - source column removed until migration is applied")
-        
+
         await self._run_process(monkeypatch)
         params = self._params_for("INSERT INTO agent_logs")
         assert params is not None, "No INSERT INTO agent_logs executed"

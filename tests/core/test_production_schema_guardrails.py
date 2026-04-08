@@ -196,8 +196,9 @@ class TestAgentGradesInsert:
         # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
         # This test is skipped as part of the temporary fix for production schema mismatch
         import pytest
+
         pytest.skip("Temporarily disabled - source column removed until migration is applied")
-        
+
         src = _read("api/services/signal_generator.py")
         block = _sql_block_after(src, "INSERT INTO agent_grades")
         assert "source" in block, (
@@ -210,8 +211,9 @@ class TestAgentGradesInsert:
         # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
         # This test is skipped as part of the temporary fix for production schema mismatch
         import pytest
+
         pytest.skip("Temporarily disabled - source column removed until migration is applied")
-        
+
         src = _read("api/services/agents/db_helpers.py")
         block = _sql_block_after(src, "INSERT INTO agent_grades")
         assert "source" in block, "write_grade_to_db INSERT must include 'source' column."
@@ -258,8 +260,9 @@ class TestAgentLogsInsert:
         # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
         # This test is skipped as part of the temporary fix for production schema mismatch
         import pytest
+
         pytest.skip("Temporarily disabled - source column removed until migration is applied")
-        
+
         for path, src in self._files():
             if "INSERT INTO agent_logs" not in src:
                 continue
