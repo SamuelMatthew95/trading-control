@@ -172,10 +172,10 @@ class SignalGenerator(BaseStreamConsumer):
                         text("""
                             INSERT INTO agent_grades
                                 (agent_id, agent_run_id, grade_type, score, metrics,
-                                 trace_id, schema_version)
+                                 source, trace_id, schema_version)
                             VALUES
                                 (:strategy_id, :agent_run_id, 'accuracy', :score, CAST(:metrics AS JSONB),
-                                 :trace_id, :schema_version)
+                                 'signal_generator', :trace_id, :schema_version)
                         """),
                         {
                             "strategy_id": agent_pool_id or None,
