@@ -22,6 +22,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
 from api.services.agents.vector_helpers import (
@@ -234,11 +235,13 @@ class ReasoningAgent(BaseStreamConsumer):
                     INSERT INTO agent_runs (
                         strategy_id, symbol, signal_data, action, confidence,
                         primary_edge, risk_factors, size_pct, stop_atr_x, rr_ratio,
-                        latency_ms, cost_usd, trace_id, fallback
+                        latency_ms, cost_usd, trace_id, fallback,
+                        source, schema_version, status
                     ) VALUES (
-                        :strategy_id, :symbol, CAST(:signal_data AS JSONB), :action, :confidence,
-                        :primary_edge, CAST(:risk_factors AS JSONB), :size_pct, :stop_atr_x,
-                        :rr_ratio, :latency_ms, :cost_usd, :trace_id, :fallback
+                        :strategy_id, :symbol, :signal_data, :action, :confidence,
+                        :primary_edge, :risk_factors, :size_pct, :stop_atr_x,
+                        :rr_ratio, :latency_ms, :cost_usd, :trace_id, :fallback,
+                        :source, :schema_version, 'running'
                     ) RETURNING id
                 """),
                 {
@@ -256,6 +259,8 @@ class ReasoningAgent(BaseStreamConsumer):
                     "cost_usd": summary["cost_usd"],
                     "trace_id": trace_id,
                     "fallback": fallback,
+                    "source": AGENT_REASONING,
+                    "schema_version": DB_SCHEMA_VERSION,
                 },
             )
             return str(result.scalar_one())

@@ -1142,7 +1142,7 @@ async def update_proposal_status(
             result = await session.execute(
                 text(f"""
                     UPDATE agent_logs
-                    SET payload = payload || jsonb_build_object('status', :status::text)
+                    SET payload = (payload::jsonb || jsonb_build_object('status', :status::text))::text
                     WHERE trace_id = :trace_id AND log_type = '{LogType.PROPOSAL}'
                     RETURNING trace_id
                 """),
