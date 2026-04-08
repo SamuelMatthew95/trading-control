@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from api.constants import (
     AGENT_EXECUTION,
+    LARGE_ORDER_THRESHOLD,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_ORDER_LOCK,
@@ -34,7 +35,6 @@ from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
-LARGE_ORDER_THRESHOLD = 10.0
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
 

@@ -13,6 +13,7 @@ from typing import Any
 
 import redis.asyncio as redis
 
+from api.constants import STREAM_DLQ, STREAM_ORDERS
 from api.observability import log_structured
 
 from .config import get_settings
@@ -137,7 +138,7 @@ class StreamManager:
         try:
             dlq_data = self.message_processor.create_dlq_entry(message, error)
 
-            await self.redis_client.xadd("dlq", dlq_data)
+            await self.redis_client.xadd(STREAM_DLQ, dlq_data)
             await self._atomic_ack(message["stream"], message["message_id"])
 
             log_structured("warning", "sent to dlq", message_id=message["message_id"])
@@ -173,7 +174,7 @@ class StreamManager:
                 await self._atomic_ack(stream, message_id)
 
                 # Trigger event-driven monitoring (non-blocking)
-                if stream == "orders":
+                if stream == STREAM_ORDERS:
                     try:
                         from api.main import on_message_processed
 

@@ -195,6 +195,7 @@ STREAM_PROPOSALS: Final[str] = "proposals"
 STREAM_NOTIFICATIONS: Final[str] = "notifications"
 STREAM_GITHUB_PRS: Final[str] = "github_prs"
 STREAM_TRADE_LIFECYCLE: Final[str] = "trade_lifecycle"
+STREAM_DLQ: Final[str] = "dlq"
 
 # The four streams shown on the dashboard pipeline view
 PIPELINE_STREAMS: Final[tuple[str, ...]] = (
@@ -214,7 +215,7 @@ RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
 TICK_INTERVAL_SECONDS: Final[float] = 0.25
 MAX_BACKOFF_SECONDS: Final[int] = 60
-LARGE_ORDER_THRESHOLD: Final[float] = 10_000.0
+LARGE_ORDER_THRESHOLD: Final[float] = 10.0  # qty threshold for VWAP slicing (e.g. 10 BTC)
 VECTOR_SEARCH_LIMIT: Final[int] = 5
 STRATEGY_MAP_REFRESH_SECONDS: Final[int] = 300
 IC_LOOKBACK_DAYS: Final[int] = 30

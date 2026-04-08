@@ -216,9 +216,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 AgentAction.REJECT,
             }
             if action not in valid_actions:
-                action = base_action if base_action not in {"none", ""} else "hold"
+                action = base_action if base_action not in {"none", ""} else AgentAction.HOLD
         else:
-            action = base_action if base_action not in {"none", ""} else "hold"
+            action = base_action if base_action not in {"none", ""} else AgentAction.HOLD
 
         return {
             "action": action,

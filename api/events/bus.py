@@ -15,6 +15,7 @@ from api.constants import (
     STREAM_AGENT_GRADES,
     STREAM_AGENT_LOGS,
     STREAM_DECISIONS,
+    STREAM_DLQ,
     STREAM_EXECUTIONS,
     STREAM_FACTOR_IC_HISTORY,
     STREAM_GITHUB_PRS,
@@ -55,6 +56,7 @@ STREAMS = (
     STREAM_NOTIFICATIONS,
     STREAM_GITHUB_PRS,
     STREAM_TRADE_LIFECYCLE,
+    STREAM_DLQ,
 )
 DEFAULT_GROUP = "workers"
 # Separate group for the broadcast pipeline so it reads independently

@@ -7,6 +7,8 @@ Contains message processing logic separated from infrastructure concerns.
 from datetime import datetime, timezone
 from typing import Any
 
+from api.constants import OrderSide, OrderStatus
+
 from .schemas import ProcessResult
 
 
@@ -55,7 +57,7 @@ class MessageProcessor:
                 )
 
             # Validate order data
-            if side not in ["buy", "sell"]:
+            if side not in {OrderSide.BUY, OrderSide.SELL}:
                 return ProcessResult(
                     success=False, retryable=False, message=f"Invalid side: {side}"
                 )
@@ -102,7 +104,12 @@ class MessageProcessor:
             if not status:
                 return ProcessResult(success=False, retryable=False, message="Missing status")
 
-            valid_statuses = ["pending", "filled", "cancelled", "rejected"]
+            valid_statuses = {
+                OrderStatus.PENDING,
+                OrderStatus.FILLED,
+                OrderStatus.CANCELLED,
+                OrderStatus.REJECTED,
+            }
             if status not in valid_statuses:
                 return ProcessResult(
                     success=False, retryable=False, message=f"Invalid status: {status}"
