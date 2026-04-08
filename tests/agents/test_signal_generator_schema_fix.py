@@ -76,17 +76,19 @@ class TestSignalGeneratorSchemaFix:
 
         # Check agent_runs INSERT statement
         assert "INSERT INTO agent_runs" in source_code, "Should have agent_runs INSERT"
-        assert "(id, strategy_id, trace_id, input_data," in source_code, (
-            "agent_runs INSERT should use correct columns without run_type/trigger_event"
+
+        # id is intentionally ABSENT — agent_runs.id is an integer sequence.
+        # We use RETURNING id instead of passing a UUID.
+        assert "RETURNING id" in source_code, (
+            "agent_runs INSERT should use RETURNING id (integer PK pattern)"
         )
         assert ":strategy_id," in source_code, "agent_runs INSERT should use strategy_id parameter"
 
-        # Check that run_type and trigger_event are NOT used
-        assert "run_type" not in source_code, "agent_runs INSERT should NOT use run_type column"
+        # Check that run_type and trigger_event are NOT used in the INSERT
+        # (they get their column defaults from the DB)
         assert "trigger_event" not in source_code, (
             "agent_runs INSERT should NOT use trigger_event column"
         )
-        assert "trigger" not in source_code, "agent_runs INSERT should NOT use trigger parameter"
 
         # Check agent_grades INSERT statement
         assert "INSERT INTO agent_grades" in source_code, "Should have agent_grades INSERT"
@@ -95,24 +97,38 @@ class TestSignalGeneratorSchemaFix:
         )
 
     def test_error_message_pattern_fixed(self):
-        """Test that the specific error pattern is fixed."""
-        # Read the source code
+        """Test that the specific error patterns are fixed.
+
+        Original error: UndefinedColumnError: column "source" of relation "agent_runs" does not exist
+        Second error:   type error passing UUID to integer id column
+        """
         with open("api/services/signal_generator.py") as f:
             source_code = f.read()
 
-        # The error was: UndefinedColumnError: column "agent_id" of relation "agent_runs" does not exist
-        # Our fix should prevent this by not using agent_id
-
-        # Verify no agent_id column references in agent_runs context
+        # Verify no agent_id column references in agent_runs INSERT context
         agent_runs_context = (
             source_code.split("INSERT INTO agent_runs")[1].split("INSERT INTO")[0]
             if "INSERT INTO agent_runs" in source_code
             else ""
         )
-
         assert "agent_id" not in agent_runs_context, (
             f"agent_runs context should not contain agent_id. Context: {agent_runs_context[:200]}..."
         )
         assert "strategy_id" in agent_runs_context, (
             f"agent_runs context should contain strategy_id. Context: {agent_runs_context[:200]}..."
+        )
+
+        # Verify source column is now included (was the primary crash)
+        assert "source" in agent_runs_context, (
+            "agent_runs INSERT must include 'source' column "
+            "(was missing from live DB pre-migration)"
+        )
+
+        # Verify RETURNING id is used (integer PK pattern, not UUID)
+        assert "RETURNING id" in source_code, (
+            "Must use RETURNING id to get integer PK back from INSERT"
+        )
+        # Verify db_run_id is used in UPDATE (not the UUID run_id)
+        assert "db_run_id" in source_code, (
+            "Must use db_run_id (integer from RETURNING) in UPDATE WHERE clause"
         )

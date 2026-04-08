@@ -25,7 +25,70 @@
 - **ReflectionAgent**: performance → hypotheses
 - **StrategyProposer**: hypotheses → proposals
 
+## Production DB Schema Reality (CRITICAL — Read Before Any INSERT)
+
+The live PostgreSQL DB was created **before** the Alembic migration system.
+Several tables have types and constraints that differ from what ORM models assume.
+
+### Tables with INTEGER primary keys (NOT UUID)
+```
+agent_runs   id INTEGER  nextval('agent_runs_id_seq')
+events       id INTEGER  nextval('events_id_seq')
+```
+**Rule**: Never pass `id` in the INSERT column list for these tables.
+Use `RETURNING id` and store the result as `db_run_id` (integer).
+
+```python
+# CORRECT pattern for agent_runs / events
+result = await session.execute(text("""
+    INSERT INTO agent_runs (strategy_id, trace_id, source, schema_version, ...)
+    VALUES (:strategy_id, :trace_id, :source, :schema_version, ...)
+    RETURNING id
+"""), {...})
+db_run_id = result.first()[0]  # integer from sequence
+
+# Later UPDATE uses db_run_id (integer), NOT run_id (UUID)
+await session.execute(text(
+    "UPDATE agent_runs SET status='completed' WHERE id=:id"
+), {"id": db_run_id})
+```
+
+### Mandatory columns added by migration 20260407
+These were absent in the pre-migration schema. All INSERTs must include them:
+```
+agent_runs   source VARCHAR(64)     — who wrote the row (e.g. AGENT_SIGNAL)
+agent_runs   run_type VARCHAR(32)   — defaults to 'analysis' in DB
+agent_runs   execution_time_ms INT  — nullable, written in success UPDATE
+agent_logs   source VARCHAR(64)     — writer identity
+agent_grades source VARCHAR(64)     — writer identity
+events       data JSONB             — signal/event payload
+events       idempotency_key VARCHAR(255) + UNIQUE INDEX
+events       processed BOOLEAN      — defaults to false
+events       schema_version VARCHAR(16)
+```
+
+### agent_grades NOT NULL constraints
+`agent_id` and `agent_run_id` were created NOT NULL in the pre-migration schema.
+Migration 20260407 drops both to nullable. `write_grade_to_db()` omits them
+(NULL is valid). `signal_generator.py` passes `agent_pool_id or None`.
+
+### Correct INSERT pattern — events (with dedup)
+```sql
+INSERT INTO events (event_type, entity_type, data, idempotency_key, source, schema_version)
+VALUES ('signal.generated', 'signal', :data, :idem_key, :source, :schema_version)
+ON CONFLICT (idempotency_key) DO NOTHING
+```
+
+### Guardrail tests (always run these)
+```
+tests/core/test_production_schema_guardrails.py  — source-code inspection
+tests/agents/test_signal_generator_db_writes.py  — functional SQL capture
+tests/agents/test_signal_generator_schema_fix.py — regression for column names
+```
+
 ## Critical Anti-Patterns (NEVER Do These)
+- ❌ `INSERT INTO agent_runs (id, ...)` → id is INTEGER, never pass UUID; use RETURNING id
+- ❌ `"id": run_id` in UPDATE params for agent_runs → use `"id": db_run_id` (integer)
 - ❌ `log_structured("error", "msg", error=str(exc))` → Use `exc_info=True`
 - ❌ `redis.xgroup_create(stream, group, id="$", mkstream=True)` → Use positional args
 - ❌ `async def endpoint(service=Depends(get_service))` → Use `Annotated[Service, Depends(...)]`
