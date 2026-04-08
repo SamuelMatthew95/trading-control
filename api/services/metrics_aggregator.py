@@ -427,11 +427,19 @@ class MetricsAggregator:
             def _select(col: str, fallback_sql: str = "NULL") -> str:
                 return col if col in available_columns else fallback_sql
 
-            payload_is_json = column_types.get("payload") in {"json", "jsonb"}
+            # Live DB stores payload as TEXT (JSON string), not native JSONB.
+            # Treat text as parseable JSON too so message extraction works.
+            payload_col_type = column_types.get("payload", "")
+            payload_exists = "payload" in available_columns
+            payload_is_native_json = payload_col_type in {"json", "jsonb"}
+            # For text columns we still cast to jsonb for field extraction;
+            # the cast is safe because we only insert valid JSON into payload.
+            payload_is_json = payload_exists  # always try if the column is present
             payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
             payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
             payload_reason = "payload::jsonb->>'reason'" if payload_is_json else "NULL"
-            payload_text = "payload::text" if "payload" in available_columns else "NULL"
+            payload_text = "payload::text" if payload_exists else "NULL"
+            _ = payload_is_native_json  # retained for future use
             legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
 
             logs_sql = text(
