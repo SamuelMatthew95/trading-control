@@ -32,10 +32,10 @@ async def write_agent_log(
             await session.execute(
                 text("""
                     INSERT INTO agent_logs
-                        (agent_run_id, trace_id, log_type, payload, schema_version, source)
+                        (agent_run_id, trace_id, log_type, payload, schema_version)
                     VALUES
                         (:agent_run_id::uuid, :trace_id, :log_type, CAST(:payload AS JSONB),
-                         :schema_version, :source)
+                         :schema_version)
                 """),
                 {
                     "agent_run_id": agent_run_id,
@@ -43,7 +43,6 @@ async def write_agent_log(
                     "log_type": log_type,
                     "payload": json.dumps(payload, default=str),
                     "schema_version": DB_SCHEMA_VERSION,
-                    "source": payload.get("source", "agent"),
                 },
             )
             await session.commit()
@@ -60,14 +59,13 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
             await session.execute(
                 text("""
                     INSERT INTO agent_grades
-                        (grade_type, score, metrics, trace_id, schema_version, source)
+                        (grade_type, score, metrics, trace_id, schema_version)
                     VALUES (
                         'pipeline',
                         :score,
                         CAST(:metrics AS JSONB),
                         :trace_id,
-                        :schema_version,
-                        'grade_agent'
+                        :schema_version
                     )
                 """),
                 {
@@ -105,13 +103,12 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
         async with AsyncSessionFactory() as session:
             await session.execute(
                 text("""
-                    INSERT INTO agent_logs (trace_id, log_type, payload, schema_version, source)
+                    INSERT INTO agent_logs (trace_id, log_type, payload, schema_version)
                     VALUES (
                         :trace_id,
                         'proposal',
                         CAST(:payload AS JSONB),
-                        :schema_version,
-                        'strategy_proposer'
+                        :schema_version
                     )
                 """),
                 {
