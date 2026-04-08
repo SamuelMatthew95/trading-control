@@ -9,12 +9,18 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from api.constants import AGENT_STALE_THRESHOLD_SECONDS, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
+from api.constants import (
+    AGENT_STALE_THRESHOLD_SECONDS,
+    ALL_AGENT_NAMES,
+    PIPELINE_STREAMS,
+    REDIS_AGENT_STATUS_KEY,
+    AgentStatus,
+)
 from api.observability import log_structured
 
 _AGENT_NAMES = ALL_AGENT_NAMES
 
-_PIPELINE_STREAMS = ["market_events", "signals", "decisions", "graded_decisions"]
+_PIPELINE_STREAMS = PIPELINE_STREAMS
 _AGENT_PUSH_INTERVAL = 5  # seconds
 
 
@@ -162,9 +168,9 @@ class WebSocketBroadcaster:
                         last_seen = data.get("last_seen", 0)
                         age = now - last_seen
                         status = (
-                            "STALE"
+                            AgentStatus.STALE
                             if age > AGENT_STALE_THRESHOLD_SECONDS
-                            else data.get("status", "ACTIVE")
+                            else data.get("status", AgentStatus.ACTIVE)
                         )
                         agents.append(
                             {
@@ -180,7 +186,7 @@ class WebSocketBroadcaster:
                         agents.append(
                             {
                                 "name": name,
-                                "status": "WAITING",
+                                "status": AgentStatus.WAITING,
                                 "event_count": 0,
                                 "last_event": "",
                                 "last_seen": 0,

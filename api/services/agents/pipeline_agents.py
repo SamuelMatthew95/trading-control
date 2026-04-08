@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from api.config import settings
 from api.constants import (
+    AGENT_CHALLENGER,
     AGENT_GRADE,
     AGENT_IC_UPDATER,
     AGENT_NOTIFICATION,
@@ -25,12 +26,36 @@ from api.constants import (
     AGENT_STRATEGY_PROPOSER,
     REDIS_IC_WEIGHTS_TTL_SECONDS,
     REDIS_KEY_IC_WEIGHTS,
+    REDIS_KEY_LLM_COST,
+    REDIS_KEY_LLM_TOKENS,
+    SOURCE_GRADE,
+    SOURCE_IC_UPDATER,
+    SOURCE_NOTIFICATION,
+    SOURCE_REASONING,
+    SOURCE_REFLECTION,
+    SOURCE_STRATEGY_PROPOSER,
+    STREAM_AGENT_GRADES,
+    STREAM_AGENT_LOGS,
+    STREAM_EXECUTIONS,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_GITHUB_PRS,
+    STREAM_MARKET_TICKS,
+    STREAM_NOTIFICATIONS,
+    STREAM_ORDERS,
+    STREAM_PROPOSALS,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_RISK_ALERTS,
+    STREAM_SIGNALS,
+    STREAM_TRADE_PERFORMANCE,
     LogType,
+    OrderSide,
+    Severity,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
@@ -69,7 +94,7 @@ class GradeAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=["executions", "trade_performance"],
+            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
             consumer="grade-agent",
             agent_state=agent_state,
         )
@@ -79,10 +104,10 @@ class GradeAgent(MultiStreamAgent):
         self._consecutive_low_grades = 0
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == "trade_performance":
+        if stream == STREAM_TRADE_PERFORMANCE:
             self._pnl_buffer.append(float(data.get("pnl") or 0.0))
             self._fills += 1
-        elif stream == "executions":
+        elif stream == STREAM_EXECUTIONS:
             self._confidence_buffer.append(float(data.get("confidence") or 0.5))
 
         trigger = max(int(settings.GRADE_EVERY_N_FILLS), 1)
@@ -121,8 +146,8 @@ class GradeAgent(MultiStreamAgent):
         payload = {
             "msg_id": str(uuid.uuid4()),
             "type": "agent_grade",
-            "source": "grade_agent",
-            "agent": "reasoning_agent",
+            "source": SOURCE_GRADE,
+            "agent": SOURCE_REASONING,
             "trace_id": trace_id,
             "grade": grade,
             "score": score,
@@ -139,7 +164,7 @@ class GradeAgent(MultiStreamAgent):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        await self.bus.publish("agent_grades", payload)
+        await self.bus.publish(STREAM_AGENT_GRADES, payload)
         log_structured("info", "grade_computed", grade=grade, score=score, fills=self._fills, ic=ic)
 
         await write_agent_log(trace_id, LogType.GRADE, payload)
@@ -171,7 +196,7 @@ class GradeAgent(MultiStreamAgent):
                 await upsert_trade_lifecycle(
                     execution_trace_id=latest[0],
                     symbol="",  # already set — upsert won't overwrite
-                    side="buy",
+                    side=OrderSide.BUY,
                     grade_trace_id=trace_id,
                     grade=grade,
                     grade_score=payload["score_pct"],
@@ -279,10 +304,10 @@ class GradeAgent(MultiStreamAgent):
         severity = GRADE_SEVERITY.get(grade)
         if severity:
             await self.bus.publish(
-                "notifications",
+                STREAM_NOTIFICATIONS,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "grade_agent",
+                    "source": SOURCE_GRADE,
                     "type": "notification",
                     "severity": severity,
                     "notification_type": "agent_grade",
@@ -298,10 +323,10 @@ class GradeAgent(MultiStreamAgent):
 
         if grade == "C":
             await self.bus.publish(
-                "proposals",
+                STREAM_PROPOSALS,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "grade_agent",
+                    "source": SOURCE_GRADE,
                     "type": "proposal",
                     "proposal_type": "signal_weight_reduction",
                     "content": {
@@ -319,10 +344,10 @@ class GradeAgent(MultiStreamAgent):
             self._consecutive_low_grades += 1
             if self._consecutive_low_grades >= int(settings.RETIRE_AFTER_N_GRADES):
                 await self.bus.publish(
-                    "proposals",
+                    STREAM_PROPOSALS,
                     {
                         "msg_id": str(uuid.uuid4()),
-                        "source": "grade_agent",
+                        "source": SOURCE_GRADE,
                         "type": "proposal",
                         "proposal_type": "agent_suspension",
                         "content": {
@@ -337,10 +362,10 @@ class GradeAgent(MultiStreamAgent):
         elif grade == "F":
             self._consecutive_low_grades += 1
             await self.bus.publish(
-                "proposals",
+                STREAM_PROPOSALS,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "grade_agent",
+                    "source": SOURCE_GRADE,
                     "type": "proposal",
                     "proposal_type": "agent_retirement",
                     "content": {
@@ -380,7 +405,7 @@ class ICUpdater(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=["trade_performance"],
+            streams=[STREAM_TRADE_PERFORMANCE],
             consumer="ic-updater",
             agent_state=agent_state,
         )
@@ -465,10 +490,10 @@ class ICUpdater(MultiStreamAgent):
         now_iso = datetime.now(timezone.utc).isoformat()
         for factor, ic_val in raw_factors.items():
             await self.bus.publish(
-                "factor_ic_history",
+                STREAM_FACTOR_IC_HISTORY,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "ic_updater",
+                    "source": SOURCE_IC_UPDATER,
                     "type": "ic_update",
                     "factor_name": factor,
                     "ic_score": round(ic_val, 6),
@@ -480,12 +505,12 @@ class ICUpdater(MultiStreamAgent):
             await persist_factor_ic(factor, ic_val, now_iso)
 
         await self.bus.publish(
-            "notifications",
+            STREAM_NOTIFICATIONS,
             {
                 "msg_id": str(uuid.uuid4()),
-                "source": "ic_updater",
+                "source": SOURCE_IC_UPDATER,
                 "type": "notification",
-                "severity": "INFO",
+                "severity": Severity.INFO,
                 "notification_type": "ic_update",
                 "message": (
                     f"IC weights updated after {self._fills} fills — "
@@ -525,7 +550,7 @@ class ReflectionAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=["trade_performance", "agent_grades", "factor_ic_history"],
+            streams=[STREAM_TRADE_PERFORMANCE, STREAM_AGENT_GRADES, STREAM_FACTOR_IC_HISTORY],
             consumer="reflection-agent",
             agent_state=agent_state,
         )
@@ -535,7 +560,7 @@ class ReflectionAgent(MultiStreamAgent):
         self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == "trade_performance":
+        if stream == STREAM_TRADE_PERFORMANCE:
             self._fills += 1
             self._recent_fills.append(
                 {
@@ -547,7 +572,7 @@ class ReflectionAgent(MultiStreamAgent):
                     "filled_at": data.get("filled_at"),
                 }
             )
-        elif stream == "agent_grades":
+        elif stream == STREAM_AGENT_GRADES:
             self._recent_grades.append(
                 {
                     "grade": data.get("grade"),
@@ -556,7 +581,7 @@ class ReflectionAgent(MultiStreamAgent):
                     "timestamp": data.get("timestamp"),
                 }
             )
-        elif stream == "factor_ic_history":
+        elif stream == STREAM_FACTOR_IC_HISTORY:
             self._recent_ic.append(
                 {
                     "factor": data.get("factor_name"),
@@ -583,16 +608,16 @@ class ReflectionAgent(MultiStreamAgent):
             from api.redis_client import get_redis  # avoid circular import at module level
 
             redis = await get_redis()
-            budget_used = int(await redis.get(f"llm:tokens:{today}") or 0)
+            budget_used = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
             if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
                 log_structured("warning", "reflection_skipped_budget_exceeded", trace_id=trace_id)
                 await self.bus.publish(
-                    "notifications",
+                    STREAM_NOTIFICATIONS,
                     {
                         "msg_id": str(uuid.uuid4()),
-                        "source": "reflection_agent",
+                        "source": SOURCE_REFLECTION,
                         "type": "notification",
-                        "severity": "WARNING",
+                        "severity": Severity.WARNING,
                         "notification_type": "reflection_skipped",
                         "message": "Reflection skipped: daily LLM token budget exceeded",
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -614,8 +639,8 @@ class ReflectionAgent(MultiStreamAgent):
             reflection_data = self._parse_llm_response(raw_text)
 
             if redis is not None:
-                await redis.incrby(f"llm:tokens:{today}", tokens_used)
-                await redis.incrbyfloat(f"llm:cost:{today}", cost_usd)
+                await redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_used)
+                await redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_usd)
 
             log_structured(
                 "info",
@@ -635,7 +660,7 @@ class ReflectionAgent(MultiStreamAgent):
 
         reflection_payload: dict[str, Any] = {
             "msg_id": str(uuid.uuid4()),
-            "source": "reflection_agent",
+            "source": SOURCE_REFLECTION,
             "type": "reflection_output",
             "trace_id": trace_id,
             "fills_analyzed": self._fills,
@@ -643,15 +668,15 @@ class ReflectionAgent(MultiStreamAgent):
             **reflection_data,
         }
 
-        await self.bus.publish("reflection_outputs", reflection_payload)
+        await self.bus.publish(STREAM_REFLECTION_OUTPUTS, reflection_payload)
         await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
         await self.bus.publish(
-            "notifications",
+            STREAM_NOTIFICATIONS,
             {
                 "msg_id": str(uuid.uuid4()),
-                "source": "reflection_agent",
+                "source": SOURCE_REFLECTION,
                 "type": "notification",
-                "severity": "INFO",
+                "severity": Severity.INFO,
                 "notification_type": "reflection",
                 "message": reflection_data.get("summary", "Reflection completed."),
                 "hypothesis_count": len(reflection_data.get("hypotheses", [])),
@@ -729,7 +754,7 @@ class StrategyProposer(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=["reflection_outputs"],
+            streams=[STREAM_REFLECTION_OUTPUTS],
             consumer="strategy-proposer",
             agent_state=agent_state,
         )
@@ -756,10 +781,10 @@ class StrategyProposer(MultiStreamAgent):
 
             if proposal["proposal_type"] == "code_change":
                 await self.bus.publish(
-                    "github_prs",
+                    STREAM_GITHUB_PRS,
                     {
                         "msg_id": str(uuid.uuid4()),
-                        "source": "strategy_proposer",
+                        "source": SOURCE_STRATEGY_PROPOSER,
                         "type": "pr_request",
                         "title": f"Strategy rule proposal: {hypothesis.get('description', '')[:80]}",
                         "body": json.dumps(
@@ -774,15 +799,15 @@ class StrategyProposer(MultiStreamAgent):
                     },
                 )
 
-            await self.bus.publish("proposals", proposal)
+            await self.bus.publish(STREAM_PROPOSALS, proposal)
             await persist_proposal(proposal)
             await self.bus.publish(
-                "notifications",
+                STREAM_NOTIFICATIONS,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "strategy_proposer",
+                    "source": SOURCE_STRATEGY_PROPOSER,
                     "type": "notification",
-                    "severity": "INFO",
+                    "severity": Severity.INFO,
                     "notification_type": "proposal",
                     "message": (
                         f"New {proposal['proposal_type']} proposal "
@@ -824,7 +849,7 @@ class StrategyProposer(MultiStreamAgent):
 
         base = {
             "msg_id": str(uuid.uuid4()),
-            "source": "strategy_proposer",
+            "source": SOURCE_STRATEGY_PROPOSER,
             "type": "proposal",
             "requires_approval": True,
             "reflection_trace_id": reflection_data.get("trace_id"),
@@ -866,17 +891,17 @@ class StrategyProposer(MultiStreamAgent):
 # ---------------------------------------------------------------------------
 
 _STREAM_SEVERITY: dict[str, str] = {
-    "risk_alerts": "URGENT",
-    "proposals": "INFO",
-    "agent_grades": "INFO",
-    "reflection_outputs": "INFO",
-    "factor_ic_history": "INFO",
-    "executions": "INFO",
-    "trade_performance": "INFO",
-    "orders": "INFO",
-    "signals": "INFO",
-    "market_ticks": "INFO",
-    "agent_logs": "INFO",
+    STREAM_RISK_ALERTS: Severity.URGENT,
+    STREAM_PROPOSALS: Severity.INFO,
+    STREAM_AGENT_GRADES: Severity.INFO,
+    STREAM_REFLECTION_OUTPUTS: Severity.INFO,
+    STREAM_FACTOR_IC_HISTORY: Severity.INFO,
+    STREAM_EXECUTIONS: Severity.INFO,
+    STREAM_TRADE_PERFORMANCE: Severity.INFO,
+    STREAM_ORDERS: Severity.INFO,
+    STREAM_SIGNALS: Severity.INFO,
+    STREAM_MARKET_TICKS: Severity.INFO,
+    STREAM_AGENT_LOGS: Severity.INFO,
 }
 
 
@@ -897,16 +922,16 @@ class NotificationAgent(MultiStreamAgent):
             bus,
             dlq,
             streams=[
-                "market_ticks",
-                "signals",
-                "orders",
-                "executions",
-                "agent_logs",
-                "trade_performance",
-                "agent_grades",
-                "factor_ic_history",
-                "reflection_outputs",
-                "proposals",
+                STREAM_MARKET_TICKS,
+                STREAM_SIGNALS,
+                STREAM_ORDERS,
+                STREAM_EXECUTIONS,
+                STREAM_AGENT_LOGS,
+                STREAM_TRADE_PERFORMANCE,
+                STREAM_AGENT_GRADES,
+                STREAM_FACTOR_IC_HISTORY,
+                STREAM_REFLECTION_OUTPUTS,
+                STREAM_PROPOSALS,
             ],
             consumer="notification-agent",
             agent_state=agent_state,
@@ -915,7 +940,7 @@ class NotificationAgent(MultiStreamAgent):
         self._dedup_window_secs = 60
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == "notifications":
+        if stream == STREAM_NOTIFICATIONS:
             return
 
         event_type = str(data.get("type") or data.get("notification_type") or stream)
@@ -931,8 +956,8 @@ class NotificationAgent(MultiStreamAgent):
 
         notification = {
             "msg_id": str(uuid.uuid4()),
-            "schema_version": "v3",
-            "source": "notification_agent",
+            "schema_version": DB_SCHEMA_VERSION,
+            "source": SOURCE_NOTIFICATION,
             "severity": severity,
             "notification_type": f"stream:{stream}",
             "message": f"Event on {stream}: {event_type}",
@@ -948,7 +973,7 @@ class NotificationAgent(MultiStreamAgent):
         except Exception:
             log_structured("warning", "notification_persist_failed", stream=stream, exc_info=True)
 
-        await self.bus.publish("notifications", notification)
+        await self.bus.publish(STREAM_NOTIFICATIONS, notification)
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
 
         # Write heartbeat so dashboard shows NOTIFICATION_AGENT as ACTIVE
@@ -998,7 +1023,7 @@ class ChallengerAgent(MultiStreamAgent):
     when retiring the instance.
     """
 
-    _state_name = "CHALLENGER_AGENT"
+    _state_name = AGENT_CHALLENGER
 
     DEFAULT_MAX_FILLS = 200
 
@@ -1017,7 +1042,7 @@ class ChallengerAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=["executions", "trade_performance"],
+            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
             consumer=f"challenger-{self._challenger_id}",
             agent_state=agent_state,
         )
@@ -1028,7 +1053,7 @@ class ChallengerAgent(MultiStreamAgent):
         self._grade_history: list[dict[str, Any]] = []
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == "trade_performance":
+        if stream == STREAM_TRADE_PERFORMANCE:
             self._pnl_buffer.append(float(data.get("pnl") or 0.0))
             self._fills += 1
 
@@ -1057,7 +1082,7 @@ class ChallengerAgent(MultiStreamAgent):
         self._grade_history.append(grade_result)
 
         await self.bus.publish(
-            "agent_grades",
+            STREAM_AGENT_GRADES,
             {
                 "msg_id": str(uuid.uuid4()),
                 "type": "challenger_grade",
@@ -1101,7 +1126,7 @@ class ChallengerAgent(MultiStreamAgent):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await self.bus.publish(
-            "proposals",
+            STREAM_PROPOSALS,
             {
                 **summary,
                 "proposal_type": "challenger_result",

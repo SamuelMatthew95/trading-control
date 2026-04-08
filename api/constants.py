@@ -46,6 +46,12 @@ class AgentAction(StrEnum):
     FLAT = "flat"
 
 
+class AgentStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    STALE = "STALE"
+    WAITING = "WAITING"
+
+
 # Actions that produce no order event
 NO_ORDER_ACTIONS: frozenset[str] = frozenset(
     {AgentAction.REJECT, AgentAction.HOLD, AgentAction.FLAT}
@@ -97,6 +103,8 @@ AGENT_REFLECTION: Final[str] = "REFLECTION_AGENT"
 AGENT_STRATEGY_PROPOSER: Final[str] = "STRATEGY_PROPOSER"
 AGENT_NOTIFICATION: Final[str] = "NOTIFICATION_AGENT"
 
+AGENT_CHALLENGER: Final[str] = "CHALLENGER_AGENT"
+
 # Ordered tuple used everywhere agent iteration is needed
 ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
     AGENT_SIGNAL,
@@ -108,6 +116,16 @@ ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
     AGENT_STRATEGY_PROPOSER,
     AGENT_NOTIFICATION,
 )
+
+# Source identifiers used in event payloads and DB source columns (lowercase by convention)
+SOURCE_SIGNAL: Final[str] = "signal_generator"
+SOURCE_REASONING: Final[str] = "reasoning_agent"
+SOURCE_EXECUTION: Final[str] = "execution_engine"
+SOURCE_GRADE: Final[str] = "grade_agent"
+SOURCE_IC_UPDATER: Final[str] = "ic_updater"
+SOURCE_REFLECTION: Final[str] = "reflection_agent"
+SOURCE_STRATEGY_PROPOSER: Final[str] = "strategy_proposer"
+SOURCE_NOTIFICATION: Final[str] = "notification_agent"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
@@ -125,6 +143,7 @@ AGENT_STALE_THRESHOLD_SECONDS: Final[int] = 120  # 2 minutes
 # Redis key patterns
 REDIS_KEY_PAPER_CASH: Final[str] = "paper:cash"
 REDIS_KEY_PAPER_POSITION: Final[str] = "paper:positions:{symbol}"
+REDIS_KEY_PAPER_ORDER: Final[str] = "paper:order:{broker_order_id}"
 REDIS_KEY_ORDER_LOCK: Final[str] = "order_lock:{symbol}"
 REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
@@ -138,13 +157,32 @@ REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"
+STREAM_MARKET_EVENTS: Final[str] = "market_events"
 STREAM_SIGNALS: Final[str] = "signals"
+STREAM_DECISIONS: Final[str] = "decisions"
+STREAM_GRADED_DECISIONS: Final[str] = "graded_decisions"
 STREAM_ORDERS: Final[str] = "orders"
 STREAM_EXECUTIONS: Final[str] = "executions"
+STREAM_TRADE_PERFORMANCE: Final[str] = "trade_performance"
 STREAM_RISK_ALERTS: Final[str] = "risk_alerts"
 STREAM_LEARNING_EVENTS: Final[str] = "learning_events"
 STREAM_SYSTEM_METRICS: Final[str] = "system_metrics"
 STREAM_AGENT_LOGS: Final[str] = "agent_logs"
+STREAM_AGENT_GRADES: Final[str] = "agent_grades"
+STREAM_FACTOR_IC_HISTORY: Final[str] = "factor_ic_history"
+STREAM_REFLECTION_OUTPUTS: Final[str] = "reflection_outputs"
+STREAM_PROPOSALS: Final[str] = "proposals"
+STREAM_NOTIFICATIONS: Final[str] = "notifications"
+STREAM_GITHUB_PRS: Final[str] = "github_prs"
+STREAM_TRADE_LIFECYCLE: Final[str] = "trade_lifecycle"
+
+# The four streams shown on the dashboard pipeline view
+PIPELINE_STREAMS: Final[tuple[str, ...]] = (
+    STREAM_MARKET_EVENTS,
+    STREAM_SIGNALS,
+    STREAM_DECISIONS,
+    STREAM_GRADED_DECISIONS,
+)
 
 # Default values
 DEFAULT_PAPER_CASH: Final[float] = 100_000.0

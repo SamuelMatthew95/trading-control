@@ -16,7 +16,12 @@ from api.constants import (
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_ORDER_LOCK,
+    SOURCE_EXECUTION,
+    STREAM_EXECUTIONS,
+    STREAM_TRADE_LIFECYCLE,
+    STREAM_TRADE_PERFORMANCE,
     OrderSide,
+    OrderStatus,
     PositionSide,
 )
 from api.database import AsyncSessionFactory
@@ -113,8 +118,8 @@ class ExecutionEngine(BaseStreamConsumer):
                         "INSERT INTO orders "
                         "(strategy_id, symbol, side, qty, quantity, price, status, "
                         " idempotency_key, broker_order_id, source) "
-                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, 'pending', "
-                        "        :idempotency_key, NULL, 'execution_engine') "
+                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
+                        "        :idempotency_key, NULL, :source) "
                         "RETURNING id"
                     ),
                     {
@@ -124,6 +129,8 @@ class ExecutionEngine(BaseStreamConsumer):
                         "qty": qty,
                         "price": price,
                         "idempotency_key": idempotency_key,
+                        "status": OrderStatus.PENDING,
+                        "source": SOURCE_EXECUTION,
                     },
                 )
                 order_id = str(inserted.scalar_one())
@@ -216,15 +223,15 @@ class ExecutionEngine(BaseStreamConsumer):
             "idempotency_key": idempotency_key,
             "trace_id": trace_id,
             "vwap_plan": vwap_plan,
-            "source": "execution_engine",
+            "source": SOURCE_EXECUTION,
         }
-        await self.bus.publish("executions", execution_payload)
+        await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
 
         # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
         # have real fill data with realized PnL to work with
         pnl_percent = (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
         await self.bus.publish(
-            "trade_performance",
+            STREAM_TRADE_PERFORMANCE,
             {
                 "msg_id": str(uuid.uuid4()),
                 "type": "trade_performance",
@@ -241,7 +248,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 "trace_id": trace_id,
                 "filled_at": filled_at.isoformat(),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "execution_engine",
+                "source": SOURCE_EXECUTION,
             },
         )
         log_structured(
@@ -279,7 +286,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Broadcast fill to dashboard WS so trade feed updates live
         await self.bus.publish(
-            "trade_lifecycle",
+            STREAM_TRADE_LIFECYCLE,
             {
                 "type": "trade_filled",
                 "symbol": symbol,
@@ -291,10 +298,10 @@ class ExecutionEngine(BaseStreamConsumer):
                 "pnl_percent": pnl_percent,
                 "order_id": order_id,
                 "execution_trace_id": trace_id,
-                "status": "filled",
+                "status": OrderStatus.FILLED,
                 "filled_at": filled_at.isoformat(),
                 "timestamp": filled_at.isoformat(),
-                "source": "execution_engine",
+                "source": SOURCE_EXECUTION,
             },
         )
 

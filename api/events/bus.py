@@ -11,28 +11,48 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from api.constants import (
+    STREAM_AGENT_GRADES,
+    STREAM_AGENT_LOGS,
+    STREAM_DECISIONS,
+    STREAM_EXECUTIONS,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_GITHUB_PRS,
+    STREAM_GRADED_DECISIONS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_MARKET_EVENTS,
+    STREAM_MARKET_TICKS,
+    STREAM_NOTIFICATIONS,
+    STREAM_ORDERS,
+    STREAM_PROPOSALS,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_RISK_ALERTS,
+    STREAM_SIGNALS,
+    STREAM_SYSTEM_METRICS,
+    STREAM_TRADE_PERFORMANCE,
+)
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
 
 STREAMS = (
-    "market_events",
-    "market_ticks",
-    "signals",
-    "decisions",
-    "graded_decisions",
-    "orders",
-    "executions",
-    "trade_performance",
-    "risk_alerts",
-    "learning_events",
-    "system_metrics",
-    "agent_logs",
-    "agent_grades",
-    "factor_ic_history",
-    "reflection_outputs",
-    "proposals",
-    "notifications",
-    "github_prs",
+    STREAM_MARKET_EVENTS,
+    STREAM_MARKET_TICKS,
+    STREAM_SIGNALS,
+    STREAM_DECISIONS,
+    STREAM_GRADED_DECISIONS,
+    STREAM_ORDERS,
+    STREAM_EXECUTIONS,
+    STREAM_TRADE_PERFORMANCE,
+    STREAM_RISK_ALERTS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_SYSTEM_METRICS,
+    STREAM_AGENT_LOGS,
+    STREAM_AGENT_GRADES,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_PROPOSALS,
+    STREAM_NOTIFICATIONS,
+    STREAM_GITHUB_PRS,
 )
 DEFAULT_GROUP = "workers"
 # Separate group for the broadcast pipeline so it reads independently
