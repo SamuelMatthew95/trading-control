@@ -64,9 +64,10 @@ class SafeWriter:
             if "source" not in data or not data["source"]:
                 raise ValueError(f"{model_name}: Source field is required and cannot be empty")
 
-        # Trace ID validation for v3
-        if "trace_id" not in data or not data["trace_id"]:
-            raise ValueError(f"{model_name}: trace_id field is required for v3 events")
+        # Trace ID validation for v3 (optional for notifications)
+        if model_name != "Notification":
+            if "trace_id" not in data or not data["trace_id"]:
+                raise ValueError(f"{model_name}: trace_id field is required for v3 events")
 
     def _validate_schema_v2(self, data: dict[str, Any], model_name: str) -> None:
         """V2 schema validation for backward compatibility."""
@@ -855,7 +856,7 @@ class SafeWriter:
                 event_data = {
                     "event_type": "notification.created",
                     "entity_type": "notification",
-                    "entity_id": data.get("notification_id"),
+                    "entity_id": data.get("notification_id") or data.get("trace_id") or msg_id,
                     "data": data,
                 }
 
