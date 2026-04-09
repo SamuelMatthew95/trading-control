@@ -64,9 +64,10 @@ class SafeWriter:
             if "source" not in data or not data["source"]:
                 raise ValueError(f"{model_name}: Source field is required and cannot be empty")
 
-        # Trace ID validation for v3
-        if "trace_id" not in data or not data["trace_id"]:
-            raise ValueError(f"{model_name}: trace_id field is required for v3 events")
+        # Trace ID validation for v3 (optional for notifications)
+        if model_name != "Notification":
+            if "trace_id" not in data or not data["trace_id"]:
+                raise ValueError(f"{model_name}: trace_id field is required for v3 events")
 
     def _validate_schema_v2(self, data: dict[str, Any], model_name: str) -> None:
         """V2 schema validation for backward compatibility."""
@@ -337,7 +338,7 @@ class SafeWriter:
             try:
                 # Strict V3 schema validation
                 self._validate_schema_v3(data, "AgentLog")
-                self.validate_payload(data, ["agent_id", "level", "message"])
+                self.validate_payload(data, ["level", "message"])  # agent_id is optional
 
                 # Log the operation
                 self._log_write_operation("write_agent_log", "AgentLog", msg_id)
@@ -358,7 +359,7 @@ class SafeWriter:
                     created_at = datetime.now(timezone.utc)
 
                 log_data = {
-                    "agent_run_id": data["agent_id"],  # Map agent_id to agent_run_id
+                    "agent_run_id": data.get("agent_id"),  # Map agent_id to agent_run_id (optional)
                     "log_level": data.get("log_level", "INFO"),
                     "message": data["message"],
                     "step_name": data.get("step_name"),
@@ -855,7 +856,7 @@ class SafeWriter:
                 event_data = {
                     "event_type": "notification.created",
                     "entity_type": "notification",
-                    "entity_id": data.get("notification_id"),
+                    "entity_id": data.get("notification_id") or data.get("trace_id") or msg_id,
                     "data": data,
                 }
 
