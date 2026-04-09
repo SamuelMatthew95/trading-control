@@ -471,7 +471,7 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
                         SELECT
                             stream,
                             COUNT(*) AS processed_count,
-                            MAX(COALESCE(processed_at, created_at)) AS last_processed_at
+                            MAX(created_at) AS last_processed_at
                         FROM processed_events
                         GROUP BY stream
                         ORDER BY processed_count DESC
@@ -1038,7 +1038,7 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                             "trace_id": row[0],
                             "grade": None,
                             "score": score,
-                            "score_pct": round(score * 100, 2) if score is not None else None,
+                            "score_pct": round(score, 2) if score is not None else None,
                             "metrics": metrics,
                             "fills_graded": metrics.get("fills_graded"),
                             "timestamp": row[3].isoformat() if row[3] else None,
@@ -1418,7 +1418,7 @@ async def get_performance_trends() -> dict[str, Any]:
                 text("""
                     SELECT
                         DATE(created_at AT TIME ZONE 'UTC') AS day,
-                        AVG(score) * 100                    AS avg_score_pct
+                        AVG(score)                           AS avg_score_pct
                     FROM agent_grades
                     WHERE created_at >= NOW() - INTERVAL '30 days'
                     GROUP BY day
