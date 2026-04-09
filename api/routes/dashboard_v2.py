@@ -471,7 +471,7 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
                         SELECT
                             stream,
                             COUNT(*) AS processed_count,
-                            MAX(COALESCE(processed_at, created_at)) AS last_processed_at
+                            MAX(created_at) AS last_processed_at
                         FROM processed_events
                         GROUP BY stream
                         ORDER BY processed_count DESC
