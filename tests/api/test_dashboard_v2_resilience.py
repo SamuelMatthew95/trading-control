@@ -174,8 +174,8 @@ async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeyp
 
     assert payload["total"] == 1
     assert payload["grades"][0]["trace_id"] == "trace-1"
-    assert payload["grades"][0]["score"] == 84.0
-    assert payload["grades"][0]["score_pct"] == 84.0
+    assert payload["grades"][0]["score"] == 0.84
+    assert payload["grades"][0]["score_pct"] == 0.84
     assert payload["grades"][0]["fills_graded"] == 4
 
 
