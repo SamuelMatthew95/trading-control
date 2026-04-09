@@ -5,7 +5,13 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from api.constants import REDIS_KEY_KILL_SWITCH
+from api.constants import (
+    REDIS_KEY_KILL_SWITCH,
+    STREAM_AGENT_LOGS,
+    STREAM_EXECUTIONS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_RISK_ALERTS,
+)
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -57,7 +63,7 @@ class ExecutionsConsumer(SimpleConsumer):
     """Consumer for executions stream - writes executions to database."""
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis):
-        super().__init__(bus, dlq, redis_client, "executions", "executions-logger")
+        super().__init__(bus, dlq, redis_client, STREAM_EXECUTIONS, "executions-logger")
         self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def process(self, data: dict[str, Any]) -> None:
@@ -105,7 +111,7 @@ class RiskAlertsConsumer(SimpleConsumer):
     """Consumer for risk_alerts stream - writes risk alerts to database."""
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis):
-        super().__init__(bus, dlq, redis_client, "risk_alerts", "risk-alerts-logger")
+        super().__init__(bus, dlq, redis_client, STREAM_RISK_ALERTS, "risk-alerts-logger")
         self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def process(self, data: dict[str, Any]) -> None:
@@ -153,7 +159,7 @@ class LearningEventsConsumer(SimpleConsumer):
     """Consumer for learning_events stream - writes vector memories to database."""
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis):
-        super().__init__(bus, dlq, redis_client, "learning_events", "learning-events-logger")
+        super().__init__(bus, dlq, redis_client, STREAM_LEARNING_EVENTS, "learning-events-logger")
         self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def process(self, data: dict[str, Any]) -> None:
@@ -201,7 +207,7 @@ class AgentLogsConsumer(SimpleConsumer):
     """Consumer for agent_logs stream - writes agent logs to database."""
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client: Redis):
-        super().__init__(bus, dlq, redis_client, "agent_logs", "agent-logs-logger")
+        super().__init__(bus, dlq, redis_client, STREAM_AGENT_LOGS, "agent-logs-logger")
         self.safe_writer = SafeWriter(AsyncSessionFactory)
 
     async def process(self, data: dict[str, Any]) -> None:

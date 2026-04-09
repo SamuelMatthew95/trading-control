@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import LogType
+from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, GradeType, LogType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
@@ -43,7 +43,7 @@ async def write_agent_log(
                     "log_type": log_type,
                     "payload": json.dumps(payload, default=str),
                     "schema_version": DB_SCHEMA_VERSION,
-                    "source": "db_helpers",
+                    "source": SOURCE_DB_HELPERS,
                 },
             )
             await session.commit()
@@ -62,7 +62,7 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
                     INSERT INTO agent_grades
                         (grade_type, score, metrics, trace_id, schema_version, source)
                     VALUES (
-                        'pipeline',
+                        :grade_type,
                         :score,
                         CAST(:metrics AS JSONB),
                         :trace_id,
@@ -71,11 +71,12 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
                     )
                 """),
                 {
+                    "grade_type": GradeType.OVERALL,
                     "score": score_pct,
                     "metrics": json.dumps(metrics, default=str),
                     "trace_id": trace_id,
                     "schema_version": DB_SCHEMA_VERSION,
-                    "source": "db_helpers",
+                    "source": SOURCE_DB_HELPERS,
                 },
             )
             await session.commit()
@@ -109,7 +110,7 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
                     INSERT INTO agent_logs (trace_id, log_type, payload, schema_version, source)
                     VALUES (
                         :trace_id,
-                        'proposal',
+                        :log_type,
                         CAST(:payload AS JSONB),
                         :schema_version,
                         :source
@@ -117,9 +118,10 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
                 """),
                 {
                     "trace_id": trace_id,
+                    "log_type": LogType.PROPOSAL,
                     "payload": json.dumps(proposal, default=str),
                     "schema_version": DB_SCHEMA_VERSION,
-                    "source": "db_helpers",
+                    "source": SOURCE_DB_HELPERS,
                 },
             )
             await session.commit()
@@ -132,12 +134,13 @@ async def get_last_reflection() -> dict[str, Any]:
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
-                text(f"""
+                text("""
                     SELECT payload FROM agent_logs
-                    WHERE log_type = '{LogType.REFLECTION}'
+                    WHERE log_type = :log_type
                     ORDER BY created_at DESC
                     LIMIT 1
-                """)
+                """),
+                {"log_type": LogType.REFLECTION},
             )
             row = result.first()
             if row is None:
@@ -288,7 +291,7 @@ async def upsert_trade_lifecycle(
                         :filled_at::timestamptz,
                         :graded_at::timestamptz,
                         :reflected_at::timestamptz,
-                        :schema_version, 'execution_engine', NOW(), NOW()
+                        :schema_version, :source, NOW(), NOW()
                     )
                     ON CONFLICT (execution_trace_id)
                     DO UPDATE SET
@@ -331,6 +334,7 @@ async def upsert_trade_lifecycle(
                     "graded_at": graded_at,
                     "reflected_at": reflected_at,
                     "schema_version": DB_SCHEMA_VERSION,
+                    "source": SOURCE_EXECUTION,
                 },
             )
             await session.commit()

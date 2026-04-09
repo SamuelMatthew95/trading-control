@@ -7,6 +7,19 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
+from api.constants import (
+    STREAM_AGENT_GRADES,
+    STREAM_AGENT_LOGS,
+    STREAM_EXECUTIONS,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_LEARNING_EVENTS,
+    STREAM_NOTIFICATIONS,
+    STREAM_ORDERS,
+    STREAM_PROPOSALS,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_RISK_ALERTS,
+    STREAM_TRADE_PERFORMANCE,
+)
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import PIPELINE_GROUP, STREAMS, EventBus
@@ -274,17 +287,17 @@ class EventPipeline:
         # different positional signature that is incompatible with (msg_id, stream, data).
         # Agents write system_metrics directly; the pipeline just broadcasts them.
         writer_methods = {
-            "orders": self.safe_writer.write_order,
-            "executions": self.safe_writer.write_execution,
-            "agent_logs": self.safe_writer.write_agent_log,
-            "trade_performance": self.safe_writer.write_trade_performance,
-            "risk_alerts": self.safe_writer.write_risk_alert,
-            "learning_events": self.safe_writer.write_vector_memory,
-            "agent_grades": self.safe_writer.write_agent_grade,
-            "factor_ic_history": self.safe_writer.write_ic_weight,
-            "reflection_outputs": self.safe_writer.write_reflection_output,
-            "proposals": self.safe_writer.write_strategy_proposal,
-            "notifications": self.safe_writer.write_notification,
+            STREAM_ORDERS: self.safe_writer.write_order,
+            STREAM_EXECUTIONS: self.safe_writer.write_execution,
+            STREAM_AGENT_LOGS: self.safe_writer.write_agent_log,
+            STREAM_TRADE_PERFORMANCE: self.safe_writer.write_trade_performance,
+            STREAM_RISK_ALERTS: self.safe_writer.write_risk_alert,
+            STREAM_LEARNING_EVENTS: self.safe_writer.write_vector_memory,
+            STREAM_AGENT_GRADES: self.safe_writer.write_agent_grade,
+            STREAM_FACTOR_IC_HISTORY: self.safe_writer.write_ic_weight,
+            STREAM_REFLECTION_OUTPUTS: self.safe_writer.write_reflection_output,
+            STREAM_PROPOSALS: self.safe_writer.write_strategy_proposal,
+            STREAM_NOTIFICATIONS: self.safe_writer.write_notification,
         }
         writer = writer_methods.get(stream)
         if writer is None:

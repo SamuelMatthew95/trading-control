@@ -9,12 +9,25 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from api.constants import AGENT_STALE_THRESHOLD_SECONDS, ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY
+from api.constants import (
+    AGENT_STALE_THRESHOLD_SECONDS,
+    ALL_AGENT_NAMES,
+    PIPELINE_STREAMS,
+    REDIS_AGENT_STATUS_KEY,
+    STREAM_AGENT_LOGS,
+    STREAM_EXECUTIONS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_MARKET_EVENTS,
+    STREAM_ORDERS,
+    STREAM_RISK_ALERTS,
+    STREAM_SIGNALS,
+    AgentStatus,
+)
 from api.observability import log_structured
 
 _AGENT_NAMES = ALL_AGENT_NAMES
 
-_PIPELINE_STREAMS = ["market_events", "signals", "decisions", "graded_decisions"]
+_PIPELINE_STREAMS = PIPELINE_STREAMS
 _AGENT_PUSH_INTERVAL = 5  # seconds
 
 
@@ -27,12 +40,12 @@ class WebSocketBroadcaster:
         self._broadcast_task: asyncio.Task[None] | None = None
         self._redis_client = None
         self._stream_offsets: dict[str, str] = {
-            "signals": "$",
-            "orders": "$",
-            "executions": "$",
-            "risk_alerts": "$",
-            "learning_events": "$",
-            "agent_logs": "$",
+            STREAM_SIGNALS: "$",
+            STREAM_ORDERS: "$",
+            STREAM_EXECUTIONS: "$",
+            STREAM_RISK_ALERTS: "$",
+            STREAM_LEARNING_EVENTS: "$",
+            STREAM_AGENT_LOGS: "$",
         }
         self._idle_sleep_seconds = 0.1
         self._xread_streams_state: str | None = None
@@ -162,9 +175,9 @@ class WebSocketBroadcaster:
                         last_seen = data.get("last_seen", 0)
                         age = now - last_seen
                         status = (
-                            "STALE"
+                            AgentStatus.STALE
                             if age > AGENT_STALE_THRESHOLD_SECONDS
-                            else data.get("status", "ACTIVE")
+                            else data.get("status", AgentStatus.ACTIVE)
                         )
                         agents.append(
                             {
@@ -180,7 +193,7 @@ class WebSocketBroadcaster:
                         agents.append(
                             {
                                 "name": name,
-                                "status": "WAITING",
+                                "status": AgentStatus.WAITING,
                                 "event_count": 0,
                                 "last_event": "",
                                 "last_seen": 0,
@@ -220,7 +233,7 @@ class WebSocketBroadcaster:
         """
         base = {"stream": stream, "msg_id": msg_id}
 
-        if stream == "market_events":
+        if stream == STREAM_MARKET_EVENTS:
             # price_poller writes: {"payload": "<json-string>"}
             raw_payload = payload.get("payload", payload)
             if isinstance(raw_payload, str):

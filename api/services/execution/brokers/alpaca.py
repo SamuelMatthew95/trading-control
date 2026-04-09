@@ -8,6 +8,7 @@ from typing import Any
 import aiohttp
 
 from api.config import settings
+from api.constants import OrderSide, OrderStatus, PositionSide
 from api.observability import log_structured
 
 
@@ -34,7 +35,9 @@ class AlpacaBroker:
         payload = {
             "symbol": alpaca_symbol,
             "qty": str(round(qty, 6)),
-            "side": "buy" if side.lower() in {"buy", "long"} else "sell",
+            "side": OrderSide.BUY
+            if side.lower() in {OrderSide.BUY, PositionSide.LONG}
+            else OrderSide.SELL,
             "type": "market",
             "time_in_force": "day",
         }
@@ -88,7 +91,7 @@ class AlpacaBroker:
             status = order.get("status", "pending")
             filled_avg_price = order.get("filled_avg_price")
 
-            if status == "filled" and filled_avg_price:
+            if status == OrderStatus.FILLED and filled_avg_price:
                 fill_price = float(filled_avg_price)
                 log_structured(
                     "info",
@@ -125,7 +128,7 @@ class AlpacaBroker:
             "side": side.lower(),
             "filled_qty": filled_qty,
             "fill_price": fill_price,
-            "status": status if status == "filled" else "pending",
+            "status": status if status == OrderStatus.FILLED else OrderStatus.PENDING,
         }
 
     async def get_position(self, symbol: str) -> dict[str, Any]:
@@ -139,7 +142,7 @@ class AlpacaBroker:
                 if resp.status == 404:
                     return {
                         "symbol": symbol,
-                        "side": "flat",
+                        "side": PositionSide.FLAT,
                         "qty": 0.0,
                         "entry_price": 0.0,
                         "current_price": 0.0,

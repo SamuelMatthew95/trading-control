@@ -13,10 +13,17 @@ from sqlalchemy import text
 
 from api.constants import (
     AGENT_EXECUTION,
+    LARGE_ORDER_THRESHOLD,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_ORDER_LOCK,
+    SOURCE_EXECUTION,
+    STREAM_EXECUTIONS,
+    STREAM_ORDERS,
+    STREAM_TRADE_LIFECYCLE,
+    STREAM_TRADE_PERFORMANCE,
     OrderSide,
+    OrderStatus,
     PositionSide,
 )
 from api.database import AsyncSessionFactory
@@ -24,11 +31,11 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
 
-LARGE_ORDER_THRESHOLD = 10.0
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
 
@@ -43,7 +50,7 @@ class ExecutionEngine(BaseStreamConsumer):
         agent_state: AgentStateRegistry | None = None,
     ):
         super().__init__(
-            bus, dlq, stream="orders", group=DEFAULT_GROUP, consumer="execution-engine"
+            bus, dlq, stream=STREAM_ORDERS, group=DEFAULT_GROUP, consumer="execution-engine"
         )
         self.redis = redis_client
         self.broker = broker
@@ -112,9 +119,9 @@ class ExecutionEngine(BaseStreamConsumer):
                         # raw-SQL agents and ORM-based MetricsAggregator see real values.
                         "INSERT INTO orders "
                         "(strategy_id, symbol, side, qty, quantity, price, status, "
-                        " idempotency_key, broker_order_id, source) "
-                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, 'pending', "
-                        "        :idempotency_key, NULL, 'execution_engine') "
+                        " idempotency_key, broker_order_id, source, schema_version) "
+                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
+                        "        :idempotency_key, NULL, :source, :schema_version) "
                         "RETURNING id"
                     ),
                     {
@@ -124,6 +131,9 @@ class ExecutionEngine(BaseStreamConsumer):
                         "qty": qty,
                         "price": price,
                         "idempotency_key": idempotency_key,
+                        "status": OrderStatus.PENDING,
+                        "source": SOURCE_EXECUTION,
+                        "schema_version": DB_SCHEMA_VERSION,
                     },
                 )
                 order_id = str(inserted.scalar_one())
@@ -216,15 +226,15 @@ class ExecutionEngine(BaseStreamConsumer):
             "idempotency_key": idempotency_key,
             "trace_id": trace_id,
             "vwap_plan": vwap_plan,
-            "source": "execution_engine",
+            "source": SOURCE_EXECUTION,
         }
-        await self.bus.publish("executions", execution_payload)
+        await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
 
         # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
         # have real fill data with realized PnL to work with
         pnl_percent = (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
         await self.bus.publish(
-            "trade_performance",
+            STREAM_TRADE_PERFORMANCE,
             {
                 "msg_id": str(uuid.uuid4()),
                 "type": "trade_performance",
@@ -241,7 +251,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 "trace_id": trace_id,
                 "filled_at": filled_at.isoformat(),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "execution_engine",
+                "source": SOURCE_EXECUTION,
             },
         )
         log_structured(
@@ -279,7 +289,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Broadcast fill to dashboard WS so trade feed updates live
         await self.bus.publish(
-            "trade_lifecycle",
+            STREAM_TRADE_LIFECYCLE,
             {
                 "type": "trade_filled",
                 "symbol": symbol,
@@ -291,10 +301,10 @@ class ExecutionEngine(BaseStreamConsumer):
                 "pnl_percent": pnl_percent,
                 "order_id": order_id,
                 "execution_trace_id": trace_id,
-                "status": "filled",
+                "status": OrderStatus.FILLED,
                 "filled_at": filled_at.isoformat(),
                 "timestamp": filled_at.isoformat(),
-                "source": "execution_engine",
+                "source": SOURCE_EXECUTION,
             },
         )
 
@@ -414,10 +424,11 @@ class ExecutionEngine(BaseStreamConsumer):
                     "INSERT INTO positions "
                     "(symbol, side, qty, quantity, entry_price, avg_cost, "
                     " current_price, last_price, market_value, "
-                    " unrealised_pnl, unrealized_pnl, strategy_id) "
+                    " unrealised_pnl, unrealized_pnl, strategy_id,"
+                    " schema_version, source) "
                     "VALUES (:symbol, :side, :qty, :qty, :entry_price, :entry_price, "
                     "        :current_price, :current_price, :market_value, "
-                    "        0.0, 0.0, :strategy_id)"
+                    "        0.0, 0.0, :strategy_id, :schema_version, :source)"
                 ),
                 {
                     "symbol": symbol,
@@ -427,6 +438,8 @@ class ExecutionEngine(BaseStreamConsumer):
                     "current_price": fill_price,
                     "market_value": market_value,
                     "strategy_id": strategy_id,
+                    "schema_version": DB_SCHEMA_VERSION,
+                    "source": SOURCE_EXECUTION,
                 },
             )
             return

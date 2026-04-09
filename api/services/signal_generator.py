@@ -13,7 +13,16 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, AGENT_SIGNAL, REDIS_AGENT_STATUS_KEY, LogType
+from api.constants import (
+    AGENT_HEARTBEAT_TTL_SECONDS,
+    AGENT_SIGNAL,
+    REDIS_AGENT_STATUS_KEY,
+    SOURCE_SIGNAL,
+    STREAM_MARKET_EVENTS,
+    STREAM_SIGNALS,
+    GradeType,
+    LogType,
+)
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
@@ -29,7 +38,7 @@ class SignalGenerator(BaseStreamConsumer):
         super().__init__(
             bus,
             dlq,
-            stream="market_events",
+            stream=STREAM_MARKET_EVENTS,
             group=DEFAULT_GROUP,
             consumer="signal-agent",
         )
@@ -94,11 +103,11 @@ class SignalGenerator(BaseStreamConsumer):
                     text("""
                         INSERT INTO agent_runs
                             (strategy_id, trace_id, input_data,
-                             schema_version, status,
+                             schema_version, source, status,
                              created_at, updated_at)
                         VALUES
                             (:strategy_id, :trace_id, :input_data,
-                             :schema_version, 'running',
+                             :schema_version, :source, 'running',
                              NOW(), NOW())
                         RETURNING id
                     """),
@@ -107,6 +116,7 @@ class SignalGenerator(BaseStreamConsumer):
                         "trace_id": trace_id,
                         "input_data": json.dumps(payload),
                         "schema_version": DB_SCHEMA_VERSION,
+                        "source": SOURCE_SIGNAL,
                     },
                 )
                 row = result.first()
@@ -145,7 +155,7 @@ class SignalGenerator(BaseStreamConsumer):
                 "source": AGENT_NAME,
                 "msg_id": str(uuid.uuid4()),
             }
-            await self.bus.publish("signals", signal_payload)
+            await self.bus.publish(STREAM_SIGNALS, signal_payload)
 
             # Write to events table
             async with AsyncSessionFactory() as session:
@@ -153,17 +163,19 @@ class SignalGenerator(BaseStreamConsumer):
                     await session.execute(
                         text("""
                             INSERT INTO events
-                                (event_type, entity_type, data,
-                                 idempotency_key, schema_version)
+                                (event_type, entity_type, entity_id, data,
+                                 idempotency_key, schema_version, source)
                             VALUES
-                                ('signal.generated', 'signal', :data,
-                                 :idem_key, :schema_version)
+                                ('signal.generated', 'signal', :entity_id, :data,
+                                 :idem_key, :schema_version, :source)
                             ON CONFLICT (idempotency_key) DO NOTHING
                         """),
                         {
+                            "entity_id": trace_id,
                             "data": json.dumps(signal_payload),
                             "idem_key": f"signal-{symbol}-{trace_id}",
                             "schema_version": DB_SCHEMA_VERSION,
+                            "source": SOURCE_SIGNAL,
                         },
                     )
 
@@ -174,14 +186,16 @@ class SignalGenerator(BaseStreamConsumer):
                                 (agent_id, agent_run_id, grade_type, score, metrics,
                                  source, trace_id, schema_version)
                             VALUES
-                                (:strategy_id, :agent_run_id, 'accuracy', :score, CAST(:metrics AS JSONB),
-                                 'signal_generator', :trace_id, :schema_version)
+                                (:strategy_id, :agent_run_id, :grade_type, :score, CAST(:metrics AS JSONB),
+                                 :source, :trace_id, :schema_version)
                         """),
                         {
                             "strategy_id": agent_pool_id or None,
                             "agent_run_id": run_id,
+                            "grade_type": GradeType.ACCURACY,
                             "score": score,
                             "metrics": json.dumps({"signal_type": signal_type, "symbol": symbol}),
+                            "source": SOURCE_SIGNAL,
                             "trace_id": trace_id,
                             "schema_version": DB_SCHEMA_VERSION,
                         },
@@ -191,10 +205,10 @@ class SignalGenerator(BaseStreamConsumer):
                     await session.execute(
                         text("""
                             INSERT INTO processed_events (msg_id, stream)
-                            VALUES (:msg_id, 'market_events')
+                            VALUES (:msg_id, :stream)
                             ON CONFLICT DO NOTHING
                         """),
-                        {"msg_id": msg_id},
+                        {"msg_id": msg_id, "stream": STREAM_MARKET_EVENTS},
                     )
 
             # Update agent_runs — success

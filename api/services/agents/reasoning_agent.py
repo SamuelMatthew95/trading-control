@@ -12,9 +12,17 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_REASONING,
+    LLM_FALLBACK_MODE_REJECT_SIGNAL,
+    LLM_FALLBACK_MODE_USE_LAST_REFLECTION,
     NO_ORDER_ACTIONS,
     REDIS_KEY_LLM_COST,
     REDIS_KEY_LLM_TOKENS,
+    SOURCE_REASONING,
+    STREAM_AGENT_LOGS,
+    STREAM_ORDERS,
+    STREAM_RISK_ALERTS,
+    STREAM_SIGNALS,
+    STREAM_SYSTEM_METRICS,
     AgentAction,
 )
 from api.database import AsyncSessionFactory
@@ -38,7 +46,7 @@ class ReasoningAgent(BaseStreamConsumer):
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client):
         super().__init__(
-            bus, dlq, stream="signals", group=DEFAULT_GROUP, consumer="reasoning-agent"
+            bus, dlq, stream=STREAM_SIGNALS, group=DEFAULT_GROUP, consumer="reasoning-agent"
         )
         self.redis = redis_client
 
@@ -81,7 +89,7 @@ class ReasoningAgent(BaseStreamConsumer):
         await write_agent_log(
             trace_id,
             "reasoning_summary",
-            {**summary, "fallback_reason": fallback_reason, "source": "reasoning_agent"},
+            {**summary, "fallback_reason": fallback_reason, "source": SOURCE_REASONING},
             agent_run_id=agent_run_id,
         )
 
@@ -114,12 +122,12 @@ class ReasoningAgent(BaseStreamConsumer):
         try:
             current_cost = float(await self.redis.get(REDIS_KEY_LLM_COST.format(date=today)) or 0.0)
             await self.bus.publish(
-                "system_metrics",
+                STREAM_SYSTEM_METRICS,
                 {
                     "type": "system_metric",
                     "metric_name": "llm_cost_today",
                     "value": current_cost,
-                    "source": "reasoning_agent",
+                    "source": SOURCE_REASONING,
                 },
             )
         except Exception:
@@ -128,7 +136,7 @@ class ReasoningAgent(BaseStreamConsumer):
         updated_budget = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         if updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             await self.bus.publish(
-                "risk_alerts",
+                STREAM_RISK_ALERTS,
                 {
                     "type": "llm_budget",
                     "message": "Daily LLM token budget exceeded",
@@ -138,8 +146,13 @@ class ReasoningAgent(BaseStreamConsumer):
             )
 
         await self.bus.publish(
-            "agent_logs",
-            {"type": "agent_log", "msg_id": str(uuid.uuid4()), "source": "reasoning", **summary},
+            STREAM_AGENT_LOGS,
+            {
+                "type": "agent_log",
+                "msg_id": str(uuid.uuid4()),
+                "source": SOURCE_REASONING,
+                **summary,
+            },
         )
 
         action = summary.get("action", "").lower()
@@ -148,10 +161,10 @@ class ReasoningAgent(BaseStreamConsumer):
             # upstream signal didn't carry one (signals from SignalGenerator don't include it).
             strategy_id = str(data.get("strategy_id") or uuid.uuid4())
             await self.bus.publish(
-                "orders",
+                STREAM_ORDERS,
                 {
                     "msg_id": str(uuid.uuid4()),
-                    "source": "reasoning",
+                    "source": SOURCE_REASONING,
                     "strategy_id": strategy_id,
                     "symbol": data.get("symbol"),
                     "side": action,
@@ -191,9 +204,9 @@ class ReasoningAgent(BaseStreamConsumer):
         base_action = str(data.get("action") or data.get("signal") or "hold").lower()
         composite_score = float(data.get("composite_score", 0.0) or 0.0)
 
-        if settings.LLM_FALLBACK_MODE == "reject_signal":
-            action = "reject"
-        elif settings.LLM_FALLBACK_MODE == "use_last_reflection":
+        if settings.LLM_FALLBACK_MODE == LLM_FALLBACK_MODE_REJECT_SIGNAL:
+            action = AgentAction.REJECT
+        elif settings.LLM_FALLBACK_MODE == LLM_FALLBACK_MODE_USE_LAST_REFLECTION:
             reflection = await get_last_reflection()
             action = reflection.get("action", base_action) if reflection else base_action
             valid_actions = {
@@ -203,9 +216,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 AgentAction.REJECT,
             }
             if action not in valid_actions:
-                action = base_action if base_action not in {"none", ""} else "hold"
+                action = base_action if base_action not in {"none", ""} else AgentAction.HOLD
         else:
-            action = base_action if base_action not in {"none", ""} else "hold"
+            action = base_action if base_action not in {"none", ""} else AgentAction.HOLD
 
         return {
             "action": action,
