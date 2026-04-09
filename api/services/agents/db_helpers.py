@@ -34,7 +34,7 @@ async def write_agent_log(
                     INSERT INTO agent_logs
                         (agent_run_id, trace_id, log_type, payload, schema_version, source)
                     VALUES
-                        (:agent_run_id::uuid, :trace_id, :log_type, CAST(:payload AS JSONB),
+                        (:agent_run_id, :trace_id, :log_type, CAST(:payload AS JSONB),
                          :schema_version, :source)
                 """),
                 {
