@@ -35,7 +35,7 @@ def is_db_available() -> bool:
 def get_active_backend() -> str:
     """
     Get active storage backend.
-    
+
     Simple logic:
     - If DB is available -> use "db"
     - If DB is not available -> use "memory"
