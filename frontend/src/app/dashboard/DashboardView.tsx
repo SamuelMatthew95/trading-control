@@ -110,6 +110,21 @@ function normalizeAgentStatus(value: string): AgentSummary['status'] {
   return 'WAITING'
 }
 
+function pickHigherPriorityStatus(
+  current: AgentSummary['status'] | undefined,
+  incoming: AgentSummary['status'],
+): AgentSummary['status'] {
+  if (!current) return incoming
+  const priority: Record<AgentSummary['status'], number> = {
+    ACTIVE: 0,
+    IDLE: 1,
+    STALE: 2,
+    WAITING: 3,
+    OFFLINE: 4,
+  }
+  return priority[incoming] < priority[current] ? incoming : current
+}
+
 function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
   const match = systemMetrics.find((metric) => metric?.metric_name === metricName)
   return toFiniteNumber(match?.value)
@@ -819,12 +834,13 @@ export function DashboardView({ section }: { section: Section }) {
       const parsedLastEvent = status.last_event ? new Date(status.last_event) : null
       const statusDate = parsedLastEvent && !Number.isNaN(parsedLastEvent.getTime()) ? parsedLastEvent : null
       const mappedStatus = normalizeAgentStatus(status.status)
+      const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       normalizedByName.set(status.name, {
         name: status.name,
         count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
         lastSeen: statusDate ?? existing?.lastSeen ?? null,
-        status: mappedStatus,
-        tier: mappedStatus === 'ACTIVE' ? 'active' : mappedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        status: mergedStatus,
+        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
         source: existing ? 'mixed' : 'heartbeat',
       })
     }
@@ -834,12 +850,13 @@ export function DashboardView({ section }: { section: Section }) {
       const startedAt = inst.started_at ? new Date(inst.started_at) : null
       const startedDate = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null
       const mappedStatus = inst.status === 'active' ? 'ACTIVE' : 'OFFLINE'
+      const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       normalizedByName.set(inst.pool_name, {
         name: inst.pool_name,
         count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
         lastSeen: existing?.lastSeen ?? startedDate ?? null,
-        status: existing?.status ?? mappedStatus,
-        tier: mappedStatus === 'ACTIVE' ? 'active' : 'inactive',
+        status: mergedStatus,
+        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
         source: existing ? 'mixed' : 'instance',
       })
     }
