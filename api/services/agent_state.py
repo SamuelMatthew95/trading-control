@@ -47,6 +47,17 @@ class AgentStateRegistry:
         state["last_seen"] = now
         state["updated_at"] = now
 
+    @staticmethod
+    def _normalize_status(status: str) -> AgentStatus:
+        raw = str(status or "").upper()
+        if raw in {"ACTIVE", "RUNNING", "OK"}:
+            return AgentStatus.ACTIVE
+        if raw == "STALE":
+            return AgentStatus.STALE
+        if raw in {"OFFLINE", "ERROR", "FAILED"}:
+            return AgentStatus.WAITING
+        return AgentStatus.WAITING
+
     def update(
         self,
         name: str,
@@ -65,7 +76,7 @@ class AgentStateRegistry:
         state.update(
             {
                 "name": name,
-                "status": status,
+                "status": self._normalize_status(status),
                 "health": health,
                 "last_task": last_task,
                 "event_count": int(state.get("event_count") or 0) + 1,

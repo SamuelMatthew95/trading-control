@@ -107,6 +107,14 @@ def test_agent_state_uses_normalized_status_constants() -> None:
     updated = next(row for row in registry.snapshot() if row["name"] == ALL_AGENT_NAMES[0])
     assert updated["status"] == AgentStatus.ACTIVE
 
+    registry.update(ALL_AGENT_NAMES[0], status="running")
+    updated_running = next(row for row in registry.snapshot() if row["name"] == ALL_AGENT_NAMES[0])
+    assert updated_running["status"] == AgentStatus.ACTIVE
+
+    registry.update(ALL_AGENT_NAMES[0], status="stale")
+    updated_stale = next(row for row in registry.snapshot() if row["name"] == ALL_AGENT_NAMES[0])
+    assert updated_stale["status"] == AgentStatus.STALE
+
 
 def test_dashboard_state_reads_correct_redis_keys() -> None:
     """The keys the dashboard builds must match what agents write."""
