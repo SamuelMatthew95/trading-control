@@ -170,3 +170,24 @@ async def test_publishes_to_notifications_stream(notification_agent, mock_bus):
     notification = notifications_calls[0][0][1]
     assert notification["severity"] == "INFO"
     assert notification["source"] == "notification_agent"
+    assert "BTC/USD" in notification["message"]
+
+
+def test_build_message_includes_key_context(notification_agent):
+    message = notification_agent._build_message(
+        "agent_grades",
+        "agent_grade",
+        {
+            "symbol": "AAPL",
+            "action": "buy",
+            "grade": "B",
+            "score": 0.81,
+            "agent_name": "REASONING_AGENT",
+            "reason": "momentum",
+        },
+    )
+    assert "AAPL" in message
+    assert "buy" in message
+    assert "grade=B" in message
+    assert "score=0.81" in message
+    assert "agent=REASONING_AGENT" in message

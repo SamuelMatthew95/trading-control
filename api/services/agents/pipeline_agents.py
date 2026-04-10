@@ -942,6 +942,32 @@ class NotificationAgent(MultiStreamAgent):
         self.redis = redis_client
         self._dedup_window_secs = 60
 
+    def _build_message(self, stream: str, event_type: str, data: dict[str, Any]) -> str:
+        symbol = data.get("symbol")
+        action = data.get("action") or data.get("side")
+        agent_name = data.get("agent_name") or data.get("agent")
+        grade = data.get("grade")
+        score = data.get("score")
+        reason = data.get("reason")
+
+        details: list[str] = []
+        if symbol:
+            details.append(str(symbol))
+        if action:
+            details.append(str(action))
+        if grade:
+            details.append(f"grade={grade}")
+        if score is not None:
+            details.append(f"score={score}")
+        if agent_name:
+            details.append(f"agent={agent_name}")
+        if reason:
+            details.append(f"reason={reason}")
+
+        if details:
+            return f"{stream}:{event_type} — " + ", ".join(details)
+        return f"{stream}:{event_type}"
+
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_NOTIFICATIONS:
             return
@@ -963,7 +989,7 @@ class NotificationAgent(MultiStreamAgent):
             "source": SOURCE_NOTIFICATION,
             "severity": severity,
             "notification_type": f"stream:{stream}",
-            "message": f"Event on {stream}: {event_type}",
+            "message": self._build_message(stream, event_type, data),
             "metadata": {"observed_msg_id": msg_id, "stream": stream, "event_type": event_type},
             "timestamp": now_iso,
         }
