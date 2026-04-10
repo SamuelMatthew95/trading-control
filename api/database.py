@@ -119,7 +119,7 @@ def _engine_kwargs() -> dict:
             # Add retry and reliability settings
             kwargs["pool_pre_ping"] = True
             kwargs["connect_args"] = {
-                "connect_timeout": 60,
+                "timeout": 60,
                 "command_timeout": 60,
                 "server_settings": {"application_name": "trading-control", "jit": "off"},
             }
@@ -129,7 +129,7 @@ def _engine_kwargs() -> dict:
                 {"pool_size": 5, "max_overflow": 5, "pool_timeout": 30, "pool_recycle": 1800}
             )
             kwargs["connect_args"] = {
-                "connect_timeout": 60,
+                "timeout": 60,
                 "command_timeout": 60,
                 "server_settings": {"application_name": "trading-control", "jit": "off"},
             }
