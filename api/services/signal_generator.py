@@ -6,6 +6,7 @@ percentage change, writes classified signals to the signals stream.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -28,7 +29,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.runtime_state import is_db_available, get_runtime_store
+from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 
 AGENT_NAME = AGENT_SIGNAL  # single source of truth from constants
@@ -90,7 +91,7 @@ class SignalGenerator(BaseStreamConsumer):
                         message=f"Signal generator running in deliberate in-memory mode: msg_id={msg_id}",
                     )
                     break
-                
+
                 async with AsyncSessionFactory() as session:
                     exists = await session.execute(
                         text("SELECT 1 FROM processed_events WHERE msg_id = :msg_id"),
@@ -103,7 +104,7 @@ class SignalGenerator(BaseStreamConsumer):
                         )
                         return
                 break  # Success, exit retry loop
-            except Exception as e:
+            except Exception:
                 if attempt == max_retries - 1:
                     log_structured(
                         "error",
@@ -119,8 +120,7 @@ class SignalGenerator(BaseStreamConsumer):
                         )
                         break
                     return  # Skip processing if dedup fails in db mode
-                else:
-                    await asyncio.sleep(0.5 * (attempt + 1))  # Brief delay before retry
+                await asyncio.sleep(0.5 * (attempt + 1))  # Brief delay before retry
 
         # Create agent_runs row — id is a legacy integer sequence, so let DB generate it.
         # run_id (UUID) is used as a correlation key in downstream tables only.
@@ -152,7 +152,7 @@ class SignalGenerator(BaseStreamConsumer):
                     })
                     db_run_id = None  # No DB ID in memory mode
                     break
-                
+
                 async with AsyncSessionFactory() as session:
                     async with session.begin():
                         result = await session.execute(
@@ -178,7 +178,7 @@ class SignalGenerator(BaseStreamConsumer):
                         row = result.first()
                         db_run_id = row[0] if row else None
                 break  # Success, exit retry loop
-            except Exception as e:
+            except Exception:
                 if attempt == max_retries - 1:
                     log_structured(
                         "error",
@@ -200,8 +200,7 @@ class SignalGenerator(BaseStreamConsumer):
                         db_run_id = None
                         break
                     return  # Skip processing if agent_runs insert fails in db mode
-                else:
-                    await asyncio.sleep(0.5 * (attempt + 1))  # Brief delay before retry
+                await asyncio.sleep(0.5 * (attempt + 1))  # Brief delay before retry
 
         try:
             # Signal classification logic
@@ -314,7 +313,7 @@ class SignalGenerator(BaseStreamConsumer):
                                 """),
                                 {"msg_id": msg_id, "stream": STREAM_MARKET_EVENTS},
                             )
-            except Exception as e:
+            except Exception:
                 if not is_db_available():
                     log_structured(
                         "info",
@@ -389,7 +388,7 @@ class SignalGenerator(BaseStreamConsumer):
                                     "source": AGENT_NAME,
                                 },
                             )
-            except Exception as e:
+            except Exception:
                 if not is_db_available():
                     log_structured(
                         "info",
