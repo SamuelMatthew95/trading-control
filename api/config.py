@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_MS: int = 250
     LOG_LEVEL: str = "INFO"
-    PERSISTENCE_MODE: str = "auto"  # auto | db | memory (memory = deliberate in-memory mode)
+    # PERSISTENCE_MODE removed - now automatic: try DB, if fails use memory
 
     # Database connection pool (tune for Render PostgreSQL limits)
     DB_POOL_SIZE: int = 5
