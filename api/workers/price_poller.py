@@ -37,7 +37,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
-from api.runtime_state import is_db_available, get_runtime_store
+from api.runtime_state import get_runtime_store, is_db_available
 
 SYMBOLS = {
     "crypto": ["BTC/USD", "ETH/USD", "SOL/USD"],
@@ -178,19 +178,21 @@ async def flush_to_db(payloads: list[dict]) -> None:
         # Store in memory store (primary storage in memory mode)
         store = get_runtime_store()
         for p in payloads:
-            store.add_event({
-                "type": "price_update",
-                "symbol": p["symbol"],
-                "price": p["price"],
-                "change": p["change"],
-                "pct": p["pct"],
-                "ts": p["ts"],
-            })
+            store.add_event(
+                {
+                    "type": "price_update",
+                    "symbol": p["symbol"],
+                    "price": p["price"],
+                    "change": p["change"],
+                    "pct": p["pct"],
+                    "ts": p["ts"],
+                }
+            )
         return
-    
+
     max_retries = 3
     retry_delay = 1.0
-    
+
     for attempt in range(max_retries):
         try:
             async with AsyncSessionFactory() as session:
@@ -229,8 +231,8 @@ async def flush_to_db(payloads: list[dict]) -> None:
                         )
             # If we get here, success - break retry loop
             return
-            
-        except Exception as e:
+
+        except Exception:
             if attempt == max_retries - 1:
                 # Final attempt failed, log error and use memory store
                 log_structured(
@@ -243,14 +245,16 @@ async def flush_to_db(payloads: list[dict]) -> None:
                 # Store in memory store (primary storage when DB fails)
                 store = get_runtime_store()
                 for p in payloads:
-                    store.add_event({
-                        "type": "price_update",
-                        "symbol": p["symbol"],
-                        "price": p["price"],
-                        "change": p["change"],
-                        "pct": p["pct"],
-                        "ts": p["ts"],
-                    })
+                    store.add_event(
+                        {
+                            "type": "price_update",
+                            "symbol": p["symbol"],
+                            "price": p["price"],
+                            "change": p["change"],
+                            "pct": p["pct"],
+                            "ts": p["ts"],
+                        }
+                    )
             else:
                 # Retry with exponential backoff
                 log_structured(

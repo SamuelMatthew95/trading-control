@@ -121,10 +121,7 @@ def _engine_kwargs() -> dict:
             kwargs["connect_args"] = {
                 "connect_timeout": 60,
                 "command_timeout": 60,
-                "server_settings": {
-                    "application_name": "trading-control",
-                    "jit": "off"
-                }
+                "server_settings": {"application_name": "trading-control", "jit": "off"},
             }
         except Exception:
             # Fallback to safe defaults if settings unavailable
@@ -134,7 +131,7 @@ def _engine_kwargs() -> dict:
             kwargs["connect_args"] = {
                 "connect_timeout": 60,
                 "command_timeout": 60,
-                "server_settings": {"application_name": "trading-control", "jit": "off"}
+                "server_settings": {"application_name": "trading-control", "jit": "off"},
             }
     return kwargs
 

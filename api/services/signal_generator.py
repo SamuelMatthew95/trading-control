@@ -142,14 +142,16 @@ class SignalGenerator(BaseStreamConsumer):
                     )
                     # Store in memory store (primary storage)
                     store = get_runtime_store()
-                    store.add_agent_run({
-                        "trace_id": trace_id,
-                        "input_data": payload,
-                        "schema_version": DB_SCHEMA_VERSION,
-                        "source": SOURCE_SIGNAL,
-                        "status": "running",
-                        "created_at": time.time(),
-                    })
+                    store.add_agent_run(
+                        {
+                            "trace_id": trace_id,
+                            "input_data": payload,
+                            "schema_version": DB_SCHEMA_VERSION,
+                            "source": SOURCE_SIGNAL,
+                            "status": "running",
+                            "created_at": time.time(),
+                        }
+                    )
                     db_run_id = None  # No DB ID in memory mode
                     break
 
@@ -189,14 +191,16 @@ class SignalGenerator(BaseStreamConsumer):
                     # Fallback to memory store
                     if not is_db_available():
                         store = get_runtime_store()
-                        store.add_agent_run({
-                            "trace_id": trace_id,
-                            "input_data": payload,
-                            "schema_version": DB_SCHEMA_VERSION,
-                            "source": SOURCE_SIGNAL,
-                            "status": "running",
-                            "created_at": time.time(),
-                        })
+                        store.add_agent_run(
+                            {
+                                "trace_id": trace_id,
+                                "input_data": payload,
+                                "schema_version": DB_SCHEMA_VERSION,
+                                "source": SOURCE_SIGNAL,
+                                "status": "running",
+                                "created_at": time.time(),
+                            }
+                        )
                         db_run_id = None
                         break
                     return  # Skip processing if agent_runs insert fails in db mode
@@ -242,24 +246,28 @@ class SignalGenerator(BaseStreamConsumer):
                 if not is_db_available():
                     # Store in memory store
                     store = get_runtime_store()
-                    store.add_event({
-                        "event_type": "signal.generated",
-                        "entity_type": "signal",
-                        "entity_id": trace_id,
-                        "data": signal_payload,
-                        "idempotency_key": f"signal-{symbol}-{trace_id}",
-                        "schema_version": DB_SCHEMA_VERSION,
-                        "source": SOURCE_SIGNAL,
-                    })
+                    store.add_event(
+                        {
+                            "event_type": "signal.generated",
+                            "entity_type": "signal",
+                            "entity_id": trace_id,
+                            "data": signal_payload,
+                            "idempotency_key": f"signal-{symbol}-{trace_id}",
+                            "schema_version": DB_SCHEMA_VERSION,
+                            "source": SOURCE_SIGNAL,
+                        }
+                    )
                     # Store grade in memory
-                    store.add_grade({
-                        "trace_id": trace_id,
-                        "grade_type": "ACCURACY",
-                        "score": score,
-                        "metrics": {"signal_type": signal_type, "symbol": symbol},
-                        "source": SOURCE_SIGNAL,
-                        "schema_version": DB_SCHEMA_VERSION,
-                    })
+                    store.add_grade(
+                        {
+                            "trace_id": trace_id,
+                            "grade_type": "ACCURACY",
+                            "score": score,
+                            "metrics": {"signal_type": signal_type, "symbol": symbol},
+                            "source": SOURCE_SIGNAL,
+                            "schema_version": DB_SCHEMA_VERSION,
+                        }
+                    )
                 else:
                     async with AsyncSessionFactory() as session:
                         async with session.begin():
@@ -297,7 +305,9 @@ class SignalGenerator(BaseStreamConsumer):
                                     "agent_run_id": run_id,
                                     "grade_type": GradeType.ACCURACY,
                                     "score": score,
-                                    "metrics": json.dumps({"signal_type": signal_type, "symbol": symbol}),
+                                    "metrics": json.dumps(
+                                        {"signal_type": signal_type, "symbol": symbol}
+                                    ),
                                     "source": SOURCE_SIGNAL,
                                     "trace_id": trace_id,
                                     "schema_version": DB_SCHEMA_VERSION,
@@ -332,12 +342,14 @@ class SignalGenerator(BaseStreamConsumer):
                         # Find the agent run and update it
                         for i, run in enumerate(store.agent_runs):
                             if run.get("trace_id") == trace_id:
-                                store.agent_runs[i].update({
-                                    "status": "completed",
-                                    "output_data": signal_payload,
-                                    "execution_time_ms": elapsed_ms,
-                                    "updated_at": time.time(),
-                                })
+                                store.agent_runs[i].update(
+                                    {
+                                        "status": "completed",
+                                        "output_data": signal_payload,
+                                        "execution_time_ms": elapsed_ms,
+                                        "updated_at": time.time(),
+                                    }
+                                )
                                 break
                     else:
                         async with AsyncSessionFactory() as session:
@@ -359,15 +371,17 @@ class SignalGenerator(BaseStreamConsumer):
                 # Write agent_logs with in-memory fallback
                 if not is_db_available():
                     store = get_runtime_store()
-                    store.add_event({
-                        "agent_run_id": run_id,
-                        "trace_id": trace_id,
-                        "log_type": "SIGNAL_GENERATED",
-                        "payload": signal_payload,
-                        "schema_version": DB_SCHEMA_VERSION,
-                        "source": AGENT_NAME,
-                        "timestamp": time.time(),
-                    })
+                    store.add_event(
+                        {
+                            "agent_run_id": run_id,
+                            "trace_id": trace_id,
+                            "log_type": "SIGNAL_GENERATED",
+                            "payload": signal_payload,
+                            "schema_version": DB_SCHEMA_VERSION,
+                            "source": AGENT_NAME,
+                            "timestamp": time.time(),
+                        }
+                    )
                 else:
                     async with AsyncSessionFactory() as session:
                         async with session.begin():
