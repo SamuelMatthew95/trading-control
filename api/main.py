@@ -124,6 +124,7 @@ async def lifespan(app: FastAPI):
                         level="warning",
                         notification_type="startup",
                     )
+                    set_db_available(False)
             except Exception:
                 if settings.PERSISTENCE_MODE == "db":
                     raise
