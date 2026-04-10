@@ -25,6 +25,7 @@ from api.observability import (
     log_structured,
     metrics_store,
 )
+from api.in_memory_store import InMemoryStore
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
@@ -45,6 +46,7 @@ from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
+from api.runtime_state import set_db_available, set_runtime_store
 from api.workers.price_poller import poll_prices
 
 configure_logging(settings.LOG_LEVEL)
@@ -76,6 +78,10 @@ async def _keep_alive() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db_engine = engine
+    app.state.in_memory_store = InMemoryStore()
+    set_runtime_store(app.state.in_memory_store)
+    app.state.db_available = False
+    set_db_available(False)
     app.state.redis_client = None
     app.state.event_bus = None
     app.state.event_pipeline = None
@@ -88,15 +94,38 @@ async def lifespan(app: FastAPI):
     agent_state = AgentStateRegistry()
 
     try:
+        db_startup_ok = False
         # Ensure latest schema exists before service components start.
-        await init_database()
-
-        db_ok = await test_database_connection()
-        if not db_ok:
-            raise RuntimeError("Database connection failed during startup")
-
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
+        try:
+            await init_database()
+            db_startup_ok = await test_database_connection()
+            if db_startup_ok:
+                async with engine.connect() as connection:
+                    await connection.execute(text("SELECT 1"))
+                app.state.db_available = True
+                set_db_available(True)
+                app.state.in_memory_store.last_health = "db_ok"
+            else:
+                app.state.in_memory_store.last_health = "db_down"
+                app.state.in_memory_store.add_notification(
+                    "Database is unreachable. Running in in-memory fallback mode.",
+                    level="warning",
+                    notification_type="startup",
+                )
+        except Exception:
+            app.state.in_memory_store.last_health = "db_down"
+            app.state.in_memory_store.add_notification(
+                "Database startup failed. Running in in-memory fallback mode.",
+                level="warning",
+                notification_type="startup",
+            )
+            set_db_available(False)
+            log_structured(
+                "warning",
+                "database_startup_failed_fallback_mode",
+                event_name="database_startup_failed_fallback_mode",
+                exc_info=True,
+            )
 
         redis_client = await get_redis()
         app.state.redis_client = redis_client
@@ -180,6 +209,7 @@ async def lifespan(app: FastAPI):
             timestamp=datetime.now(timezone.utc).isoformat(),
             environment=settings.NODE_ENV,
             config_source=get_settings_info().get("config_source"),
+            database_mode="connected" if app.state.db_available else "in_memory_fallback",
         )
         yield
     except Exception:  # noqa: BLE001

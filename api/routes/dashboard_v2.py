@@ -28,6 +28,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
+from api.runtime_state import get_runtime_store, runtime_mode
 from api.services.metrics_aggregator import MetricsAggregator
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -77,10 +78,19 @@ async def get_dashboard_state() -> dict[str, Any]:
     is slow to connect or unavailable.
     """
     try:
-        # DB query first — must succeed even when Redis is unavailable
-        async with AsyncSessionFactory() as session:
-            aggregator = MetricsAggregator(session)
-            data = await aggregator.get_raw_snapshot()
+        # DB query first when available.
+        try:
+            async with AsyncSessionFactory() as session:
+                aggregator = MetricsAggregator(session)
+                data = await aggregator.get_raw_snapshot()
+        except Exception:
+            store = get_runtime_store()
+            log_structured(
+                "warning",
+                "dashboard_state_db_unavailable_using_memory",
+                exc_info=True,
+            )
+            return store.dashboard_fallback_snapshot()
 
         # Redis enrichment is best-effort: a Redis outage must not prevent
         # the frontend from receiving its DB-backed hydration data.
@@ -88,6 +98,7 @@ async def get_dashboard_state() -> dict[str, Any]:
             redis_client = await get_redis()
         except Exception:
             log_structured("warning", "dashboard_state_redis_unavailable", exc_info=True)
+            data.setdefault("mode", runtime_mode())
             return data
 
         # Enrich with current prices from Redis cache
@@ -133,6 +144,7 @@ async def get_dashboard_state() -> dict[str, Any]:
         except Exception:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
 
+        data.setdefault("mode", runtime_mode())
         return data
 
     except Exception:

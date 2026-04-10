@@ -12,6 +12,7 @@ from sqlalchemy import text
 from api.core.schemas import HealthResponse
 from api.database import test_database_connection
 from api.observability import log_structured, metrics_store
+from api.runtime_state import get_runtime_store, runtime_mode
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -147,9 +148,13 @@ async def health_check(request: Request) -> dict[str, Any]:
     else:
         status = "degraded"
 
+    store = getattr(request.app.state, "in_memory_store", get_runtime_store())
+
     return {
         "status": status,
         "database": "connected" if db_ready else "disconnected",
+        "database_mode": runtime_mode(),
+        "runtime_db_health": getattr(store, "last_health", "unknown"),
         "redis": "connected" if redis_ready else "disconnected",
         "pipeline_running": bool(pipeline and pipeline.status().get("running")),
         "active_ws_connections": (
