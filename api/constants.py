@@ -106,6 +106,30 @@ class GradeType(StrEnum):
     OVERALL = "overall"
 
 
+class StorageBackend(StrEnum):
+    """Storage backend types for runtime state management."""
+
+    DATABASE = "db"
+    MEMORY = "memory"
+
+
+class RuntimeMode(StrEnum):
+    """Runtime modes indicating system state."""
+
+    CONNECTED = "connected"
+    IN_MEMORY = "in_memory"
+    IN_MEMORY_FALLBACK = "in_memory_fallback"
+
+
+class HealthStatus(StrEnum):
+    """Health status indicators for system components."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    STARTING = "starting"
+
+
 class ProposalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

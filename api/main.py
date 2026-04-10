@@ -32,7 +32,11 @@ from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
 from api.routes.ws import router as ws_router
-from api.runtime_state import set_db_available, set_persistence_mode, set_runtime_store
+from api.runtime_state import (
+    set_db_available,
+    set_persistence_mode,
+    set_runtime_store,
+)
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.agents.pipeline_agents import (
     GradeAgent,
@@ -96,50 +100,56 @@ async def lifespan(app: FastAPI):
     agent_state = AgentStateRegistry()
 
     try:
-        db_startup_ok = False
-        if settings.PERSISTENCE_MODE == "memory":
-            app.state.in_memory_store.last_health = "memory_mode"
-            app.state.in_memory_store.add_notification(
-                "Persistence mode is set to memory. Database startup was skipped.",
-                level="info",
-                notification_type="startup",
-            )
-        else:
-            # Ensure latest schema exists before service components start.
-            try:
-                await init_database()
-                db_startup_ok = await test_database_connection()
-                if db_startup_ok:
-                    async with engine.connect() as connection:
-                        await connection.execute(text("SELECT 1"))
-                    app.state.db_available = True
-                    set_db_available(True)
-                    app.state.in_memory_store.last_health = "db_ok"
-                elif settings.PERSISTENCE_MODE == "db":
-                    raise RuntimeError("PERSISTENCE_MODE=db but database is unreachable")
-                else:
-                    app.state.in_memory_store.last_health = "db_down"
-                    app.state.in_memory_store.add_notification(
-                        "Database is unreachable. Running in in-memory fallback mode.",
-                        level="warning",
-                        notification_type="startup",
-                    )
-            except Exception:
-                if settings.PERSISTENCE_MODE == "db":
-                    raise
+        # Try to initialize database
+        try:
+            await init_database()
+            db_startup_ok = await test_database_connection()
+            if db_startup_ok:
+                async with engine.connect() as connection:
+                    await connection.execute(text("SELECT 1"))
+                app.state.db_available = True
+                set_db_available(True)
+                app.state.in_memory_store.last_health = "db_ok"
+                log_structured("info", "database_initialized_successfully")
+            else:
+                # Database connection failed
+                set_db_available(False)
                 app.state.in_memory_store.last_health = "db_down"
                 app.state.in_memory_store.add_notification(
-                    "Database startup failed. Running in in-memory fallback mode.",
+                    "Database connection failed. Running in in-memory fallback mode.",
                     level="warning",
                     notification_type="startup",
                 )
-                set_db_available(False)
+                # Dispose engine to prevent retry storms
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass  # Best effort cleanup
                 log_structured(
                     "warning",
-                    "database_startup_failed_fallback_mode",
-                    event_name="database_startup_failed_fallback_mode",
-                    exc_info=True,
+                    "database_connection_failed_using_memory",
+                    event_name="database_connection_failed_using_memory",
                 )
+        except Exception as e:
+            # Database initialization failed
+            set_db_available(False)
+            app.state.in_memory_store.last_health = "db_down"
+            app.state.in_memory_store.add_notification(
+                f"Database initialization failed: {str(e)}. Running in in-memory fallback mode.",
+                level="warning",
+                notification_type="startup",
+            )
+            # Dispose engine to prevent retry storms
+            try:
+                engine.dispose()
+            except Exception:
+                pass  # Best effort cleanup
+            log_structured(
+                "warning",
+                "database_initialization_failed_using_memory",
+                event_name="database_initialization_failed_using_memory",
+                exc_info=True,
+            )
 
         redis_client = await get_redis()
         app.state.redis_client = redis_client

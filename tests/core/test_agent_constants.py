@@ -15,9 +15,9 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
-    AgentStatus,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
+    AgentStatus,
 )
 
 

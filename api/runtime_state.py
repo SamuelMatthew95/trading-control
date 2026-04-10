@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+from api.constants import RuntimeMode, StorageBackend
 from api.in_memory_store import InMemoryStore
 
+# Simple state: try DB, if fails use memory
 _store: InMemoryStore | None = None
-_db_available: bool = False
-_persistence_mode: str = "auto"
+_db_available: bool = False  # True = DB works, False = use memory
 
 
 def set_runtime_store(store: InMemoryStore) -> None:
+    """Set the in-memory store."""
     global _store
     _store = store
 
 
 def get_runtime_store() -> InMemoryStore:
+    """Get the in-memory store."""
     global _store
     if _store is None:
         _store = InMemoryStore()
@@ -20,34 +23,49 @@ def get_runtime_store() -> InMemoryStore:
 
 
 def set_db_available(is_available: bool) -> None:
+    """Set if database is available. Call this when DB init succeeds or fails."""
     global _db_available
     _db_available = is_available
 
 
 def is_db_available() -> bool:
+    """Check if database is available."""
     return _db_available
 
 
-def set_persistence_mode(mode: str) -> None:
-    global _persistence_mode
-    _persistence_mode = mode
+def get_active_backend() -> str:
+    """
+    Get active storage backend.
+
+    Simple logic:
+    - If DB is available -> use StorageBackend.DATABASE
+    - If DB is not available -> use StorageBackend.MEMORY
+    """
+    return StorageBackend.DATABASE if _db_available else StorageBackend.MEMORY
 
 
-def get_persistence_mode() -> str:
-    return _persistence_mode
+def get_runtime_mode() -> str:
+    """Get runtime mode: RuntimeMode.CONNECTED if DB works, RuntimeMode.IN_MEMORY_FALLBACK if not."""
+    return RuntimeMode.CONNECTED if _db_available else RuntimeMode.IN_MEMORY_FALLBACK
 
 
+# Legacy functions - keep them working
 def storage_backend() -> str:
-    """Return the effective persistence backend for this process."""
-    if _persistence_mode == "memory":
-        return "memory"
-    if _persistence_mode == "db":
-        return "db"
-    return "db" if _db_available else "memory"
+    """Legacy: use get_active_backend()"""
+    return get_active_backend()
 
 
 def runtime_mode() -> str:
-    """Return the current runtime mode with clear indication of deliberate in-memory mode."""
-    if _persistence_mode == "memory":
-        return "in_memory"
-    return "connected" if storage_backend() == "db" else "in_memory_fallback"
+    """Legacy: use get_runtime_mode()"""
+    return get_runtime_mode()
+
+
+# Remove old auto/db/memory config - no longer needed
+def get_persistence_mode() -> str:
+    """Legacy: always returns 'auto' for compatibility"""
+    return "auto"
+
+
+def set_persistence_mode(mode: str) -> None:
+    """Legacy: does nothing, persistence is now automatic"""
+    pass

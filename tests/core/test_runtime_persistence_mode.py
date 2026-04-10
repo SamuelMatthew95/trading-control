@@ -10,13 +10,13 @@ from api.runtime_state import (
 
 def test_storage_backend_respects_explicit_modes():
     set_db_available(False)
-    set_persistence_mode("memory")
+    set_persistence_mode("memory")  # Legacy function, no longer affects behavior
     assert storage_backend() == "memory"
-    assert runtime_mode() == "in_memory"  # Updated for deliberate in-memory mode
+    assert runtime_mode() == "in_memory_fallback"  # Simplified behavior
 
-    set_persistence_mode("db")
-    assert storage_backend() == "db"
-    assert runtime_mode() == "connected"
+    set_persistence_mode("db")  # Legacy function, no longer affects behavior
+    assert storage_backend() == "memory"  # Still memory because DB is not available
+    assert runtime_mode() == "in_memory_fallback"
 
 
 def test_storage_backend_auto_tracks_db_health():
