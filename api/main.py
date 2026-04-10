@@ -34,7 +34,6 @@ from api.routes.health import router as health_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
-    set_persistence_mode,
     set_runtime_store,
 )
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
@@ -85,8 +84,6 @@ async def lifespan(app: FastAPI):
     app.state.in_memory_store = InMemoryStore()
     set_runtime_store(app.state.in_memory_store)
     app.state.db_available = False
-    app.state.persistence_mode = settings.PERSISTENCE_MODE
-    set_persistence_mode(settings.PERSISTENCE_MODE)
     set_db_available(False)
     app.state.redis_client = None
     app.state.event_bus = None
@@ -234,7 +231,7 @@ async def lifespan(app: FastAPI):
             environment=settings.NODE_ENV,
             config_source=get_settings_info().get("config_source"),
             database_mode="connected" if app.state.db_available else "in_memory_fallback",
-            persistence_mode=settings.PERSISTENCE_MODE,
+            persistence_mode="auto",  # Simplified: always auto now
         )
         yield
     except Exception:  # noqa: BLE001
