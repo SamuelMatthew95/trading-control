@@ -191,6 +191,31 @@ type DashboardData = {
 
 type PriceRecord = Record<string, PriceData>
 
+function normalizeStoredNotification(input: unknown): Notification | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Record<string, unknown>
+  const severity = String(raw.severity || 'INFO').toUpperCase()
+  const normalizedSeverity: NotificationSeverity =
+    severity === 'CRITICAL' || severity === 'URGENT' || severity === 'WARNING' || severity === 'INFO'
+      ? severity
+      : 'INFO'
+
+  const message = String(raw.message || '').trim()
+  if (!message) return null
+
+  return {
+    id: String(raw.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    severity: normalizedSeverity,
+    message,
+    notification_type: String(raw.notification_type || 'system'),
+    stream_source: raw.stream_source ? String(raw.stream_source) : undefined,
+    trace_id: raw.trace_id ? String(raw.trace_id) : undefined,
+    state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
+    timestamp: String(raw.timestamp || new Date().toISOString()),
+    acknowledged: Boolean(raw.acknowledged),
+  }
+}
+
 // Type for price data from API
 interface CachedPriceData {
   price: string | number;
@@ -273,7 +298,8 @@ export const useCodexStore = create<CodexState>((set) => ({
       const raw = window.localStorage.getItem('codex.notifications')
       if (!raw) return []
       const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed : []
+      if (!Array.isArray(parsed)) return []
+      return parsed.map(normalizeStoredNotification).filter((item): item is Notification => item !== null).slice(0, 200)
     } catch {
       return []
     }
@@ -386,6 +412,14 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
+    const duplicateExists = state.notifications.some((n) =>
+      n.message === notification.message &&
+      n.notification_type === notification.notification_type &&
+      n.severity === notification.severity &&
+      Math.abs(new Date(n.timestamp).getTime() - new Date(notification.timestamp).getTime()) < 10_000
+    )
+    if (duplicateExists) return { notifications: state.notifications }
+
     const next = [
       { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
       ...state.notifications,
