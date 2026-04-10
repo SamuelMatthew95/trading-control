@@ -54,6 +54,16 @@ const formatTimestamp = (value?: string | null): string => {
   return date.toLocaleTimeString()
 }
 
+const formatAgeFromMs = (ageMs: number | null): string => {
+  if (ageMs == null || ageMs < 0 || !Number.isFinite(ageMs)) return '--'
+  const sec = Math.floor(ageMs / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m`
+  const hr = Math.floor(min / 60)
+  return `${hr}h`
+}
+
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
@@ -919,6 +929,28 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [learningEvents, orders])
 
+  const wiringFreshness = useMemo(() => {
+    const now = Date.now()
+    const latestHeartbeat = agentStatuses
+      .map((row) => new Date(String(row.last_event || '')).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => b - a)[0]
+    const latestInstance = agentInstances
+      .map((row) => new Date(String(row.started_at || '')).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => b - a)[0]
+    const latestLog = agentLogs
+      .map((row) => new Date(String(row.timestamp || row.created_at || '')).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => b - a)[0]
+
+    return {
+      heartbeatAgeMs: latestHeartbeat ? now - latestHeartbeat : null,
+      instanceAgeMs: latestInstance ? now - latestInstance : null,
+      logAgeMs: latestLog ? now - latestLog : null,
+    }
+  }, [agentStatuses, agentInstances, agentLogs])
+
   const tickerEntries = useMemo(
     () => TICKER_SYMBOLS.map((symbol) => [symbol, prices[symbol]] as const),
     [prices]
@@ -1285,12 +1317,15 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <p className={mutedClass}>
                 Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
+                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.heartbeatAgeMs)} ago</span>
               </p>
               <p className={mutedClass}>
                 Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
+                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.instanceAgeMs)} ago</span>
               </p>
               <p className={mutedClass}>
                 Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
+                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.logAgeMs)} ago</span>
               </p>
             </div>
           </div>
