@@ -85,8 +85,7 @@ async def lifespan(app: FastAPI):
     app.state.in_memory_store = InMemoryStore()
     set_runtime_store(app.state.in_memory_store)
     app.state.db_available = False
-    # PERSISTENCE_MODE removed - system now automatically handles DB/memory switching
-    set_db_available(False)
+        set_db_available(False)
     app.state.redis_client = None
     app.state.event_bus = None
     app.state.event_pipeline = None
