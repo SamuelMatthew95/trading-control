@@ -104,13 +104,6 @@ class Settings(BaseSettings):
     def normalize_frontend_url(cls, value: str) -> str:
         return value.rstrip("/")
 
-    @field_validator("PERSISTENCE_MODE")
-    @classmethod
-    def validate_persistence_mode(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized not in {"auto", "db", "memory"}:
-            raise ValueError("PERSISTENCE_MODE must be one of: auto, db, memory")
-        return normalized
 
     @model_validator(mode="after")
     def validate_runtime_requirements(self) -> Settings:

@@ -32,7 +32,11 @@ from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
 from api.routes.ws import router as ws_router
-from api.runtime_state import set_db_available, set_persistence_mode, set_runtime_store
+from api.runtime_state import (
+    set_db_available,
+    set_persistence_mode,
+    set_runtime_store,
+)
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.agents.pipeline_agents import (
     GradeAgent,

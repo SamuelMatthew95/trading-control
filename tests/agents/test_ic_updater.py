@@ -3,9 +3,9 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import fakeredis
 import pytest
 
+import fakeredis
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
