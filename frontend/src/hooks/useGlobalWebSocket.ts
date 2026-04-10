@@ -311,6 +311,8 @@ class WebSocketManager {
           message: String(raw.message || raw.summary || ''),
           notification_type: String(raw.notification_type || raw.type || 'system'),
           stream_source: String(raw.stream_source || raw.source || ''),
+          trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
+          state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
           timestamp: msg.timestamp || new Date().toISOString(),
         })
       } else if (msg.stream === 'proposals') {

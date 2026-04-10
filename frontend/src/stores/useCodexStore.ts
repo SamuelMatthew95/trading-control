@@ -60,6 +60,8 @@ export interface Notification {
   message: string
   notification_type: string
   stream_source?: string
+  trace_id?: string
+  state?: 'open' | 'resolved'
   timestamp: string
   acknowledged: boolean
 }
@@ -265,7 +267,17 @@ export const useCodexStore = create<CodexState>((set) => ({
   signals: [],
   agentLogs: [],
   riskAlerts: [],
-  notifications: [],
+  notifications: (() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = window.localStorage.getItem('codex.notifications')
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })(),
   proposals: [],
   tradeFeed: [],
   agentInstances: [],
@@ -373,15 +385,23 @@ export const useCodexStore = create<CodexState>((set) => ({
   addRiskAlert: (alert) => set((state) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
-  addNotification: (notification) => set((state) => ({
-    notifications: [
+  addNotification: (notification) => set((state) => {
+    const next = [
       { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
       ...state.notifications,
-    ].slice(0, 100)
-  })),
-  acknowledgeNotification: (id) => set((state) => ({
-    notifications: state.notifications.map((n) => n.id === id ? { ...n, acknowledged: true } : n)
-  })),
+    ].slice(0, 200)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('codex.notifications', JSON.stringify(next))
+    }
+    return { notifications: next }
+  }),
+  acknowledgeNotification: (id) => set((state) => {
+    const next = state.notifications.map((n) => n.id === id ? { ...n, acknowledged: true } : n)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('codex.notifications', JSON.stringify(next))
+    }
+    return { notifications: next }
+  }),
   addProposal: (proposal) => set((state) => ({
     proposals: [
       { ...proposal, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' as ProposalStatus },

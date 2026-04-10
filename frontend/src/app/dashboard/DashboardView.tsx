@@ -65,7 +65,7 @@ type AgentSummary = {
   name: string
   count: number
   lastSeen: Date | null
-  status: 'ACTIVE' | 'IDLE' | 'WAITING'
+  status: 'ACTIVE' | 'IDLE' | 'WAITING' | 'STALE' | 'OFFLINE'
   tier: 'active' | 'challenger' | 'inactive'
 }
 
@@ -83,22 +83,30 @@ type PersistedHistoryItem = {
   created_at: string | null
 }
 
-const TRACKED_AGENTS = [
-  'SIGNAL_AGENT',
-  'REASONING_AGENT',
-  'EXECUTION_ENGINE',
-  'GRADE_AGENT',
-  'IC_UPDATER',
-  'REFLECTION_AGENT',
-  'STRATEGY_PROPOSER',
-  'NOTIFICATION_AGENT',
-] as const
+function displayAgentName(rawName: string): string {
+  return rawName
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+}
 
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(cast) ? cast : null
+}
+
+function normalizeAgentStatus(value: string): AgentSummary['status'] {
+  const raw = String(value || '').toUpperCase()
+  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'ACTIVE'
+  if (raw === 'IDLE') return 'IDLE'
+  if (raw === 'STALE') return 'STALE'
+  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'OFFLINE'
+  if (raw === 'STARTING' || raw === 'INITIALIZING' || raw === 'PENDING') return 'WAITING'
+  return 'WAITING'
 }
 
 function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
@@ -217,9 +225,16 @@ function NotificationFeed({
                   <div className="mb-1 flex items-center gap-2">
                     <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
                     <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
+                    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', notif.state === 'resolved' || notif.acknowledged ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
+                      {notif.state === 'resolved' || notif.acknowledged ? 'resolved' : 'action needed'}
+                    </span>
                     <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
                   </div>
                   <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
+                  <p className={cn(mutedClass, 'mt-1')}>
+                    Source: {sanitizeValue(notif.stream_source) === '--' ? 'system' : sanitizeValue(notif.stream_source)}
+                    {notif.trace_id ? ` · Trace ${notif.trace_id.slice(0, 8)}` : ''}
+                  </p>
                 </div>
                 {!notif.acknowledged && (
                   <button
@@ -570,6 +585,7 @@ export function DashboardView({ section }: { section: Section }) {
     wsMessageCount,
     wsLastMessageTimestamp,
     recentEvents = [],
+    agentStatuses = [],
     acknowledgeNotification,
     updateProposalStatus,
   } = useCodexStore()
@@ -797,33 +813,63 @@ export function DashboardView({ section }: { section: Section }) {
     })
 
     const normalizedByName = new Map(incomingAgents.map((agent) => [agent.name, agent]))
-    for (const name of TRACKED_AGENTS) {
-      if (!normalizedByName.has(name)) {
-        normalizedByName.set(name, {
-          name,
-          count: 0,
-          lastSeen: null,
-          status: 'WAITING',
-          tier: 'inactive',
-        })
-      }
+    for (const status of agentStatuses) {
+      const existing = normalizedByName.get(status.name)
+      const parsedLastEvent = status.last_event ? new Date(status.last_event) : null
+      const statusDate = parsedLastEvent && !Number.isNaN(parsedLastEvent.getTime()) ? parsedLastEvent : null
+      const mappedStatus = normalizeAgentStatus(status.status)
+      normalizedByName.set(status.name, {
+        name: status.name,
+        count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
+        lastSeen: statusDate ?? existing?.lastSeen ?? null,
+        status: mappedStatus,
+        tier: mappedStatus === 'ACTIVE' ? 'active' : mappedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+      })
     }
 
-    return Array.from(normalizedByName.values())
-  }, [agentLogs])
+    for (const inst of agentInstances) {
+      const existing = normalizedByName.get(inst.pool_name)
+      const startedAt = inst.started_at ? new Date(inst.started_at) : null
+      const startedDate = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null
+      const mappedStatus = inst.status === 'active' ? 'ACTIVE' : 'OFFLINE'
+      normalizedByName.set(inst.pool_name, {
+        name: inst.pool_name,
+        count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
+        lastSeen: existing?.lastSeen ?? startedDate ?? null,
+        status: existing?.status ?? mappedStatus,
+        tier: mappedStatus === 'ACTIVE' ? 'active' : 'inactive',
+      })
+    }
+
+    const priority: Record<AgentSummary['status'], number> = {
+      ACTIVE: 0,
+      IDLE: 1,
+      STALE: 2,
+      WAITING: 3,
+      OFFLINE: 4,
+    }
+
+    return Array.from(normalizedByName.values()).sort((a, b) => {
+      const byStatus = priority[a.status] - priority[b.status]
+      if (byStatus !== 0) return byStatus
+      return a.name.localeCompare(b.name)
+    })
+  }, [agentLogs, agentStatuses, agentInstances])
 
   useEffect(() => {
-    if (!wsConnected || agentLogs.length > 0) {
+    if (!wsConnected || realAgents.length > 0) {
       setShowNoAgentDataMessage(false)
       return
     }
     const timer = setTimeout(() => {
-      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
+      const state = useCodexStore.getState()
+      const hasAgentData = state.agentLogs.length > 0 || state.agentStatuses.length > 0 || state.agentInstances.length > 0
+      if (!hasAgentData && state.wsConnected) {
         setShowNoAgentDataMessage(true)
       }
     }, 10000)
     return () => clearTimeout(timer)
-  }, [agentLogs.length, wsConnected])
+  }, [realAgents.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -938,15 +984,19 @@ export function DashboardView({ section }: { section: Section }) {
                       className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
                     >
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
+                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-2">
                           <span className={cn('h-2 w-2 rounded-full', 
                             agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 
-                            agent.status === 'IDLE' ? 'bg-amber-500' : 'bg-slate-500'
+                            agent.status === 'IDLE' ? 'bg-amber-500' :
+                            agent.status === 'STALE' ? 'bg-orange-500' :
+                            agent.status === 'OFFLINE' ? 'bg-rose-500' : 'bg-slate-500'
                           )} />
                           <span className={cn('text-xs font-sans font-medium',
                             agent.status === 'ACTIVE' ? 'text-emerald-500' : 
-                            agent.status === 'IDLE' ? 'text-amber-500' : 'text-slate-500'
+                            agent.status === 'IDLE' ? 'text-amber-500' :
+                            agent.status === 'STALE' ? 'text-orange-500' :
+                            agent.status === 'OFFLINE' ? 'text-rose-500' : 'text-slate-500'
                           )}>{agent.status}</span>
                         </div>
                       </div>
@@ -1195,8 +1245,8 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Tracked Agents</p>
-              <p className={valueClass}>{TRACKED_AGENTS.length}</p>
-              <p className={mutedClass}>Pre-populated on connect</p>
+              <p className={valueClass}>{sanitizeValue(realAgents.length)}</p>
+              <p className={mutedClass}>Discovered from heartbeats, instances, and logs</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Agent Events</p>
@@ -1229,10 +1279,21 @@ export function DashboardView({ section }: { section: Section }) {
                   ) : (
                     realAgents.map((agent) => (
                       <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
                           <span className="inline-flex items-center gap-2">
-                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                            <span className={cn(
+                              'h-2 w-2 rounded-full',
+                              agent.status === 'ACTIVE'
+                                ? 'animate-pulse bg-emerald-500'
+                                : agent.status === 'IDLE'
+                                  ? 'bg-amber-500'
+                                  : agent.status === 'STALE'
+                                    ? 'bg-orange-500'
+                                    : agent.status === 'OFFLINE'
+                                      ? 'bg-rose-500'
+                                      : 'bg-slate-500',
+                            )} />
                             <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
                           </span>
                         </td>
@@ -1249,7 +1310,14 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
             {agentInstances.length === 0 ? (
-              <EmptyState message="No instances registered yet" icon={Activity} />
+              <div className="space-y-2">
+                <EmptyState message="No instances registered yet" icon={Activity} />
+                {agentStatuses.some((agent) => String(agent.status).toUpperCase() === 'ACTIVE') && (
+                  <p className="text-xs font-sans text-amber-600 dark:text-amber-400">
+                    Agents are reporting ACTIVE heartbeats, but no lifecycle records were returned. Check agent_instances DB writes.
+                  </p>
+                )}
+              </div>
             ) : (
               <div className="max-h-48 overflow-y-auto">
                 <table className="min-w-full">
