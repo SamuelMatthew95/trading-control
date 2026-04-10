@@ -1,16 +1,15 @@
 """Unit tests for refactored runtime_state module."""
 
-import pytest
 
 from api.constants import RuntimeMode, StorageBackend
 from api.runtime_state import (
+    get_active_backend,
+    get_persistence_mode,
+    get_runtime_mode,
+    get_runtime_store,
+    is_db_available,
     set_db_available,
     set_persistence_mode,
-    get_active_backend,
-    get_runtime_mode,
-    get_persistence_mode,
-    is_db_available,
-    get_runtime_store,
 )
 
 
