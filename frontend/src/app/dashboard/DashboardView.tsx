@@ -54,6 +54,16 @@ const formatTimestamp = (value?: string | null): string => {
   return date.toLocaleTimeString()
 }
 
+const formatAgeFromMs = (ageMs: number | null): string => {
+  if (ageMs == null || ageMs < 0 || !Number.isFinite(ageMs)) return '--'
+  const sec = Math.floor(ageMs / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m`
+  const hr = Math.floor(min / 60)
+  return `${hr}h`
+}
+
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
@@ -65,8 +75,9 @@ type AgentSummary = {
   name: string
   count: number
   lastSeen: Date | null
-  status: 'ACTIVE' | 'IDLE' | 'WAITING'
+  status: 'ACTIVE' | 'IDLE' | 'WAITING' | 'STALE' | 'OFFLINE'
   tier: 'active' | 'challenger' | 'inactive'
+  source: 'heartbeat' | 'instance' | 'log' | 'mixed'
 }
 
 type PersistedStreamCount = {
@@ -83,22 +94,45 @@ type PersistedHistoryItem = {
   created_at: string | null
 }
 
-const TRACKED_AGENTS = [
-  'SIGNAL_AGENT',
-  'REASONING_AGENT',
-  'EXECUTION_ENGINE',
-  'GRADE_AGENT',
-  'IC_UPDATER',
-  'REFLECTION_AGENT',
-  'STRATEGY_PROPOSER',
-  'NOTIFICATION_AGENT',
-] as const
+function displayAgentName(rawName: string): string {
+  return rawName
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+}
 
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(cast) ? cast : null
+}
+
+function normalizeAgentStatus(value: string): AgentSummary['status'] {
+  const raw = String(value || '').toUpperCase()
+  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'ACTIVE'
+  if (raw === 'IDLE') return 'IDLE'
+  if (raw === 'STALE') return 'STALE'
+  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'OFFLINE'
+  if (raw === 'STARTING' || raw === 'INITIALIZING' || raw === 'PENDING') return 'WAITING'
+  return 'WAITING'
+}
+
+function pickHigherPriorityStatus(
+  current: AgentSummary['status'] | undefined,
+  incoming: AgentSummary['status'],
+): AgentSummary['status'] {
+  if (!current) return incoming
+  const priority: Record<AgentSummary['status'], number> = {
+    ACTIVE: 0,
+    IDLE: 1,
+    STALE: 2,
+    WAITING: 3,
+    OFFLINE: 4,
+  }
+  return priority[incoming] < priority[current] ? incoming : current
 }
 
 function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
@@ -217,9 +251,16 @@ function NotificationFeed({
                   <div className="mb-1 flex items-center gap-2">
                     <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
                     <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
+                    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', notif.state === 'resolved' || notif.acknowledged ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
+                      {notif.state === 'resolved' || notif.acknowledged ? 'resolved' : 'action needed'}
+                    </span>
                     <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
                   </div>
                   <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
+                  <p className={cn(mutedClass, 'mt-1')}>
+                    Source: {sanitizeValue(notif.stream_source) === '--' ? 'system' : sanitizeValue(notif.stream_source)}
+                    {notif.trace_id ? ` · Trace ${notif.trace_id.slice(0, 8)}` : ''}
+                  </p>
                 </div>
                 {!notif.acknowledged && (
                   <button
@@ -570,6 +611,7 @@ export function DashboardView({ section }: { section: Section }) {
     wsMessageCount,
     wsLastMessageTimestamp,
     recentEvents = [],
+    agentStatuses = [],
     acknowledgeNotification,
     updateProposalStatus,
   } = useCodexStore()
@@ -584,6 +626,15 @@ export function DashboardView({ section }: { section: Section }) {
   const [persistedCounts, setPersistedCounts] = useState<PersistedStreamCount[]>([])
   const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
   const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
+  const [apiHealth, setApiHealth] = useState<{
+    dashboardState: 'pending' | 'ok' | 'error'
+    agentInstances: 'pending' | 'ok' | 'error'
+    eventHistory: 'pending' | 'ok' | 'error'
+  }>({
+    dashboardState: 'pending',
+    agentInstances: 'pending',
+    eventHistory: 'pending',
+  })
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -604,11 +655,14 @@ export function DashboardView({ section }: { section: Section }) {
           const data = await r.json()
           console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
           useCodexStore.getState().hydrateDashboard(data)
+          setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
         } else {
           console.warn('[Dashboard] /dashboard/state responded', r.status)
+          setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
         }
       } catch (err) {
         console.warn('[Dashboard] /dashboard/state fetch failed:', err)
+        setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
       }
     }
     const fetchPricesOnce = async () => {
@@ -729,8 +783,10 @@ export function DashboardView({ section }: { section: Section }) {
         const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
         const d = await r.json()
         useCodexStore.getState().setAgentInstances(d.instances ?? [])
+        setApiHealth((prev) => ({ ...prev, agentInstances: r.ok ? 'ok' : 'error' }))
       } catch {
         // non-fatal
+        setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
       }
     }
     fetchAgentInstances()
@@ -743,13 +799,18 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchPersistedHistory = async () => {
       try {
         const r = await fetch(api(API_ENDPOINTS.EVENTS_HISTORY))
-        if (!r.ok) return
+        if (!r.ok) {
+          setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
+          return
+        }
         const d = await r.json()
         setPersistedCounts((d.stream_counts ?? []) as PersistedStreamCount[])
         setPersistedEvents((d.persisted_events ?? []) as PersistedHistoryItem[])
         setPersistedLogs((d.persisted_logs ?? []) as PersistedHistoryItem[])
+        setApiHealth((prev) => ({ ...prev, eventHistory: 'ok' }))
       } catch {
         // non-fatal
+        setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
       }
     }
     fetchPersistedHistory()
@@ -793,37 +854,71 @@ export function DashboardView({ section }: { section: Section }) {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
       const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'ACTIVE' : 'IDLE'
       const tier: AgentSummary['tier'] = status === 'ACTIVE' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
-      return { name, count: data.count, lastSeen: data.lastSeen, status, tier }
+      return { name, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
     })
 
     const normalizedByName = new Map(incomingAgents.map((agent) => [agent.name, agent]))
-    for (const name of TRACKED_AGENTS) {
-      if (!normalizedByName.has(name)) {
-        normalizedByName.set(name, {
-          name,
-          count: 0,
-          lastSeen: null,
-          status: 'WAITING',
-          tier: 'inactive',
-        })
-      }
+    for (const status of agentStatuses) {
+      const existing = normalizedByName.get(status.name)
+      const parsedLastEvent = status.last_event ? new Date(status.last_event) : null
+      const statusDate = parsedLastEvent && !Number.isNaN(parsedLastEvent.getTime()) ? parsedLastEvent : null
+      const mappedStatus = normalizeAgentStatus(status.status)
+      const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
+      normalizedByName.set(status.name, {
+        name: status.name,
+        count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
+        lastSeen: statusDate ?? existing?.lastSeen ?? null,
+        status: mergedStatus,
+        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        source: existing ? 'mixed' : 'heartbeat',
+      })
     }
 
-    return Array.from(normalizedByName.values())
-  }, [agentLogs])
+    for (const inst of agentInstances) {
+      const existing = normalizedByName.get(inst.pool_name)
+      const startedAt = inst.started_at ? new Date(inst.started_at) : null
+      const startedDate = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null
+      const mappedStatus = inst.status === 'active' ? 'ACTIVE' : 'OFFLINE'
+      const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
+      normalizedByName.set(inst.pool_name, {
+        name: inst.pool_name,
+        count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
+        lastSeen: existing?.lastSeen ?? startedDate ?? null,
+        status: mergedStatus,
+        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        source: existing ? 'mixed' : 'instance',
+      })
+    }
+
+    const priority: Record<AgentSummary['status'], number> = {
+      ACTIVE: 0,
+      IDLE: 1,
+      STALE: 2,
+      WAITING: 3,
+      OFFLINE: 4,
+    }
+
+    return Array.from(normalizedByName.values()).sort((a, b) => {
+      const byStatus = priority[a.status] - priority[b.status]
+      if (byStatus !== 0) return byStatus
+      return a.name.localeCompare(b.name)
+    })
+  }, [agentLogs, agentStatuses, agentInstances])
 
   useEffect(() => {
-    if (!wsConnected || agentLogs.length > 0) {
+    if (!wsConnected || realAgents.length > 0) {
       setShowNoAgentDataMessage(false)
       return
     }
     const timer = setTimeout(() => {
-      if (useCodexStore.getState().agentLogs.length === 0 && useCodexStore.getState().wsConnected) {
+      const state = useCodexStore.getState()
+      const hasAgentData = state.agentLogs.length > 0 || state.agentStatuses.length > 0 || state.agentInstances.length > 0
+      if (!hasAgentData && state.wsConnected) {
         setShowNoAgentDataMessage(true)
       }
     }, 10000)
     return () => clearTimeout(timer)
-  }, [agentLogs.length, wsConnected])
+  }, [realAgents.length, wsConnected])
 
   const learningSummary = useMemo(() => {
     const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
@@ -852,6 +947,28 @@ export function DashboardView({ section }: { section: Section }) {
       worstDay,
     }
   }, [learningEvents, orders])
+
+  const wiringFreshness = useMemo(() => {
+    const now = Date.now()
+    const latestHeartbeat = agentStatuses
+      .map((row) => new Date(String(row.last_event || '')).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => b - a)[0]
+    const latestInstance = agentInstances
+      .map((row) => new Date(String(row.started_at || '')).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => b - a)[0]
+    const latestLog = agentLogs
+      .map((row) => new Date(String(row.timestamp || row.created_at || '')).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => b - a)[0]
+
+    return {
+      heartbeatAgeMs: latestHeartbeat ? now - latestHeartbeat : null,
+      instanceAgeMs: latestInstance ? now - latestInstance : null,
+      logAgeMs: latestLog ? now - latestLog : null,
+    }
+  }, [agentStatuses, agentInstances, agentLogs])
 
   const tickerEntries = useMemo(
     () => TICKER_SYMBOLS.map((symbol) => [symbol, prices[symbol]] as const),
@@ -938,15 +1055,19 @@ export function DashboardView({ section }: { section: Section }) {
                       className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
                     >
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</p>
+                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-2">
                           <span className={cn('h-2 w-2 rounded-full', 
                             agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 
-                            agent.status === 'IDLE' ? 'bg-amber-500' : 'bg-slate-500'
+                            agent.status === 'IDLE' ? 'bg-amber-500' :
+                            agent.status === 'STALE' ? 'bg-orange-500' :
+                            agent.status === 'OFFLINE' ? 'bg-rose-500' : 'bg-slate-500'
                           )} />
                           <span className={cn('text-xs font-sans font-medium',
                             agent.status === 'ACTIVE' ? 'text-emerald-500' : 
-                            agent.status === 'IDLE' ? 'text-amber-500' : 'text-slate-500'
+                            agent.status === 'IDLE' ? 'text-amber-500' :
+                            agent.status === 'STALE' ? 'text-orange-500' :
+                            agent.status === 'OFFLINE' ? 'text-rose-500' : 'text-slate-500'
                           )}>{agent.status}</span>
                         </div>
                       </div>
@@ -1195,8 +1316,8 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Tracked Agents</p>
-              <p className={valueClass}>{TRACKED_AGENTS.length}</p>
-              <p className={mutedClass}>Pre-populated on connect</p>
+              <p className={valueClass}>{sanitizeValue(realAgents.length)}</p>
+              <p className={mutedClass}>Discovered from heartbeats, instances, and logs</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Agent Events</p>
@@ -1211,12 +1332,51 @@ export function DashboardView({ section }: { section: Section }) {
           </div>
 
           <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-2')}>Data Wiring</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <p className={mutedClass}>
+                Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
+                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.heartbeatAgeMs)} ago</span>
+              </p>
+              <p className={mutedClass}>
+                Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
+                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.instanceAgeMs)} ago</span>
+              </p>
+              <p className={mutedClass}>
+                Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
+                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.logAgeMs)} ago</span>
+              </p>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {[
+                { label: 'dashboard/state', value: apiHealth.dashboardState },
+                { label: 'agent-instances', value: apiHealth.agentInstances },
+                { label: 'history/events', value: apiHealth.eventHistory },
+              ].map((apiRow) => (
+                <span
+                  key={apiRow.label}
+                  className={cn(
+                    'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    apiRow.value === 'ok'
+                      ? 'bg-emerald-500/10 text-emerald-500'
+                      : apiRow.value === 'error'
+                        ? 'bg-rose-500/10 text-rose-500'
+                        : 'bg-slate-500/10 text-slate-500',
+                  )}
+                >
+                  {apiRow.label}: {apiRow.value}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
             <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800">
-                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
+                    {['Agent', 'Status', 'Source', 'Events', 'Last Seen'].map((head) => (
                       <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
                   </tr>
@@ -1224,18 +1384,30 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {showNoAgentDataMessage ? (
                     <tr>
-                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                      <td colSpan={5} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
                     </tr>
                   ) : (
                     realAgents.map((agent) => (
                       <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{sanitizeValue(agent.name)}</td>
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
                           <span className="inline-flex items-center gap-2">
-                            <span className={cn('h-2 w-2 rounded-full', agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 'bg-slate-500')} />
+                            <span className={cn(
+                              'h-2 w-2 rounded-full',
+                              agent.status === 'ACTIVE'
+                                ? 'animate-pulse bg-emerald-500'
+                                : agent.status === 'IDLE'
+                                  ? 'bg-amber-500'
+                                  : agent.status === 'STALE'
+                                    ? 'bg-orange-500'
+                                    : agent.status === 'OFFLINE'
+                                      ? 'bg-rose-500'
+                                      : 'bg-slate-500',
+                            )} />
                             <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
                           </span>
                         </td>
+                        <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
                       </tr>
@@ -1249,7 +1421,14 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
             {agentInstances.length === 0 ? (
-              <EmptyState message="No instances registered yet" icon={Activity} />
+              <div className="space-y-2">
+                <EmptyState message="No instances registered yet" icon={Activity} />
+                {agentStatuses.some((agent) => String(agent.status).toUpperCase() === 'ACTIVE') && (
+                  <p className="text-xs font-sans text-amber-600 dark:text-amber-400">
+                    Agents are reporting ACTIVE heartbeats, but no lifecycle records were returned. Check agent_instances DB writes.
+                  </p>
+                )}
+              </div>
             ) : (
               <div className="max-h-48 overflow-y-auto">
                 <table className="min-w-full">

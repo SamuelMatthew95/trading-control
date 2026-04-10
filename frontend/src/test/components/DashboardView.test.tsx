@@ -33,6 +33,7 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     setPerformanceSummary: vi.fn(),
     addProposal: vi.fn(),
     fetchPrices: vi.fn().mockResolvedValue(undefined),
+    hydrateDashboard: vi.fn(),
   }
   const hook = Object.assign(() => store, { getState: () => store })
   return { mockStore: store, mockUseCodexStore: hook }
@@ -111,13 +112,37 @@ describe('DashboardView — trading', () => {
 })
 
 describe('DashboardView — agents', () => {
+  beforeEach(() => {
+    mockStore.agentStatuses = []
+  })
+
   it('renders without crashing when store is empty', () => {
     expect(() => render(<DashboardView section="agents" />)).not.toThrow()
   })
 
-  it('shows agents in waiting state when no logs', () => {
+  it('shows empty state when no agent wiring data is available', () => {
     render(<DashboardView section="agents" />)
-    expect(screen.getByText('SIGNAL_AGENT')).toBeInTheDocument()
-    expect(screen.getAllByText('waiting')).toHaveLength(8)
+    expect(screen.getByText(/Tracked Agents/i)).toBeInTheDocument()
+    expect(screen.getByText(/Discovered from heartbeats, instances, and logs/i)).toBeInTheDocument()
+    expect(screen.getByText(/Data Wiring/i)).toBeInTheDocument()
+    expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
+  })
+
+  it('renders heartbeat-wired agent status rows (in-memory running -> active)', () => {
+    mockStore.agentStatuses = [
+      {
+        name: 'SIGNAL_AGENT',
+        status: 'running',
+        event_count: 42,
+        last_event: new Date().toISOString(),
+        last_seen: 0,
+        seconds_ago: 0,
+      }
+    ]
+    render(<DashboardView section="agents" />)
+    expect(screen.getByText('Signal Agent')).toBeInTheDocument()
+    expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getByText('heartbeat')).toBeInTheDocument()
   })
 })

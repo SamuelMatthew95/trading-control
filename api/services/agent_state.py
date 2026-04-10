@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from api.constants import ALL_AGENT_NAMES
+from api.constants import ALL_AGENT_NAMES, AgentStatus
 
 # Re-export for backwards compatibility with existing importers
 AGENT_NAMES = ALL_AGENT_NAMES
@@ -16,7 +16,7 @@ class AgentStateRegistry:
         self._states: dict[str, dict[str, Any]] = {
             name: {
                 "name": name,
-                "status": "waiting",
+                "status": AgentStatus.WAITING,
                 "health": "ok",
                 "last_task": "none",
                 "event_count": 0,
@@ -32,7 +32,7 @@ class AgentStateRegistry:
         if state is None:
             state = {
                 "name": name,
-                "status": "waiting",
+                "status": AgentStatus.WAITING,
                 "health": "ok",
                 "last_task": "none",
                 "event_count": 0,
@@ -40,18 +40,29 @@ class AgentStateRegistry:
             }
             self._states[name] = state
         now = datetime.now(timezone.utc).isoformat()
-        state["status"] = "running"
+        state["status"] = AgentStatus.ACTIVE
         state["health"] = "ok"
         state["last_task"] = task
         state["event_count"] = int(state.get("event_count") or 0) + 1
         state["last_seen"] = now
         state["updated_at"] = now
 
+    @staticmethod
+    def _normalize_status(status: str) -> AgentStatus:
+        raw = str(status or "").upper()
+        if raw in {"ACTIVE", "RUNNING", "OK"}:
+            return AgentStatus.ACTIVE
+        if raw == "STALE":
+            return AgentStatus.STALE
+        if raw in {"OFFLINE", "ERROR", "FAILED"}:
+            return AgentStatus.WAITING
+        return AgentStatus.WAITING
+
     def update(
         self,
         name: str,
         *,
-        status: str = "running",
+        status: str = AgentStatus.ACTIVE,
         health: str = "ok",
         last_task: str = "event",
     ) -> dict[str, Any]:
@@ -65,7 +76,7 @@ class AgentStateRegistry:
         state.update(
             {
                 "name": name,
-                "status": status,
+                "status": self._normalize_status(status),
                 "health": health,
                 "last_task": last_task,
                 "event_count": int(state.get("event_count") or 0) + 1,

@@ -15,6 +15,7 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
+    AgentStatus,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
 )
@@ -93,6 +94,26 @@ def test_agent_state_uses_all_agent_names() -> None:
     from api.services.agent_state import AGENT_NAMES
 
     assert set(AGENT_NAMES) == set(ALL_AGENT_NAMES)
+
+
+def test_agent_state_uses_normalized_status_constants() -> None:
+    from api.services.agent_state import AgentStateRegistry
+
+    registry = AgentStateRegistry()
+    snapshot = registry.snapshot()
+    assert all(row["status"] == AgentStatus.WAITING for row in snapshot)
+
+    registry.record_event(ALL_AGENT_NAMES[0], task="heartbeat")
+    updated = next(row for row in registry.snapshot() if row["name"] == ALL_AGENT_NAMES[0])
+    assert updated["status"] == AgentStatus.ACTIVE
+
+    registry.update(ALL_AGENT_NAMES[0], status="running")
+    updated_running = next(row for row in registry.snapshot() if row["name"] == ALL_AGENT_NAMES[0])
+    assert updated_running["status"] == AgentStatus.ACTIVE
+
+    registry.update(ALL_AGENT_NAMES[0], status="stale")
+    updated_stale = next(row for row in registry.snapshot() if row["name"] == ALL_AGENT_NAMES[0])
+    assert updated_stale["status"] == AgentStatus.STALE
 
 
 def test_dashboard_state_reads_correct_redis_keys() -> None:

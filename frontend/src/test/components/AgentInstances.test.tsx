@@ -34,6 +34,7 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     setPerformanceSummary: vi.fn(),
     addProposal: vi.fn(),
     fetchPrices: vi.fn().mockResolvedValue(undefined),
+    hydrateDashboard: vi.fn(),
   }
   const hook = Object.assign(() => store, { getState: () => store })
   return { mockStore: store, mockUseCodexStore: hook }
@@ -88,9 +89,9 @@ describe('AgentInstances panel', () => {
     mockStore.agentInstances = [makeInstance()]
     render(<DashboardView section="agents" />)
     expect(screen.getByText('signal_agent_pool_0')).toBeInTheDocument()
-    expect(screen.getByText('42')).toBeInTheDocument()
-    // active status label
-    expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getAllByText('42').length).toBeGreaterThan(0)
+    // active status labels appear in both status matrix + instance row
+    expect(screen.getAllByText('active').length).toBeGreaterThan(0)
   })
 
   it('shows retired status for a retired instance', () => {
