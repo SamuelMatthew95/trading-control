@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from api.in_memory_store import InMemoryStore
 
-
 _store: InMemoryStore | None = None
 _db_available: bool = False
 
@@ -30,4 +29,3 @@ def is_db_available() -> bool:
 
 def runtime_mode() -> str:
     return "connected" if _db_available else "in_memory_fallback"
-

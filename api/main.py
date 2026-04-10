@@ -19,19 +19,20 @@ from api.core.schemas import ErrorResponse
 from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, create_redis_groups
 from api.events.dlq import DLQManager
+from api.in_memory_store import InMemoryStore
 from api.observability import (
     bind_request_context,
     configure_logging,
     log_structured,
     metrics_store,
 )
-from api.in_memory_store import InMemoryStore
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
 from api.routes.ws import router as ws_router
+from api.runtime_state import set_db_available, set_runtime_store
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.agents.pipeline_agents import (
     GradeAgent,
@@ -46,7 +47,6 @@ from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
-from api.runtime_state import set_db_available, set_runtime_store
 from api.workers.price_poller import poll_prices
 
 configure_logging(settings.LOG_LEVEL)

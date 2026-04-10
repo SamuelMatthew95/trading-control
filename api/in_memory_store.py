@@ -5,7 +5,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     "signal_generator": {"status": "idle"},
     "reasoning": {"status": "idle"},
@@ -70,4 +69,3 @@ class InMemoryStore:
             "mode": "in_memory",
             "db_health": self.last_health,
         }
-

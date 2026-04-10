@@ -27,8 +27,8 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
-from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.runtime_state import get_runtime_store, runtime_mode
+from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.services.metrics_aggregator import MetricsAggregator
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])

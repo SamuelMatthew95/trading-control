@@ -14,8 +14,6 @@ Create Date: 2026-04-09
 
 from collections.abc import Sequence
 
-from alembic import op
-
 revision: str = "20260409_merge_agent_schema_fixes"
 down_revision: str | Sequence[str] | None = ("20260407_fix_agent_runs_missing_cols", "79567db1f377")
 branch_labels: str | Sequence[str] | None = None
