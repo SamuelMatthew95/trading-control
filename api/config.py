@@ -75,13 +75,13 @@ class Settings(BaseSettings):
     # Render sets this automatically — used for self-ping keep-alive
     RENDER_EXTERNAL_URL: str | None = Field(default=None)
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
-    ALLOWED_ORIGINS: str = "http://localhost:3000,https://*.vercel.app,https://*.onrender.com"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,https://*.vercel.app,https://*.onrender.com,https://trading-control-khaki.vercel.app"
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,*.vercel.app,*.onrender.com"
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_MS: int = 250
     LOG_LEVEL: str = "INFO"
-    PERSISTENCE_MODE: str = "auto"  # auto | db | memory
+    PERSISTENCE_MODE: str = "auto"  # auto | db | memory (memory = deliberate in-memory mode)
 
     # Database connection pool (tune for Render PostgreSQL limits)
     DB_POOL_SIZE: int = 5
