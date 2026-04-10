@@ -125,6 +125,11 @@ async def lifespan(app: FastAPI):
                         notification_type="startup",
                     )
                     set_db_available(False)
+                # Dispose engine to prevent retry storms
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass  # Best effort cleanup
             except Exception:
                 if settings.PERSISTENCE_MODE == "db":
                     raise
@@ -135,6 +140,11 @@ async def lifespan(app: FastAPI):
                     notification_type="startup",
                 )
                 set_db_available(False)
+                # Dispose engine to prevent retry storms
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass  # Best effort cleanup
                 log_structured(
                     "warning",
                     "database_startup_failed_fallback_mode",
