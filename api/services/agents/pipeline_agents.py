@@ -973,7 +973,9 @@ class NotificationAgent(MultiStreamAgent):
             return
 
         event_type = str(data.get("type") or data.get("notification_type") or stream)
-        dedup_key = f"notif:dedup:{stream}:{event_type}"
+        symbol_key = str(data.get("symbol") or data.get("asset") or "")
+        trace_key = str(data.get("trace_id") or data.get("msg_id") or "")
+        dedup_key = f"notif:dedup:{stream}:{event_type}:{symbol_key}:{trace_key}"
 
         if await self.redis.exists(dedup_key):
             return

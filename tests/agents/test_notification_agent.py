@@ -131,6 +131,23 @@ async def test_deduplication_allows_different_event_types(notification_agent, mo
     assert len(notifications_calls) == 2
 
 
+@pytest.mark.asyncio
+@patch(
+    "api.core.writer.safe_writer.SafeWriter",
+    MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
+)
+async def test_deduplication_allows_same_event_type_different_symbol(notification_agent, mock_bus):
+    """Same type should not dedup away distinct symbols."""
+    event_a = {"type": "signal", "symbol": "AAPL"}
+    event_b = {"type": "signal", "symbol": "TSLA"}
+
+    await notification_agent.process("signals", "id-1", event_a)
+    await notification_agent.process("signals", "id-2", event_b)
+
+    notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
+    assert len(notifications_calls) == 2
+
+
 # ---------------------------------------------------------------------------
 # Skip-self-stream test
 # ---------------------------------------------------------------------------
