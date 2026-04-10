@@ -37,7 +37,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
-from api.runtime_state import is_db_available, get_runtime_store, get_persistence_mode
+from api.runtime_state import get_persistence_mode, get_runtime_store
 
 SYMBOLS = {
     "crypto": ["BTC/USD", "ETH/USD", "SOL/USD"],
@@ -178,14 +178,16 @@ async def flush_to_db(payloads: list[dict]) -> None:
         # Store in memory store (primary storage in memory mode)
         store = get_runtime_store()
         for p in payloads:
-            store.add_event({
-                "type": "price_update",
-                "symbol": p["symbol"],
-                "price": p["price"],
-                "change": p["change"],
-                "pct": p["pct"],
-                "ts": p["ts"],
-            })
+            store.add_event(
+                {
+                    "type": "price_update",
+                    "symbol": p["symbol"],
+                    "price": p["price"],
+                    "change": p["change"],
+                    "pct": p["pct"],
+                    "ts": p["ts"],
+                }
+            )
         return
 
     max_retries = 3
