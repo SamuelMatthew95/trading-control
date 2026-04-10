@@ -47,4 +47,7 @@ def storage_backend() -> str:
 
 
 def runtime_mode() -> str:
+    """Return the current runtime mode with clear indication of deliberate in-memory mode."""
+    if _persistence_mode == "memory":
+        return "in_memory"
     return "connected" if storage_backend() == "db" else "in_memory_fallback"

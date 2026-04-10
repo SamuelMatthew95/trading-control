@@ -37,6 +37,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
+from api.runtime_state import is_db_available, get_runtime_store
 
 SYMBOLS = {
     "crypto": ["BTC/USD", "ETH/USD", "SOL/USD"],
@@ -166,48 +167,101 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
 
 async def flush_to_db(payloads: list[dict]) -> None:
     """Batch-write all symbol prices to Postgres in a single transaction."""
-    try:
-        async with AsyncSessionFactory() as session:
-            async with session.begin():
-                for p in payloads:
-                    await session.execute(
-                        text("""
-                            INSERT INTO prices_snapshot
-                                (symbol, price, change_amt, change_pct, updated_at)
-                            VALUES (:symbol, :price, :change_amt, :change_pct, NOW())
-                            ON CONFLICT (symbol) DO UPDATE SET
-                                price       = EXCLUDED.price,
-                                change_amt  = EXCLUDED.change_amt,
-                                change_pct  = EXCLUDED.change_pct,
-                                updated_at  = NOW()
-                        """),
-                        {
-                            "symbol": p["symbol"],
-                            "price": p["price"],
-                            "change_amt": p["change"],
-                            "change_pct": p["pct"],
-                        },
-                    )
-                    await session.execute(
-                        text("""
-                            INSERT INTO system_metrics
-                                (metric_name, metric_value, metric_unit, tags,
-                                 schema_version, source, timestamp)
-                            VALUES ('price_fetch', :price, 'usd',
-                                    :tags, 'v3', 'price_poller', NOW())
-                        """),
-                        {
-                            "price": p["price"],
-                            "tags": json.dumps({"symbol": p["symbol"], "ts": p["ts"]}),
-                        },
-                    )
-    except Exception:
+    # Skip database entirely if in memory mode (deliberate design choice)
+    if not is_db_available():
         log_structured(
-            "error",
-            "price_poller_db_flush_failed",
+            "info",
+            "price_poller_memory_mode_active",
             symbols=[p["symbol"] for p in payloads],
-            exc_info=True,
+            message="Price poller running in deliberate in-memory mode",
         )
+        # Store in memory store (primary storage in memory mode)
+        store = get_runtime_store()
+        for p in payloads:
+            store.add_event({
+                "type": "price_update",
+                "symbol": p["symbol"],
+                "price": p["price"],
+                "change": p["change"],
+                "pct": p["pct"],
+                "ts": p["ts"],
+            })
+        return
+    
+    max_retries = 3
+    retry_delay = 1.0
+    
+    for attempt in range(max_retries):
+        try:
+            async with AsyncSessionFactory() as session:
+                async with session.begin():
+                    for p in payloads:
+                        await session.execute(
+                            text("""
+                                INSERT INTO prices_snapshot
+                                    (symbol, price, change_amt, change_pct, updated_at)
+                                VALUES (:symbol, :price, :change_amt, :change_pct, NOW())
+                                ON CONFLICT (symbol) DO UPDATE SET
+                                    price       = EXCLUDED.price,
+                                    change_amt  = EXCLUDED.change_amt,
+                                    change_pct  = EXCLUDED.change_pct,
+                                    updated_at  = NOW()
+                            """),
+                            {
+                                "symbol": p["symbol"],
+                                "price": p["price"],
+                                "change_amt": p["change"],
+                                "change_pct": p["pct"],
+                            },
+                        )
+                        await session.execute(
+                            text("""
+                                INSERT INTO system_metrics
+                                    (metric_name, metric_value, metric_unit, tags,
+                                     schema_version, source, timestamp)
+                                VALUES ('price_fetch', :price, 'usd',
+                                        :tags, 'v3', 'price_poller', NOW())
+                            """),
+                            {
+                                "price": p["price"],
+                                "tags": json.dumps({"symbol": p["symbol"], "ts": p["ts"]}),
+                            },
+                        )
+            # If we get here, success - break retry loop
+            return
+            
+        except Exception as e:
+            if attempt == max_retries - 1:
+                # Final attempt failed, log error and use memory store
+                log_structured(
+                    "error",
+                    "price_poller_db_flush_failed",
+                    symbols=[p["symbol"] for p in payloads],
+                    attempt=attempt + 1,
+                    exc_info=True,
+                )
+                # Store in memory store (primary storage when DB fails)
+                store = get_runtime_store()
+                for p in payloads:
+                    store.add_event({
+                        "type": "price_update",
+                        "symbol": p["symbol"],
+                        "price": p["price"],
+                        "change": p["change"],
+                        "pct": p["pct"],
+                        "ts": p["ts"],
+                    })
+            else:
+                # Retry with exponential backoff
+                log_structured(
+                    "warning",
+                    "price_poller_db_flush_retry",
+                    symbols=[p["symbol"] for p in payloads],
+                    attempt=attempt + 1,
+                    retry_delay=retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2
 
 
 async def poll_prices() -> None:

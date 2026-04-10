@@ -12,7 +12,7 @@ def test_storage_backend_respects_explicit_modes():
     set_db_available(False)
     set_persistence_mode("memory")
     assert storage_backend() == "memory"
-    assert runtime_mode() == "in_memory_fallback"
+    assert runtime_mode() == "in_memory"  # Updated for deliberate in-memory mode
 
     set_persistence_mode("db")
     assert storage_backend() == "db"

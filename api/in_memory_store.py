@@ -112,4 +112,5 @@ class InMemoryStore:
             "notifications": list(self.notifications[-100:]),
             "mode": "in_memory",
             "db_health": self.last_health,
+            "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode
         }
