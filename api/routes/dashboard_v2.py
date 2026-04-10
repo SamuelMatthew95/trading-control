@@ -27,7 +27,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
-from api.runtime_state import get_runtime_store, runtime_mode
+from api.runtime_state import get_persistence_mode, get_runtime_store, runtime_mode
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.services.metrics_aggregator import MetricsAggregator
 
@@ -474,6 +474,15 @@ async def get_recent_events() -> dict[str, Any]:
 async def get_event_history(limit: int = 50) -> dict[str, Any]:
     """Persisted event history + processed counts for operator visibility."""
     safe_limit = max(1, min(limit, 200))
+    if get_persistence_mode() == "memory":
+        store = get_runtime_store()
+        return {
+            "stream_counts": [],
+            "persisted_events": store.get_events(limit=safe_limit),
+            "persisted_logs": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
     try:
         async with AsyncSessionFactory() as session:
             stream_counts = []
@@ -554,9 +563,12 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "event history failed", exc_info=True)
+        if get_persistence_mode() == "db":
+            raise HTTPException(status_code=500, detail="Internal server error") from None
+        store = get_runtime_store()
         return {
             "stream_counts": [],
-            "persisted_events": [],
+            "persisted_events": store.get_events(limit=safe_limit),
             "persisted_logs": [],
             "error": "event_history_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1002,6 +1014,15 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
 @router.get("/learning/grades")
 async def get_grade_history(limit: int = 50) -> dict[str, Any]:
     """Get recent agent grade history from agent_grades table and agent_logs."""
+    if get_persistence_mode() == "memory":
+        store = get_runtime_store()
+        grades = store.get_grades(limit=limit)
+        return {
+            "grades": grades,
+            "total": len(grades),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -1063,7 +1084,16 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "grades fetch failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        if get_persistence_mode() == "db":
+            raise HTTPException(status_code=500, detail="Internal server error") from None
+        store = get_runtime_store()
+        grades = store.get_grades(limit=limit)
+        return {
+            "grades": grades,
+            "total": len(grades),
+            "error": "grades_unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.get("/learning/ic-weights")

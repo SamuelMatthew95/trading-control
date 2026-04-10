@@ -16,6 +16,7 @@ from sqlalchemy import text
 from api.config import settings
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
+from api.runtime_state import get_persistence_mode, get_runtime_store
 
 EMBED_DIMENSIONS = 1536
 _OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
@@ -59,6 +60,20 @@ async def embed_text(text_value: str) -> list[float]:
 
 async def search_vector_memory(embedding: list[float]) -> list[dict[str, Any]]:
     """Return the 5 nearest entries from vector_memory by cosine distance."""
+    if get_persistence_mode() == "memory":
+        store = get_runtime_store()
+        fallback = store.vector_memory[-5:]
+        return [
+            {
+                "id": str(item.get("id", f"in-memory-{index}")),
+                "content": item.get("content"),
+                "metadata": item.get("metadata", {}),
+                "outcome": item.get("outcome", {}),
+                "sim": 0.0,
+            }
+            for index, item in enumerate(reversed(fallback), start=1)
+        ]
+
     vec_literal = build_vector_literal(embedding)
     query = text("""
         SELECT id, content, metadata_, outcome,
@@ -82,4 +97,19 @@ async def search_vector_memory(embedding: list[float]) -> list[dict[str, Any]]:
             ]
     except Exception:
         log_structured("error", "vector_memory_search_failed", exc_info=True)
-        return []
+        if get_persistence_mode() == "db":
+            return []
+        store = get_runtime_store()
+        if not store.vector_memory:
+            return []
+        fallback = store.vector_memory[-5:]
+        return [
+            {
+                "id": str(item.get("id", f"in-memory-{index}")),
+                "content": item.get("content"),
+                "metadata": item.get("metadata", {}),
+                "outcome": item.get("outcome", {}),
+                "sim": 0.0,
+            }
+            for index, item in enumerate(reversed(fallback), start=1)
+        ]

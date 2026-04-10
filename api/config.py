@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_MS: int = 250
     LOG_LEVEL: str = "INFO"
+    PERSISTENCE_MODE: str = "auto"  # auto | db | memory
 
     # Database connection pool (tune for Render PostgreSQL limits)
     DB_POOL_SIZE: int = 5
@@ -102,6 +103,14 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_frontend_url(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @field_validator("PERSISTENCE_MODE")
+    @classmethod
+    def validate_persistence_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"auto", "db", "memory"}:
+            raise ValueError("PERSISTENCE_MODE must be one of: auto, db, memory")
+        return normalized
 
     @model_validator(mode="after")
     def validate_runtime_requirements(self) -> Settings:

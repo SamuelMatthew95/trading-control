@@ -25,6 +25,7 @@ from api.database import AsyncSessionFactory
 from api.events.bus import PIPELINE_GROUP, STREAMS, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.runtime_state import get_runtime_store, storage_backend
 from api.services.agent_state import AgentStateRegistry
 
 
@@ -230,6 +231,15 @@ class EventPipeline:
             "payload": event,
             "timestamp": ts,
         }
+        if storage_backend() == "memory":
+            get_runtime_store().add_event(
+                {
+                    "id": msg_id,
+                    "kind": event_type,
+                    "source": str(event.get("source") or stream),
+                    "created_at": ts,
+                }
+            )
         if self.agent_state:
             payload = event.get("payload") if isinstance(event.get("payload"), dict) else event
             agent_name = payload.get("agent_name") or payload.get("agent")

@@ -30,6 +30,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.runtime_state import get_persistence_mode, get_runtime_store
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
@@ -99,7 +100,8 @@ class ReasoningAgent(BaseStreamConsumer):
                 async with vm_session.begin():
                     await self._store_vector_memory(signal_summary, embedding, summary, vm_session)
         except Exception:
-            pass
+            if get_persistence_mode() == "db":
+                raise
 
         log_structured(
             "info", "agent_transaction_success", trace_id=trace_id, action=summary.get("action")
@@ -242,6 +244,22 @@ class ReasoningAgent(BaseStreamConsumer):
         fallback: bool,
         session,
     ) -> str:
+        store = get_runtime_store()
+        if get_persistence_mode() == "memory":
+            fallback_id = f"in-memory-{trace_id}"
+            store.add_agent_run(
+                {
+                    "id": fallback_id,
+                    "trace_id": trace_id,
+                    "symbol": data.get("symbol"),
+                    "action": summary.get("action"),
+                    "confidence": summary.get("confidence"),
+                    "fallback": True,
+                    "source": AGENT_REASONING,
+                    "status": "running",
+                }
+            )
+            return fallback_id
         try:
             result = await session.execute(
                 text("""
@@ -279,11 +297,40 @@ class ReasoningAgent(BaseStreamConsumer):
             return str(result.scalar_one())
         except Exception:
             log_structured("error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id)
-            raise
+            if get_persistence_mode() == "db":
+                raise
+            fallback_id = f"in-memory-{trace_id}"
+            store.add_agent_run(
+                {
+                    "id": fallback_id,
+                    "trace_id": trace_id,
+                    "symbol": data.get("symbol"),
+                    "action": summary.get("action"),
+                    "confidence": summary.get("confidence"),
+                    "fallback": fallback,
+                    "source": AGENT_REASONING,
+                    "status": "running",
+                }
+            )
+            return fallback_id
 
     async def _store_vector_memory(
         self, content: str, embedding: list[float], summary: dict[str, Any], session
     ) -> None:
+        store = get_runtime_store()
+        if get_persistence_mode() == "memory":
+            store.add_vector_memory(
+                {
+                    "content": content,
+                    "embedding": embedding,
+                    "metadata": {"trace_id": summary.get("trace_id")},
+                    "outcome": {
+                        "action": summary.get("action"),
+                        "confidence": summary.get("confidence"),
+                    },
+                }
+            )
+            return
         try:
             await session.execute(
                 text("""
@@ -310,6 +357,19 @@ class ReasoningAgent(BaseStreamConsumer):
                 "vector_memory_insert_failed",
                 exc_info=True,
                 trace_id=summary.get("trace_id"),
+            )
+            if get_persistence_mode() == "db":
+                raise
+            store.add_vector_memory(
+                {
+                    "content": content,
+                    "embedding": embedding,
+                    "metadata": {"trace_id": summary.get("trace_id")},
+                    "outcome": {
+                        "action": summary.get("action"),
+                        "confidence": summary.get("confidence"),
+                    },
+                }
             )
 
     async def _store_cost_tracking(

@@ -16,6 +16,7 @@ from sqlalchemy import text
 from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, GradeType, LogType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
+from api.runtime_state import get_runtime_store, storage_backend
 from api.schema_version import DB_SCHEMA_VERSION
 
 
@@ -27,6 +28,19 @@ async def write_agent_log(
     agent_run_id: str | None = None,
 ) -> None:
     """Insert a row into agent_logs. Logs a warning on failure and does not raise."""
+    if log_type == LogType.GRADE and storage_backend() == "memory":
+        store = get_runtime_store()
+        store.add_grade(
+            {
+                "trace_id": trace_id,
+                "grade": payload.get("grade"),
+                "score": payload.get("score"),
+                "score_pct": payload.get("score_pct"),
+                "metrics": payload.get("metrics", {}),
+                "fills_graded": payload.get("fills_graded"),
+                "timestamp": payload.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+            }
+        )
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -55,6 +69,19 @@ async def write_agent_log(
 
 async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, Any]) -> None:
     """Insert a row into agent_grades. Logs a warning on failure and does not raise."""
+    if storage_backend() == "memory":
+        store = get_runtime_store()
+        store.add_grade(
+            {
+                "trace_id": trace_id,
+                "grade": None,
+                "score": score_pct,
+                "score_pct": round(score_pct, 2) if score_pct is not None else None,
+                "metrics": metrics,
+                "fills_graded": metrics.get("fills_graded"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
