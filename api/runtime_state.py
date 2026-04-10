@@ -20,8 +20,8 @@ class RuntimeMode(Enum):
 
 # Global state
 _store: InMemoryStore | None = None
-_db_available: bool = False
 _persistence_mode: PersistenceMode = PersistenceMode.AUTO
+_db_available: bool = False  # Explicit state variable
 
 
 def set_runtime_store(store: InMemoryStore) -> None:
@@ -39,7 +39,7 @@ def get_runtime_store() -> InMemoryStore:
 
 
 def set_db_available(is_available: bool) -> None:
-    """Set database availability status."""
+    """Set database availability status. This directly affects get_active_backend()."""
     global _db_available
     _db_available = is_available
 
@@ -63,12 +63,18 @@ def get_persistence_mode() -> str:
 
 
 def get_active_backend() -> Literal["db", "memory"]:
-    """Get the active storage backend based on configuration and DB availability."""
+    """
+    Get the active storage backend.
+    
+    This is directly controlled by set_db_available():
+    - set_db_available(True)  -> get_active_backend() returns "db" (in AUTO mode)
+    - set_db_available(False) -> get_active_backend() returns "memory" (in AUTO mode)
+    """
     if _persistence_mode == PersistenceMode.MEMORY:
         return "memory"
     if _persistence_mode == PersistenceMode.DATABASE:
         return "db"
-    # AUTO mode: use DB if available, otherwise memory
+    # AUTO mode: explicitly controlled by set_db_available()
     return "db" if _db_available else "memory"
 
 
