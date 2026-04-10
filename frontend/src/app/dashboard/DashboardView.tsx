@@ -67,6 +67,7 @@ type AgentSummary = {
   lastSeen: Date | null
   status: 'ACTIVE' | 'IDLE' | 'WAITING' | 'STALE' | 'OFFLINE'
   tier: 'active' | 'challenger' | 'inactive'
+  source: 'heartbeat' | 'instance' | 'log' | 'mixed'
 }
 
 type PersistedStreamCount = {
@@ -809,7 +810,7 @@ export function DashboardView({ section }: { section: Section }) {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
       const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'ACTIVE' : 'IDLE'
       const tier: AgentSummary['tier'] = status === 'ACTIVE' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
-      return { name, count: data.count, lastSeen: data.lastSeen, status, tier }
+      return { name, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
     })
 
     const normalizedByName = new Map(incomingAgents.map((agent) => [agent.name, agent]))
@@ -824,6 +825,7 @@ export function DashboardView({ section }: { section: Section }) {
         lastSeen: statusDate ?? existing?.lastSeen ?? null,
         status: mappedStatus,
         tier: mappedStatus === 'ACTIVE' ? 'active' : mappedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        source: existing ? 'mixed' : 'heartbeat',
       })
     }
 
@@ -838,6 +840,7 @@ export function DashboardView({ section }: { section: Section }) {
         lastSeen: existing?.lastSeen ?? startedDate ?? null,
         status: existing?.status ?? mappedStatus,
         tier: mappedStatus === 'ACTIVE' ? 'active' : 'inactive',
+        source: existing ? 'mixed' : 'instance',
       })
     }
 
@@ -1261,12 +1264,27 @@ export function DashboardView({ section }: { section: Section }) {
           </div>
 
           <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-2')}>Data Wiring</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <p className={mutedClass}>
+                Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
+              </p>
+              <p className={mutedClass}>
+                Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
+              </p>
+              <p className={mutedClass}>
+                Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
             <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800">
-                    {['Agent', 'Status', 'Events', 'Last Seen'].map((head) => (
+                    {['Agent', 'Status', 'Source', 'Events', 'Last Seen'].map((head) => (
                       <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
                   </tr>
@@ -1274,7 +1292,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {showNoAgentDataMessage ? (
                     <tr>
-                      <td colSpan={4} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                      <td colSpan={5} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
                     </tr>
                   ) : (
                     realAgents.map((agent) => (
@@ -1297,6 +1315,7 @@ export function DashboardView({ section }: { section: Section }) {
                             <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
                           </span>
                         </td>
+                        <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
                       </tr>

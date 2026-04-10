@@ -124,6 +124,8 @@ describe('DashboardView — agents', () => {
     render(<DashboardView section="agents" />)
     expect(screen.getByText(/Tracked Agents/i)).toBeInTheDocument()
     expect(screen.getByText(/Discovered from heartbeats, instances, and logs/i)).toBeInTheDocument()
+    expect(screen.getByText(/Data Wiring/i)).toBeInTheDocument()
+    expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
     expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
   })
 
@@ -141,5 +143,6 @@ describe('DashboardView — agents', () => {
     render(<DashboardView section="agents" />)
     expect(screen.getByText('Signal Agent')).toBeInTheDocument()
     expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getByText('heartbeat')).toBeInTheDocument()
   })
 })
