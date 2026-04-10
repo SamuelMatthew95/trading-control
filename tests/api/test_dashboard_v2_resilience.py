@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
+from api.runtime_state import set_db_available, set_runtime_store
 
 
 class _ExplodingSession:
@@ -238,3 +240,66 @@ async def test_learning_endpoints_accept_stringified_payloads(monkeypatch):
     assert proposals_payload["proposals"][0]["status"] == "approved"
     assert grades_payload["total"] == 1
     assert grades_payload["grades"][0]["grade"] == "A"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_state_db_failure_returns_in_memory_snapshot(monkeypatch):
+    class _FailingAggregator:
+        def __init__(self, _session):
+            pass
+
+        async def get_raw_snapshot(self):
+            raise RuntimeError("db unavailable")
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FailingAggregator)
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    store = InMemoryStore()
+    store.last_health = "db_down"
+    store.add_notification("db down", level="warning", notification_type="startup")
+    set_runtime_store(store)
+    set_db_available(False)
+
+    payload = await dashboard_v2.get_dashboard_state()
+
+    assert payload["mode"] == "in_memory"
+    assert payload["db_health"] == "db_down"
+    assert payload["notifications"]
+
+
+class _FakeAggregator:
+    def __init__(self, _session):
+        pass
+
+    async def get_raw_snapshot(self):
+        return {"orders": [], "positions": [], "agent_logs": []}
+
+
+@pytest.mark.asyncio
+async def test_dashboard_state_sets_mode_even_if_redis_unavailable(monkeypatch):
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeAggregator)
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+
+    async def _raise_redis():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _raise_redis)
+    set_db_available(False)
+
+    payload = await dashboard_v2.get_dashboard_state()
+
+    assert payload["mode"] == "in_memory_fallback"
