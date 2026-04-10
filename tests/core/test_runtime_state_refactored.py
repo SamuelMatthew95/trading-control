@@ -1,6 +1,5 @@
 """Unit tests for refactored runtime_state module."""
 
-
 from api.constants import RuntimeMode, StorageBackend
 from api.runtime_state import (
     get_active_backend,
