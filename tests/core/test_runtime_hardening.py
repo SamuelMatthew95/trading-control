@@ -37,7 +37,7 @@ def test_parse_csv_env_strips_and_ignores_empty_values():
 
 def test_settings_production_requires_secret_and_database():
     with pytest.raises(ValueError):
-        Settings(NODE_ENV="production")
+        Settings(NODE_ENV="production", DATABASE_URL=None)
 
 
 def test_enforce_api_key_allows_unprotected_route(monkeypatch):
