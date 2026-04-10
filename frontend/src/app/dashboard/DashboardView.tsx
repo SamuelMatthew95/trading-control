@@ -626,6 +626,15 @@ export function DashboardView({ section }: { section: Section }) {
   const [persistedCounts, setPersistedCounts] = useState<PersistedStreamCount[]>([])
   const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
   const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
+  const [apiHealth, setApiHealth] = useState<{
+    dashboardState: 'pending' | 'ok' | 'error'
+    agentInstances: 'pending' | 'ok' | 'error'
+    eventHistory: 'pending' | 'ok' | 'error'
+  }>({
+    dashboardState: 'pending',
+    agentInstances: 'pending',
+    eventHistory: 'pending',
+  })
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -646,11 +655,14 @@ export function DashboardView({ section }: { section: Section }) {
           const data = await r.json()
           console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
           useCodexStore.getState().hydrateDashboard(data)
+          setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
         } else {
           console.warn('[Dashboard] /dashboard/state responded', r.status)
+          setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
         }
       } catch (err) {
         console.warn('[Dashboard] /dashboard/state fetch failed:', err)
+        setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
       }
     }
     const fetchPricesOnce = async () => {
@@ -771,8 +783,10 @@ export function DashboardView({ section }: { section: Section }) {
         const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
         const d = await r.json()
         useCodexStore.getState().setAgentInstances(d.instances ?? [])
+        setApiHealth((prev) => ({ ...prev, agentInstances: r.ok ? 'ok' : 'error' }))
       } catch {
         // non-fatal
+        setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
       }
     }
     fetchAgentInstances()
@@ -785,13 +799,18 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchPersistedHistory = async () => {
       try {
         const r = await fetch(api(API_ENDPOINTS.EVENTS_HISTORY))
-        if (!r.ok) return
+        if (!r.ok) {
+          setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
+          return
+        }
         const d = await r.json()
         setPersistedCounts((d.stream_counts ?? []) as PersistedStreamCount[])
         setPersistedEvents((d.persisted_events ?? []) as PersistedHistoryItem[])
         setPersistedLogs((d.persisted_logs ?? []) as PersistedHistoryItem[])
+        setApiHealth((prev) => ({ ...prev, eventHistory: 'ok' }))
       } catch {
         // non-fatal
+        setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
       }
     }
     fetchPersistedHistory()
@@ -1327,6 +1346,27 @@ export function DashboardView({ section }: { section: Section }) {
                 Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
                 <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.logAgeMs)} ago</span>
               </p>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {[
+                { label: 'dashboard/state', value: apiHealth.dashboardState },
+                { label: 'agent-instances', value: apiHealth.agentInstances },
+                { label: 'history/events', value: apiHealth.eventHistory },
+              ].map((apiRow) => (
+                <span
+                  key={apiRow.label}
+                  className={cn(
+                    'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    apiRow.value === 'ok'
+                      ? 'bg-emerald-500/10 text-emerald-500'
+                      : apiRow.value === 'error'
+                        ? 'bg-rose-500/10 text-rose-500'
+                        : 'bg-slate-500/10 text-slate-500',
+                  )}
+                >
+                  {apiRow.label}: {apiRow.value}
+                </span>
+              ))}
             </div>
           </div>
 
