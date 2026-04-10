@@ -355,12 +355,7 @@ class SignalGenerator(BaseStreamConsumer):
                         async with AsyncSessionFactory() as session:
                             async with session.begin():
                                 await session.execute(
-                                    text("""
-                                        UPDATE agent_runs SET status='completed',
-                                            output_data=:output, execution_time_ms=:elapsed,
-                                            updated_at=NOW()
-                                        WHERE id=:id
-                                    """),
+                                    text("""UPDATE agent_runs SET status='completed', output_data=:output, execution_time_ms=:elapsed, updated_at=NOW() WHERE id=:id"""),
                                     {
                                         "output": json.dumps(signal_payload),
                                         "elapsed": elapsed_ms,
@@ -465,11 +460,7 @@ class SignalGenerator(BaseStreamConsumer):
                 async with AsyncSessionFactory() as session:
                     async with session.begin():
                         await session.execute(
-                            text("""
-                                UPDATE agent_runs SET status='failed',
-                                    error_message=:err, updated_at=NOW()
-                                WHERE id=:id
-                            """),
+                            text("""UPDATE agent_runs SET status='failed', error_message=:err, updated_at=NOW() WHERE id=:id"""),
                             {"err": "processing_error", "id": db_run_id},
                         )
             raise

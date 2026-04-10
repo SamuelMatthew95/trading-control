@@ -37,7 +37,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
-from api.runtime_state import get_runtime_store, is_db_available
+from api.runtime_state import is_db_available, get_runtime_store, get_persistence_mode
 
 SYMBOLS = {
     "crypto": ["BTC/USD", "ETH/USD", "SOL/USD"],
@@ -167,27 +167,25 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
 
 async def flush_to_db(payloads: list[dict]) -> None:
     """Batch-write all symbol prices to Postgres in a single transaction."""
-    # Skip database entirely if in memory mode (deliberate design choice)
-    if not is_db_available():
+    # Skip database entirely if in deliberate memory mode
+    if get_persistence_mode() == "memory":
         log_structured(
             "info",
-            "price_poller_memory_mode_active",
+            "Price poller running in deliberate in-memory mode",
+            event_name="price_poller_memory_mode_active",
             symbols=[p["symbol"] for p in payloads],
-            message="Price poller running in deliberate in-memory mode",
         )
         # Store in memory store (primary storage in memory mode)
         store = get_runtime_store()
         for p in payloads:
-            store.add_event(
-                {
-                    "type": "price_update",
-                    "symbol": p["symbol"],
-                    "price": p["price"],
-                    "change": p["change"],
-                    "pct": p["pct"],
-                    "ts": p["ts"],
-                }
-            )
+            store.add_event({
+                "type": "price_update",
+                "symbol": p["symbol"],
+                "price": p["price"],
+                "change": p["change"],
+                "pct": p["pct"],
+                "ts": p["ts"],
+            })
         return
 
     max_retries = 3
