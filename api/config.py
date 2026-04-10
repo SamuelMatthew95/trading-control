@@ -104,7 +104,6 @@ class Settings(BaseSettings):
     def normalize_frontend_url(cls, value: str) -> str:
         return value.rstrip("/")
 
-
     @model_validator(mode="after")
     def validate_runtime_requirements(self) -> Settings:
         if self.NODE_ENV == "production" and not self.DATABASE_URL:
