@@ -231,7 +231,6 @@ async def lifespan(app: FastAPI):
             environment=settings.NODE_ENV,
             config_source=get_settings_info().get("config_source"),
             database_mode="connected" if app.state.db_available else "in_memory_fallback",
-            persistence_mode="auto",  # Simplified: always auto now
         )
         yield
     except Exception:  # noqa: BLE001
