@@ -182,6 +182,29 @@ async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_learning_grades_uses_in_memory_when_db_unavailable(monkeypatch):
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    store = InMemoryStore()
+    store.add_grade(
+        {
+            "trace_id": "mem-trace-1",
+            "grade": "B",
+            "score": 0.77,
+            "score_pct": 77.0,
+            "metrics": {"fills_graded": 2},
+            "fills_graded": 2,
+        }
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_grade_history(limit=10)
+
+    assert payload["total"] == 1
+    assert payload["grades"][0]["trace_id"] == "mem-trace-1"
+    assert payload["error"] == "grades_unavailable"
+
+
+@pytest.mark.asyncio
 async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
     session_rows = [
         [[]],

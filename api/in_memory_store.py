@@ -23,6 +23,10 @@ class InMemoryStore:
 
     agents: dict[str, dict[str, Any]] = field(default_factory=lambda: deepcopy(DEFAULT_AGENTS))
     notifications: list[dict[str, Any]] = field(default_factory=list)
+    grade_history: list[dict[str, Any]] = field(default_factory=list)
+    event_history: list[dict[str, Any]] = field(default_factory=list)
+    vector_memory: list[dict[str, Any]] = field(default_factory=list)
+    agent_runs: list[dict[str, Any]] = field(default_factory=list)
     last_health: str = "unknown"
 
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
@@ -47,6 +51,46 @@ class InMemoryStore:
             "timestamp": time.time(),
         }
         self.notifications.append(payload)
+        return payload
+
+    def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(grade_payload)
+        payload.setdefault("timestamp", time.time())
+        self.grade_history.append(payload)
+        if len(self.grade_history) > 500:
+            self.grade_history = self.grade_history[-500:]
+        return payload
+
+    def get_grades(self, limit: int = 50) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        return list(reversed(self.grade_history[-safe_limit:]))
+
+    def add_event(self, event_payload: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(event_payload)
+        payload.setdefault("timestamp", time.time())
+        self.event_history.append(payload)
+        if len(self.event_history) > 1000:
+            self.event_history = self.event_history[-1000:]
+        return payload
+
+    def get_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        return list(reversed(self.event_history[-safe_limit:]))
+
+    def add_vector_memory(self, memory_payload: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(memory_payload)
+        payload.setdefault("created_at", time.time())
+        self.vector_memory.append(payload)
+        if len(self.vector_memory) > 1000:
+            self.vector_memory = self.vector_memory[-1000:]
+        return payload
+
+    def add_agent_run(self, run_payload: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(run_payload)
+        payload.setdefault("created_at", time.time())
+        self.agent_runs.append(payload)
+        if len(self.agent_runs) > 500:
+            self.agent_runs = self.agent_runs[-500:]
         return payload
 
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
