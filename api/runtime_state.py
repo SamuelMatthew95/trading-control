@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from api.constants import RuntimeMode, StorageBackend
 from api.in_memory_store import InMemoryStore
 
 # Simple state: try DB, if fails use memory
@@ -37,15 +38,15 @@ def get_active_backend() -> str:
     Get active storage backend.
 
     Simple logic:
-    - If DB is available -> use "db"
-    - If DB is not available -> use "memory"
+    - If DB is available -> use StorageBackend.DATABASE
+    - If DB is not available -> use StorageBackend.MEMORY
     """
-    return "db" if _db_available else "memory"
+    return StorageBackend.DATABASE if _db_available else StorageBackend.MEMORY
 
 
 def get_runtime_mode() -> str:
-    """Get runtime mode: 'connected' if DB works, 'in_memory_fallback' if not."""
-    return "connected" if _db_available else "in_memory_fallback"
+    """Get runtime mode: RuntimeMode.CONNECTED if DB works, RuntimeMode.IN_MEMORY_FALLBACK if not."""
+    return RuntimeMode.CONNECTED if _db_available else RuntimeMode.IN_MEMORY_FALLBACK
 
 
 # Legacy functions - keep them working

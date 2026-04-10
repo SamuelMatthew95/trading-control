@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from api.constants import HealthStatus
 from api.core.schemas import HealthResponse
 from api.database import test_database_connection
 from api.observability import log_structured, metrics_store
@@ -144,9 +145,9 @@ async def health_check(request: Request) -> dict[str, Any]:
 
     # Determine overall status
     if db_ready and redis_ready:
-        status = "healthy"
+        status = HealthStatus.HEALTHY
     else:
-        status = "degraded"
+        status = HealthStatus.DEGRADED
 
     store = getattr(request.app.state, "in_memory_store", get_runtime_store())
 
