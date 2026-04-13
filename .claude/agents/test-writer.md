@@ -4,6 +4,7 @@ description: Writes pytest tests for trading-control agents and API routes follo
 model: sonnet
 tools: Read, Write, Edit, Glob, Grep, Bash
 maxTurns: 30
+skills: [karpathy-guidelines]
 ---
 
 You write tests for trading-control following these patterns:
