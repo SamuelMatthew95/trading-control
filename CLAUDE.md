@@ -180,7 +180,8 @@ Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_a
 - **Context**: Run `/compact` manually when context reaches ~50% usage
 - **Personal overrides**: Create `CLAUDE.local.md` at repo root (git-ignored) for local preferences
 - **Specialized agents**: Use `.claude/agents/` — `ci-guard` (CI pipeline), `db-migrator` (Alembic), `test-writer` (pytest)
-- **Reusable skills**: Use `.claude/skills/` — `run-ci` (full pipeline), `schema-check` (schema audit), `karpathy-guidelines` (think/simplify/surgical/verify)
+- **Reusable skills**: Use `.claude/skills/` — `run-ci` (full pipeline), `schema-check` (schema audit), `karpathy-guidelines` (think/simplify/surgical/verify), `reverse-prompt` (clarify before coding)
+- **XML tags**: Use `<tags>` in prompts with 2+ components — Claude reads them with greater precision
 - **Subdirectory context**: `api/CLAUDE.md` and `frontend/CLAUDE.md` load lazily when working in those dirs
 
 ## Additional Rules (Always Loaded)
