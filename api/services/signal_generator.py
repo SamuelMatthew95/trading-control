@@ -96,10 +96,6 @@ class SignalGenerator(BaseStreamConsumer):
         if not symbol or price <= 0:
             return
 
-        # --- Dedup (DB mode only) ----------------------------------------
-        if is_db_available() and await self._is_duplicate(msg_id):
-            return
-
         # --- Classify signal ---------------------------------------------
         abs_pct = abs(pct)
         direction = "bullish" if pct > 0 else ("bearish" if pct < 0 else "neutral")
@@ -123,90 +119,26 @@ class SignalGenerator(BaseStreamConsumer):
             "msg_id": str(uuid.uuid4()),
         }
 
-        # --- Record run start --------------------------------------------
+        # --- Begin run (dedup check + run start write) -------------------
         run_id = str(uuid.uuid4())
         agent_pool_id = await self._resolve_agent_pool_id()
         start_time = time.perf_counter()
 
-        if is_db_available():
-            db_run_id = await self._db_write_run_start(run_id, trace_id, payload, agent_pool_id)
-        else:
-            db_run_id = None
-            get_runtime_store().add_agent_run(
-                {
-                    "run_id": run_id,
-                    "trace_id": trace_id,
-                    "input_data": payload,
-                    "schema_version": DB_SCHEMA_VERSION,
-                    "source": SOURCE_SIGNAL,
-                    "status": "running",
-                    "created_at": time.time(),
-                }
-            )
+        should_proceed, db_run_id = await self._begin_run(
+            run_id, trace_id, payload, agent_pool_id, msg_id
+        )
+        if not should_proceed:
+            return
 
         # --- Publish signal to downstream agents -------------------------
         await self.bus.publish(STREAM_SIGNALS, signal_payload)
 
-        # --- Persist event + grade ---------------------------------------
-        if is_db_available():
-            await self._db_write_signal(
-                trace_id, msg_id, signal_payload, score, agent_pool_id, run_id
-            )
-        else:
-            store = get_runtime_store()
-            store.add_event(
-                {
-                    "event_type": "signal.generated",
-                    "entity_type": "signal",
-                    "entity_id": trace_id,
-                    "data": signal_payload,
-                    "idempotency_key": f"signal-{symbol}-{trace_id}",
-                    "schema_version": DB_SCHEMA_VERSION,
-                    "source": SOURCE_SIGNAL,
-                }
-            )
-            store.add_grade(
-                {
-                    "trace_id": trace_id,
-                    "grade_type": "ACCURACY",
-                    "score": score,
-                    "metrics": {"signal_type": signal_type, "symbol": symbol},
-                    "source": SOURCE_SIGNAL,
-                    "schema_version": DB_SCHEMA_VERSION,
-                }
-            )
-
-        # --- Mark run complete + agent log --------------------------------
+        # --- Persist signal data and complete the run --------------------
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         self.total_events += 1
-
-        if is_db_available():
-            await self._db_write_run_complete(
-                db_run_id, run_id, trace_id, signal_payload, elapsed_ms
-            )
-        else:
-            store = get_runtime_store()
-            for run in store.agent_runs:
-                if run.get("run_id") == run_id:
-                    run.update(
-                        {
-                            "status": "completed",
-                            "output_data": signal_payload,
-                            "execution_time_ms": elapsed_ms,
-                        }
-                    )
-                    break
-            store.add_event(
-                {
-                    "agent_run_id": run_id,
-                    "trace_id": trace_id,
-                    "log_type": "SIGNAL_GENERATED",
-                    "payload": signal_payload,
-                    "schema_version": DB_SCHEMA_VERSION,
-                    "source": AGENT_NAME,
-                    "timestamp": time.time(),
-                }
-            )
+        await self._persist_signal_complete(
+            run_id, db_run_id, trace_id, signal_payload, agent_pool_id, msg_id, score, elapsed_ms
+        )
 
         # --- Heartbeat ---------------------------------------------------
         await write_heartbeat(
@@ -224,6 +156,102 @@ class SignalGenerator(BaseStreamConsumer):
             price=price,
             direction=direction,
             trace_id=trace_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Unified persistence — single routing point per operation
+    # ------------------------------------------------------------------
+
+    async def _begin_run(
+        self,
+        run_id: str,
+        trace_id: str,
+        payload: dict,
+        agent_pool_id: str | None,
+        msg_id: str,
+    ) -> tuple[bool, int | None]:
+        """Dedup check (DB only) then write run start. Returns (should_proceed, db_run_id)."""
+        if is_db_available():
+            if await self._is_duplicate(msg_id):
+                return False, None
+            db_run_id = await self._db_write_run_start(run_id, trace_id, payload, agent_pool_id)
+            return True, db_run_id
+        get_runtime_store().add_agent_run(
+            {
+                "run_id": run_id,
+                "trace_id": trace_id,
+                "input_data": payload,
+                "schema_version": DB_SCHEMA_VERSION,
+                "source": SOURCE_SIGNAL,
+                "status": "running",
+                "created_at": time.time(),
+            }
+        )
+        return True, None
+
+    async def _persist_signal_complete(
+        self,
+        run_id: str,
+        db_run_id: int | None,
+        trace_id: str,
+        signal_payload: dict,
+        agent_pool_id: str | None,
+        msg_id: str,
+        score: float,
+        elapsed_ms: int,
+    ) -> None:
+        """Persist signal event, grade, and run completion — routes DB vs memory."""
+        if is_db_available():
+            await self._db_write_signal(
+                trace_id, msg_id, signal_payload, score, agent_pool_id, run_id
+            )
+            await self._db_write_run_complete(
+                db_run_id, run_id, trace_id, signal_payload, elapsed_ms
+            )
+            return
+        symbol = signal_payload["symbol"]
+        store = get_runtime_store()
+        store.add_event(
+            {
+                "event_type": "signal.generated",
+                "entity_type": "signal",
+                "entity_id": trace_id,
+                "data": signal_payload,
+                "idempotency_key": f"signal-{symbol}-{trace_id}",
+                "schema_version": DB_SCHEMA_VERSION,
+                "source": SOURCE_SIGNAL,
+            }
+        )
+        store.add_grade(
+            {
+                "trace_id": trace_id,
+                "grade_type": "ACCURACY",
+                "score": score,
+                "metrics": {"signal_type": signal_payload["type"], "symbol": symbol},
+                "source": SOURCE_SIGNAL,
+                "schema_version": DB_SCHEMA_VERSION,
+            }
+        )
+        for run in store.agent_runs:
+            if run.get("run_id") == run_id:
+                run.update(
+                    {
+                        "status": "completed",
+                        "output_data": signal_payload,
+                        "execution_time_ms": elapsed_ms,
+                    }
+                )
+                break
+        store.add_event(
+            {
+                "agent_run_id": run_id,
+                "trace_id": trace_id,
+                "log_type": "SIGNAL_GENERATED",
+                "payload": signal_payload,
+                "schema_version": DB_SCHEMA_VERSION,
+                "source": AGENT_NAME,
+                "timestamp": time.time(),
+            }
         )
 
     # ------------------------------------------------------------------

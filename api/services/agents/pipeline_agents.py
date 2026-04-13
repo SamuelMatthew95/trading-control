@@ -174,43 +174,7 @@ class GradeAgent(MultiStreamAgent):
         await write_agent_log(trace_id, LogType.GRADE, payload)
         await write_grade_to_db(trace_id, payload["score_pct"], payload["metrics"])
         await self._take_grade_action(grade, payload)
-
-        # Back-fill grade onto the most recent unfilled trade_lifecycle row for
-        # the reasoning_agent (best-effort — non-fatal, DB mode only).
-        if is_db_available():
-            try:
-                from sqlalchemy import text as _text
-
-                from api.database import AsyncSessionFactory
-                from api.services.agents.db_helpers import upsert_trade_lifecycle
-
-                grade_label = (
-                    f"Grade {grade}: accuracy={payload['metrics']['accuracy']:.0%} "
-                    f"IC={payload['metrics']['ic']:+.3f}"
-                )
-                async with AsyncSessionFactory() as _sess:
-                    row = await _sess.execute(
-                        _text("""
-                            SELECT execution_trace_id FROM trade_lifecycle
-                            WHERE status = 'filled' AND grade IS NULL
-                            ORDER BY created_at DESC LIMIT 1
-                        """)
-                    )
-                    latest = row.first()
-                if latest and latest[0]:
-                    await upsert_trade_lifecycle(
-                        execution_trace_id=latest[0],
-                        symbol="",  # already set — upsert won't overwrite
-                        side=OrderSide.BUY,
-                        grade_trace_id=trace_id,
-                        grade=grade,
-                        grade_score=payload["score_pct"],
-                        grade_label=grade_label,
-                        status="graded",
-                        graded_at=datetime.now(timezone.utc).isoformat(),
-                    )
-            except Exception:
-                log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
+        await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
         # Write heartbeat with last grade score for dashboard display
         try:
@@ -226,6 +190,46 @@ class GradeAgent(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "grade_heartbeat_failed", exc_info=True)
+
+    async def _backfill_grade_to_lifecycle(
+        self, grade: str, payload: dict[str, Any], trace_id: str
+    ) -> None:
+        """Back-fill grade onto the most recent unfilled trade_lifecycle row. DB mode only."""
+        if not is_db_available():
+            return
+        try:
+            from sqlalchemy import text as _text
+
+            from api.database import AsyncSessionFactory
+            from api.services.agents.db_helpers import upsert_trade_lifecycle
+
+            grade_label = (
+                f"Grade {grade}: accuracy={payload['metrics']['accuracy']:.0%} "
+                f"IC={payload['metrics']['ic']:+.3f}"
+            )
+            async with AsyncSessionFactory() as _sess:
+                row = await _sess.execute(
+                    _text("""
+                        SELECT execution_trace_id FROM trade_lifecycle
+                        WHERE status = 'filled' AND grade IS NULL
+                        ORDER BY created_at DESC LIMIT 1
+                    """)
+                )
+                latest = row.first()
+            if latest and latest[0]:
+                await upsert_trade_lifecycle(
+                    execution_trace_id=latest[0],
+                    symbol="",  # already set — upsert won't overwrite
+                    side=OrderSide.BUY,
+                    grade_trace_id=trace_id,
+                    grade=grade,
+                    grade_score=payload["score_pct"],
+                    grade_label=grade_label,
+                    status="graded",
+                    graded_at=datetime.now(timezone.utc).isoformat(),
+                )
+        except Exception:
+            log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
 
     def _win_rate(self, lookback_n: int) -> float:
         recent = list(self._pnl_buffer)[-lookback_n:]

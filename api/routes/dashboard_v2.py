@@ -267,9 +267,7 @@ async def get_order_metrics() -> dict[str, Any]:
 async def get_flow_status() -> dict[str, Any]:
     """Operational view to verify data is flowing end-to-end for UI/debugging."""
     try:
-        from api.runtime_state import is_db_available as _is_db_available
-
-        if not _is_db_available():
+        if not is_db_available():
             store = get_runtime_store()
             return {
                 "api_version": DASHBOARD_API_VERSION,

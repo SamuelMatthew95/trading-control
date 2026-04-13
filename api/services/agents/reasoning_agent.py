@@ -91,16 +91,9 @@ class ReasoningAgent(BaseStreamConsumer):
         is_fallback = fallback_reason is not None
 
         # --- Persist agent run + cost tracking ---------------------------
-        # Route is determined once here; no try/except used for routing.
-        if is_db_available():
-            async with AsyncSessionFactory() as session:
-                async with session.begin():
-                    agent_run_id = await self._db_store_agent_run(
-                        data, summary, trace_id, is_fallback, session
-                    )
-                    await self._db_store_cost_tracking(today, tokens_used, cost_usd, session)
-        else:
-            agent_run_id = self._mem_store_agent_run(data, summary, trace_id, is_fallback)
+        agent_run_id = await self._persist_run(
+            data, summary, trace_id, is_fallback, today, tokens_used, cost_usd
+        )
 
         # --- Agent log ---------------------------------------------------
         await write_agent_log(
@@ -111,17 +104,7 @@ class ReasoningAgent(BaseStreamConsumer):
         )
 
         # --- Vector memory (best-effort) ---------------------------------
-        if is_db_available():
-            try:
-                async with AsyncSessionFactory() as vm_session:
-                    async with vm_session.begin():
-                        await self._db_store_vector_memory(
-                            signal_summary, embedding, summary, vm_session
-                        )
-            except Exception:
-                log_structured("warning", "vector_memory_insert_failed", exc_info=True)
-        else:
-            self._mem_store_vector_memory(signal_summary, embedding, summary)
+        await self._persist_vector(signal_summary, embedding, summary)
 
         log_structured(
             "info", "reasoning_decision", trace_id=trace_id, action=summary.get("action")
@@ -203,7 +186,8 @@ class ReasoningAgent(BaseStreamConsumer):
                 "symbol": data.get("symbol"),
                 "price": data.get("price"),
                 "composite_score": data.get("composite_score"),
-                "signal_type": data.get("signal_type"),
+                # Signal publishes "type" (e.g. "STRONG_MOMENTUM"); some callers use "signal_type"
+                "signal_type": data.get("signal_type") or data.get("type"),
                 "context": data.get("context", {}),
             },
             sort_keys=True,
@@ -251,6 +235,47 @@ class ReasoningAgent(BaseStreamConsumer):
             "trace_id": trace_id,
             "fallback": True,
         }
+
+    # ------------------------------------------------------------------
+    # Unified persistence — single routing point per operation
+    # ------------------------------------------------------------------
+
+    async def _persist_run(
+        self,
+        data: dict[str, Any],
+        summary: dict[str, Any],
+        trace_id: str,
+        is_fallback: bool,
+        today: str,
+        tokens_used: int,
+        cost_usd: float,
+    ) -> str:
+        """Persist agent run and cost tracking. Routes DB vs memory, returns agent_run_id."""
+        if is_db_available():
+            async with AsyncSessionFactory() as session:
+                async with session.begin():
+                    agent_run_id = await self._db_store_agent_run(
+                        data, summary, trace_id, is_fallback, session
+                    )
+                    await self._db_store_cost_tracking(today, tokens_used, cost_usd, session)
+            return agent_run_id
+        return self._mem_store_agent_run(data, summary, trace_id, is_fallback)
+
+    async def _persist_vector(
+        self, signal_summary: str, embedding: list[float], summary: dict[str, Any]
+    ) -> None:
+        """Persist vector memory entry. Routes DB vs memory."""
+        if is_db_available():
+            try:
+                async with AsyncSessionFactory() as vm_session:
+                    async with vm_session.begin():
+                        await self._db_store_vector_memory(
+                            signal_summary, embedding, summary, vm_session
+                        )
+            except Exception:
+                log_structured("warning", "vector_memory_insert_failed", exc_info=True)
+        else:
+            self._mem_store_vector_memory(signal_summary, embedding, summary)
 
     # --- DB path helpers (only called when is_db_available() is True) ---
 
