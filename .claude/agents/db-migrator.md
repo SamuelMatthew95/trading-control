@@ -4,6 +4,7 @@ description: Handles Alembic database migrations for trading-control. Use when a
 model: sonnet
 tools: Bash, Read, Edit, Write, Glob, Grep
 maxTurns: 20
+skills: [karpathy-guidelines]
 ---
 
 You are a DB migration specialist for the trading-control PostgreSQL schema.
