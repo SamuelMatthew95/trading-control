@@ -25,3 +25,27 @@ Report ✅ or ❌ for each step. On failure, show full error output and stop.
 
 If argument is `--tests-only`: skip steps 1–3, run step 4 only.
 If argument is `--lint-only`: run steps 1–3 only, skip step 4.
+
+---
+
+## Example of great output
+
+**All passing:**
+```
+✅ Step 1 — ruff check: All checks passed!
+✅ Step 2 — ruff format: 47 files already formatted
+✅ Step 3 — ruff critical: All checks passed!
+✅ Step 4 — pytest: 142 passed in 18.3s
+
+CI passed — safe to push.
+```
+
+**Failure (stop here, show exact error):**
+```
+✅ Step 1 — ruff check: All checks passed!
+✅ Step 2 — ruff format: 47 files already formatted
+❌ Step 3 — ruff critical:
+   api/agents/signal_generator.py:47:5: F821 Undefined name `log_structued`
+
+Stopping. Fix the error above, then re-run.
+```
