@@ -410,42 +410,53 @@ class SignalGenerator(BaseStreamConsumer):
 
             self.total_events += 1
 
-            # Redis heartbeat
-            redis = self.bus.redis
-            await redis.set(
-                REDIS_AGENT_STATUS_KEY.format(name=AGENT_NAME),
-                json.dumps(
-                    {
-                        "status": "ACTIVE",
-                        "last_event": f"{signal_type} {symbol} {pct:+.2f}%",
-                        "event_count": self.total_events,
-                        "last_seen": int(time.time()),
-                    }
-                ),
-                ex=AGENT_HEARTBEAT_TTL_SECONDS,
-            )
+            heartbeat_data = {
+                "status": "ACTIVE",
+                "last_event": f"{signal_type} {symbol} {pct:+.2f}%",
+                "event_count": self.total_events,
+                "last_seen": int(time.time()),
+            }
 
-            # Postgres heartbeat
-            async with AsyncSessionFactory() as session:
-                async with session.begin():
-                    await session.execute(
-                        text("""
-                            INSERT INTO agent_heartbeats
-                                (agent_name, status, last_event,
-                                 event_count, last_seen)
-                            VALUES (:name, 'ACTIVE', :last_event,
-                                    :count, NOW())
-                            ON CONFLICT (agent_name) DO UPDATE SET
-                                status='ACTIVE',
-                                last_event=EXCLUDED.last_event,
-                                event_count=EXCLUDED.event_count,
-                                last_seen=NOW()
-                        """),
-                        {
-                            "name": AGENT_NAME,
-                            "last_event": f"{signal_type} {symbol} {pct:+.2f}%",
-                            "count": self.total_events,
-                        },
+            # Always update in-memory store so dashboard fallback shows live status
+            get_runtime_store().upsert_agent(AGENT_NAME, heartbeat_data)
+
+            # Redis heartbeat (best-effort — never crash the agent)
+            try:
+                await self.bus.redis.set(
+                    REDIS_AGENT_STATUS_KEY.format(name=AGENT_NAME),
+                    json.dumps(heartbeat_data),
+                    ex=AGENT_HEARTBEAT_TTL_SECONDS,
+                )
+            except Exception:
+                log_structured("warning", f"[{AGENT_NAME}] redis_heartbeat_failed", exc_info=True)
+
+            # Postgres heartbeat (best-effort — skip entirely when DB is down)
+            if is_db_available():
+                try:
+                    async with AsyncSessionFactory() as session:
+                        async with session.begin():
+                            await session.execute(
+                                text("""
+                                    INSERT INTO agent_heartbeats
+                                        (agent_name, status, last_event,
+                                         event_count, last_seen)
+                                    VALUES (:name, 'ACTIVE', :last_event,
+                                            :count, NOW())
+                                    ON CONFLICT (agent_name) DO UPDATE SET
+                                        status='ACTIVE',
+                                        last_event=EXCLUDED.last_event,
+                                        event_count=EXCLUDED.event_count,
+                                        last_seen=NOW()
+                                """),
+                                {
+                                    "name": AGENT_NAME,
+                                    "last_event": heartbeat_data["last_event"],
+                                    "count": self.total_events,
+                                },
+                            )
+                except Exception:
+                    log_structured(
+                        "warning", f"[{AGENT_NAME}] postgres_heartbeat_failed", exc_info=True
                     )
 
             log_structured(
@@ -457,14 +468,19 @@ class SignalGenerator(BaseStreamConsumer):
 
         except Exception:
             log_structured("error", "signal agent processing failed", exc_info=True)
-            # Update agent_runs — failure
-            if db_run_id is not None:
-                async with AsyncSessionFactory() as session:
-                    async with session.begin():
-                        await session.execute(
-                            text(
-                                """UPDATE agent_runs SET status='failed', error_message=:err, updated_at=NOW() WHERE id=:id"""
-                            ),
-                            {"err": "processing_error", "id": db_run_id},
-                        )
+            # Update agent_runs — failure (best-effort, only when DB is available)
+            if db_run_id is not None and is_db_available():
+                try:
+                    async with AsyncSessionFactory() as session:
+                        async with session.begin():
+                            await session.execute(
+                                text(
+                                    """UPDATE agent_runs SET status='failed', error_message=:err, updated_at=NOW() WHERE id=:id"""
+                                ),
+                                {"err": "processing_error", "id": db_run_id},
+                            )
+                except Exception:
+                    log_structured(
+                        "warning", f"[{AGENT_NAME}] failure_update_db_write_failed", exc_info=True
+                    )
             raise

@@ -110,6 +110,11 @@ class TestSignalGeneratorDBWrites:
             "api.services.signal_generator.AsyncSessionFactory",
             FakeSessionFactory(self._session),
         )
+        # Force DB-available so we exercise the SQL path these tests guard
+        monkeypatch.setattr(
+            "api.services.signal_generator.is_db_available",
+            lambda: True,
+        )
         await sg.process(_SAMPLE_PAYLOAD)
 
     def _sqls(self) -> list[str]:

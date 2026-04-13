@@ -57,6 +57,7 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
 
     This is the primary endpoint for the UI dashboard.
     Returns sanitized data with no NaN values.
+    Falls back to in-memory store when the database is unavailable.
     """
     try:
         async with AsyncSessionFactory() as session:
@@ -64,8 +65,9 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
             return await aggregator.get_dashboard_snapshot()
 
     except Exception:
-        log_structured("error", "dashboard snapshot failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "dashboard_snapshot_db_unavailable_using_memory", exc_info=True)
+        store = get_runtime_store()
+        return store.dashboard_fallback_snapshot()
 
 
 @router.get("/state")
@@ -165,8 +167,12 @@ async def get_stream_lag() -> dict[str, Any]:
             }
 
     except Exception:
-        log_structured("error", "stream lag failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "stream_lag_db_unavailable", exc_info=True)
+        return {
+            "stream_lag": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/system-health")
@@ -178,8 +184,15 @@ async def get_system_health() -> dict[str, Any]:
             return await aggregator.get_system_health()
 
     except Exception:
-        log_structured("error", "system health failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "system_health_db_unavailable", exc_info=True)
+        store = get_runtime_store()
+        return {
+            "status": "degraded",
+            "mode": runtime_mode(),
+            "db_health": store.last_health,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/pnl")
@@ -191,8 +204,13 @@ async def get_pnl_metrics() -> dict[str, Any]:
             return await aggregator.get_pnl_metrics()
 
     except Exception:
-        log_structured("error", "pnl metrics failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "pnl_metrics_db_unavailable", exc_info=True)
+        return {
+            "pnl": [],
+            "total_pnl": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/agents")
@@ -204,8 +222,17 @@ async def get_agent_metrics() -> dict[str, Any]:
             return await aggregator.get_agent_metrics()
 
     except Exception:
-        log_structured("error", "agent metrics failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "agent_metrics_db_unavailable", exc_info=True)
+        store = get_runtime_store()
+        return {
+            "agents": [
+                {"name": name, **({} if not store.get_agent(name) else store.get_agent(name))}
+                for name in ALL_AGENT_NAMES
+            ],
+            "runs": store.agent_runs[-50:],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/orders")
@@ -217,14 +244,37 @@ async def get_order_metrics() -> dict[str, Any]:
             return await aggregator.get_order_metrics()
 
     except Exception:
-        log_structured("error", "order metrics failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "order_metrics_db_unavailable", exc_info=True)
+        return {
+            "orders": [],
+            "total_orders": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/flow-status")
 async def get_flow_status() -> dict[str, Any]:
     """Operational view to verify data is flowing end-to-end for UI/debugging."""
     try:
+        from api.runtime_state import is_db_available as _is_db_available
+
+        if not _is_db_available():
+            store = get_runtime_store()
+            return {
+                "api_version": DASHBOARD_API_VERSION,
+                "db_schema_version": DB_SCHEMA_VERSION,
+                "counts": {
+                    "agent_runs": len(store.agent_runs),
+                    "agent_logs": len(store.event_history),
+                    "agent_grades": len(store.grade_history),
+                    "orders": 0,
+                    "trade_lifecycle": 0,
+                },
+                "trace_coverage": {"trace_id": None},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "in_memory",
+            }
         async with AsyncSessionFactory() as session:
             counts_sql = text("""
                 SELECT
@@ -297,8 +347,22 @@ async def get_flow_status() -> dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
-        log_structured("error", "flow status failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "flow_status_db_unavailable", exc_info=True)
+        store = get_runtime_store()
+        return {
+            "api_version": DASHBOARD_API_VERSION,
+            "db_schema_version": DB_SCHEMA_VERSION,
+            "counts": {
+                "agent_runs": len(store.agent_runs),
+                "agent_logs": len(store.event_history),
+                "agent_grades": len(store.grade_history),
+                "orders": 0,
+                "trade_lifecycle": 0,
+            },
+            "trace_coverage": {"trace_id": None},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/prices")
@@ -335,13 +399,17 @@ async def get_prices() -> dict[str, Any]:
         }
 
     except Exception:
-        log_structured("error", "price cache failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "price_cache_redis_unavailable", exc_info=True)
+        return {
+            "prices": dict.fromkeys(["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/agents/status")
 async def get_agents_status() -> dict[str, Any]:
-    """Get agent status from Redis heartbeats."""
+    """Get agent status from Redis heartbeats, with in-memory fallback."""
     try:
         redis_client = await get_redis()
         now = int(datetime.now(timezone.utc).timestamp())
@@ -383,8 +451,25 @@ async def get_agents_status() -> dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
-        log_structured("error", "agents status failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "agents_status_redis_unavailable_using_memory", exc_info=True)
+        store = get_runtime_store()
+        now = int(datetime.now(timezone.utc).timestamp())
+        agents = [
+            {
+                "name": name,
+                "status": (store.get_agent(name) or {}).get("status", "WAITING"),
+                "event_count": (store.get_agent(name) or {}).get("event_count", 0),
+                "last_event": (store.get_agent(name) or {}).get("last_event", ""),
+                "last_seen": (store.get_agent(name) or {}).get("last_seen", 0),
+                "seconds_ago": now - (store.get_agent(name) or {}).get("last_seen", now),
+            }
+            for name in ALL_AGENT_NAMES
+        ]
+        return {
+            "agents": agents,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/system/metrics")
@@ -431,13 +516,22 @@ async def get_system_stream_metrics() -> dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
-        log_structured("error", "system metrics failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "system_metrics_unavailable", exc_info=True)
+        return {
+            "market_events": 0,
+            "signals": 0,
+            "decisions": 0,
+            "graded_decisions": 0,
+            "agent_logs": 0,
+            "trade_alerts": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/events/recent")
 async def get_recent_events() -> dict[str, Any]:
-    """Get last 10 events from events table."""
+    """Get last 10 events from events table, with in-memory fallback."""
     try:
         async with AsyncSessionFactory() as session:
             from sqlalchemy import text
@@ -466,8 +560,13 @@ async def get_recent_events() -> dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
-        log_structured("error", "recent events failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        log_structured("warning", "recent_events_db_unavailable", exc_info=True)
+        store = get_runtime_store()
+        return {
+            "events": store.get_events(limit=10),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/history/events")

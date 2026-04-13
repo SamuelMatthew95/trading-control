@@ -6,9 +6,9 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
+import fakeredis
 import pytest
 
-import fakeredis
 from api.workers.price_poller import (
     _sync_fetch_crypto,
     _sync_fetch_stocks,
