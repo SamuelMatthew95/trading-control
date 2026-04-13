@@ -16,17 +16,21 @@ Step 2 — Unit:       pytest tests/core tests/api -v
 Step 3 — Integration: pytest tests/integration -v
 ```
 
-`tests/agents/` is NOT in CI (those tests run locally only via verify_ci.sh).
+`tests/agents/` is NOT in CI (run it locally to catch agent regressions before pushing).
 
-## Pre-push Verification Script
+## Pre-push Verification — run these commands in order
 
 ```bash
-./scripts/verify_ci.sh          # full (matches CI exactly + agent tests)
-./scripts/verify_ci.sh --fast   # skip integration (inner loop)
+ruff check . --fix
+ruff format --check .
+ruff check . --select=E9,F63,F7,F82
+pytest tests/core tests/api -v --tb=short      # mirrors CI "unit tests" step
+pytest tests/integration -v --tb=short         # mirrors CI "integration tests" step
+pytest tests/agents -v --tb=short              # local only — not in CI
 ```
 
-**Always run this script before pushing.** Running `pytest tests/` alone won't
-catch ordering-sensitive failures that only appear under the CI split-subset order.
+**Never use `pytest tests/` alone.** CI runs two separate subset commands, so
+ordering-sensitive failures only appear when you run the subsets split, not combined.
 
 ---
 
