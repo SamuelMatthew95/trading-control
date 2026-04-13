@@ -174,6 +174,15 @@ How the dashboard is hydrated on load / reconnect:
 REST hydration endpoint: `GET /dashboard/state`
 Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_agent_constants.py`
 
+## Claude Code Workflow
+- **Commits**: One commit per file — never bundle multiple files into one commit
+- **Complex tasks**: Start in plan mode (`/plan`) before making changes
+- **Context**: Run `/compact` manually when context reaches ~50% usage
+- **Personal overrides**: Create `CLAUDE.local.md` at repo root (git-ignored) for local preferences
+- **Specialized agents**: Use `.claude/agents/` — `ci-guard` (CI pipeline), `db-migrator` (Alembic), `test-writer` (pytest)
+- **Reusable skills**: Use `.claude/skills/` — `run-ci` (full pipeline), `schema-check` (schema audit)
+- **Subdirectory context**: `api/CLAUDE.md` and `frontend/CLAUDE.md` load lazily when working in those dirs
+
 ## Additional Rules (Always Loaded)
 @./.claude/rules/memory-trading.md     # Alpaca trading specifics
 @./.claude/rules/memory-agents.md      # Agent hand-off protocols  
