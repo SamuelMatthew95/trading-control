@@ -25,7 +25,7 @@ from api.database import AsyncSessionFactory
 from api.events.bus import PIPELINE_GROUP, STREAMS, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.runtime_state import get_runtime_store, storage_backend
+from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agent_state import AgentStateRegistry
 
 
@@ -231,7 +231,7 @@ class EventPipeline:
             "payload": event,
             "timestamp": ts,
         }
-        if storage_backend() == "memory":
+        if not is_db_available():
             get_runtime_store().add_event(
                 {
                     "id": msg_id,

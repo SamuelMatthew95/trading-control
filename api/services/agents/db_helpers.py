@@ -1,7 +1,9 @@
 """Shared database write helpers used by multiple agent implementations.
 
-Functions here isolate repeated INSERT patterns so each agent class stays
-focused on its domain logic rather than raw SQL strings.
+DB routing:
+  - is_db_available() is checked upfront in every public function.
+  - DB mode: performs SQL writes via AsyncSessionFactory.
+  - Memory mode: writes to InMemoryStore; no DB session opened at all.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from sqlalchemy import text
 from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, GradeType, LogType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
-from api.runtime_state import get_runtime_store, storage_backend
+from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 
 
@@ -27,20 +29,36 @@ async def write_agent_log(
     *,
     agent_run_id: str | None = None,
 ) -> None:
-    """Insert a row into agent_logs. Logs a warning on failure and does not raise."""
-    if log_type == LogType.GRADE and storage_backend() == "memory":
+    """Insert a row into agent_logs.
+
+    Memory mode: GRADE logs go to grade_history; all others go to event_history.
+    DB mode: INSERT into agent_logs table.
+    """
+    if not is_db_available():
         store = get_runtime_store()
-        store.add_grade(
-            {
-                "trace_id": trace_id,
-                "grade": payload.get("grade"),
-                "score": payload.get("score"),
-                "score_pct": payload.get("score_pct"),
-                "metrics": payload.get("metrics", {}),
-                "fills_graded": payload.get("fills_graded"),
-                "timestamp": payload.get("timestamp") or datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        if log_type == LogType.GRADE:
+            store.add_grade(
+                {
+                    "trace_id": trace_id,
+                    "grade": payload.get("grade"),
+                    "score": payload.get("score"),
+                    "score_pct": payload.get("score_pct"),
+                    "metrics": payload.get("metrics", {}),
+                    "fills_graded": payload.get("fills_graded"),
+                    "timestamp": payload.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        else:
+            store.add_event(
+                {
+                    "log_type": log_type,
+                    "trace_id": trace_id,
+                    "agent_run_id": agent_run_id,
+                    "payload": payload,
+                }
+            )
+        return
+
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -68,10 +86,13 @@ async def write_agent_log(
 
 
 async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, Any]) -> None:
-    """Insert a row into agent_grades. Logs a warning on failure and does not raise."""
-    if storage_backend() == "memory":
-        store = get_runtime_store()
-        store.add_grade(
+    """Insert a row into agent_grades.
+
+    Memory mode: writes to InMemoryStore grade_history.
+    DB mode: INSERT into agent_grades table.
+    """
+    if not is_db_available():
+        get_runtime_store().add_grade(
             {
                 "trace_id": trace_id,
                 "grade": None,
@@ -82,6 +103,8 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
+        return
+
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -112,7 +135,9 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
 
 
 async def persist_factor_ic(factor: str, ic_score: float, computed_at: str) -> None:
-    """Insert an IC score snapshot into factor_ic_history."""
+    """Insert an IC score snapshot into factor_ic_history. No-op in memory mode."""
+    if not is_db_available():
+        return
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -128,8 +153,20 @@ async def persist_factor_ic(factor: str, ic_score: float, computed_at: str) -> N
 
 
 async def persist_proposal(proposal: dict[str, Any]) -> None:
-    """Insert a proposal into agent_logs for dashboard query and audit trail."""
+    """Insert a proposal into agent_logs for dashboard query and audit trail.
+
+    Memory mode: writes to InMemoryStore event_history.
+    """
     trace_id = proposal.get("reflection_trace_id") or proposal.get("msg_id") or ""
+    if not is_db_available():
+        get_runtime_store().add_event(
+            {
+                "log_type": LogType.PROPOSAL,
+                "trace_id": trace_id,
+                "payload": proposal,
+            }
+        )
+        return
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -157,7 +194,12 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
 
 
 async def get_last_reflection() -> dict[str, Any]:
-    """Fetch the most recent reflection payload from agent_logs."""
+    """Fetch the most recent reflection payload from agent_logs.
+
+    Returns {} in memory mode (no history is persisted).
+    """
+    if not is_db_available():
+        return {}
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -191,10 +233,11 @@ async def get_last_reflection() -> dict[str, Any]:
 async def register_agent_instance(instance_key: str, pool_name: str) -> str:
     """Insert a new agent_instances row and return its UUID string.
 
-    Called once when an agent process starts.  Each restart produces a new
-    UUID, so retired instances remain in the table for audit purposes.
+    In memory mode: returns a generated UUID without any DB write.
     """
     instance_id = str(_uuid.uuid4())
+    if not is_db_available():
+        return instance_id
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -223,7 +266,9 @@ async def register_agent_instance(instance_key: str, pool_name: str) -> str:
 
 
 async def retire_agent_instance(instance_id: str) -> None:
-    """Mark an agent_instances row as retired with the current timestamp."""
+    """Mark an agent_instances row as retired. No-op in memory mode."""
+    if not is_db_available():
+        return
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -245,7 +290,9 @@ async def retire_agent_instance(instance_id: str) -> None:
 
 
 async def increment_instance_event_count(instance_id: str) -> None:
-    """Increment event_count for a running agent instance (best-effort)."""
+    """Increment event_count for a running agent instance. No-op in memory mode."""
+    if not is_db_available():
+        return
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -291,9 +338,11 @@ async def upsert_trade_lifecycle(
 ) -> None:
     """Insert or update one row in trade_lifecycle keyed on execution_trace_id.
 
-    Uses INSERT … ON CONFLICT DO UPDATE so the same trace_id accumulates
-    data as each downstream stage (grade, reflection) completes.
+    No-op in memory mode.
     """
+    if not is_db_available():
+        return
+
     now_iso = datetime.now(timezone.utc).isoformat()
     try:
         async with AsyncSessionFactory() as session:

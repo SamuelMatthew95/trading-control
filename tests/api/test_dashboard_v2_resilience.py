@@ -7,6 +7,12 @@ from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
 
 
+# Helper: enable the DB code path in tests that mock the session factory
+def _enable_db(monkeypatch):
+    """Patch is_db_available to True so DB-path branches execute in tests."""
+    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
+
+
 class _ExplodingSession:
     async def __aenter__(self):
         return self
@@ -162,6 +168,7 @@ async def test_learning_proposals_returns_empty_when_events_fallback_errors(monk
 
 @pytest.mark.asyncio
 async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeypatch):
+    _enable_db(monkeypatch)
     session_rows = [
         [[]],
         [[("trace-1", 0.84, {"fills_graded": 4}, None)]],
@@ -183,7 +190,8 @@ async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeyp
 
 @pytest.mark.asyncio
 async def test_learning_grades_uses_in_memory_when_db_unavailable(monkeypatch):
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    # DB is not available → endpoint routes directly to in-memory store (no DB attempt).
+    set_db_available(False)
     store = InMemoryStore()
     store.add_grade(
         {
@@ -201,7 +209,7 @@ async def test_learning_grades_uses_in_memory_when_db_unavailable(monkeypatch):
 
     assert payload["total"] == 1
     assert payload["grades"][0]["trace_id"] == "mem-trace-1"
-    assert payload["error"] == "grades_unavailable"
+    assert payload["source"] == "in_memory"
 
 
 @pytest.mark.asyncio
@@ -246,6 +254,7 @@ async def test_proposals_endpoint_falls_back_to_agent_logs_when_events_unavailab
 
 @pytest.mark.asyncio
 async def test_learning_endpoints_accept_stringified_payloads(monkeypatch):
+    _enable_db(monkeypatch)
     session_rows = [
         [[("trace-prop", '{"status":"approved","content":{"k":"v"}}', None)]],
         [[("trace-grade", '{"grade":"A","score":0.92,"metrics":{"fills_graded":3}}', None)]],
@@ -291,7 +300,7 @@ async def test_dashboard_state_db_failure_returns_in_memory_snapshot(monkeypatch
 
     payload = await dashboard_v2.get_dashboard_state()
 
-    assert payload["mode"] == "in_memory"
+    assert payload["mode"] == "in_memory_fallback"
     assert payload["db_health"] == "db_down"
     assert payload["notifications"]
 

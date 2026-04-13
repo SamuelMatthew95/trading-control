@@ -1,4 +1,11 @@
-"""Reasoning agent: makes trading decisions using LLM analysis of signals."""
+"""Reasoning agent: makes trading decisions using LLM analysis of signals.
+
+DB routing:
+  - is_db_available() is checked upfront in process().
+  - DB mode: writes to agent_runs, cost_tracking, vector_memory via a real session.
+  - Memory mode: stores everything in InMemoryStore, no DB session opened at all.
+  - get_persistence_mode() is NOT used here; it always returned "auto" and was dead code.
+"""
 
 from __future__ import annotations
 
@@ -30,7 +37,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.runtime_state import get_persistence_mode, get_runtime_store
+from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
@@ -65,7 +72,8 @@ class ReasoningAgent(BaseStreamConsumer):
             log_structured("warning", "vector_memory_search_failed", exc_info=True)
             similar_trades = []
 
-        fallback_reason = None
+        # --- LLM decision ------------------------------------------------
+        fallback_reason: str | None = None
         if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             fallback_reason = "budget_exceeded"
             summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
@@ -80,13 +88,14 @@ class ReasoningAgent(BaseStreamConsumer):
                 summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
                 tokens_used, cost_usd = 0, 0.0
 
-        async with AsyncSessionFactory() as session:
-            async with session.begin():
-                agent_run_id = await self._store_agent_run(
-                    data, summary, trace_id, fallback_reason is not None, session
-                )
-                await self._store_cost_tracking(today, tokens_used, cost_usd, session)
+        is_fallback = fallback_reason is not None
 
+        # --- Persist agent run + cost tracking ---------------------------
+        agent_run_id = await self._persist_run(
+            data, summary, trace_id, is_fallback, today, tokens_used, cost_usd
+        )
+
+        # --- Agent log ---------------------------------------------------
         await write_agent_log(
             trace_id,
             "reasoning_summary",
@@ -94,33 +103,24 @@ class ReasoningAgent(BaseStreamConsumer):
             agent_run_id=agent_run_id,
         )
 
-        # Vector memory is best-effort — separate session so failures do not abort the main write
-        try:
-            async with AsyncSessionFactory() as vm_session:
-                async with vm_session.begin():
-                    await self._store_vector_memory(signal_summary, embedding, summary, vm_session)
-        except Exception:
-            if get_persistence_mode() == "db":
-                raise
+        # --- Vector memory (best-effort) ---------------------------------
+        await self._persist_vector(signal_summary, embedding, summary)
 
         log_structured(
-            "info", "agent_transaction_success", trace_id=trace_id, action=summary.get("action")
+            "info", "reasoning_decision", trace_id=trace_id, action=summary.get("action")
         )
 
-        # Write Redis + Postgres heartbeat so dashboard shows this agent as ACTIVE
-        try:
-            await _write_heartbeat(
-                self.redis,
-                AGENT_REASONING,
-                f"action={summary.get('action')} symbol={data.get('symbol')}",
-            )
-        except Exception:
-            log_structured("warning", "reasoning_heartbeat_failed", exc_info=True)
+        # --- Heartbeat ---------------------------------------------------
+        await _write_heartbeat(
+            self.redis,
+            AGENT_REASONING,
+            f"action={summary.get('action')} symbol={data.get('symbol')}",
+        )
 
+        # --- Redis cost tracking -----------------------------------------
         await self.redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_used)
         await self.redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_usd)
 
-        # Publish live cost metric for WebSocket dashboard clients
         try:
             current_cost = float(await self.redis.get(REDIS_KEY_LLM_COST.format(date=today)) or 0.0)
             await self.bus.publish(
@@ -133,7 +133,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 },
             )
         except Exception:
-            pass
+            pass  # Cost metric is informational only
 
         updated_budget = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         if updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
@@ -157,10 +157,9 @@ class ReasoningAgent(BaseStreamConsumer):
             },
         )
 
+        # --- Publish order if actionable ---------------------------------
         action = summary.get("action", "").lower()
         if action not in NO_ORDER_ACTIONS:
-            # strategy_id must be a non-empty UUID; fall back to a generated one if the
-            # upstream signal didn't carry one (signals from SignalGenerator don't include it).
             strategy_id = str(data.get("strategy_id") or uuid.uuid4())
             await self.bus.publish(
                 STREAM_ORDERS,
@@ -187,7 +186,8 @@ class ReasoningAgent(BaseStreamConsumer):
                 "symbol": data.get("symbol"),
                 "price": data.get("price"),
                 "composite_score": data.get("composite_score"),
-                "signal_type": data.get("signal_type"),
+                # Signal publishes "type" (e.g. "STRONG_MOMENTUM"); some callers use "signal_type"
+                "signal_type": data.get("signal_type") or data.get("type"),
                 "context": data.get("context", {}),
             },
             sort_keys=True,
@@ -236,7 +236,50 @@ class ReasoningAgent(BaseStreamConsumer):
             "fallback": True,
         }
 
-    async def _store_agent_run(
+    # ------------------------------------------------------------------
+    # Unified persistence — single routing point per operation
+    # ------------------------------------------------------------------
+
+    async def _persist_run(
+        self,
+        data: dict[str, Any],
+        summary: dict[str, Any],
+        trace_id: str,
+        is_fallback: bool,
+        today: str,
+        tokens_used: int,
+        cost_usd: float,
+    ) -> str:
+        """Persist agent run and cost tracking. Routes DB vs memory, returns agent_run_id."""
+        if is_db_available():
+            async with AsyncSessionFactory() as session:
+                async with session.begin():
+                    agent_run_id = await self._db_store_agent_run(
+                        data, summary, trace_id, is_fallback, session
+                    )
+                    await self._db_store_cost_tracking(today, tokens_used, cost_usd, session)
+            return agent_run_id
+        return self._mem_store_agent_run(data, summary, trace_id, is_fallback)
+
+    async def _persist_vector(
+        self, signal_summary: str, embedding: list[float], summary: dict[str, Any]
+    ) -> None:
+        """Persist vector memory entry. Routes DB vs memory."""
+        if is_db_available():
+            try:
+                async with AsyncSessionFactory() as vm_session:
+                    async with vm_session.begin():
+                        await self._db_store_vector_memory(
+                            signal_summary, embedding, summary, vm_session
+                        )
+            except Exception:
+                log_structured("warning", "vector_memory_insert_failed", exc_info=True)
+        else:
+            self._mem_store_vector_memory(signal_summary, embedding, summary)
+
+    # --- DB path helpers (only called when is_db_available() is True) ---
+
+    async def _db_store_agent_run(
         self,
         data: dict[str, Any],
         summary: dict[str, Any],
@@ -244,135 +287,42 @@ class ReasoningAgent(BaseStreamConsumer):
         fallback: bool,
         session,
     ) -> str:
-        store = get_runtime_store()
-        if get_persistence_mode() == "memory":
-            fallback_id = f"in-memory-{trace_id}"
-            store.add_agent_run(
-                {
-                    "id": fallback_id,
-                    "trace_id": trace_id,
-                    "symbol": data.get("symbol"),
-                    "action": summary.get("action"),
-                    "confidence": summary.get("confidence"),
-                    "fallback": True,
-                    "source": AGENT_REASONING,
-                    "status": "running",
-                }
-            )
-            return fallback_id
-        try:
-            result = await session.execute(
-                text("""
-                    INSERT INTO agent_runs (
-                        strategy_id, symbol, signal_data, action, confidence,
-                        primary_edge, risk_factors, size_pct, stop_atr_x, rr_ratio,
-                        latency_ms, cost_usd, trace_id, fallback,
-                        source, schema_version, status
-                    ) VALUES (
-                        :strategy_id, :symbol, :signal_data, :action, :confidence,
-                        :primary_edge, :risk_factors, :size_pct, :stop_atr_x,
-                        :rr_ratio, :latency_ms, :cost_usd, :trace_id, :fallback,
-                        :source, :schema_version, 'running'
-                    ) RETURNING id
-                """),
-                {
-                    "strategy_id": data.get("strategy_id"),
-                    "symbol": data.get("symbol"),
-                    "signal_data": json.dumps(data, default=str),
-                    "action": summary["action"],
-                    "confidence": summary["confidence"],
-                    "primary_edge": summary["primary_edge"],
-                    "risk_factors": json.dumps(summary["risk_factors"], default=str),
-                    "size_pct": summary["size_pct"],
-                    "stop_atr_x": summary["stop_atr_x"],
-                    "rr_ratio": summary["rr_ratio"],
-                    "latency_ms": summary["latency_ms"],
-                    "cost_usd": summary["cost_usd"],
-                    "trace_id": trace_id,
-                    "fallback": fallback,
-                    "source": AGENT_REASONING,
-                    "schema_version": DB_SCHEMA_VERSION,
-                },
-            )
-            return str(result.scalar_one())
-        except Exception:
-            log_structured("error", "agent_run_insert_failed", exc_info=True, trace_id=trace_id)
-            if get_persistence_mode() == "db":
-                raise
-            fallback_id = f"in-memory-{trace_id}"
-            store.add_agent_run(
-                {
-                    "id": fallback_id,
-                    "trace_id": trace_id,
-                    "symbol": data.get("symbol"),
-                    "action": summary.get("action"),
-                    "confidence": summary.get("confidence"),
-                    "fallback": fallback,
-                    "source": AGENT_REASONING,
-                    "status": "running",
-                }
-            )
-            return fallback_id
+        result = await session.execute(
+            text("""
+                INSERT INTO agent_runs (
+                    strategy_id, symbol, signal_data, action, confidence,
+                    primary_edge, risk_factors, size_pct, stop_atr_x, rr_ratio,
+                    latency_ms, cost_usd, trace_id, fallback,
+                    source, schema_version, status
+                ) VALUES (
+                    :strategy_id, :symbol, :signal_data, :action, :confidence,
+                    :primary_edge, :risk_factors, :size_pct, :stop_atr_x,
+                    :rr_ratio, :latency_ms, :cost_usd, :trace_id, :fallback,
+                    :source, :schema_version, 'running'
+                ) RETURNING id
+            """),
+            {
+                "strategy_id": data.get("strategy_id"),
+                "symbol": data.get("symbol"),
+                "signal_data": json.dumps(data, default=str),
+                "action": summary["action"],
+                "confidence": summary["confidence"],
+                "primary_edge": summary["primary_edge"],
+                "risk_factors": json.dumps(summary["risk_factors"], default=str),
+                "size_pct": summary["size_pct"],
+                "stop_atr_x": summary["stop_atr_x"],
+                "rr_ratio": summary["rr_ratio"],
+                "latency_ms": summary["latency_ms"],
+                "cost_usd": summary["cost_usd"],
+                "trace_id": trace_id,
+                "fallback": fallback,
+                "source": AGENT_REASONING,
+                "schema_version": DB_SCHEMA_VERSION,
+            },
+        )
+        return str(result.scalar_one())
 
-    async def _store_vector_memory(
-        self, content: str, embedding: list[float], summary: dict[str, Any], session
-    ) -> None:
-        store = get_runtime_store()
-        if get_persistence_mode() == "memory":
-            store.add_vector_memory(
-                {
-                    "content": content,
-                    "embedding": embedding,
-                    "metadata": {"trace_id": summary.get("trace_id")},
-                    "outcome": {
-                        "action": summary.get("action"),
-                        "confidence": summary.get("confidence"),
-                    },
-                }
-            )
-            return
-        try:
-            await session.execute(
-                text("""
-                    INSERT INTO vector_memory (content, embedding, metadata_, outcome)
-                    VALUES (
-                        :content,
-                        CAST(:embedding AS vector),
-                        CAST(:metadata AS JSONB),
-                        CAST(:outcome AS JSONB)
-                    ) RETURNING id
-                """),
-                {
-                    "content": content,
-                    "embedding": build_vector_literal(embedding),
-                    "metadata": json.dumps({"trace_id": summary["trace_id"]}),
-                    "outcome": json.dumps(
-                        {"action": summary["action"], "confidence": summary["confidence"]}
-                    ),
-                },
-            )
-        except Exception:
-            log_structured(
-                "error",
-                "vector_memory_insert_failed",
-                exc_info=True,
-                trace_id=summary.get("trace_id"),
-            )
-            if get_persistence_mode() == "db":
-                raise
-            store.add_vector_memory(
-                {
-                    "content": content,
-                    "embedding": embedding,
-                    "metadata": {"trace_id": summary.get("trace_id")},
-                    "outcome": {
-                        "action": summary.get("action"),
-                        "confidence": summary.get("confidence"),
-                    },
-                }
-            )
-
-    async def _store_cost_tracking(
+    async def _db_store_cost_tracking(
         self, today: str, tokens_used: int, cost_usd: float, session
     ) -> None:
         try:
@@ -384,5 +334,66 @@ class ReasoningAgent(BaseStreamConsumer):
                 {"date": today, "tokens_used": tokens_used, "cost_usd": cost_usd},
             )
         except Exception:
-            log_structured("error", "cost_tracking_insert_failed", exc_info=True)
-            raise
+            log_structured("warning", "cost_tracking_insert_failed", exc_info=True)
+
+    async def _db_store_vector_memory(
+        self, content: str, embedding: list[float], summary: dict[str, Any], session
+    ) -> None:
+        await session.execute(
+            text("""
+                INSERT INTO vector_memory (content, embedding, metadata_, outcome)
+                VALUES (
+                    :content,
+                    CAST(:embedding AS vector),
+                    CAST(:metadata AS JSONB),
+                    CAST(:outcome AS JSONB)
+                ) RETURNING id
+            """),
+            {
+                "content": content,
+                "embedding": build_vector_literal(embedding),
+                "metadata": json.dumps({"trace_id": summary["trace_id"]}),
+                "outcome": json.dumps(
+                    {"action": summary["action"], "confidence": summary["confidence"]}
+                ),
+            },
+        )
+
+    # --- Memory path helpers (only called when is_db_available() is False) ---
+
+    def _mem_store_agent_run(
+        self,
+        data: dict[str, Any],
+        summary: dict[str, Any],
+        trace_id: str,
+        fallback: bool,
+    ) -> str:
+        run_id = f"mem-{trace_id}"
+        get_runtime_store().add_agent_run(
+            {
+                "id": run_id,
+                "trace_id": trace_id,
+                "symbol": data.get("symbol"),
+                "action": summary.get("action"),
+                "confidence": summary.get("confidence"),
+                "fallback": fallback,
+                "source": AGENT_REASONING,
+                "status": "running",
+            }
+        )
+        return run_id
+
+    def _mem_store_vector_memory(
+        self, content: str, embedding: list[float], summary: dict[str, Any]
+    ) -> None:
+        get_runtime_store().add_vector_memory(
+            {
+                "content": content,
+                "embedding": embedding,
+                "metadata": {"trace_id": summary.get("trace_id")},
+                "outcome": {
+                    "action": summary.get("action"),
+                    "confidence": summary.get("confidence"),
+                },
+            }
+        )

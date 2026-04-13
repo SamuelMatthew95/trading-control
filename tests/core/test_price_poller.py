@@ -6,9 +6,9 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
+import fakeredis
 import pytest
 
-import fakeredis
 from api.workers.price_poller import (
     _sync_fetch_crypto,
     _sync_fetch_stocks,
@@ -323,7 +323,10 @@ async def test_flush_to_db_calls_execute_for_each_symbol():
         {"symbol": "BTC/USD", "price": 50000.0, "change": 0.0, "pct": 0.0, "ts": 1},
         {"symbol": "ETH/USD", "price": 3000.0, "change": 0.0, "pct": 0.0, "ts": 1},
     ]
-    with patch("api.workers.price_poller.AsyncSessionFactory", factory):
+    with (
+        patch("api.workers.price_poller.AsyncSessionFactory", factory),
+        patch("api.workers.price_poller.is_db_available", return_value=True),
+    ):
         await flush_to_db(payloads)
     # 2 symbols × 2 statements (prices_snapshot + system_metrics) = 4 executions
     assert len(factory.session.executed) == 4

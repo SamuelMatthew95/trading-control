@@ -645,6 +645,8 @@ class TestDashboardStateResponseShape:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The REST hydration response must include all keys used by the frontend."""
+        # Activate DB path so MetricsAggregator is called instead of memory fallback.
+        monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=[None] * len(ALL_AGENT_NAMES))
         redis.get = AsyncMock(return_value=None)
@@ -693,6 +695,8 @@ class TestDashboardStateResponseShape:
     @pytest.mark.asyncio
     async def test_orders_list_preserved_in_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """orders[] from get_raw_snapshot() must pass through unchanged."""
+        # Activate DB path so MetricsAggregator is called instead of memory fallback.
+        monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=[None] * len(ALL_AGENT_NAMES))
         redis.get = AsyncMock(return_value=None)

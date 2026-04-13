@@ -5,15 +5,28 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from api.constants import (
+    AGENT_CHALLENGER,
+    AGENT_EXECUTION,
+    AGENT_GRADE,
+    AGENT_IC_UPDATER,
+    AGENT_NOTIFICATION,
+    AGENT_REASONING,
+    AGENT_REFLECTION,
+    AGENT_SIGNAL,
+    AGENT_STRATEGY_PROPOSER,
+)
+
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
-    "signal_generator": {"status": "idle"},
-    "reasoning": {"status": "idle"},
-    "execution": {"status": "idle"},
-    "grade": {"status": "idle"},
-    "ic_updater": {"status": "idle"},
-    "reflection": {"status": "idle"},
-    "strategy_proposer": {"status": "idle"},
-    "notification": {"status": "idle"},
+    AGENT_SIGNAL: {"status": "idle"},
+    AGENT_REASONING: {"status": "idle"},
+    AGENT_EXECUTION: {"status": "idle"},
+    AGENT_GRADE: {"status": "idle"},
+    AGENT_IC_UPDATER: {"status": "idle"},
+    AGENT_REFLECTION: {"status": "idle"},
+    AGENT_STRATEGY_PROPOSER: {"status": "idle"},
+    AGENT_NOTIFICATION: {"status": "idle"},
+    AGENT_CHALLENGER: {"status": "idle"},
 }
 
 

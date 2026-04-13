@@ -58,6 +58,7 @@ from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.runtime_state import is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
@@ -173,9 +174,29 @@ class GradeAgent(MultiStreamAgent):
         await write_agent_log(trace_id, LogType.GRADE, payload)
         await write_grade_to_db(trace_id, payload["score_pct"], payload["metrics"])
         await self._take_grade_action(grade, payload)
+        await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
-        # Back-fill grade onto the most recent unfilled trade_lifecycle row for
-        # the reasoning_agent (best-effort — non-fatal).
+        # Write heartbeat with last grade score for dashboard display
+        try:
+            from api.redis_client import get_redis as _get_redis
+
+            _redis = await _get_redis()
+            await _write_heartbeat(
+                _redis,
+                self._state_name,
+                f"grade={grade} score={payload['score_pct']}",
+                self._fills,
+                extra={"last_grade_score": payload["score_pct"]},
+            )
+        except Exception:
+            log_structured("warning", "grade_heartbeat_failed", exc_info=True)
+
+    async def _backfill_grade_to_lifecycle(
+        self, grade: str, payload: dict[str, Any], trace_id: str
+    ) -> None:
+        """Back-fill grade onto the most recent unfilled trade_lifecycle row. DB mode only."""
+        if not is_db_available():
+            return
         try:
             from sqlalchemy import text as _text
 
@@ -210,21 +231,6 @@ class GradeAgent(MultiStreamAgent):
         except Exception:
             log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
 
-        # Write heartbeat with last grade score for dashboard display
-        try:
-            from api.redis_client import get_redis as _get_redis
-
-            _redis = await _get_redis()
-            await _write_heartbeat(
-                _redis,
-                self._state_name,
-                f"grade={grade} score={payload['score_pct']}",
-                self._fills,
-                extra={"last_grade_score": payload["score_pct"]},
-            )
-        except Exception:
-            log_structured("warning", "grade_heartbeat_failed", exc_info=True)
-
     def _win_rate(self, lookback_n: int) -> float:
         recent = list(self._pnl_buffer)[-lookback_n:]
         if not recent:
@@ -233,27 +239,28 @@ class GradeAgent(MultiStreamAgent):
 
     async def _information_coefficient(self, lookback_n: int) -> float:
         """Spearman correlation between agent confidence and realized returns."""
-        try:
-            async with AsyncSessionFactory() as session:
-                result = await session.execute(
-                    text("""
-                        SELECT ar.confidence, tp.pnl
-                        FROM agent_runs ar
-                        JOIN orders o ON o.trace_id = ar.trace_id
-                        JOIN trade_performance tp ON tp.order_id = o.id
-                        ORDER BY ar.created_at DESC
-                        LIMIT :n
-                    """),
-                    {"n": lookback_n},
-                )
-                rows = result.all()
-                if len(rows) >= 3:
-                    confs = [float(r[0]) for r in rows if r[0] is not None]
-                    pnls = [float(r[1]) for r in rows if r[1] is not None]
-                    if len(confs) >= 3:
-                        return spearman_correlation(confs, pnls)
-        except Exception:
-            pass
+        if is_db_available():
+            try:
+                async with AsyncSessionFactory() as session:
+                    result = await session.execute(
+                        text("""
+                            SELECT ar.confidence, tp.pnl
+                            FROM agent_runs ar
+                            JOIN orders o ON o.trace_id = ar.trace_id
+                            JOIN trade_performance tp ON tp.order_id = o.id
+                            ORDER BY ar.created_at DESC
+                            LIMIT :n
+                        """),
+                        {"n": lookback_n},
+                    )
+                    rows = result.all()
+                    if len(rows) >= 3:
+                        confs = [float(r[0]) for r in rows if r[0] is not None]
+                        pnls = [float(r[1]) for r in rows if r[1] is not None]
+                        if len(confs) >= 3:
+                            return spearman_correlation(confs, pnls)
+            except Exception:
+                pass
 
         confs = list(self._confidence_buffer)[-lookback_n:]
         pnls = list(self._pnl_buffer)[-lookback_n:]
@@ -265,17 +272,20 @@ class GradeAgent(MultiStreamAgent):
 
     async def _cost_efficiency(self, lookback_n: int) -> float:
         """Total PnL divided by total LLM cost for last N fills."""
-        try:
-            async with AsyncSessionFactory() as session:
-                result = await session.execute(
-                    text("""
-                        SELECT COALESCE(SUM(cost_usd), 0)
-                        FROM (SELECT cost_usd FROM agent_runs ORDER BY created_at DESC LIMIT :n) sub
-                    """),
-                    {"n": lookback_n},
-                )
-                total_cost = float(result.scalar() or 0.0)
-        except Exception:
+        if is_db_available():
+            try:
+                async with AsyncSessionFactory() as session:
+                    result = await session.execute(
+                        text("""
+                            SELECT COALESCE(SUM(cost_usd), 0)
+                            FROM (SELECT cost_usd FROM agent_runs ORDER BY created_at DESC LIMIT :n) sub
+                        """),
+                        {"n": lookback_n},
+                    )
+                    total_cost = float(result.scalar() or 0.0)
+            except Exception:
+                total_cost = 0.0
+        else:
             total_cost = 0.0
 
         total_pnl = sum(list(self._pnl_buffer)[-lookback_n:])
@@ -286,6 +296,8 @@ class GradeAgent(MultiStreamAgent):
     async def _latency_score(self) -> float:
         """1 - (p95_latency_ms / timeout_ms). Higher score means lower latency."""
         timeout_ms = float(settings.LLM_TIMEOUT_SECONDS) * 1000.0
+        if not is_db_available():
+            return 0.8
         try:
             async with AsyncSessionFactory() as session:
                 result = await session.execute(
@@ -430,7 +442,7 @@ class ICUpdater(MultiStreamAgent):
 
     async def _fetch_composite_score(self, trace_id: str | None) -> float:
         """Look up the composite_score from agent_runs for this trace_id."""
-        if not trace_id:
+        if not trace_id or not is_db_available():
             return 0.5
         try:
             async with AsyncSessionFactory() as session:

@@ -124,13 +124,36 @@ await write_heartbeat(redis, AGENT_SIGNAL, last_event="processed BTC/USD tick")
 ```
 Benefit: Postgres `agent_heartbeats` table retains history even after Redis key expiry.
 
-## CI/CD Commands (Must Pass)
+## CI/CD Verification (MANDATORY before every push)
+
+Run these in order — mirrors `.github/workflows/backend-ci.yml` exactly:
 ```bash
-ruff check . --fix                    # Linting
-ruff format --check .                 # Formatting  
-ruff check . --select=E9,F63,F7,F82   # Critical errors
-pytest tests/ -v --tb=short          # All tests pass
+ruff check . --fix
+ruff format --check .
+ruff check . --select=E9,F63,F7,F82
+pytest tests/core tests/api -v --tb=short     # CI "unit tests" step
+pytest tests/integration -v --tb=short        # CI "integration tests" step
+pytest tests/agents -v --tb=short             # local only — not in CI but catches regressions
 ```
+
+**Never use `pytest tests/` alone** — CI runs two separate subset commands, so
+ordering-sensitive failures only surface when you run them split, not combined.
+
+### Test Isolation Rule (CRITICAL — prevents ghost-state CI failures)
+`_db_available` and `get_runtime_store()` are module-level globals. Agents in memory mode
+write to the global `InMemoryStore`. Tests that call `agent.process()` without resetting
+the store pollute every subsequent test.
+
+`tests/conftest.py` resets both before every test automatically:
+```python
+@pytest.fixture(autouse=True)
+def _reset_runtime_state():
+    set_runtime_store(InMemoryStore())
+    set_db_available(False)
+```
+- Never call `set_db_available(True)` globally in a test — monkeypatch the module instead
+- Never assume the store is empty without calling `set_runtime_store(InMemoryStore())` first
+- See `memory-cicd.md` for the full catalogue of known CI failure patterns
 
 ## Agent Name Constants (CRITICAL — Prevents Dashboard Bugs)
 All agent names live in `api/constants.py`. NEVER use string literals for agent names.

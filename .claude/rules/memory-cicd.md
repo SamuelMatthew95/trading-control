@@ -1,195 +1,223 @@
 # CI/CD Patterns & Common Fixes
 # Memory File: CI/CD
-# Version: v1.0
-# Last Updated: 2026-03-31
+# Version: v2.0
+# Last Updated: 2026-04-13
 
-## Critical CI/CD Commands (Must Pass)
+## How CI Works (GitHub Actions — backend-ci.yml)
 
-### Exact Pipeline Commands
+CI runs on Python 3.10 AND 3.11 in parallel. Three steps:
+```
+Step 1 — Lint:       ruff check . --fix
+                     ruff format --check .
+                     ruff check . --select=E9,F63,F7,F82
+
+Step 2 — Unit:       pytest tests/core tests/api -v
+
+Step 3 — Integration: pytest tests/integration -v
+```
+
+`tests/agents/` is NOT in CI (run it locally to catch agent regressions before pushing).
+
+## Pre-push Verification — run these commands in order
+
 ```bash
-# Step 1: Ruff linting (must show "All checks passed!")
 ruff check . --fix
-
-# Step 2: Ruff formatting (must show "X files already formatted") 
 ruff format --check .
-
-# Step 3: Critical error checks (must show "All checks passed!")
 ruff check . --select=E9,F63,F7,F82
-
-# Step 4: Test suite (all tests must pass)
-pytest tests/ -v --tb=short
+pytest tests/core tests/api -v --tb=short      # mirrors CI "unit tests" step
+pytest tests/integration -v --tb=short         # mirrors CI "integration tests" step
+pytest tests/agents -v --tb=short              # local only — not in CI
 ```
 
-### Pre-push Verification
-```bash
-# Run complete CI/CD check locally
-ruff check . --fix && \
-ruff format --check . && \
-ruff check . --select=E9,F63,F7,F82 && \
-pytest tests/ -v --tb=short
-```
+**Never use `pytest tests/` alone.** CI runs two separate subset commands, so
+ordering-sensitive failures only appear when you run the subsets split, not combined.
 
-## Common CI/CD Failure Patterns & Fixes
+---
 
-### B008: Function Call in Default Argument
+## Known Failure Patterns
+
+### 1 — Test Pollution via Global InMemoryStore
+
+**What breaks:** A test that expects an empty store gets data from a previous test.
+**Root cause:** `_db_available = False` by default. Any test that calls `agent.process()`
+(e.g. `SignalGenerator.process()`) writes to the module-level `InMemoryStore`. That state
+survives into the next test.
+
+**The fix — autouse fixture in `tests/conftest.py` (already present):**
 ```python
-# ❌ WRONG - B008 error
-async def analyze_trade(request, trading_service=Depends(get_trading_service)):
+@pytest.fixture(autouse=True)
+def _reset_runtime_state():
+    set_runtime_store(InMemoryStore())
+    set_db_available(False)
+```
+Every test starts with a clean store and `is_db_available() == False`.
 
-# ✅ RIGHT - Use Annotated syntax
+**Rules:**
+- NEVER call `set_db_available(True)` globally in a test — use monkeypatch on the module
+- NEVER assume the store is empty without calling `set_runtime_store(InMemoryStore())` first
+- If your new test calls `agent.process()` and the next test fails with unexpected store
+  data — this is why. The autouse fixture handles it, but double-check you didn't call
+  `set_db_available(True)` without resetting after.
+
+```python
+# ❌ WRONG — leaks True into subsequent tests
+set_db_available(True)
+await sg.process(data)
+
+# ✅ RIGHT — isolated to this module call only
+monkeypatch.setattr("api.services.signal_generator.is_db_available", lambda: True)
+await sg.process(data)
+```
+
+---
+
+### 2 — B008: Function Call in Default Argument
+
+```python
+# ❌ WRONG
+async def endpoint(svc=Depends(get_service)):
+
+# ✅ RIGHT
 from typing import Annotated
-async def analyze_trade(
-    request, 
-    trading_service: Annotated[TradingService, Depends(get_trading_service)]
-):
+async def endpoint(svc: Annotated[Service, Depends(get_service)]):
 ```
 
-### F821: Undefined Name (Missing Import)
-```python
-# ❌ WRONG - F821 error
-trading_service: Annotated[TradingService, Depends(get_trading_service)]
+---
 
-# ✅ RIGHT - Add missing import
-from api.services.trading_service import TradingService
-trading_service: Annotated[TradingService, Depends(get_trading_service)]
-```
+### 3 — B904: Raise Without From
 
-### B904: Raise Without From
 ```python
-# ❌ WRONG - B904 error
+# ❌ WRONG
 except Exception as e:
     raise HTTPException(status_code=500, detail=str(e))
 
-# ✅ RIGHT - Add exception chaining
+# ✅ RIGHT
 except Exception as e:
     raise HTTPException(status_code=500, detail=str(e)) from None
 ```
 
-### Redis Compatibility Issues
+---
+
+### 4 — F821: Undefined Name (Missing Import)
+
+ruff -select=F82 catches this. Common case: `Annotated` or a service type used
+in a type hint without importing it.
+
 ```python
-# ❌ WRONG - Test failures with FakeRedis
+# ❌ WRONG — Annotated used but not imported
+svc: Annotated[MyService, Depends(get_svc)]
+
+# ✅ RIGHT
+from typing import Annotated
+```
+
+---
+
+### 5 — Logging Pattern Violations
+
+```python
+# ❌ WRONG — CI won't flag this but breaks structured log parsing
+log_structured("error", "failed", error=str(exc))
+
+# ✅ RIGHT
+log_structured("error", "failed", exc_info=True)
+```
+
+---
+
+### 6 — Redis Keyword Argument Incompatibility (FakeRedis)
+
+```python
+# ❌ WRONG — fails with FakeRedis in tests
 await redis.xgroup_create(stream, group, id="$", mkstream=True)
 
-# ✅ RIGHT - Use positional arguments
+# ✅ RIGHT — positional arg works everywhere
 await redis.xgroup_create(stream, group, "$", mkstream=True)
 ```
 
-### Logging Pattern Violations
+---
+
+### 7 — DEFAULT_AGENTS Keys Not Matching ALL_AGENT_NAMES
+
+`write_heartbeat()` writes to the store with SCREAMING_SNAKE_CASE agent name constants.
+`InMemoryStore.DEFAULT_AGENTS` keys must match those constants exactly.
+
 ```python
-# ❌ WRONG - CI/CD failure
-log_structured("error", "operation failed", error=str(exc))
+# ❌ WRONG — ghost idle agents appear next to active agents in the dashboard
+DEFAULT_AGENTS = {"signal_generator": {"status": "idle"}, ...}
 
-# ✅ RIGHT - Use exc_info=True
-log_structured("error", "operation failed", exc_info=True)
+# ✅ RIGHT — keys are the same constants heartbeat uses
+from api.constants import AGENT_SIGNAL, ...
+DEFAULT_AGENTS = {AGENT_SIGNAL: {"status": "idle"}, ...}
 ```
 
-## Code Quality Checks
+Guardrail test: `tests/agents/test_in_memory_persistence.py::test_default_agents_keys_match_all_agent_names`
 
-### Print Statement Detection
-```bash
-# Must return empty (no print statements)
-grep -rn "^[[:space:]]*print(" api/ --include="*.py" | grep -v ".pyc"
-```
+---
 
-### Logger Call Detection
-```bash
-# Must return empty (no old logger calls)
-grep -rn "logger\." api/ --include="*.py" | grep -v "logger = logging.getLogger"
-```
+### 8 — is_db_available() Routing Not Consolidated
 
-### Hardcoded URL Detection
-```bash
-# Must return empty (no hardcoded URLs)
-grep -rn "onrender\.com\|vercel\.app\|localhost:8000" \
-    frontend/src/ --include="*.ts" --include="*.tsx" \
-    | grep -v ".env" | grep -v "CLAUDE.md"
-```
+Every `if is_db_available():` block must live inside a dedicated private method
+(`_begin_run`, `_persist_run`, `_persist_vector`, etc.), NOT inline inside `process()`.
+`process()` must be zero-conditional — it just calls the unified routing method.
 
-## Schema Version Compliance
-
-### Database Write Requirements
 ```python
-# All new writes must include schema_version
-await writer.write(
-    table="agent_runs",
-    data={
-        "strategy_id": strategy_id,
-        "symbol": "BTC/USD",
-        "action": "buy",
-        "schema_version": "v3",  # MANDATORY
-        "source": "reasoning_agent"
-    }
-)
+# ❌ WRONG — routing scattered inline
+async def process(self, data):
+    if is_db_available():
+        await self._db_write(...)
+    else:
+        store.add_event(...)
+
+# ✅ RIGHT — process() stays clean
+async def process(self, data):
+    await self._persist_result(data)   # routing hidden inside
+
+async def _persist_result(self, data):
+    if is_db_available():
+        await self._db_write(data)
+    else:
+        get_runtime_store().add_event(...)
 ```
 
-### Schema Version Validation
-```bash
-# Check all agent_runs have schema_version='v3'
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_runs WHERE schema_version='v3';"
+---
 
-# Should equal total count
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM agent_runs;"
-```
+### 9 — Missing source Column in DB Writes
 
-## Test Requirements
+Migrations 20260407 added `source VARCHAR(64) NOT NULL` to `agent_runs`, `agent_logs`,
+`agent_grades`. All INSERTs must include it or the DB will reject the row.
 
-### Test File Naming
-```bash
-# Test files must follow pattern
-tests/test_{module_name}.py
-tests/agents/test_{agent_name}.py
-tests/api/test_{router_name}.py
-```
-
-### Test Coverage Requirements
-- Every agent: `tests/agents/test_{agent_name}.py`
-- Every API router: `tests/api/test_{router_name}.py`
-- Bug fixes: Add regression test that would have caught the bug
-
-### Common Test Patterns
 ```python
-# Agent testing with trace ID
-@pytest.mark.asyncio
-async def test_reasoning_agent_trace_propagation():
-    event_data = {
-        "type": "signal",
-        "data": {"symbol": "BTC/USD"},
-        "trace_id": "test-trace-123"
-    }
-    
-    result = await reasoning_agent.process_event(event_data)
-    assert result["trace_id"] != "test-trace-123"  # New trace generated
-    assert "incoming_trace_id" in result  # Original preserved
+# ❌ WRONG — missing source
+await session.execute(text("INSERT INTO agent_runs (trace_id, ...) VALUES (...)"), {...})
 
-# Database testing with FakeAsyncSession
-async def test_safe_writer_idempotency():
-    session = FakeAsyncSession()
-    writer = SafeWriter(session)
-    
-    # First write
-    record_id_1 = await writer.write(table="orders", data=data, 
-                                   idempotency_key="test-key",
-                                   schema_version="v3")
-    
-    # Second write (should return same ID)
-    record_id_2 = await writer.write(table="orders", data=data,
-                                   idempotency_key="test-key", 
-                                   schema_version="v3")
-    
-    assert record_id_1 == record_id_2
+# ✅ RIGHT
+await session.execute(text("INSERT INTO agent_runs (trace_id, source, ...) VALUES (...)"),
+    {"source": AGENT_SIGNAL, ...})
 ```
 
-## Performance Standards
+---
 
-### Linting Performance
-- Target: <10 seconds for `ruff check . --fix`
-- Target: <5 seconds for `ruff format --check .`
+## Code Smell Checks (run before pushing)
 
-### Test Performance  
-- Target: <30 seconds for full test suite
-- Target: <5 seconds for individual test files
+```bash
+# No raw print() calls in api/
+grep -rn "^[[:space:]]*print(" api/ --include="*.py"
 
-### Memory Usage
-- CLAUDE.md: <200 lines (core memory)
-- Rule files: <500 lines each (focused)
-- Total context: <40k characters per file
+# No old logger.* calls in api/
+grep -rn "logger\." api/ --include="*.py" | grep -v "= logging.getLogger"
+
+# No hardcoded agent name strings (should all be constants)
+grep -rn '"signal_generator"\|"reasoning"\|"grade_agent"' api/ --include="*.py"
+```
+
+## Test File Naming Conventions
+
+```
+tests/agents/test_{agent_name}.py     # per-agent
+tests/api/test_{router_name}.py       # per API router
+tests/core/test_{module_name}.py      # core logic
+tests/integration/test_{flow}.py      # end-to-end flows
+```
+
+Every bug fix must include a regression test that would have caught the bug.
