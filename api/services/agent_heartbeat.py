@@ -1,13 +1,12 @@
 """Shared heartbeat writer for all agents.
 
-Every agent must call write_heartbeat() after processing each event so the
+Every agent calls write_heartbeat() after processing each event so the
 dashboard can show accurate ACTIVE / STALE / offline status.
 
-What it does:
-  1. Writes agent:status:{AGENT_NAME} to Redis (TTL = AGENT_HEARTBEAT_TTL_SECONDS)
-  2. Upserts a row into the agent_heartbeats Postgres table
-
-Both writes are best-effort — a failure in either must never crash the agent.
+Write order (all best-effort — a failure in any step never crashes the agent):
+  1. In-memory store  — always; guarantees dashboard fallback has live data
+  2. Redis            — fast path; dashboard polls this for live status
+  3. Postgres         — persistent history; skipped entirely when DB is unavailable
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from sqlalchemy import text
 from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, REDIS_AGENT_STATUS_KEY, AgentStatus
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
+from api.runtime_state import get_runtime_store, is_db_available
 
 
 async def write_heartbeat(
@@ -30,14 +30,14 @@ async def write_heartbeat(
     event_count: int = 0,
     extra: dict[str, Any] | None = None,
 ) -> None:
-    """Write agent heartbeat to Redis and Postgres.
+    """Write agent heartbeat to in-memory store, Redis, and (if available) Postgres.
 
     Args:
         redis:       An async Redis client instance.
         agent_name:  SCREAMING_SNAKE_CASE agent name constant (e.g. AGENT_SIGNAL).
         last_event:  Human-readable description of the most recent event processed.
         event_count: Running count of events processed (best-effort, can be 0).
-        extra:       Optional extra fields to merge into the Redis payload.
+        extra:       Optional extra fields to merge into the payload.
     """
     payload: dict[str, Any] = {
         "status": "ACTIVE",
@@ -48,7 +48,10 @@ async def write_heartbeat(
     if extra:
         payload.update(extra)
 
-    # 1. Redis — fast path; dashboard polls this for live status
+    # 1. In-memory store — always written so dashboard fallback shows live agent status
+    get_runtime_store().upsert_agent(agent_name, payload)
+
+    # 2. Redis — fast path for live dashboard polling
     try:
         await redis.set(
             REDIS_AGENT_STATUS_KEY.format(name=agent_name),
@@ -58,7 +61,10 @@ async def write_heartbeat(
     except Exception:
         log_structured("warning", "heartbeat_redis_failed", agent=agent_name, exc_info=True)
 
-    # 2. Postgres — persistent record; survives Redis flush / restart
+    # 3. Postgres — persistent record; skip entirely when DB is unavailable
+    if not is_db_available():
+        return
+
     try:
         async with AsyncSessionFactory() as session:
             async with session.begin():

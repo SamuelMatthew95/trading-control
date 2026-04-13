@@ -115,8 +115,9 @@ class TestAgentRunsInsert:
         for idx in update_indices:
             snippet = src[idx : idx + 300]
             if "WHERE id=:id" in snippet or "WHERE id = :id" in snippet:
-                # The param dict near this update must use db_run_id, not run_id
-                param_region = src[idx : idx + 500]
+                # The param dict near this update must use db_run_id, not run_id.
+                # Window is 700 to account for deeply-indented SQL strings.
+                param_region = src[idx : idx + 700]
                 assert '"id": db_run_id' in param_region or "'id': db_run_id" in param_region, (
                     f"UPDATE agent_runs at offset {idx} must use db_run_id (integer), "
                     f"not run_id (UUID). Snippet:\n{snippet}"
