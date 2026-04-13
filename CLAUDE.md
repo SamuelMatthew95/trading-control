@@ -124,42 +124,36 @@ await write_heartbeat(redis, AGENT_SIGNAL, last_event="processed BTC/USD tick")
 ```
 Benefit: Postgres `agent_heartbeats` table retains history even after Redis key expiry.
 
-## CI/CD Commands (Must Pass)
+## CI/CD Verification (MANDATORY before every push)
+
+Run these in order — mirrors `.github/workflows/backend-ci.yml` exactly:
 ```bash
-ruff check . --fix                    # Linting
-ruff format --check .                 # Formatting  
-ruff check . --select=E9,F63,F7,F82   # Critical errors
-pytest tests/ -v --tb=short          # All tests pass
+ruff check . --fix
+ruff format --check .
+ruff check . --select=E9,F63,F7,F82
+pytest tests/core tests/api -v --tb=short     # CI "unit tests" step
+pytest tests/integration -v --tb=short        # CI "integration tests" step
+pytest tests/agents -v --tb=short             # local only — not in CI but catches regressions
 ```
 
-### MANDATORY pre-push verification — run ALL of these before every push
-```bash
-ruff check . --fix && \
-ruff format --check . && \
-ruff check . --select=E9,F63,F7,F82 && \
-pytest tests/core tests/api -v --tb=short && \
-pytest tests/integration -v --tb=short && \
-pytest tests/ -q --tb=short
-```
-The CI pipeline runs `pytest tests/core tests/api` AND `pytest tests/integration` separately
-(not `pytest tests/`). Always run both subsets locally before pushing to catch ordering-sensitive
-failures that only appear when tests run in a specific sequence.
+**Never use `pytest tests/` alone** — CI runs two separate subset commands, so
+ordering-sensitive failures only surface when you run them split, not combined.
 
 ### Test Isolation Rule (CRITICAL — prevents ghost-state CI failures)
-`_db_available` and `get_runtime_store()` are module-level globals. Agents that run in
-memory mode (is_db_available() == False) write to the global InMemoryStore. If a test
-calls `agent.process()` without resetting the store, it pollutes every subsequent test.
+`_db_available` and `get_runtime_store()` are module-level globals. Agents in memory mode
+write to the global `InMemoryStore`. Tests that call `agent.process()` without resetting
+the store pollute every subsequent test.
 
-**The `tests/conftest.py` autouse fixture resets both before every test:**
+`tests/conftest.py` resets both before every test automatically:
 ```python
 @pytest.fixture(autouse=True)
 def _reset_runtime_state():
     set_runtime_store(InMemoryStore())
     set_db_available(False)
 ```
-- DO NOT call `set_db_available(True)` and forget to reset — next test inherits it
-- DO NOT rely on store being empty unless you called `set_runtime_store(InMemoryStore())` first
-- If your test needs True, monkeypatch `is_db_available` in the module under test instead of calling `set_db_available(True)` globally
+- Never call `set_db_available(True)` globally in a test — monkeypatch the module instead
+- Never assume the store is empty without calling `set_runtime_store(InMemoryStore())` first
+- See `memory-cicd.md` for the full catalogue of known CI failure patterns
 
 ## Agent Name Constants (CRITICAL — Prevents Dashboard Bugs)
 All agent names live in `api/constants.py`. NEVER use string literals for agent names.
