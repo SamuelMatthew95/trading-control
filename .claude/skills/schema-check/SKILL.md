@@ -43,3 +43,38 @@ pytest tests/agents/test_signal_generator_db_writes.py -v --tb=short
 ```
 
 Report: list all violations, then test results. Zero violations = ✅ compliant.
+
+---
+
+## Example of great output
+
+**Violations found:**
+```
+❌ api/agents/reasoning_agent.py:83 — INTEGER PK violation
+   INSERT INTO agent_runs (id, strategy_id, ...) — remove `id` from column list
+
+❌ api/routes/trading.py:124 — Hardcoded Redis key
+   await redis.set("kill_switch:active", "1") — use REDIS_KEY_KILL_SWITCH
+
+Guardrail tests:
+  ✅ test_production_schema_guardrails.py — 12 passed
+  ❌ test_signal_generator_db_writes.py — 1 failed
+     AssertionError: 'id' found in INSERT column list
+
+2 violations. Fix before pushing.
+```
+
+**Clean audit:**
+```
+✅ No INTEGER PK violations
+✅ All SafeWriter calls include schema_version='v3'
+✅ All INSERTs include source column
+✅ No hardcoded Redis keys
+✅ No hardcoded TTL values
+
+Guardrail tests:
+  ✅ test_production_schema_guardrails.py — 12 passed
+  ✅ test_signal_generator_db_writes.py — 8 passed
+
+Schema compliant — safe to push.
+```
