@@ -208,7 +208,6 @@ REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
-REDIS_KEY_REFLECTION_COUNT: Final[str] = "reflection:trade_count"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
