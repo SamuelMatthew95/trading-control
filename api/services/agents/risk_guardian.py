@@ -54,6 +54,11 @@ class RiskGuardian:
         self.redis = redis_client
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        # Position cache: avoid a full DB scan on every check interval.
+        # Invalidated after publishing an auto-close so the next scan picks
+        # up the updated position state from Postgres.
+        self._position_cache: list[Any] = []
+        self._cache_valid: bool = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -93,21 +98,28 @@ class RiskGuardian:
     # ------------------------------------------------------------------
 
     async def _check_positions(self) -> None:
-        """Read all open positions; auto-close on stop-loss or take-profit breach."""
-        try:
-            async with AsyncSessionFactory() as session:
-                result = await session.execute(
-                    text("""
-                        SELECT id, symbol, side, qty, avg_cost, strategy_id
-                        FROM positions
-                        WHERE side != 'flat' AND qty > 0
-                    """)
-                )
-                positions = result.mappings().all()
-        except Exception:
-            return  # DB not yet available — skip silently
+        """Read all open positions; auto-close on stop-loss or take-profit breach.
 
-        for pos in positions:
+        Uses an in-memory cache to avoid a full DB scan every interval.
+        The cache is invalidated whenever an auto-close decision is published,
+        so the next cycle reflects the updated position state.
+        """
+        if not self._cache_valid:
+            try:
+                async with AsyncSessionFactory() as session:
+                    result = await session.execute(
+                        text("""
+                            SELECT id, symbol, side, qty, avg_cost, strategy_id
+                            FROM positions
+                            WHERE side != 'flat' AND qty > 0
+                        """)
+                    )
+                    self._position_cache = list(result.mappings().all())
+                    self._cache_valid = True
+            except Exception:
+                return  # DB not yet available — skip silently
+
+        for pos in self._position_cache:
             symbol = str(pos["symbol"])
             side = str(pos["side"]).lower()
             avg_cost = float(pos["avg_cost"] or 0)
@@ -148,6 +160,7 @@ class RiskGuardian:
                 reason=reason,
             )
             await self._publish_close(symbol, close_action, qty, current_price, strategy_id, reason)
+            self._cache_valid = False  # Position state changed — reload on next cycle
 
     # ------------------------------------------------------------------
     # Portfolio-level daily loss check
