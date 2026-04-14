@@ -595,12 +595,22 @@ async def ensure_all_streams_ready(redis_client: Redis) -> None:
         )
         for stream, group in missing:
             await bus._ensure_stream_and_group(stream, group)
+        # Log completion so the startup barrier is always visible in logs,
+        # whether the path was clean or required recovery.
+        log_structured(
+            "info",
+            "redis_streams_ready",
+            stream_count=len(STREAMS),
+            groups=[DEFAULT_GROUP, PIPELINE_GROUP],
+            recovered=len(missing),
+        )
     else:
         log_structured(
             "info",
             "redis_streams_ready",
             stream_count=len(STREAMS),
             groups=[DEFAULT_GROUP, PIPELINE_GROUP],
+            recovered=0,
         )
 
 
