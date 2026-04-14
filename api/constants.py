@@ -268,6 +268,12 @@ ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
 ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
 
+# Agentic pattern constants
+# ReAct self-critique: only critique decisions above this confidence (controls LLM cost)
+REACT_CRITIQUE_CONFIDENCE_THRESHOLD: Final[float] = 0.7
+# Evaluator-Optimizer: trigger reflection refinement if fewer hypotheses than this
+REFLECTION_MIN_HYPOTHESES: Final[int] = 2
+
 # LLM fallback modes
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"
 LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
