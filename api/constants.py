@@ -212,6 +212,10 @@ REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
+REDIS_KEY_DLQ_RETRIES: Final[str] = "dlq:retries:{event_id}"
+DLQ_RETRIES_TTL_SECONDS: Final[int] = 86400  # 1 day — DLQ retry counter lifespan
+REDIS_KEY_NOTIFICATION_DEDUP: Final[str] = "notif:dedup:{stream}:{event_type}:{symbol}:{trace}"
+NOTIFICATION_DEDUP_TTL_SECONDS: Final[int] = 60  # dedup window — 1 minute
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"
