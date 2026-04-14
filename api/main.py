@@ -17,7 +17,7 @@ from sqlalchemy import text
 from api.config import get_cors_origins, parse_csv_env, settings
 from api.core.schemas import ErrorResponse
 from api.database import engine, get_settings_info, init_database, test_database_connection
-from api.events.bus import EventBus, create_redis_groups
+from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
 from api.in_memory_store import InMemoryStore
 from api.observability import (
@@ -163,7 +163,20 @@ async def lifespan(app: FastAPI):
 
         event_bus = EventBus(redis_client)
         dlq_manager = DLQManager(redis_client, event_bus)
-        await create_redis_groups(redis_client)
+
+        # STARTUP BARRIER: all streams and consumer groups must exist before
+        # any consumer (pipeline, agents) starts. ensure_all_streams_ready()
+        # creates, verifies, and self-heals any missing groups atomically.
+        await ensure_all_streams_ready(redis_client)
+        log_structured(
+            "info",
+            "redis_startup_barrier_passed",
+            event_name="redis_startup_barrier_passed",
+            event_type="system",
+            msg_id="none",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
         await broadcaster.start(redis_client)
         log_structured(
             "info",
