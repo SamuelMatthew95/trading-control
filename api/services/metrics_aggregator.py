@@ -622,6 +622,136 @@ class MetricsAggregator:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
+    async def get_paired_pnl(self, redis_client=None) -> dict[str, Any]:
+        """Return closed trade pairs and open position P&L for a complete portfolio view.
+
+        Closed trades come from ``trade_lifecycle`` rows where ``pnl IS NOT NULL``
+        (each row = one completed round-trip: entry_price, exit_price, realized pnl).
+
+        Open positions are read from ``positions`` and enriched with current price
+        from Redis (when ``redis_client`` is provided) to show unrealized P&L.
+        """
+        import json as _json
+
+        try:
+            closed_result = await self.session.execute(
+                text("""
+                    SELECT symbol, side, qty, entry_price, exit_price, pnl, pnl_percent,
+                           grade, status, filled_at, order_id, execution_trace_id
+                    FROM trade_lifecycle
+                    WHERE pnl IS NOT NULL AND pnl != 0
+                    ORDER BY filled_at DESC NULLS LAST
+                    LIMIT 100
+                """)
+            )
+            closed_rows = closed_result.mappings().all()
+
+            open_result = await self.session.execute(
+                text("""
+                    SELECT symbol, side, qty, avg_cost, unrealized_pnl, strategy_id
+                    FROM positions
+                    WHERE side != 'flat' AND qty > 0
+                    ORDER BY symbol
+                """)
+            )
+            open_rows = open_result.mappings().all()
+        except Exception:
+            log_structured("warning", "paired_pnl_query_failed", exc_info=True)
+            return {"closed_trades": [], "open_positions": [], "summary": {}}
+
+        # --- Closed trades -------------------------------------------------
+        closed_trades = []
+        realized_pnl = 0.0
+        winning = 0
+        for row in closed_rows:
+            pnl = float(row["pnl"] or 0)
+            realized_pnl += pnl
+            if pnl > 0:
+                winning += 1
+            closed_trades.append(
+                {
+                    "symbol": row["symbol"],
+                    "side": row["side"],
+                    "qty": float(row["qty"] or 0),
+                    "entry_price": float(row["entry_price"] or 0),
+                    "exit_price": float(row["exit_price"] or 0),
+                    "pnl": round(pnl, 8),
+                    "pnl_percent": round(float(row["pnl_percent"] or 0), 4),
+                    "grade": row.get("grade"),
+                    "status": row.get("status"),
+                    "filled_at": row["filled_at"].isoformat() if row["filled_at"] else None,
+                    "order_id": str(row["order_id"]) if row.get("order_id") else None,
+                    "trace_id": row.get("execution_trace_id"),
+                }
+            )
+
+        total_closed = len(closed_trades)
+        win_rate = (winning / total_closed * 100) if total_closed else 0.0
+
+        # --- Open positions ------------------------------------------------
+        open_positions = []
+        unrealized_pnl = 0.0
+        for row in open_rows:
+            symbol = str(row["symbol"])
+            avg_cost = float(row["avg_cost"] or 0)
+            qty = float(row["qty"] or 0)
+            side = str(row["side"]).lower()
+
+            # Try enriching with live price from Redis
+            current_price = avg_cost  # fallback
+            if redis_client is not None:
+                try:
+                    from api.constants import REDIS_KEY_PRICES
+
+                    raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
+                    if raw:
+                        price_data = _json.loads(raw)
+                        current_price = float(
+                            price_data.get("price") or price_data.get("last_price") or avg_cost
+                        )
+                except Exception:
+                    pass
+
+            if avg_cost > 0 and qty > 0:
+                if side == "long":
+                    pos_pnl = (current_price - avg_cost) * qty
+                    pnl_pct = (current_price - avg_cost) / avg_cost
+                else:
+                    pos_pnl = (avg_cost - current_price) * qty
+                    pnl_pct = (avg_cost - current_price) / avg_cost
+            else:
+                pos_pnl = 0.0
+                pnl_pct = 0.0
+
+            unrealized_pnl += pos_pnl
+            open_positions.append(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "avg_cost": avg_cost,
+                    "current_price": round(current_price, 8),
+                    "unrealized_pnl": round(pos_pnl, 8),
+                    "unrealized_pnl_pct": round(pnl_pct * 100, 4),
+                    "market_value": round(current_price * qty, 8),
+                }
+            )
+
+        return {
+            "closed_trades": closed_trades,
+            "open_positions": open_positions,
+            "summary": {
+                "realized_pnl": round(realized_pnl, 8),
+                "unrealized_pnl": round(unrealized_pnl, 8),
+                "total_pnl": round(realized_pnl + unrealized_pnl, 8),
+                "closed_trades": total_closed,
+                "winning_trades": winning,
+                "win_rate_percent": round(win_rate, 2),
+                "open_positions": len(open_positions),
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
     def _sanitize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         """
         Recursively sanitize snapshot to remove NaN values.
