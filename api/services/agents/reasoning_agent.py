@@ -9,6 +9,7 @@ DB routing:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import date, datetime, timezone
@@ -21,6 +22,7 @@ from api.constants import (
     AGENT_REASONING,
     LLM_FALLBACK_MODE_REJECT_SIGNAL,
     LLM_FALLBACK_MODE_USE_LAST_REFLECTION,
+    LLM_TIMEOUT_SECONDS,
     NO_ORDER_ACTIONS,
     REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
     REDIS_KEY_IC_WEIGHTS,
@@ -91,9 +93,20 @@ class ReasoningAgent(BaseStreamConsumer):
             tokens_used, cost_usd = 0, 0.0
         else:
             try:
-                summary, tokens_used, cost_usd = await self._call_llm(
-                    data, similar_trades, trace_id, context
+                summary, tokens_used, cost_usd = await asyncio.wait_for(
+                    self._call_llm(data, similar_trades, trace_id, context),
+                    timeout=LLM_TIMEOUT_SECONDS,
                 )
+            except asyncio.TimeoutError:
+                fallback_reason = "llm_timeout"
+                log_structured(
+                    "warning",
+                    "reasoning_llm_timeout",
+                    trace_id=trace_id,
+                    timeout=LLM_TIMEOUT_SECONDS,
+                )
+                summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
+                tokens_used, cost_usd = 0, 0.0
             except Exception as exc:  # noqa: BLE001
                 fallback_reason = str(exc)
                 summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
@@ -110,12 +123,21 @@ class ReasoningAgent(BaseStreamConsumer):
             and action not in NO_ORDER_ACTIONS
             and confidence >= REACT_CRITIQUE_CONFIDENCE_THRESHOLD
         ):
-            critique_summary, critique_tokens, critique_cost = await self._self_critique(
-                summary, context, trace_id
-            )
-            summary = critique_summary
-            tokens_used += critique_tokens
-            cost_usd += critique_cost
+            try:
+                critique_summary, critique_tokens, critique_cost = await asyncio.wait_for(
+                    self._self_critique(summary, context, trace_id),
+                    timeout=LLM_TIMEOUT_SECONDS,
+                )
+                summary = critique_summary
+                tokens_used += critique_tokens
+                cost_usd += critique_cost
+            except asyncio.TimeoutError:
+                log_structured(
+                    "warning",
+                    "reasoning_critique_timeout",
+                    trace_id=trace_id,
+                    timeout=LLM_TIMEOUT_SECONDS,
+                )
 
         # --- Persist agent run + cost tracking ---------------------------
         agent_run_id = await self._persist_run(
