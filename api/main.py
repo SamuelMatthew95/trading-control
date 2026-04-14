@@ -37,6 +37,7 @@ from api.runtime_state import (
     set_runtime_store,
 )
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
+from api.services.agent_supervisor import AgentSupervisor
 from api.services.agents.pipeline_agents import (
     GradeAgent,
     ICUpdater,
@@ -215,6 +216,11 @@ async def lifespan(app: FastAPI):
         app.state.risk_guardian = risk_guardian
         app.state.redis_client = redis_client
 
+        # AgentSupervisor: detects crashed agent tasks and restarts them
+        supervisor = AgentSupervisor(event_bus, redis_client, agents)
+        await supervisor.start()
+        app.state.supervisor = supervisor
+
         await broadcaster.broadcast(
             {
                 "type": "system",
@@ -258,6 +264,9 @@ async def lifespan(app: FastAPI):
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
+        supervisor_instance = getattr(app.state, "supervisor", None)
+        if supervisor_instance is not None:
+            await supervisor_instance.stop()
         for agent in reversed(getattr(app.state, "agents", [])):
             await agent.stop()
         risk_guardian_instance = getattr(app.state, "risk_guardian", None)
