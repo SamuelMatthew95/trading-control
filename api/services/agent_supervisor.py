@@ -35,9 +35,8 @@ class AgentSupervisor:
     Start/stop interface mirrors the agent API so main.py can manage it uniformly.
     """
 
-    def __init__(self, bus: EventBus, redis_client: Any, agents: list[Any]) -> None:
+    def __init__(self, bus: EventBus, agents: list[Any]) -> None:
         self.bus = bus
-        self.redis = redis_client
         self._agents = agents
         self._running = False
         self._task: asyncio.Task[None] | None = None
@@ -83,21 +82,14 @@ class AgentSupervisor:
     # ------------------------------------------------------------------
 
     async def _check_health(self) -> None:
-        """Inspect each agent's asyncio task; restart any that died unexpectedly."""
+        """Inspect each agent's task; restart any that died unexpectedly."""
         for agent in self._agents:
-            task: asyncio.Task[None] | None = getattr(agent, "_task", None)
-
-            # Healthy: task is running or hasn't started yet
-            if task is None or not task.done():
+            # Skip healthy agents and those cancelled during normal shutdown.
+            if not agent.has_crashed:
                 continue
 
-            # Cancelled during shutdown — do not restart
-            if task.cancelled():
-                continue
-
-            exc = task.exception()
-            agent_name = getattr(agent, "consumer", type(agent).__name__)
-            # Compute once — avoids repeating str(exc) which trips the logging safety check
+            exc = agent._task.exception()  # noqa: SLF001 — safe after has_crashed is True
+            agent_name = agent.name
             error_detail = repr(exc) if exc else "task_completed_unexpectedly"
 
             log_structured(
@@ -107,7 +99,7 @@ class AgentSupervisor:
                 exc_info=exc if exc else False,
             )
 
-            # Publish crash alert so dashboard and NotificationAgent see it
+            # Publish crash alert so dashboard and NotificationAgent see it.
             try:
                 await self.bus.publish(
                     STREAM_RISK_ALERTS,
@@ -122,7 +114,7 @@ class AgentSupervisor:
             except Exception:
                 log_structured("warning", "supervisor_alert_publish_failed", exc_info=True)
 
-            # Restart the agent
+            # Restart the agent.
             try:
                 await agent.start()
                 log_structured("info", "supervisor_restarted_agent", agent=agent_name)

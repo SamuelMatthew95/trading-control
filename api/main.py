@@ -217,7 +217,7 @@ async def lifespan(app: FastAPI):
         app.state.redis_client = redis_client
 
         # AgentSupervisor: detects crashed agent tasks and restarts them
-        supervisor = AgentSupervisor(event_bus, redis_client, agents)
+        supervisor = AgentSupervisor(event_bus, agents)
         await supervisor.start()
         app.state.supervisor = supervisor
 
