@@ -45,6 +45,7 @@ from api.services.agents.pipeline_agents import (
     StrategyProposer,
 )
 from api.services.agents.reasoning_agent import ReasoningAgent
+from api.services.agents.risk_guardian import RiskGuardian
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -208,6 +209,12 @@ async def lifespan(app: FastAPI):
             await agent.start()
         app.state.agents = agents
 
+        # RiskGuardian: periodic position monitor (stop-loss, take-profit, daily loss limit)
+        risk_guardian = RiskGuardian(event_bus, redis_client)
+        await risk_guardian.start()
+        app.state.risk_guardian = risk_guardian
+        app.state.redis_client = redis_client
+
         await broadcaster.broadcast(
             {
                 "type": "system",
@@ -253,6 +260,9 @@ async def lifespan(app: FastAPI):
                     await task
         for agent in reversed(getattr(app.state, "agents", [])):
             await agent.stop()
+        risk_guardian_instance = getattr(app.state, "risk_guardian", None)
+        if risk_guardian_instance is not None:
+            await risk_guardian_instance.stop()
         if pipeline is not None:
             await pipeline.stop()
         await broadcaster.stop()
