@@ -276,6 +276,16 @@ REFLECTION_MIN_HYPOTHESES: Final[int] = 2
 # ExecutionEngine: minimum weighted score required to execute (signal*0.5 + reasoning*0.3 + perf*0.2)
 EXECUTION_DECISION_THRESHOLD: Final[float] = 0.55
 
+# Risk Guardian constants — position-level and portfolio-level risk limits
+# Close position if unrealized loss exceeds this fraction of entry price
+STOP_LOSS_PCT: Final[float] = 0.05
+# Close position if unrealized gain exceeds this fraction of entry price
+TAKE_PROFIT_PCT: Final[float] = 0.10
+# Activate kill switch if today's realized PnL < -(portfolio_value * this)
+DAILY_LOSS_LIMIT_PCT: Final[float] = 0.02
+# How often (seconds) RiskGuardian scans open positions
+RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
+
 # LLM fallback modes
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"
 LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
