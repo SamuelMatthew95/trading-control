@@ -184,6 +184,7 @@ SOURCE_REFLECTION: Final[str] = "reflection_agent"
 SOURCE_STRATEGY_PROPOSER: Final[str] = "strategy_proposer"
 SOURCE_NOTIFICATION: Final[str] = "notification_agent"
 SOURCE_DB_HELPERS: Final[str] = "db_helpers"
+SOURCE_SUPERVISOR: Final[str] = "agent_supervisor"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
@@ -267,6 +268,8 @@ LLM_MAX_RETRIES: Final[int] = 3
 ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
 ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
+PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
+SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence
 
 # Agentic pattern constants
 # ReAct self-critique: only critique decisions above this confidence (controls LLM cost)
