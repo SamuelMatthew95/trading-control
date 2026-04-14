@@ -22,6 +22,8 @@ from api.constants import (
     LLM_FALLBACK_MODE_REJECT_SIGNAL,
     LLM_FALLBACK_MODE_USE_LAST_REFLECTION,
     NO_ORDER_ACTIONS,
+    REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
+    REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
     REDIS_KEY_LLM_TOKENS,
     SOURCE_REASONING,
@@ -41,12 +43,13 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
+from api.services.agents.prompts import REASONING_CRITIQUE_PROMPT
 from api.services.agents.vector_helpers import (
     build_vector_literal,
     embed_text,
     search_vector_memory,
 )
-from api.services.llm_router import call_llm
+from api.services.llm_router import call_llm, call_llm_with_system
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -63,6 +66,10 @@ class ReasoningAgent(BaseStreamConsumer):
         trace_id = str(uuid.uuid4())
 
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
+
+        # ReAct Step 1: Gather context (IC weights + risk state) before reasoning
+        context = await self._gather_context(data)
+
         signal_summary = self._build_signal_summary(data)
         embedding = await embed_text(signal_summary)
 
@@ -72,7 +79,7 @@ class ReasoningAgent(BaseStreamConsumer):
             log_structured("warning", "vector_memory_search_failed", exc_info=True)
             similar_trades = []
 
-        # --- LLM decision ------------------------------------------------
+        # --- LLM decision (enriched with gathered context) ---------------
         fallback_reason: str | None = None
         if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             fallback_reason = "budget_exceeded"
@@ -81,7 +88,7 @@ class ReasoningAgent(BaseStreamConsumer):
         else:
             try:
                 summary, tokens_used, cost_usd = await self._call_llm(
-                    data, similar_trades, trace_id
+                    data, similar_trades, trace_id, context
                 )
             except Exception as exc:  # noqa: BLE001
                 fallback_reason = str(exc)
@@ -89,6 +96,22 @@ class ReasoningAgent(BaseStreamConsumer):
                 tokens_used, cost_usd = 0, 0.0
 
         is_fallback = fallback_reason is not None
+
+        # ReAct Step 2: Self-critique for high-confidence actionable decisions
+        # Only runs when: not a fallback, action is buy/sell, confidence is high enough
+        action = str(summary.get("action", "")).lower()
+        confidence = float(summary.get("confidence") or 0.0)
+        if (
+            not is_fallback
+            and action not in NO_ORDER_ACTIONS
+            and confidence >= REACT_CRITIQUE_CONFIDENCE_THRESHOLD
+        ):
+            critique_summary, critique_tokens, critique_cost = await self._self_critique(
+                summary, context, trace_id
+            )
+            summary = critique_summary
+            tokens_used += critique_tokens
+            cost_usd += critique_cost
 
         # --- Persist agent run + cost tracking ---------------------------
         agent_run_id = await self._persist_run(
@@ -194,10 +217,120 @@ class ReasoningAgent(BaseStreamConsumer):
             default=str,
         )
 
-    async def _call_llm(
-        self, data: dict[str, Any], similar_trades: list[dict[str, Any]], trace_id: str
+    async def _gather_context(self, data: dict[str, Any]) -> dict[str, Any]:
+        """ReAct context gathering: fetch IC weights and derive risk state from signal.
+
+        This is the 'Observe' step — the agent collects environmental state before
+        deciding, rather than reasoning in a vacuum.
+        """
+        context: dict[str, Any] = {}
+
+        # Fetch live IC factor weights from Redis (written by ICUpdater)
+        try:
+            ic_raw = await self.redis.get(REDIS_KEY_IC_WEIGHTS)
+            if ic_raw:
+                context["ic_weights"] = json.loads(ic_raw)
+        except Exception:
+            log_structured("warning", "reasoning_ic_weights_fetch_failed", exc_info=True)
+
+        # Derive risk state from the signal itself
+        context["risk_state"] = {
+            "composite_score": float(data.get("composite_score") or 0.0),
+            "momentum_pct": float(data.get("pct") or 0.0),
+            "signal_strength": data.get("strength", "NORMAL"),
+            "signal_type": data.get("type") or data.get("signal_type", "UNKNOWN"),
+        }
+
+        log_structured(
+            "info",
+            "reasoning_context_gathered",
+            has_ic_weights=bool(context.get("ic_weights")),
+            signal_type=context["risk_state"]["signal_type"],
+        )
+        return context
+
+    async def _self_critique(
+        self,
+        decision: dict[str, Any],
+        context: dict[str, Any],
+        trace_id: str,
     ) -> tuple[dict[str, Any], int, float]:
-        prompt = json.dumps({"signal": data, "similar_trades": similar_trades}, default=str)
+        """ReAct self-critique: the agent evaluates its own decision before acting.
+
+        If the critique finds the decision unjustified, it applies the recommended
+        action and confidence. Falls back to the original decision on any error.
+        Returns (decision, tokens_used, cost_usd).
+        """
+        try:
+            critique_prompt = json.dumps(
+                {
+                    "decision": decision,
+                    "ic_weights": context.get("ic_weights", {}),
+                    "risk_state": context.get("risk_state", {}),
+                },
+                default=str,
+            )
+            raw_text, tokens, cost = await call_llm_with_system(
+                critique_prompt, REASONING_CRITIQUE_PROMPT, trace_id
+            )
+            cleaned = raw_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+                if "\n" in cleaned:
+                    first, rest = cleaned.split("\n", 1)
+                    if first.strip() in {"json", "JSON", ""}:
+                        cleaned = rest
+                if cleaned.rstrip().endswith("```"):
+                    cleaned = cleaned.rstrip()[:-3].strip()
+            critique = json.loads(cleaned)
+
+            log_structured(
+                "info",
+                "reasoning_self_critique_completed",
+                trace_id=trace_id,
+                justified=critique.get("justified"),
+                concerns=critique.get("concerns", []),
+                original_action=decision.get("action"),
+                recommended_action=critique.get("recommended_action"),
+            )
+
+            # Apply critique only when it explicitly flags the decision as unjustified
+            if not critique.get("justified", True):
+                rec_action = str(critique.get("recommended_action") or decision["action"]).lower()
+                rec_confidence = float(critique.get("recommended_confidence") or decision["confidence"])
+                refined = {
+                    **decision,
+                    "action": rec_action,
+                    "confidence": round(rec_confidence, 4),
+                    "risk_factors": list(decision.get("risk_factors") or [])
+                    + [c for c in critique.get("concerns", []) if c not in (decision.get("risk_factors") or [])],
+                }
+                return refined, tokens, cost
+
+            return decision, tokens, cost
+
+        except Exception:
+            log_structured(
+                "warning", "reasoning_critique_failed_using_original", trace_id=trace_id, exc_info=True
+            )
+            return decision, 0, 0.0
+
+    async def _call_llm(
+        self,
+        data: dict[str, Any],
+        similar_trades: list[dict[str, Any]],
+        trace_id: str,
+        context: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], int, float]:
+        prompt = json.dumps(
+            {
+                "signal": data,
+                "similar_trades": similar_trades,
+                "ic_weights": (context or {}).get("ic_weights", {}),
+                "risk_state": (context or {}).get("risk_state", {}),
+            },
+            default=str,
+        )
         return await call_llm(prompt, trace_id)
 
     async def _apply_fallback(
