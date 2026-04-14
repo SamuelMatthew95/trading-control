@@ -10,6 +10,7 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from api.constants import PROCESS_TIMEOUT_SECONDS
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -251,7 +252,12 @@ class BaseStreamConsumer(ABC):
 
         send_to_dlq = False
         try:
-            await self.process(data)
+            try:
+                await asyncio.wait_for(self.process(data), timeout=PROCESS_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    f"message_processing_timeout_{PROCESS_TIMEOUT_SECONDS}s stream={self.stream}"
+                ) from None
             await self.bus.acknowledge(self.stream, self.group, msg_id)
             log_structured(
                 "debug",
