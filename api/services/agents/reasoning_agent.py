@@ -28,7 +28,7 @@ from api.constants import (
     REDIS_KEY_LLM_TOKENS,
     SOURCE_REASONING,
     STREAM_AGENT_LOGS,
-    STREAM_ORDERS,
+    STREAM_DECISIONS,
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
@@ -53,7 +53,11 @@ from api.services.llm_router import call_llm, call_llm_with_system
 
 
 class ReasoningAgent(BaseStreamConsumer):
-    """Listens on the ``signals`` stream and publishes orders based on LLM decisions."""
+    """Listens on the ``signals`` stream and publishes advisory decisions to ``decisions``.
+
+    This agent is a validator, not a decider. It outputs reasoning_score + recommended action
+    to STREAM_DECISIONS. The ExecutionEngine is the sole authority for BUY/SELL orders.
+    """
 
     def __init__(self, bus: EventBus, dlq: DLQManager, redis_client):
         super().__init__(
@@ -180,24 +184,38 @@ class ReasoningAgent(BaseStreamConsumer):
             },
         )
 
-        # --- Publish order if actionable ---------------------------------
+        # --- Publish advisory decision to STREAM_DECISIONS ------------------
+        # ReasoningAgent is advisory only — ExecutionEngine makes the final call.
+        # Always publish regardless of action so ExecutionEngine can compute the
+        # weighted score (signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20).
         action = summary.get("action", "").lower()
-        if action not in NO_ORDER_ACTIONS:
-            strategy_id = str(data.get("strategy_id") or uuid.uuid4())
-            await self.bus.publish(
-                STREAM_ORDERS,
-                {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": SOURCE_REASONING,
-                    "strategy_id": strategy_id,
-                    "symbol": data.get("symbol"),
-                    "side": action,
-                    "qty": max(float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))),
-                    "price": float(data.get("price", data.get("last_price", 0.0))),
-                    "timestamp": data.get("timestamp", datetime.now(timezone.utc).isoformat()),
-                    "trace_id": trace_id,
-                },
-            )
+        strategy_id = str(data.get("strategy_id") or uuid.uuid4())
+        await self.bus.publish(
+            STREAM_DECISIONS,
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": SOURCE_REASONING,
+                "strategy_id": strategy_id,
+                "signal_id": str(data.get("signal_id") or data.get("msg_id") or ""),
+                "symbol": data.get("symbol"),
+                "action": action,
+                # Advisory scores — ExecutionEngine uses these in weighted formula
+                "reasoning_score": float(summary.get("confidence") or 0.0),
+                "signal_confidence": float(
+                    data.get("composite_score") or data.get("confidence") or 0.0
+                ),
+                # Order parameters forwarded for ExecutionEngine use
+                "qty": max(float(data.get("qty", 1.0)), float(summary.get("size_pct", 1.0))),
+                "price": float(data.get("price", data.get("last_price", 0.0))),
+                "timestamp": data.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                "trace_id": trace_id,
+                "primary_edge": summary.get("primary_edge", ""),
+                "risk_factors": summary.get("risk_factors", []),
+                "size_pct": float(summary.get("size_pct") or 0.01),
+                "stop_atr_x": float(summary.get("stop_atr_x") or 1.5),
+                "rr_ratio": float(summary.get("rr_ratio") or 2.0),
+            },
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
