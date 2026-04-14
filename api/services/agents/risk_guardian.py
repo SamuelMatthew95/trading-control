@@ -25,7 +25,6 @@ from typing import Any
 from sqlalchemy import text
 
 from api.constants import (
-    AGENT_EXECUTION,
     DAILY_LOSS_LIMIT_PCT,
     DEFAULT_PAPER_CASH,
     REDIS_KEY_KILL_SWITCH,
@@ -40,7 +39,6 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.observability import log_structured
-from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 
 
 class RiskGuardian:
@@ -83,7 +81,7 @@ class RiskGuardian:
             try:
                 await self._check_positions()
                 await self._check_daily_loss()
-                await _write_heartbeat(self.redis, AGENT_EXECUTION, "risk_guardian_scan")
+                log_structured("debug", "risk_guardian_scan_complete")
             except asyncio.CancelledError:
                 raise
             except Exception:
