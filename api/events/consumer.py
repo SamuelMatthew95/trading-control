@@ -10,7 +10,7 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from api.constants import PROCESS_TIMEOUT_SECONDS
+from api.constants import PROCESS_TIMEOUT_SECONDS, REDIS_KEY_DLQ_RETRIES
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -313,7 +313,7 @@ class BaseStreamConsumer(ABC):
             try:
                 send_to_dlq = await self.dlq.should_dlq(msg_id)
                 if send_to_dlq:
-                    retries_key = f"dlq:retries:{msg_id}"
+                    retries_key = REDIS_KEY_DLQ_RETRIES.format(event_id=msg_id)
                     retries = int(await self.dlq.redis.get(retries_key) or 0)
                     await self.dlq.push(self.stream, msg_id, data, error=str(exc), retries=retries)
                     await self.bus.acknowledge(self.stream, self.group, msg_id)
