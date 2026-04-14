@@ -192,8 +192,18 @@ class BaseStreamConsumer(ABC):
                 log_structured("info", "Consumer loop cancelled", stream=self.stream)
                 break
             except Exception:
-                log_structured("error", "Unexpected error in consumer loop", stream=self.stream)
-                break
+                # Re-raise so the asyncio Task ends with an exception.
+                # AgentSupervisor detects has_crashed (task.exception() is not None)
+                # and restarts the consumer automatically.  A bare `break` would exit
+                # the task cleanly, making has_crashed=False and the agent invisible
+                # to the supervisor — silently dead, never restarted.
+                log_structured(
+                    "error",
+                    "Unexpected error in consumer loop",
+                    stream=self.stream,
+                    exc_info=True,
+                )
+                raise
 
         log_structured("info", "Consumer loop ended", stream=self.stream)
 
