@@ -15,7 +15,13 @@ from api.constants import (
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
 )
-from api.events.bus import DEFAULT_GROUP, PIPELINE_GROUP, STREAMS, EventBus
+from api.events.bus import (
+    DEFAULT_GROUP,
+    PIPELINE_GROUP,
+    STREAMS,
+    EventBus,
+    ensure_all_streams_ready,
+)
 
 
 @pytest.mark.asyncio
@@ -160,6 +166,119 @@ async def test_group_id_parameter(fake_redis):
     assert len(messages) == 1
     msg_id, payload = messages[0]
     assert payload["signal"] == "BUY"
+
+
+@pytest.mark.asyncio
+async def test_nogroup_self_healing_in_consume(fake_redis):
+    """NOGROUP during consume() triggers _ensure_stream_and_group and returns []."""
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
+
+    # Delete one stream entirely to force NOGROUP on next consume
+    await fake_redis.delete(STREAM_ORDERS)
+
+    # consume() must NOT raise; it should self-heal and return []
+    result = await event_bus.consume(STREAM_ORDERS, DEFAULT_GROUP, "test_consumer")
+    assert result == []
+
+    # After self-healing, the stream/group must exist again
+    groups = await fake_redis.xinfo_groups(STREAM_ORDERS)
+    group_names = {
+        (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+    }
+    assert DEFAULT_GROUP in group_names, "DEFAULT_GROUP not recreated after NOGROUP in consume"
+
+
+@pytest.mark.asyncio
+async def test_nogroup_self_healing_in_reclaim(fake_redis):
+    """NOGROUP during reclaim_stale() triggers _ensure_stream_and_group and returns []."""
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
+
+    # Delete one stream entirely to force NOGROUP on xautoclaim
+    await fake_redis.delete(STREAM_AGENT_LOGS)
+
+    # reclaim_stale() must NOT raise; it should self-heal and return []
+    result = await event_bus.reclaim_stale(STREAM_AGENT_LOGS, DEFAULT_GROUP, "test_consumer")
+    assert result == []
+
+    # After self-healing, the stream/group must exist again
+    groups = await fake_redis.xinfo_groups(STREAM_AGENT_LOGS)
+    group_names = {
+        (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+    }
+    assert DEFAULT_GROUP in group_names, "DEFAULT_GROUP not recreated after NOGROUP in reclaim"
+
+
+@pytest.mark.asyncio
+async def test_ensure_all_streams_ready_cold_start(fake_redis):
+    """ensure_all_streams_ready() creates all streams/groups on a completely empty Redis."""
+    assert await fake_redis.dbsize() == 0
+
+    await ensure_all_streams_ready(fake_redis)
+
+    for stream in STREAMS:
+        groups = await fake_redis.xinfo_groups(stream)
+        group_names = {
+            (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+        }
+        assert DEFAULT_GROUP in group_names, f"{stream} missing DEFAULT_GROUP after cold start"
+        assert PIPELINE_GROUP in group_names, f"{stream} missing PIPELINE_GROUP after cold start"
+
+
+@pytest.mark.asyncio
+async def test_ensure_all_streams_ready_idempotent(fake_redis):
+    """Calling ensure_all_streams_ready() twice does not raise and groups survive."""
+    await ensure_all_streams_ready(fake_redis)
+    await ensure_all_streams_ready(fake_redis)  # second call must be safe
+
+    for stream in STREAMS:
+        groups = await fake_redis.xinfo_groups(stream)
+        group_names = {
+            (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+        }
+        assert DEFAULT_GROUP in group_names
+        assert PIPELINE_GROUP in group_names
+
+
+@pytest.mark.asyncio
+async def test_ensure_all_streams_ready_recovers_deleted_stream(fake_redis):
+    """ensure_all_streams_ready() recreates a stream that was deleted at runtime."""
+    await ensure_all_streams_ready(fake_redis)
+
+    # Simulate runtime stream deletion
+    await fake_redis.delete(STREAM_SIGNALS)
+    await fake_redis.delete(STREAM_RISK_ALERTS)
+
+    # Re-run barrier — must recover the deleted streams
+    await ensure_all_streams_ready(fake_redis)
+
+    for stream in (STREAM_SIGNALS, STREAM_RISK_ALERTS):
+        groups = await fake_redis.xinfo_groups(stream)
+        group_names = {
+            (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+        }
+        assert DEFAULT_GROUP in group_names, f"{stream} not recovered by ensure_all_streams_ready"
+        assert PIPELINE_GROUP in group_names, f"{stream} not recovered by ensure_all_streams_ready"
+
+
+@pytest.mark.asyncio
+async def test_ensure_stream_and_group_is_idempotent(fake_redis):
+    """_ensure_stream_and_group() is safe to call when group already exists (BUSYGROUP)."""
+    event_bus = EventBus(fake_redis)
+    await event_bus.create_groups()
+
+    # Call _ensure_stream_and_group on an already-existing stream+group — must not raise
+    await event_bus._ensure_stream_and_group(STREAM_MARKET_TICKS, DEFAULT_GROUP)
+    await event_bus._ensure_stream_and_group(STREAM_MARKET_TICKS, PIPELINE_GROUP)
+
+    # Groups must still exist
+    groups = await fake_redis.xinfo_groups(STREAM_MARKET_TICKS)
+    group_names = {
+        (g["name"].decode() if isinstance(g["name"], bytes) else g["name"]) for g in groups
+    }
+    assert DEFAULT_GROUP in group_names
+    assert PIPELINE_GROUP in group_names
 
 
 if __name__ == "__main__":
