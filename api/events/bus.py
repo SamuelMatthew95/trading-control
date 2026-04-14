@@ -122,6 +122,16 @@ def _decode_bytes(value: Any) -> str:
     return value
 
 
+def _is_nogroup_error(exc: ResponseError) -> bool:
+    """Return True if a Redis ResponseError means the stream or group is missing.
+
+    Covers both real Redis ("NOGROUP") and fakeredis
+    ("The XGROUP subcommand requires the key to exist").
+    """
+    msg = str(exc)
+    return "NOGROUP" in msg or "requires the key to exist" in msg
+
+
 class EventBus:
     """Redis Streams event bus for Valkey 8.1.4 / Redis 6-7 compatibility.
 
@@ -245,6 +255,18 @@ class EventBus:
                 exc_info=True,
             )
             return []
+        except ResponseError as exc:
+            if _is_nogroup_error(exc):
+                log_structured(
+                    "warning",
+                    "nogroup_detected_during_consume",
+                    stream=stream,
+                    group=group,
+                )
+                await self._ensure_stream_and_group(stream, group)
+            else:
+                log_structured("warning", "Redis consume failed", stream=stream, exc_info=True)
+            return []
         except Exception:
             log_structured("warning", "Redis consume failed", stream=stream, exc_info=True)
             return []
@@ -287,6 +309,39 @@ class EventBus:
         except ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise
+
+    async def _ensure_stream_and_group(self, stream: str, group: str) -> None:
+        """Self-heal: ensure stream and consumer group exist.
+
+        Called automatically when NOGROUP is detected during consume or reclaim.
+        Uses mkstream=True so the stream is created if missing.
+        Safe to call multiple times (idempotent via BUSYGROUP handling).
+        """
+        try:
+            await self.redis.xgroup_create(stream, group, "$", mkstream=True)
+            log_structured(
+                "info",
+                "stream_group_recreated",
+                stream=stream,
+                group=group,
+            )
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                log_structured(
+                    "warning",
+                    "stream_group_recreate_failed",
+                    stream=stream,
+                    group=group,
+                    exc_info=True,
+                )
+        except Exception:
+            log_structured(
+                "warning",
+                "stream_group_ensure_failed",
+                stream=stream,
+                group=group,
+                exc_info=True,
+            )
 
     async def create_groups(self) -> None:
         """Create all predefined streams and consumer groups."""
@@ -413,14 +468,23 @@ class EventBus:
                 exc_info=True,
             )
             return []
-        except ResponseError:
-            log_structured(
-                "warning",
-                "Redis response error during reclaim_stale",
-                stream=stream,
-                group=group,
-                exc_info=True,
-            )
+        except ResponseError as exc:
+            if _is_nogroup_error(exc):
+                log_structured(
+                    "warning",
+                    "nogroup_detected_during_reclaim",
+                    stream=stream,
+                    group=group,
+                )
+                await self._ensure_stream_and_group(stream, group)
+            else:
+                log_structured(
+                    "warning",
+                    "Redis response error during reclaim_stale",
+                    stream=stream,
+                    group=group,
+                    exc_info=True,
+                )
             return []
         except Exception:
             log_structured(
@@ -490,6 +554,61 @@ class EventBus:
         return decoded
 
 
+async def ensure_all_streams_ready(redis_client: Redis) -> None:
+    """Startup barrier: create all streams/groups and verify they all exist.
+
+    This is the hard barrier that MUST complete before any consumer starts.
+    It is idempotent — safe to call multiple times.
+
+    Steps:
+      1. Create all streams and consumer groups (idempotent, handles BUSYGROUP).
+      2. Verify every stream actually has DEFAULT_GROUP and PIPELINE_GROUP.
+      3. Attempt recovery for any groups still missing after step 1.
+      4. Log a single clear "redis_streams_ready" event when done.
+    """
+    bus = EventBus(redis_client)
+    await bus.create_groups()
+
+    # Verify all groups are actually present
+    missing: list[tuple[str, str]] = []
+    for stream in STREAMS:
+        try:
+            groups = await redis_client.xinfo_groups(stream)
+            group_names: set[str] = set()
+            for g in groups:
+                raw = g.get("name") or g.get(b"name", b"")
+                name = raw.decode() if isinstance(raw, bytes) else raw
+                group_names.add(name)
+            for group in (DEFAULT_GROUP, PIPELINE_GROUP):
+                if group not in group_names:
+                    missing.append((stream, group))
+        except Exception:
+            # Stream likely missing — attempt recovery for both groups
+            missing.append((stream, DEFAULT_GROUP))
+            missing.append((stream, PIPELINE_GROUP))
+
+    if missing:
+        log_structured(
+            "warning",
+            "redis_groups_missing_after_init",
+            missing=missing,
+        )
+        for stream, group in missing:
+            await bus._ensure_stream_and_group(stream, group)
+    else:
+        log_structured(
+            "info",
+            "redis_streams_ready",
+            stream_count=len(STREAMS),
+            groups=[DEFAULT_GROUP, PIPELINE_GROUP],
+        )
+
+
 async def create_redis_groups(redis_client: Redis) -> None:
-    """Create all Redis streams and consumer groups."""
-    await EventBus(redis_client).create_groups()
+    """Create all Redis streams and consumer groups.
+
+    Delegates to ensure_all_streams_ready() which acts as a startup barrier:
+    creates, verifies, and recovers any missing groups before returning.
+    Consumers must not start until this completes.
+    """
+    await ensure_all_streams_ready(redis_client)
