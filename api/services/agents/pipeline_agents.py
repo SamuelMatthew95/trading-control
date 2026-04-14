@@ -939,9 +939,7 @@ class StrategyProposer(MultiStreamAgent):
                     )
                     return result
         except Exception:
-            log_structured(
-                "warning", "strategy_proposer_plan_failed_using_original", exc_info=True
-            )
+            log_structured("warning", "strategy_proposer_plan_failed_using_original", exc_info=True)
         return strong
 
     def _build_proposal(

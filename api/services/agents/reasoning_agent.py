@@ -297,13 +297,19 @@ class ReasoningAgent(BaseStreamConsumer):
             # Apply critique only when it explicitly flags the decision as unjustified
             if not critique.get("justified", True):
                 rec_action = str(critique.get("recommended_action") or decision["action"]).lower()
-                rec_confidence = float(critique.get("recommended_confidence") or decision["confidence"])
+                rec_confidence = float(
+                    critique.get("recommended_confidence") or decision["confidence"]
+                )
                 refined = {
                     **decision,
                     "action": rec_action,
                     "confidence": round(rec_confidence, 4),
                     "risk_factors": list(decision.get("risk_factors") or [])
-                    + [c for c in critique.get("concerns", []) if c not in (decision.get("risk_factors") or [])],
+                    + [
+                        c
+                        for c in critique.get("concerns", [])
+                        if c not in (decision.get("risk_factors") or [])
+                    ],
                 }
                 return refined, tokens, cost
 
@@ -311,7 +317,10 @@ class ReasoningAgent(BaseStreamConsumer):
 
         except Exception:
             log_structured(
-                "warning", "reasoning_critique_failed_using_original", trace_id=trace_id, exc_info=True
+                "warning",
+                "reasoning_critique_failed_using_original",
+                trace_id=trace_id,
+                exc_info=True,
             )
             return decision, 0, 0.0
 
