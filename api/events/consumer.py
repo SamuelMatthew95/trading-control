@@ -10,7 +10,7 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from api.constants import PROCESS_TIMEOUT_SECONDS
+from api.constants import PROCESS_TIMEOUT_SECONDS, REDIS_KEY_DLQ_RETRIES
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -192,8 +192,18 @@ class BaseStreamConsumer(ABC):
                 log_structured("info", "Consumer loop cancelled", stream=self.stream)
                 break
             except Exception:
-                log_structured("error", "Unexpected error in consumer loop", stream=self.stream)
-                break
+                # Re-raise so the asyncio Task ends with an exception.
+                # AgentSupervisor detects has_crashed (task.exception() is not None)
+                # and restarts the consumer automatically.  A bare `break` would exit
+                # the task cleanly, making has_crashed=False and the agent invisible
+                # to the supervisor — silently dead, never restarted.
+                log_structured(
+                    "error",
+                    "Unexpected error in consumer loop",
+                    stream=self.stream,
+                    exc_info=True,
+                )
+                raise
 
         log_structured("info", "Consumer loop ended", stream=self.stream)
 
@@ -303,7 +313,7 @@ class BaseStreamConsumer(ABC):
             try:
                 send_to_dlq = await self.dlq.should_dlq(msg_id)
                 if send_to_dlq:
-                    retries_key = f"dlq:retries:{msg_id}"
+                    retries_key = REDIS_KEY_DLQ_RETRIES.format(event_id=msg_id)
                     retries = int(await self.dlq.redis.get(retries_key) or 0)
                     await self.dlq.push(self.stream, msg_id, data, error=str(exc), retries=retries)
                     await self.bus.acknowledge(self.stream, self.group, msg_id)

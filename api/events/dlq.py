@@ -6,6 +6,12 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from api.constants import (
+    DLQ_MAX_RETRIES,
+    DLQ_RETRIES_TTL_SECONDS,
+    REDIS_KEY_DLQ,
+    REDIS_KEY_DLQ_RETRIES,
+)
 from api.events.bus import STREAMS, EventBus
 
 
@@ -30,13 +36,15 @@ class DLQManager:
             "retries": retries,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        await self.redis.hset(f"dlq:{stream}", event_id, json.dumps(record, default=str))
+        await self.redis.hset(
+            REDIS_KEY_DLQ.format(stream=stream), event_id, json.dumps(record, default=str)
+        )
 
     async def should_dlq(self, event_id: str) -> bool:
-        retries_key = f"dlq:retries:{event_id}"
+        retries_key = REDIS_KEY_DLQ_RETRIES.format(event_id=event_id)
         retries = int(await self.redis.incr(retries_key))
-        await self.redis.expire(retries_key, 86400)
-        return retries >= 3
+        await self.redis.expire(retries_key, DLQ_RETRIES_TTL_SECONDS)
+        return retries >= DLQ_MAX_RETRIES
 
     async def get_all(self) -> list[dict[str, Any]]:
         return await self.get_recent(limit=10000)
@@ -44,7 +52,7 @@ class DLQManager:
     async def get_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for stream in STREAMS:
-            values = await self.redis.hgetall(f"dlq:{stream}")
+            values = await self.redis.hgetall(REDIS_KEY_DLQ.format(stream=stream))
             for value in values.values():
                 raw = value.decode("utf-8") if isinstance(value, bytes) else value
                 items.append(json.loads(raw))
@@ -58,7 +66,7 @@ class DLQManager:
         last_error: str | None = None
 
         for stream in STREAMS:
-            values = await self.redis.hgetall(f"dlq:{stream}")
+            values = await self.redis.hgetall(REDIS_KEY_DLQ.format(stream=stream))
             count = len(values)
             per_stream[stream] = count
             total += count
@@ -79,7 +87,7 @@ class DLQManager:
 
     async def replay(self, event_id: str) -> bool:
         for stream in STREAMS:
-            raw = await self.redis.hget(f"dlq:{stream}", event_id)
+            raw = await self.redis.hget(REDIS_KEY_DLQ.format(stream=stream), event_id)
             if raw is None:
                 continue
             raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
@@ -91,5 +99,5 @@ class DLQManager:
 
     async def clear(self, event_id: str) -> None:
         for stream in STREAMS:
-            await self.redis.hdel(f"dlq:{stream}", event_id)
-        await self.redis.delete(f"dlq:retries:{event_id}")
+            await self.redis.hdel(REDIS_KEY_DLQ.format(stream=stream), event_id)
+        await self.redis.delete(REDIS_KEY_DLQ_RETRIES.format(event_id=event_id))

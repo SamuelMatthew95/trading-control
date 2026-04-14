@@ -24,10 +24,12 @@ from api.constants import (
     AGENT_NOTIFICATION,
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
+    NOTIFICATION_DEDUP_TTL_SECONDS,
     REDIS_IC_WEIGHTS_TTL_SECONDS,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
     REDIS_KEY_LLM_TOKENS,
+    REDIS_KEY_NOTIFICATION_DEDUP,
     REFLECTION_MIN_HYPOTHESES,
     SOURCE_GRADE,
     SOURCE_IC_UPDATER,
@@ -1040,7 +1042,7 @@ class NotificationAgent(MultiStreamAgent):
             agent_state=agent_state,
         )
         self.redis = redis_client
-        self._dedup_window_secs = 60
+        self._dedup_window_secs = NOTIFICATION_DEDUP_TTL_SECONDS
 
     def _build_message(self, stream: str, event_type: str, data: dict[str, Any]) -> str:
         symbol = data.get("symbol")
@@ -1075,7 +1077,9 @@ class NotificationAgent(MultiStreamAgent):
         event_type = str(data.get("type") or data.get("notification_type") or stream)
         symbol_key = str(data.get("symbol") or data.get("asset") or "")
         trace_key = str(data.get("trace_id") or data.get("msg_id") or "")
-        dedup_key = f"notif:dedup:{stream}:{event_type}:{symbol_key}:{trace_key}"
+        dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
+            stream=stream, event_type=event_type, symbol=symbol_key, trace=trace_key
+        )
 
         if await self.redis.exists(dedup_key):
             return
