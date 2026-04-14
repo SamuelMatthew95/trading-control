@@ -6,7 +6,12 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from api.constants import DLQ_RETRIES_TTL_SECONDS, REDIS_KEY_DLQ, REDIS_KEY_DLQ_RETRIES
+from api.constants import (
+    DLQ_MAX_RETRIES,
+    DLQ_RETRIES_TTL_SECONDS,
+    REDIS_KEY_DLQ,
+    REDIS_KEY_DLQ_RETRIES,
+)
 from api.events.bus import STREAMS, EventBus
 
 
@@ -39,7 +44,7 @@ class DLQManager:
         retries_key = REDIS_KEY_DLQ_RETRIES.format(event_id=event_id)
         retries = int(await self.redis.incr(retries_key))
         await self.redis.expire(retries_key, DLQ_RETRIES_TTL_SECONDS)
-        return retries >= 3
+        return retries >= DLQ_MAX_RETRIES
 
     async def get_all(self) -> list[dict[str, Any]]:
         return await self.get_recent(limit=10000)
