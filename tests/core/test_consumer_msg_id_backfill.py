@@ -185,6 +185,9 @@ async def test_execution_engine_generates_strategy_id_when_absent():
         "timestamp": "2026-01-01T00:00:00Z",
         "trace_id": str(uuid.uuid4()),
         "schema_version": "v3",
+        # Provide a score that clears the weighted execution gate (>= 0.55)
+        "signal_confidence": 0.7,
+        "reasoning_score": 0.7,
     }
 
     with patch(
@@ -304,10 +307,11 @@ async def test_reasoning_agent_publishes_order_with_strategy_id_fallback():
                     ):
                         await agent.process(signal_data)
 
-    order_events = [(s, p) for s, p in published_orders if s == "orders"]
-    assert order_events, "ReasoningAgent must publish an order for a 'buy' decision"
-    _stream, order = order_events[0]
-    assert order.get("strategy_id"), "Order must have a non-empty strategy_id"
+    # ReasoningAgent now publishes advisory decisions to "decisions" (not "orders")
+    decision_events = [(s, p) for s, p in published_orders if s == "decisions"]
+    assert decision_events, "ReasoningAgent must publish a decision for a 'buy' advisory"
+    _stream, decision = decision_events[0]
+    assert decision.get("strategy_id"), "Decision must have a non-empty strategy_id"
     # Must be a valid UUID
-    parsed = uuid.UUID(str(order["strategy_id"]))
+    parsed = uuid.UUID(str(decision["strategy_id"]))
     assert parsed.version == 4

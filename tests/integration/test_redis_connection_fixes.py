@@ -256,9 +256,9 @@ class TestWebSocketBroadcaster:
 
         assert mock_redis_client.xread.await_count >= 1
         first_call = mock_redis_client.xread.await_args_list[0]
+        # STREAM_ORDERS removed: advisory decisions are internal; only fills reach the UI
         assert first_call.args[0] == {
             "signals": "$",
-            "orders": "$",
             "executions": "$",
             "risk_alerts": "$",
             "learning_events": "$",
