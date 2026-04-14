@@ -42,6 +42,14 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     async with AsyncSessionFactory() as session:
         aggregator = MetricsAggregator(session)
         data = await aggregator.get_raw_snapshot()
+        # Paired PnL: closed trade pairs + open positions with unrealized PnL.
+        # Included in the initial snapshot so the UI always has P&L data on
+        # connect/reconnect without a separate REST fetch.
+        try:
+            data["pnl"] = await aggregator.get_paired_pnl(redis_client=redis_client)
+        except Exception:
+            log_structured("warning", "ws_snapshot_pnl_failed", exc_info=True)
+            data["pnl"] = {"closed_trades": [], "open_positions": [], "summary": {}}
 
     # Enrich with current prices from Redis cache
     if redis_client is not None:
