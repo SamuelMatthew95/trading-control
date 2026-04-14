@@ -273,6 +273,8 @@ MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
 REACT_CRITIQUE_CONFIDENCE_THRESHOLD: Final[float] = 0.7
 # Evaluator-Optimizer: trigger reflection refinement if fewer hypotheses than this
 REFLECTION_MIN_HYPOTHESES: Final[int] = 2
+# ExecutionEngine: minimum weighted score required to execute (signal*0.5 + reasoning*0.3 + perf*0.2)
+EXECUTION_DECISION_THRESHOLD: Final[float] = 0.55
 
 # LLM fallback modes
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"
