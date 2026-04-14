@@ -164,7 +164,7 @@ async def test_fallback_when_no_llm_key(mock_embed, mock_call_llm, agent, mock_b
 async def test_processes_signal_event_publishes_order_for_buy(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
-    """Valid signal with buy action publishes to 'orders' stream."""
+    """Valid signal with buy action publishes advisory decision to 'decisions' stream."""
     mock_embed.return_value = [0.1] * 1536
     mock_call_llm.return_value = (_valid_summary("buy"), 500, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
@@ -180,13 +180,15 @@ async def test_processes_signal_event_publishes_order_for_buy(
             await agent.process(_make_signal("buy"))
 
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
-    assert "orders" in published_streams
+    assert "decisions" in published_streams
 
-    order_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "orders")
-    order_payload = order_call.args[1]
-    assert order_payload["side"] == "buy"
-    assert order_payload["symbol"] == "BTC/USD"
-    assert "trace_id" in order_payload
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    decision_payload = decision_call.args[1]
+    assert decision_payload["action"] == "buy"
+    assert decision_payload["symbol"] == "BTC/USD"
+    assert "trace_id" in decision_payload
+    assert "reasoning_score" in decision_payload
+    assert "signal_confidence" in decision_payload
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
@@ -195,7 +197,7 @@ async def test_processes_signal_event_publishes_order_for_buy(
 async def test_hold_action_no_order_published(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
-    """When LLM returns action='hold', no publish to 'orders' stream."""
+    """When LLM returns action='hold', advisory decision still published to 'decisions' with action=hold."""
     mock_embed.return_value = [0.1] * 1536
     mock_call_llm.return_value = (_valid_summary("hold"), 300, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
@@ -211,7 +213,10 @@ async def test_hold_action_no_order_published(
             await agent.process(_make_signal("hold"))
 
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
-    assert "orders" not in published_streams
+    # ReasoningAgent always publishes to decisions (advisory); ExecutionEngine gates hold/reject
+    assert "decisions" in published_streams
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    assert decision_call.args[1]["action"] == "hold"
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
@@ -220,7 +225,7 @@ async def test_hold_action_no_order_published(
 async def test_reject_action_no_order_published(
     mock_embed, mock_call_llm, agent, mock_bus, mock_redis
 ):
-    """When LLM returns action='reject', no publish to 'orders' stream."""
+    """When LLM returns action='reject', advisory decision still published to 'decisions' with action=reject."""
     mock_embed.return_value = [0.1] * 1536
     mock_call_llm.return_value = (_valid_summary("reject"), 300, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
@@ -236,7 +241,10 @@ async def test_reject_action_no_order_published(
             await agent.process(_make_signal("reject"))
 
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
-    assert "orders" not in published_streams
+    # ReasoningAgent always publishes to decisions (advisory); ExecutionEngine gates hold/reject
+    assert "decisions" in published_streams
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    assert decision_call.args[1]["action"] == "reject"
 
 
 @patch("api.services.agents.reasoning_agent.call_llm")

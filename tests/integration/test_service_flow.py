@@ -236,6 +236,9 @@ async def test_execution_engine_publishes_fill_metadata(monkeypatch):
             "price": 100,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "trace_id": "trace-abc",
+            # Must clear the weighted execution gate (final_score >= 0.55)
+            "signal_confidence": 0.7,
+            "reasoning_score": 0.7,
         }
     )
 
@@ -285,7 +288,8 @@ async def test_reasoning_agent_fallback_publishes_logs_and_orders(monkeypatch):
 
     streams = [stream for stream, _ in bus.published]
     assert "agent_logs" in streams
-    assert "orders" in streams
+    # ReasoningAgent now publishes advisory decisions to "decisions", not "orders"
+    assert "decisions" in streams
 
 
 @pytest.mark.asyncio

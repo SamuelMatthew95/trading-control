@@ -18,10 +18,10 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_LEARNING_EVENTS,
     STREAM_MARKET_EVENTS,
-    STREAM_ORDERS,
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     AgentStatus,
+    OrderSide,
 )
 from api.observability import log_structured
 
@@ -41,8 +41,7 @@ class WebSocketBroadcaster:
         self._redis_client = None
         self._stream_offsets: dict[str, str] = {
             STREAM_SIGNALS: "$",
-            STREAM_ORDERS: "$",
-            STREAM_EXECUTIONS: "$",
+            STREAM_EXECUTIONS: "$",  # Only actual fills — advisory decisions stay internal
             STREAM_RISK_ALERTS: "$",
             STREAM_LEARNING_EVENTS: "$",
             STREAM_AGENT_LOGS: "$",
@@ -128,6 +127,10 @@ class WebSocketBroadcaster:
                             outbound = self._transform_stream_message(
                                 decoded_stream_name, decoded_id, decoded_payload
                             )
+                            if outbound is None:
+                                # Filtered out as noise (hold/reject logs, etc.)
+                                messages_read += 1
+                                continue
                             await self.broadcast(outbound)
                             messages_read += 1
                             broadcasts_attempted += len(self._connections)
@@ -223,18 +226,48 @@ class WebSocketBroadcaster:
 
     def _transform_stream_message(
         self, stream: str, msg_id: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """Transform raw Redis stream payloads into frontend-friendly WS messages.
 
-        market_events  → type=price_update  (frontend: updatePrice)
-        signals        → type=signal        (frontend: addSignal via stream='signals')
-        orders         → stream=orders      (frontend: updateOrder)
-        everything else → raw passthrough with stream tag
+        Filtering rules (dashboard notification feed):
+          executions   → type=trade_notification only for BUY/SELL fills (signal: buy/sell side)
+          agent_logs   → suppressed entirely (internal verbose logs — not user-facing)
+          market_events → type=price_update for the price ticker
+          signals      → passthrough with stream tag (pipeline view)
+          risk_alerts  → passthrough (important alerts)
+          everything else → passthrough with stream tag
+
+        Returns None for events that should be suppressed (not broadcast to clients).
         """
         base = {"stream": stream, "msg_id": msg_id}
 
+        # --- Executions: only surface actual BUY/SELL fills ------------------
+        if stream == STREAM_EXECUTIONS:
+            event_type = str(payload.get("type", "")).lower()
+            side = str(payload.get("side", "")).lower()
+            if event_type == "order_filled" and side in (OrderSide.BUY, OrderSide.SELL):
+                return {
+                    **base,
+                    "type": "trade_notification",
+                    "symbol": payload.get("symbol"),
+                    "side": side,
+                    "qty": payload.get("qty"),
+                    "fill_price": payload.get("fill_price"),
+                    "pnl": payload.get("pnl", 0),
+                    "order_id": payload.get("order_id"),
+                    "trace_id": payload.get("trace_id"),
+                    "filled_at": payload.get("filled_at"),
+                    "source": payload.get("source"),
+                }
+            # Other execution event types (e.g. rejected) are suppressed
+            return None
+
+        # --- Agent logs: suppress entirely (too noisy for UI) -----------------
+        if stream == STREAM_AGENT_LOGS:
+            return None
+
+        # --- Market events: price ticker only (no payload noise) --------------
         if stream == STREAM_MARKET_EVENTS:
-            # price_poller writes: {"payload": "<json-string>"}
             raw_payload = payload.get("payload", payload)
             if isinstance(raw_payload, str):
                 try:
@@ -253,6 +286,7 @@ class WebSocketBroadcaster:
                     "trace_id": raw_payload.get("trace_id"),
                     "timestamp": payload.get("timestamp"),
                 }
+            return None
 
         return {**base, **payload}
 

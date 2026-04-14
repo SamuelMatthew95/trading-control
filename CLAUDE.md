@@ -212,3 +212,4 @@ Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_a
 @./.claude/rules/memory-agents.md      # Agent hand-off protocols  
 @./.claude/rules/memory-logging.md     # Trace ID & logging standards
 @./.claude/rules/memory-cicd.md       # CI/CD patterns and fixes
+@./.claude/rules/memory-storage.md    # Storage layer rules — Redis KV vs Streams vs Postgres vs InMemoryStore

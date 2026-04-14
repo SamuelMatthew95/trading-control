@@ -184,6 +184,7 @@ SOURCE_REFLECTION: Final[str] = "reflection_agent"
 SOURCE_STRATEGY_PROPOSER: Final[str] = "strategy_proposer"
 SOURCE_NOTIFICATION: Final[str] = "notification_agent"
 SOURCE_DB_HELPERS: Final[str] = "db_helpers"
+SOURCE_SUPERVISOR: Final[str] = "agent_supervisor"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
@@ -207,7 +208,6 @@ REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
-REDIS_KEY_REFLECTION_COUNT: Final[str] = "reflection:trade_count"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
@@ -267,6 +267,26 @@ LLM_MAX_RETRIES: Final[int] = 3
 ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
 ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
+PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
+SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence
+
+# Agentic pattern constants
+# ReAct self-critique: only critique decisions above this confidence (controls LLM cost)
+REACT_CRITIQUE_CONFIDENCE_THRESHOLD: Final[float] = 0.7
+# Evaluator-Optimizer: trigger reflection refinement if fewer hypotheses than this
+REFLECTION_MIN_HYPOTHESES: Final[int] = 2
+# ExecutionEngine: minimum weighted score required to execute (signal*0.5 + reasoning*0.3 + perf*0.2)
+EXECUTION_DECISION_THRESHOLD: Final[float] = 0.55
+
+# Risk Guardian constants — position-level and portfolio-level risk limits
+# Close position if unrealized loss exceeds this fraction of entry price
+STOP_LOSS_PCT: Final[float] = 0.05
+# Close position if unrealized gain exceeds this fraction of entry price
+TAKE_PROFIT_PCT: Final[float] = 0.10
+# Activate kill switch if today's realized PnL < -(portfolio_value * this)
+DAILY_LOSS_LIMIT_PCT: Final[float] = 0.02
+# How often (seconds) RiskGuardian scans open positions
+RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
 
 # LLM fallback modes
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"

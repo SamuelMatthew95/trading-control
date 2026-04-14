@@ -470,12 +470,15 @@ def test_severity_values() -> None:
 
 
 def test_broadcaster_stream_offsets_use_constants() -> None:
-    """WebSocketBroadcaster._stream_offsets keys must equal STREAM_* constants."""
+    """WebSocketBroadcaster._stream_offsets keys must equal STREAM_* constants.
+
+    STREAM_ORDERS is intentionally absent: advisory decisions go to STREAM_DECISIONS
+    (internal), and only actual fills on STREAM_EXECUTIONS reach the UI.
+    """
     from api.constants import (
         STREAM_AGENT_LOGS,
         STREAM_EXECUTIONS,
         STREAM_LEARNING_EVENTS,
-        STREAM_ORDERS,
         STREAM_RISK_ALERTS,
         STREAM_SIGNALS,
     )
@@ -485,7 +488,6 @@ def test_broadcaster_stream_offsets_use_constants() -> None:
     keys = set(broadcaster._stream_offsets.keys())
     expected = {
         STREAM_SIGNALS,
-        STREAM_ORDERS,
         STREAM_EXECUTIONS,
         STREAM_RISK_ALERTS,
         STREAM_LEARNING_EVENTS,

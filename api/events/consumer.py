@@ -10,6 +10,7 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from api.constants import PROCESS_TIMEOUT_SECONDS
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -30,6 +31,30 @@ class BaseStreamConsumer(ABC):
         self._shutdown_event = asyncio.Event()
         self._backoff = 1  # Exponential backoff state
         self._max_backoff = 10  # Maximum backoff in seconds
+
+    # ------------------------------------------------------------------
+    # Public introspection — used by AgentSupervisor to detect crashes
+    # ------------------------------------------------------------------
+
+    @property
+    def is_alive(self) -> bool:
+        """True if the background task exists and has not yet completed."""
+        return self._task is not None and not self._task.done()
+
+    @property
+    def has_crashed(self) -> bool:
+        """True if the task finished with an unhandled exception (not cancelled)."""
+        return (
+            self._task is not None
+            and self._task.done()
+            and not self._task.cancelled()
+            and self._task.exception() is not None
+        )
+
+    @property
+    def name(self) -> str:
+        """Agent identity string (matches the consumer group name)."""
+        return self.consumer
 
     async def start(self) -> None:
         """Start the consumer with robust error handling."""
@@ -216,6 +241,20 @@ class BaseStreamConsumer(ABC):
             )
             return []
 
+    async def _process_with_timeout(self, data: dict[str, Any]) -> None:
+        """Run process() bounded by PROCESS_TIMEOUT_SECONDS.
+
+        Converts asyncio.TimeoutError into RuntimeError so the outer DLQ
+        handler treats a hung message identically to any other processing
+        failure — it will be retried up to DLQ_MAX_RETRIES times.
+        """
+        try:
+            await asyncio.wait_for(self.process(data), timeout=PROCESS_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"message_processing_timeout_{PROCESS_TIMEOUT_SECONDS}s stream={self.stream}"
+            ) from None
+
     async def _handle_message(self, msg_id: str, data: dict[str, Any]) -> None:
         """Handle a single message with comprehensive error handling."""
         # Soft guard: use redis stream ID as fallback if producer omitted msg_id
@@ -251,7 +290,7 @@ class BaseStreamConsumer(ABC):
 
         send_to_dlq = False
         try:
-            await self.process(data)
+            await self._process_with_timeout(data)
             await self.bus.acknowledge(self.stream, self.group, msg_id)
             log_structured(
                 "debug",

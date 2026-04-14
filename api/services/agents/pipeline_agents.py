@@ -28,6 +28,7 @@ from api.constants import (
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
     REDIS_KEY_LLM_TOKENS,
+    REFLECTION_MIN_HYPOTHESES,
     SOURCE_GRADE,
     SOURCE_IC_UPDATER,
     SOURCE_NOTIFICATION,
@@ -36,12 +37,12 @@ from api.constants import (
     SOURCE_STRATEGY_PROPOSER,
     STREAM_AGENT_GRADES,
     STREAM_AGENT_LOGS,
+    STREAM_DECISIONS,
     STREAM_EXECUTIONS,
     STREAM_FACTOR_IC_HISTORY,
     STREAM_GITHUB_PRS,
     STREAM_MARKET_TICKS,
     STREAM_NOTIFICATIONS,
-    STREAM_ORDERS,
     STREAM_PROPOSALS,
     STREAM_REFLECTION_OUTPUTS,
     STREAM_RISK_ALERTS,
@@ -69,7 +70,12 @@ from api.services.agents.db_helpers import (
     write_agent_log,
     write_grade_to_db,
 )
-from api.services.agents.prompts import FALLBACK_REFLECTION, REFLECTION_SYSTEM_PROMPT
+from api.services.agents.prompts import (
+    FALLBACK_REFLECTION,
+    REFLECTION_IMPROVE_PROMPT,
+    REFLECTION_SYSTEM_PROMPT,
+    STRATEGY_PLANNING_PROMPT,
+)
 from api.services.agents.scoring import (
     GRADE_SEVERITY,
     compute_weighted_score,
@@ -673,6 +679,33 @@ class ReflectionAgent(MultiStreamAgent):
                 "summary": f"LLM unavailable after {self._fills} fills.",
             }
 
+        # Evaluator-Optimizer: if the first pass produced too few actionable hypotheses,
+        # call the LLM once more with a targeted improve prompt to force richer output.
+        hypotheses = reflection_data.get("hypotheses", [])
+        if len(hypotheses) < REFLECTION_MIN_HYPOTHESES and redis is not None:
+            try:
+                budget_now = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
+                if budget_now < settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
+                    from api.services.llm_router import call_llm_with_system
+
+                    raw_improved, tokens_imp, cost_imp = await call_llm_with_system(
+                        prompt, REFLECTION_IMPROVE_PROMPT, trace_id
+                    )
+                    improved = self._parse_llm_response(raw_improved)
+                    if len(improved.get("hypotheses", [])) > len(hypotheses):
+                        reflection_data = improved
+                        await redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_imp)
+                        await redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_imp)
+                        log_structured(
+                            "info",
+                            "reflection_refined_by_evaluator_optimizer",
+                            trace_id=trace_id,
+                            original_hypotheses=len(hypotheses),
+                            refined_hypotheses=len(improved.get("hypotheses", [])),
+                        )
+            except Exception:
+                log_structured("warning", "reflection_refinement_failed", exc_info=True)
+
         reflection_payload: dict[str, Any] = {
             "msg_id": str(uuid.uuid4()),
             "source": SOURCE_REFLECTION,
@@ -791,6 +824,9 @@ class StrategyProposer(MultiStreamAgent):
             )
             return
 
+        # Agentic planning step: rank strong hypotheses by expected impact before acting
+        strong = await self._plan_and_rank(hypotheses, strong, data.get("trace_id", ""))
+
         for hypothesis in strong:
             proposal = self._build_proposal(hypothesis, data, now_iso)
 
@@ -855,6 +891,57 @@ class StrategyProposer(MultiStreamAgent):
         except Exception:
             log_structured("warning", "strategy_proposer_heartbeat_failed", exc_info=True)
 
+    async def _plan_and_rank(
+        self,
+        all_hypotheses: list[dict[str, Any]],
+        strong: list[dict[str, Any]],
+        trace_id: str,
+    ) -> list[dict[str, Any]]:
+        """Agentic planning step: use LLM to rank strong hypotheses by expected impact.
+
+        This is the Planning pattern — the agent decomposes and prioritises before acting,
+        rather than processing hypotheses in arbitrary arrival order.
+        Falls back to the original order on any error.
+        """
+        try:
+            from api.services.llm_router import call_llm_with_system
+
+            plan_prompt = json.dumps(
+                {"all_hypotheses": all_hypotheses, "strong_hypotheses": strong},
+                default=str,
+            )
+            raw_text, _, _ = await call_llm_with_system(
+                plan_prompt, STRATEGY_PLANNING_PROMPT, trace_id
+            )
+            cleaned = raw_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+                if "\n" in cleaned:
+                    first, rest = cleaned.split("\n", 1)
+                    if first.strip() in {"json", "JSON", ""}:
+                        cleaned = rest
+                if cleaned.rstrip().endswith("```"):
+                    cleaned = cleaned.rstrip()[:-3].strip()
+            plan = json.loads(cleaned)
+            ranked_indices = plan.get("ranked_indices", [])
+
+            if ranked_indices and all(isinstance(i, int) for i in ranked_indices):
+                reordered = [strong[i] for i in ranked_indices if 0 <= i < len(strong)]
+                ranked_set = set(ranked_indices)
+                remainder = [h for i, h in enumerate(strong) if i not in ranked_set]
+                result = reordered + remainder
+                if result:
+                    log_structured(
+                        "info",
+                        "strategy_proposer_plan_ranked",
+                        trace_id=trace_id,
+                        count=len(result),
+                    )
+                    return result
+        except Exception:
+            log_structured("warning", "strategy_proposer_plan_failed_using_original", exc_info=True)
+        return strong
+
     def _build_proposal(
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
     ) -> dict[str, Any]:
@@ -913,7 +1000,7 @@ _STREAM_SEVERITY: dict[str, str] = {
     STREAM_FACTOR_IC_HISTORY: Severity.INFO,
     STREAM_EXECUTIONS: Severity.INFO,
     STREAM_TRADE_PERFORMANCE: Severity.INFO,
-    STREAM_ORDERS: Severity.INFO,
+    STREAM_DECISIONS: Severity.INFO,
     STREAM_SIGNALS: Severity.INFO,
     STREAM_MARKET_TICKS: Severity.INFO,
     STREAM_AGENT_LOGS: Severity.INFO,
@@ -939,8 +1026,9 @@ class NotificationAgent(MultiStreamAgent):
             streams=[
                 STREAM_MARKET_TICKS,
                 STREAM_SIGNALS,
-                STREAM_ORDERS,
+                STREAM_DECISIONS,
                 STREAM_EXECUTIONS,
+                STREAM_RISK_ALERTS,
                 STREAM_AGENT_LOGS,
                 STREAM_TRADE_PERFORMANCE,
                 STREAM_AGENT_GRADES,

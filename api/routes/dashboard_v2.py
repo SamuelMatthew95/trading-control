@@ -213,6 +213,39 @@ async def get_pnl_metrics() -> dict[str, Any]:
         }
 
 
+@router.get("/pnl/paired")
+async def get_paired_pnl(request: Request) -> dict[str, Any]:
+    """Paired P&L view: closed BUY→SELL pairs with realized PnL + open positions
+    with live unrealized PnL enriched from the Redis price cache.
+
+    Closed trades come from ``trade_lifecycle`` (one row per completed round-trip).
+    Open positions are read from the ``positions`` table and enriched with current
+    price so unrealized PnL updates on every request.
+    """
+    redis_client = getattr(request.app.state, "redis_client", None)
+    try:
+        async with AsyncSessionFactory() as session:
+            aggregator = MetricsAggregator(session)
+            return await aggregator.get_paired_pnl(redis_client=redis_client)
+    except Exception:
+        log_structured("warning", "paired_pnl_unavailable", exc_info=True)
+        return {
+            "closed_trades": [],
+            "open_positions": [],
+            "summary": {
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_pnl": 0.0,
+                "closed_trades": 0,
+                "winning_trades": 0,
+                "win_rate_percent": 0.0,
+                "open_positions": 0,
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
+
 @router.get("/agents")
 async def get_agent_metrics() -> dict[str, Any]:
     """Get agent activity metrics."""
