@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from contextlib import suppress
 from datetime import date, datetime, timezone
@@ -55,10 +56,13 @@ class RiskGuardian:
         self._running = False
         self._task: asyncio.Task[None] | None = None
         # Position cache: avoid a full DB scan on every check interval.
-        # Invalidated after publishing an auto-close so the next scan picks
-        # up the updated position state from Postgres.
+        # Invalidated (a) after publishing an auto-close, so the next scan
+        # picks up the updated state, and (b) after _CACHE_MAX_AGE_SECONDS so
+        # externally-opened positions (e.g. manual trades) are never invisible
+        # for longer than ~3 check cycles.
         self._position_cache: list[Any] = []
         self._cache_valid: bool = False
+        self._cache_loaded_at: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -97,14 +101,22 @@ class RiskGuardian:
     # Position-level checks
     # ------------------------------------------------------------------
 
+    # Cache is refreshed after this many seconds even without a close event,
+    # so positions opened externally are never invisible for more than ~3 cycles.
+    _CACHE_MAX_AGE_SECONDS: float = RISK_CHECK_INTERVAL_SECONDS * 3
+
     async def _check_positions(self) -> None:
         """Read all open positions; auto-close on stop-loss or take-profit breach.
 
-        Uses an in-memory cache to avoid a full DB scan every interval.
-        The cache is invalidated whenever an auto-close decision is published,
-        so the next cycle reflects the updated position state.
+        Cache strategy:
+        - Reload from DB if cache is stale (event-invalidated or TTL exceeded).
+        - Batch-fetch all distinct symbol prices before iterating to avoid
+          redundant Redis calls when multiple strategies hold the same symbol.
+        - Track already-closed symbols within the cycle to prevent duplicate
+          close signals in case a fill hasn't been written back to Postgres yet.
         """
-        if not self._cache_valid:
+        age = time.monotonic() - self._cache_loaded_at
+        if not self._cache_valid or age > self._CACHE_MAX_AGE_SECONDS:
             try:
                 async with AsyncSessionFactory() as session:
                     result = await session.execute(
@@ -116,11 +128,23 @@ class RiskGuardian:
                     )
                     self._position_cache = list(result.mappings().all())
                     self._cache_valid = True
+                    self._cache_loaded_at = time.monotonic()
             except Exception:
                 return  # DB not yet available — skip silently
 
+        # Batch-fetch prices for all distinct symbols in one pass.
+        symbols = {str(p["symbol"]) for p in self._position_cache if float(p["avg_cost"] or 0) > 0}
+        price_results = await asyncio.gather(*[self._get_price(s) for s in symbols])
+        price_map: dict[str, float | None] = dict(zip(symbols, price_results, strict=False))
+
+        # Track symbols already issued a close this cycle to avoid duplicates.
+        already_closed: set[str] = set()
+
         for pos in self._position_cache:
             symbol = str(pos["symbol"])
+            if symbol in already_closed:
+                continue
+
             side = str(pos["side"]).lower()
             avg_cost = float(pos["avg_cost"] or 0)
             qty = float(pos["qty"] or 0)
@@ -129,7 +153,7 @@ class RiskGuardian:
             if avg_cost <= 0 or qty <= 0:
                 continue
 
-            current_price = await self._get_price(symbol)
+            current_price = price_map.get(symbol)
             if current_price is None or current_price <= 0:
                 continue
 
@@ -160,6 +184,7 @@ class RiskGuardian:
                 reason=reason,
             )
             await self._publish_close(symbol, close_action, qty, current_price, strategy_id, reason)
+            already_closed.add(symbol)
             self._cache_valid = False  # Position state changed — reload on next cycle
 
     # ------------------------------------------------------------------
