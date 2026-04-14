@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete consumer used only in these tests
@@ -130,10 +128,9 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
 @pytest.mark.asyncio
 async def test_ensure_all_streams_ready_logs_recovered_count(fake_redis):
     """ensure_all_streams_ready() logs recovered=N even when streams needed recovery."""
-    from api.events.bus import ensure_all_streams_ready
-
     # Prime with groups, then delete two streams to force recovery
     from api.constants import STREAM_ORDERS, STREAM_SIGNALS
+    from api.events.bus import ensure_all_streams_ready
 
     await ensure_all_streams_ready(fake_redis)
     await fake_redis.delete(STREAM_ORDERS)
