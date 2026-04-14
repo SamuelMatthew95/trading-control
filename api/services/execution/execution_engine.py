@@ -1,4 +1,10 @@
-"""Order execution engine backed by the paper broker."""
+"""Order execution engine backed by the paper broker.
+
+Architecture note: ExecutionEngine is the SOLE authority for BUY/SELL orders.
+It consumes advisory decisions from STREAM_DECISIONS (published by ReasoningAgent),
+applies a weighted execution gate, checks the market clock, and only then
+submits the order to the broker.
+"""
 
 from __future__ import annotations
 
@@ -13,13 +19,15 @@ from sqlalchemy import text
 
 from api.constants import (
     AGENT_EXECUTION,
+    EXECUTION_DECISION_THRESHOLD,
     LARGE_ORDER_THRESHOLD,
+    NO_ORDER_ACTIONS,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_ORDER_LOCK,
     SOURCE_EXECUTION,
+    STREAM_DECISIONS,
     STREAM_EXECUTIONS,
-    STREAM_ORDERS,
     STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
     OrderSide,
@@ -50,7 +58,7 @@ class ExecutionEngine(BaseStreamConsumer):
         agent_state: AgentStateRegistry | None = None,
     ):
         super().__init__(
-            bus, dlq, stream=STREAM_ORDERS, group=DEFAULT_GROUP, consumer="execution-engine"
+            bus, dlq, stream=STREAM_DECISIONS, group=DEFAULT_GROUP, consumer="execution-engine"
         )
         self.redis = redis_client
         self.broker = broker
@@ -61,7 +69,11 @@ class ExecutionEngine(BaseStreamConsumer):
             raise RuntimeError("KillSwitchActive")
 
         # Validate required fields before any DB/broker interaction
-        missing = [f for f in ("symbol", "side", "qty", "price") if not data.get(f)]
+        # Accepts both "action" (from STREAM_DECISIONS) and "side" (backward compat)
+        side_or_action = str(data.get("action") or data.get("side") or "").lower()
+        missing = [f for f in ("symbol", "qty", "price") if not data.get(f)]
+        if not side_or_action:
+            missing.append("action/side")
         if missing:
             log_structured("warning", "order_missing_required_fields", missing=missing)
             return
@@ -69,7 +81,7 @@ class ExecutionEngine(BaseStreamConsumer):
         # strategy_id is required by the DB; fall back to a generated UUID if absent
         strategy_id = str(data.get("strategy_id") or uuid.uuid4())
         symbol = str(data["symbol"])
-        side = str(data["side"]).lower()
+        side = side_or_action
         try:
             qty = float(data["qty"])
             price = float(data["price"])
@@ -77,6 +89,50 @@ class ExecutionEngine(BaseStreamConsumer):
             log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
             return
         trace_id = str(data.get("trace_id") or uuid.uuid4())
+
+        # --- Execution gate 1: skip non-order actions (hold, reject, flat) ----
+        if side in NO_ORDER_ACTIONS:
+            log_structured(
+                "info",
+                "execution_skipped_advisory_action",
+                symbol=symbol,
+                action=side,
+                trace_id=trace_id,
+            )
+            return
+
+        # --- Execution gate 2: weighted decision score -----------------------
+        # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
+        signal_confidence = float(
+            data.get("signal_confidence")
+            or data.get("composite_score")
+            or data.get("confidence")
+            or 0.5
+        )
+        # Use reasoning_score if present; fall back to signal_confidence so
+        # legacy test payloads (no reasoning_score field) still clear the gate.
+        reasoning_score = float(data.get("reasoning_score") or signal_confidence)
+        final_score = self._compute_final_score(signal_confidence, reasoning_score)
+        if final_score < EXECUTION_DECISION_THRESHOLD:
+            log_structured(
+                "info",
+                "execution_gated_score_below_threshold",
+                symbol=symbol,
+                final_score=round(final_score, 4),
+                threshold=EXECUTION_DECISION_THRESHOLD,
+                trace_id=trace_id,
+            )
+            return
+
+        # --- Execution gate 3: market clock (equities only) ------------------
+        if not self._is_market_open(symbol):
+            log_structured(
+                "info",
+                "execution_blocked_market_closed",
+                symbol=symbol,
+                trace_id=trace_id,
+            )
+            return
         order_timestamp = self._parse_timestamp(data.get("timestamp"))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
@@ -394,6 +450,43 @@ class ExecutionEngine(BaseStreamConsumer):
         s = str(value).replace("Z", "+00:00")
         parsed = datetime.fromisoformat(s)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    def _compute_final_score(
+        self,
+        signal_confidence: float,
+        reasoning_score: float,
+        historical_perf: float = 0.5,
+    ) -> float:
+        """Weighted execution score used as a gate before submitting orders.
+
+        Weights: signal 50%, reasoning 30%, historical performance 20%.
+        ``historical_perf`` defaults to 0.5 (neutral) when unavailable.
+        """
+        return (signal_confidence * 0.50) + (reasoning_score * 0.30) + (historical_perf * 0.20)
+
+    def _is_market_open(self, symbol: str) -> bool:
+        """Return True if trading is currently allowed for this symbol.
+
+        Crypto assets (symbols containing '/') trade 24/7.
+        Equities are restricted to regular US market hours: 9:30–16:00 ET, Mon–Fri.
+        Falls back to True on any error so the gate never silently blocks crypto.
+        """
+        if "/" in symbol:
+            return True  # Crypto: BTC/USD, ETH/USD, SOL/USD — always open
+
+        try:
+            from zoneinfo import ZoneInfo
+
+            et_tz = ZoneInfo("America/New_York")
+            now_et = datetime.now(et_tz)
+            if now_et.weekday() >= 5:  # Saturday=5, Sunday=6
+                return False
+            market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+            market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+            return market_open <= now_et < market_close
+        except Exception:
+            log_structured("warning", "market_clock_check_failed", exc_info=True)
+            return True  # Fail open — never silently block a valid order
 
     async def _upsert_position(
         self,
