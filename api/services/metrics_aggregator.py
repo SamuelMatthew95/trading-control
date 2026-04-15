@@ -368,35 +368,55 @@ class MetricsAggregator:
             return str(val) if val is not None else None
 
         try:
-            # Recent orders (last 50, newest first)
-            orders_result = await self.session.execute(
-                select(Order).order_by(Order.created_at.desc()).limit(50)
-            )
+            # Recent orders (last 50, newest first) joined with trade_lifecycle
+            # to populate real realized PnL values.
+            orders_sql = text("""
+                SELECT
+                    o.id::text          AS order_id,
+                    o.symbol,
+                    o.side,
+                    o.quantity,
+                    o.price,
+                    o.filled_price,
+                    o.status,
+                    o.created_at,
+                    COALESCE(tl.pnl, 0.0)         AS pnl,
+                    COALESCE(tl.pnl_percent, 0.0)  AS pnl_percent
+                FROM orders o
+                LEFT JOIN trade_lifecycle tl ON tl.order_id = o.id::text
+                ORDER BY o.created_at DESC
+                LIMIT 50
+            """)
+            orders_result = await self.session.execute(orders_sql)
             orders = [
                 {
-                    "order_id": _safe_str(o.id),
-                    "symbol": o.symbol,
-                    "side": o.side,
-                    "quantity": _safe_float(o.quantity),
-                    "price": _safe_float(o.price),
-                    "filled_price": _safe_float(o.filled_price),
-                    "status": o.status,
-                    "pnl": 0.0,  # filled in by trade_performance
-                    "timestamp": o.created_at.isoformat() if o.created_at else None,
-                    "entry_price": _safe_float(o.price),
-                    "current_price": _safe_float(o.filled_price or o.price),
+                    "order_id": row.order_id,
+                    "symbol": row.symbol,
+                    "side": row.side,
+                    "quantity": _safe_float(row.quantity),
+                    "price": _safe_float(row.price),
+                    "filled_price": _safe_float(row.filled_price),
+                    "status": row.status,
+                    "pnl": _safe_float(row.pnl),
+                    "pnl_percent": _safe_float(row.pnl_percent),
+                    "timestamp": row.created_at.isoformat() if row.created_at else None,
+                    "entry_price": _safe_float(row.price),
+                    "current_price": _safe_float(row.filled_price or row.price),
                 }
-                for o in orders_result.scalars().all()
+                for row in orders_result.all()
             ]
 
-            # Current positions
+            # Current positions — only non-flat (quantity != 0)
             positions_result = await self.session.execute(
-                select(Position).order_by(Position.updated_at.desc()).limit(50)
+                select(Position)
+                .where(Position.quantity != 0)
+                .order_by(Position.updated_at.desc())
+                .limit(50)
             )
             positions = [
                 {
                     "symbol": p.symbol,
-                    "side": "long" if _safe_float(p.quantity) >= 0 else "short",
+                    "side": "long" if _safe_float(p.quantity) > 0 else "short",
                     "quantity": _safe_float(p.quantity),
                     "entry_price": _safe_float(p.avg_cost),
                     "current_price": _safe_float(p.last_price or p.avg_cost),
