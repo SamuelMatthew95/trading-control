@@ -41,6 +41,30 @@ class MultiStreamAgent:
         self._instance_id: str | None = None
 
     # ------------------------------------------------------------------
+    # Public introspection — used by AgentSupervisor to detect crashes
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Agent identity string (matches the consumer name)."""
+        return self.consumer
+
+    @property
+    def has_crashed(self) -> bool:
+        """True if the task finished with an unhandled exception (not cancelled).
+
+        MultiStreamAgent._run() swallows processing exceptions internally so
+        the task rarely dies, but we expose this property so AgentSupervisor
+        can iterate all agents uniformly without AttributeError.
+        """
+        return (
+            self._task is not None
+            and self._task.done()
+            and not self._task.cancelled()
+            and self._task.exception() is not None
+        )
+
+    # ------------------------------------------------------------------
     # Instance lifecycle registration
     # ------------------------------------------------------------------
 
