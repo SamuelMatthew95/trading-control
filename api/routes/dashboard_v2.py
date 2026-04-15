@@ -21,6 +21,10 @@ from api.constants import (
     REDIS_KEY_KILL_SWITCH_UPDATED_AT,
     REDIS_KEY_PRICES,
     REDIS_KEY_WORKER_HEARTBEAT,
+    STREAM_DECISIONS,
+    STREAM_GRADED_DECISIONS,
+    STREAM_MARKET_EVENTS,
+    STREAM_SIGNALS,
     LogType,
     ProposalStatus,
 )
@@ -521,10 +525,10 @@ async def get_system_stream_metrics() -> dict[str, Any]:
         redis_client = await get_redis()
 
         streams = {
-            "market_events": "market_events",
-            "signals": "signals",
-            "decisions": "decisions",
-            "graded_decisions": "graded_decisions",
+            "market_events": STREAM_MARKET_EVENTS,
+            "signals": STREAM_SIGNALS,
+            "decisions": STREAM_DECISIONS,
+            "graded_decisions": STREAM_GRADED_DECISIONS,
         }
 
         result = {}
