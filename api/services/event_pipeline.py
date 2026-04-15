@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
+    DLQ_MAX_RETRIES,
     STREAM_AGENT_GRADES,
     STREAM_AGENT_LOGS,
     STREAM_EXECUTIONS,
@@ -39,7 +40,7 @@ class EventPipeline:
         dlq: DLQManager,
         *,
         consumer_name: str = "pipeline",
-        max_retries: int = 3,
+        max_retries: int = DLQ_MAX_RETRIES,
         agent_state: AgentStateRegistry | None = None,
     ):
         self.bus = bus
