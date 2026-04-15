@@ -207,7 +207,7 @@ def test_agent_supervisor_iterates_mixed_agent_list():
     caused AttributeError on .has_crashed, aborting the entire health check.
     """
     import asyncio
-    from unittest.mock import MagicMock, AsyncMock
+    from unittest.mock import MagicMock
 
     from api.services.agent_supervisor import AgentSupervisor
 
