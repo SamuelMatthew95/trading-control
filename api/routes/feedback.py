@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from api.services.feedback_service import FeedbackService
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
 
 from api.core.models import AnnotationCreate, ReinforceRequest
+from api.core.schemas import StandardResponse
 from api.database import get_async_session
 from api.main_state import get_feedback_service
 
 router = APIRouter(tags=["feedback"])
-
-
-class StandardResponse(BaseModel):
-    success: bool
-    data: Any = None
-    error: str = None
 
 
 @router.post("/memory/annotations")
