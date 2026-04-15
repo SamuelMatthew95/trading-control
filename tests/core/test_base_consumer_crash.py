@@ -1,13 +1,20 @@
-"""Regression tests for BaseStreamConsumer crash-visibility fix.
+"""Regression tests for BaseStreamConsumer crash-visibility fix and
+MultiStreamAgent supervisor-compatibility fix.
 
-Before the fix, an unexpected exception in the consumer loop caused a bare
-`break`, which let the asyncio Task finish *cleanly* (no exception).  The
-AgentSupervisor's `has_crashed` property — `task.exception() is not None` —
-therefore returned False, so the supervisor never detected or restarted the
+Before the first fix, an unexpected exception in the consumer loop caused a
+bare `break`, which let the asyncio Task finish *cleanly* (no exception).
+The AgentSupervisor's `has_crashed` property — `task.exception() is not None`
+— therefore returned False, so the supervisor never detected or restarted the
 dead consumer.
 
-After the fix, unexpected exceptions are re-raised so the Task ends with an
-exception, making `has_crashed = True` and allowing the supervisor to restart.
+After the first fix, unexpected exceptions are re-raised so the Task ends with
+an exception, making `has_crashed = True` and allowing the supervisor to restart.
+
+Before the second fix, MultiStreamAgent had no `has_crashed` or `name`
+properties. The AgentSupervisor iterates all agents in its list; accessing
+`agent.has_crashed` on a MultiStreamAgent raised AttributeError, which caused
+the entire health-check iteration to abort — leaving GradeAgent, ICUpdater,
+ReflectionAgent, StrategyProposer, and NotificationAgent permanently unmonitored.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ import pytest
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
+from api.services.agents.base import MultiStreamAgent
 
 # ---------------------------------------------------------------------------
 # Minimal concrete consumer used only in these tests
@@ -148,3 +156,77 @@ async def test_ensure_all_streams_ready_logs_recovered_count(fake_redis):
         }
         assert DEFAULT_GROUP in names, f"{stream} missing DEFAULT_GROUP after recovery"
         assert PIPELINE_GROUP in names, f"{stream} missing PIPELINE_GROUP after recovery"
+
+
+# ---------------------------------------------------------------------------
+# MultiStreamAgent supervisor-compatibility tests
+# ---------------------------------------------------------------------------
+
+
+class _NullMultiAgent(MultiStreamAgent):
+    """Minimal MultiStreamAgent that does nothing — used only in these tests."""
+
+    async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        pass
+
+
+def test_multi_stream_agent_has_crashed_property_before_start():
+    """MultiStreamAgent.has_crashed must exist and return False before start().
+
+    Regression guard: before the fix, accessing has_crashed raised AttributeError,
+    causing AgentSupervisor._check_health() to abort and leave GradeAgent+
+    permanently unmonitored.
+    """
+    from unittest.mock import MagicMock
+
+    bus = MagicMock()
+    dlq = MagicMock()
+    agent = _NullMultiAgent(bus, dlq, streams=["signals"], consumer="test-null-agent")
+
+    # Must not raise AttributeError
+    assert hasattr(agent, "has_crashed"), "MultiStreamAgent must expose has_crashed"
+    assert not agent.has_crashed, "has_crashed must be False before task is started"
+
+
+def test_multi_stream_agent_name_property():
+    """MultiStreamAgent.name must return the consumer string."""
+    from unittest.mock import MagicMock
+
+    bus = MagicMock()
+    dlq = MagicMock()
+    agent = _NullMultiAgent(bus, dlq, streams=["signals"], consumer="grade-agent")
+
+    assert agent.name == "grade-agent"
+
+
+def test_agent_supervisor_iterates_mixed_agent_list():
+    """AgentSupervisor._check_health() must not raise when the agents list contains
+    both BaseStreamConsumer and MultiStreamAgent instances.
+
+    Before the fix, the first MultiStreamAgent (GradeAgent, 4th in the list)
+    caused AttributeError on .has_crashed, aborting the entire health check.
+    """
+    import asyncio
+    from unittest.mock import MagicMock, AsyncMock
+
+    from api.services.agent_supervisor import AgentSupervisor
+
+    # Build fake agents: first two look like BaseStreamConsumer (have the property),
+    # third is our null MultiStreamAgent.
+    fake_bsc_1 = MagicMock()
+    fake_bsc_1.has_crashed = False
+    fake_bsc_2 = MagicMock()
+    fake_bsc_2.has_crashed = False
+
+    bus = MagicMock()
+    dlq = MagicMock()
+    multi_agent = _NullMultiAgent(bus, dlq, streams=["signals"], consumer="test-multi")
+
+    bus_mock = MagicMock()
+    supervisor = AgentSupervisor(bus_mock, [fake_bsc_1, fake_bsc_2, multi_agent])
+
+    # _check_health() must not raise
+    async def _run():
+        await supervisor._check_health()
+
+    asyncio.get_event_loop().run_until_complete(_run())
