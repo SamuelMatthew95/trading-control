@@ -211,6 +211,7 @@ REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
+REDIS_PUBSUB_PRICE_UPDATES: Final[str] = "price_updates"  # pub/sub channel for SSE streaming
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
 REDIS_KEY_DLQ_RETRIES: Final[str] = "dlq:retries:{event_id}"
 DLQ_RETRIES_TTL_SECONDS: Final[int] = 86400  # 1 day — DLQ retry counter lifespan
