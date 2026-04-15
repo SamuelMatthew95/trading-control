@@ -1646,7 +1646,7 @@ async def get_performance_trends() -> dict[str, Any]:
             summary = {
                 "total_pnl": round(float(s[0]), 2) if s else 0.0,
                 "total_trades": total_trades,
-                "win_rate": round(total_wins / total_trades * 100, 1) if total_trades else 0.0,
+                "win_rate": round(total_wins / total_trades, 4) if total_trades else 0.0,
                 "avg_win": round(float(s[3]), 2) if s else 0.0,
                 "avg_loss": round(float(s[4]), 2) if s else 0.0,
                 "best_trade": round(float(s[5]), 2) if s else 0.0,
