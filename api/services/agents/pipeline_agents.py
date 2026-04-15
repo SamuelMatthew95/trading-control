@@ -37,6 +37,7 @@ from api.constants import (
     SOURCE_REASONING,
     SOURCE_REFLECTION,
     SOURCE_STRATEGY_PROPOSER,
+    STOP_LOSS_PCT,
     STREAM_AGENT_GRADES,
     STREAM_AGENT_LOGS,
     STREAM_DECISIONS,
@@ -50,6 +51,7 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_TRADE_PERFORMANCE,
+    TAKE_PROFIT_PCT,
     Grade,
     HypothesisType,
     LogType,
@@ -1043,8 +1045,101 @@ class NotificationAgent(MultiStreamAgent):
         )
         self.redis = redis_client
         self._dedup_window_secs = NOTIFICATION_DEDUP_TTL_SECONDS
+        self._session_pnl: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Rich per-stream message builders
+    # ------------------------------------------------------------------
+
+    def _msg_execution(self, data: dict[str, Any]) -> str:
+        symbol = str(data.get("symbol") or "?")
+        side = str(data.get("side") or "").upper()
+        qty = float(data.get("qty") or 0)
+        fill_price = float(data.get("fill_price") or data.get("price") or 0)
+        dollar_value = fill_price * qty
+
+        parts = [f"{side} FILLED — {symbol}"]
+        if fill_price > 0:
+            parts.append(
+                f"Price: ${fill_price:,.2f} | Qty: {qty:.4g} | Value: ${dollar_value:,.2f}"
+            )
+        if side == "BUY" and fill_price > 0:
+            stop_price = fill_price * (1 - STOP_LOSS_PCT)
+            tp_price = fill_price * (1 + TAKE_PROFIT_PCT)
+            parts.append(
+                f"Stop: ${stop_price:,.2f} (-{STOP_LOSS_PCT:.0%}) | "
+                f"TP: ${tp_price:,.2f} (+{TAKE_PROFIT_PCT:.0%})"
+            )
+        return " · ".join(parts)
+
+    def _msg_trade_performance(self, data: dict[str, Any]) -> str:
+        symbol = str(data.get("symbol") or "?")
+        side = str(data.get("side") or "").upper()
+        exit_price = float(data.get("exit_price") or data.get("fill_price") or 0)
+        entry_price = float(data.get("entry_price") or exit_price)
+        pnl = float(data.get("pnl") or 0)
+        pnl_pct = float(data.get("pnl_percent") or 0)
+
+        if pnl == 0.0:
+            # Opening fill — no realized PnL yet
+            qty = float(data.get("qty") or 0)
+            return f"OPENED — {symbol} ({side}) · Price: ${exit_price:,.2f} | Qty: {qty:.4g}"
+
+        sign = "+" if pnl >= 0 else ""
+        return (
+            f"CLOSED — {symbol} ({side}) · "
+            f"Exit: ${exit_price:,.2f} | Entry: ${entry_price:,.2f} · "
+            f"Trade PnL: {sign}${pnl:,.2f} ({sign}{pnl_pct:.2f}%) | "
+            f"Session: {'+' if self._session_pnl >= 0 else ''}${self._session_pnl:,.2f}"
+        )
+
+    def _msg_signal(self, data: dict[str, Any]) -> str:
+        symbol = str(data.get("symbol") or "?")
+        sig_type = str(data.get("type") or data.get("signal_type") or "signal")
+        price = float(data.get("price") or data.get("last_price") or 0)
+        score = float(data.get("composite_score") or data.get("score") or 0)
+
+        parts = [f"SIGNAL — {symbol} | {sig_type}"]
+        if price > 0:
+            parts.append(f"Price: ${price:,.2f}")
+        if score:
+            parts.append(f"Score: {score:.1f}")
+        return " · ".join(parts)
+
+    def _msg_risk_alert(self, data: dict[str, Any]) -> str:
+        symbol = str(data.get("symbol") or "?")
+        reason = str(data.get("reason") or data.get("message") or "risk event")
+        return f"RISK ALERT — {symbol} · {reason}"
+
+    def _msg_decision(self, data: dict[str, Any]) -> str:
+        symbol = str(data.get("symbol") or "?")
+        action = str(data.get("action") or "?").upper()
+        score = float(data.get("reasoning_score") or 0)
+        edge = str(data.get("primary_edge") or "")
+        rr = float(data.get("rr_ratio") or 0)
+
+        parts = [f"DECISION — {symbol} | {action}"]
+        if score:
+            parts.append(f"Score: {score:.2f}")
+        if edge:
+            parts.append(f"Edge: {edge[:40]}")
+        if rr:
+            parts.append(f"R/R: {rr:.1f}x")
+        return " · ".join(parts)
 
     def _build_message(self, stream: str, event_type: str, data: dict[str, Any]) -> str:
+        if stream == STREAM_EXECUTIONS:
+            return self._msg_execution(data)
+        if stream == STREAM_TRADE_PERFORMANCE:
+            return self._msg_trade_performance(data)
+        if stream == STREAM_SIGNALS:
+            return self._msg_signal(data)
+        if stream == STREAM_RISK_ALERTS:
+            return self._msg_risk_alert(data)
+        if stream == STREAM_DECISIONS:
+            return self._msg_decision(data)
+
+        # Generic fallback for all other streams
         symbol = data.get("symbol")
         action = data.get("action") or data.get("side")
         agent_name = data.get("agent_name") or data.get("agent")
@@ -1070,6 +1165,27 @@ class NotificationAgent(MultiStreamAgent):
             return f"{stream}:{event_type} — " + ", ".join(details)
         return f"{stream}:{event_type}"
 
+    def _build_notification_type(self, stream: str, data: dict[str, Any]) -> str:
+        if stream == STREAM_EXECUTIONS:
+            side = str(data.get("side") or "").lower()
+            return f"execution.{side}" if side in ("buy", "sell") else f"stream:{stream}"
+        if stream == STREAM_TRADE_PERFORMANCE:
+            pnl = float(data.get("pnl") or 0.0)
+            if pnl > 0:
+                return "trade.profit"
+            if pnl < 0:
+                return "trade.loss"
+            return "trade.opened"
+        if stream == STREAM_SIGNALS:
+            sig = str(data.get("type") or data.get("signal_type") or "signal").lower()
+            return f"signal.{sig}"
+        if stream == STREAM_RISK_ALERTS:
+            return "risk.alert"
+        if stream == STREAM_DECISIONS:
+            action = str(data.get("action") or "").lower()
+            return f"decision.{action}" if action else f"stream:{stream}"
+        return f"stream:{stream}"
+
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_NOTIFICATIONS:
             return
@@ -1085,6 +1201,12 @@ class NotificationAgent(MultiStreamAgent):
             return
         await self.redis.setex(dedup_key, self._dedup_window_secs, "1")
 
+        # Track cumulative session PnL from closing fills
+        if stream == STREAM_TRADE_PERFORMANCE:
+            pnl_val = float(data.get("pnl") or 0.0)
+            if pnl_val != 0.0:
+                self._session_pnl += pnl_val
+
         now_iso = datetime.now(timezone.utc).isoformat()
         severity = self._classify_severity(stream, data)
         msg_id = str(data.get("msg_id") or redis_id)
@@ -1094,7 +1216,8 @@ class NotificationAgent(MultiStreamAgent):
             "schema_version": DB_SCHEMA_VERSION,
             "source": SOURCE_NOTIFICATION,
             "severity": severity,
-            "notification_type": f"stream:{stream}",
+            "notification_type": self._build_notification_type(stream, data),
+            "stream_source": stream,
             "message": self._build_message(stream, event_type, data),
             "metadata": {"observed_msg_id": msg_id, "stream": stream, "event_type": event_type},
             "timestamp": now_iso,
@@ -1132,6 +1255,11 @@ class NotificationAgent(MultiStreamAgent):
             return Severity.CRITICAL
         if grade == Grade.D:
             return Severity.URGENT
+        # Negative PnL on a closing fill → warning
+        if stream == STREAM_TRADE_PERFORMANCE:
+            pnl = float(data.get("pnl") or 0.0)
+            if pnl < 0:
+                return Severity.WARNING
         return _STREAM_SEVERITY.get(stream, Severity.INFO)
 
 
