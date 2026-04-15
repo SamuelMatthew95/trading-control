@@ -3,14 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Terminal, Download, Trash2, Pause, Play } from 'lucide-react';
-
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  level: 'info' | 'warning' | 'error' | 'success';
-  message: string;
-  source?: string;
-}
+import type { LogEntry } from '@/types/log-entry';
 
 const mockLogs: LogEntry[] = [
   {
