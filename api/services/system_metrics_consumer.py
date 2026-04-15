@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,8 +14,6 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-
-logger = logging.getLogger(__name__)
 
 
 class SystemMetricsConsumer(BaseStreamConsumer):
@@ -32,7 +29,6 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         )
         self.redis = redis_client
         self.safe_writer = SafeWriter(AsyncSessionFactory)
-        self.logger = logging.getLogger(__name__)
 
     async def process(self, data: dict[str, Any]) -> None:
         """
