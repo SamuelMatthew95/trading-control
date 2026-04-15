@@ -6,11 +6,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel
 from sqlalchemy import text
 
 from api.constants import HealthStatus
-from api.core.schemas import HealthResponse
+from api.core.schemas import HealthResponse, StandardResponse
 from api.database import test_database_connection
 from api.observability import log_structured, metrics_store
 from api.runtime_state import get_runtime_store, runtime_mode
@@ -20,12 +19,6 @@ router = APIRouter(tags=["health"])
 
 # Track process start time for startup grace period
 PROCESS_START_TIME = datetime.now(timezone.utc)
-
-
-class StandardResponse(BaseModel):
-    success: bool
-    data: Any = None
-    error: str | None = None
 
 
 async def _database_ready(request: Request) -> bool:
