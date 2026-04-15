@@ -41,6 +41,30 @@ class MultiStreamAgent:
         self._instance_id: str | None = None
 
     # ------------------------------------------------------------------
+    # Public introspection — used by AgentSupervisor to detect crashes
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Agent identity string (matches the consumer name)."""
+        return self.consumer
+
+    @property
+    def has_crashed(self) -> bool:
+        """True if the task finished with an unhandled exception (not cancelled).
+
+        MultiStreamAgent._run() swallows processing exceptions internally so
+        the task rarely dies, but we expose this property so AgentSupervisor
+        can iterate all agents uniformly without AttributeError.
+        """
+        return (
+            self._task is not None
+            and self._task.done()
+            and not self._task.cancelled()
+            and self._task.exception() is not None
+        )
+
+    # ------------------------------------------------------------------
     # Instance lifecycle registration
     # ------------------------------------------------------------------
 
@@ -143,6 +167,20 @@ class MultiStreamAgent:
                             stream=stream,
                             exc_info=True,
                         )
-                        await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
-                        await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+                        # Guard: if DLQ push or ack fails here, the exception would
+                        # propagate out of the except block, crash the task, and leave
+                        # the message in the PEL forever — MultiStreamAgent has no
+                        # reclaim_stale(), so it would never be re-delivered.
+                        try:
+                            await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
+                            await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+                        except Exception:
+                            log_structured(
+                                "error",
+                                "pipeline_agent_dlq_or_ack_failed",
+                                agent=self.consumer,
+                                stream=stream,
+                                redis_id=redis_id,
+                                exc_info=True,
+                            )
             await asyncio.sleep(0.05)

@@ -1,6 +1,5 @@
 """Simple consumers for all missing streams - UUID-safe exactly-once processing."""
 
-import logging
 from typing import Any
 
 from redis.asyncio import Redis
@@ -18,8 +17,6 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-
-logger = logging.getLogger(__name__)
 
 
 class SimpleConsumer(BaseStreamConsumer):

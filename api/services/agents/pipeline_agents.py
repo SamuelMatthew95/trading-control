@@ -268,7 +268,7 @@ class GradeAgent(MultiStreamAgent):
                         if len(confs) >= 3:
                             return spearman_correlation(confs, pnls)
             except Exception:
-                pass
+                log_structured("warning", "ic_db_query_failed_using_buffer", exc_info=True)
 
         confs = list(self._confidence_buffer)[-lookback_n:]
         pnls = list(self._pnl_buffer)[-lookback_n:]

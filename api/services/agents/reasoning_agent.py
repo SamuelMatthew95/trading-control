@@ -182,7 +182,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 },
             )
         except Exception:
-            pass  # Cost metric is informational only
+            log_structured("warning", "reasoning_cost_metric_publish_failed", exc_info=True)
 
         updated_budget = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         if updated_budget >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:

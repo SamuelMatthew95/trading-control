@@ -32,6 +32,8 @@ from api.constants import (
     REDIS_KEY_PRICES,
     REDIS_KEY_WORKER_HEARTBEAT,
     REDIS_PRICES_TTL_SECONDS,
+    REDIS_PUBSUB_PRICE_UPDATES,
+    STREAM_MARKET_EVENTS,
     WORKER_HEARTBEAT_TTL_SECONDS,
 )
 from api.database import AsyncSessionFactory
@@ -140,7 +142,7 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
         )
         pipe.set(REDIS_KEY_PRICES.format(symbol=symbol), cache_val, ex=REDIS_PRICES_TTL_SECONDS)
         pipe.xadd(
-            "market_events",
+            STREAM_MARKET_EVENTS,
             {
                 "msg_id": str(uuid.uuid4()),
                 "schema_version": "v3",
@@ -150,7 +152,7 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
             },
         )
         pipe.publish(
-            "price_updates",
+            REDIS_PUBSUB_PRICE_UPDATES,
             json.dumps(
                 {
                     "symbol": symbol,
@@ -161,7 +163,7 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
                 }
             ),
         )
-    pipe.xtrim("market_events", maxlen=1000, approximate=True)
+    pipe.xtrim(STREAM_MARKET_EVENTS, maxlen=1000, approximate=True)
     await pipe.execute()
 
 
