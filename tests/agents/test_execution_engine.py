@@ -364,3 +364,102 @@ async def test_compute_realized_pnl_opening_is_zero(engine):
     prior = {}  # no prior position
     pnl = engine._compute_realized_pnl(prior, "buy", 1.0, 50000.0)
     assert pnl == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _compute_pnl_percent tests
+# ---------------------------------------------------------------------------
+
+
+async def test_pnl_percent_full_long_close(engine):
+    """Buy 1 BTC at $50k, sell 1 BTC at $55k → pnl_percent ≈ 10.0."""
+    prior = {"side": "long", "qty": 1.0, "entry_price": 50000.0}
+    realized_pnl = 5000.0  # (55000 - 50000) * 1
+    pnl_pct = engine._compute_pnl_percent(prior, "sell", 1.0, 50000.0, realized_pnl)
+    assert pnl_pct == pytest.approx(10.0, rel=1e-4)
+
+
+async def test_pnl_percent_zero_on_open(engine):
+    """Opening a trade returns pnl_percent of 0.0 (realized_pnl is 0)."""
+    prior = {}  # no prior position
+    pnl_pct = engine._compute_pnl_percent(prior, "buy", 1.0, 50000.0, 0.0)
+    assert pnl_pct == 0.0
+
+
+async def test_pnl_percent_oversell_uses_closed_qty(engine):
+    """Position has 0.1 BTC; order sells 0.2 BTC. closed_qty=0.1, denominator uses 0.1 not 0.2."""
+    prior = {"side": "long", "qty": 0.1, "entry_price": 50000.0}
+    # Realized PnL computed on 0.1 BTC closed (min(0.2, 0.1) = 0.1)
+    realized_pnl = (55000.0 - 50000.0) * 0.1  # 500.0
+    pnl_pct = engine._compute_pnl_percent(prior, "sell", 0.2, 50000.0, realized_pnl)
+    # cost_basis = 50000 * 0.1 = 5000; pnl_percent = 500/5000*100 = 10.0
+    assert pnl_pct == pytest.approx(10.0, rel=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# _process_in_memory tests
+# ---------------------------------------------------------------------------
+
+
+async def test_process_in_memory_writes_order_to_store(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """With is_db_available=False, process() writes one order to InMemoryStore."""
+    # Override the autouse _force_db_available fixture for this test
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_broker.get_position = AsyncMock(return_value={})
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
+    )
+
+    from api.runtime_state import get_runtime_store
+
+    await engine.process(_make_order("buy"))
+
+    orders = get_runtime_store().orders
+    assert len(orders) == 1
+    order = orders[0]
+    assert order["symbol"] == "BTC/USD"
+    assert order["side"] == "buy"
+    assert order["filled_price"] == pytest.approx(50001.0)
+    assert "pnl" in order
+    assert "pnl_percent" in order
+
+
+async def test_process_in_memory_upserts_position(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """After a buy in memory mode, the InMemoryStore position for BTC/USD has positive qty."""
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_broker.get_position = AsyncMock(return_value={})
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
+    )
+
+    from api.runtime_state import get_runtime_store
+
+    await engine.process(_make_order("buy"))
+
+    positions = get_runtime_store().positions
+    assert "BTC/USD" in positions
+    assert float(positions["BTC/USD"]["qty"]) > 0
+
+
+async def test_process_in_memory_publishes_streams(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """In memory mode, bus.publish is called for STREAM_EXECUTIONS and STREAM_TRADE_PERFORMANCE."""
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_broker.get_position = AsyncMock(return_value={})
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
+    )
+
+    await engine.process(_make_order("buy"))
+
+    published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
+    assert "executions" in published_streams
+    assert "trade_performance" in published_streams
