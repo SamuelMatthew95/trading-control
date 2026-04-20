@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import LogType
+from ..constants import LogType, OrderSide, OrderStatus, PositionSide
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 
@@ -416,7 +416,9 @@ class MetricsAggregator:
             positions = [
                 {
                     "symbol": p.symbol,
-                    "side": "long" if _safe_float(p.quantity) > 0 else "short",
+                    "side": PositionSide.LONG
+                    if _safe_float(p.quantity) > 0
+                    else PositionSide.SHORT,
                     "quantity": _safe_float(p.quantity),
                     "entry_price": _safe_float(p.avg_cost),
                     "current_price": _safe_float(p.last_price or p.avg_cost),
@@ -568,7 +570,7 @@ class MetricsAggregator:
                             "requires_approval": bool(p.get("requires_approval", True)),
                             "confidence": _safe_float(p.get("confidence")) or None,
                             "reflection_trace_id": _safe_str(p.get("reflection_trace_id")),
-                            "status": _safe_str(p.get("status")) or "pending",
+                            "status": _safe_str(p.get("status")) or OrderStatus.PENDING,
                             "timestamp": row[2].isoformat() if row[2] else None,
                         }
                     )
@@ -595,7 +597,7 @@ class MetricsAggregator:
                         {
                             "id": _safe_str(row[0]),
                             "symbol": _safe_str(row[1]) or "",
-                            "side": _safe_str(row[2]) or "buy",
+                            "side": _safe_str(row[2]) or OrderSide.BUY,
                             "qty": _safe_float(row[3]) or None,
                             "entry_price": _safe_float(row[4]) or None,
                             "exit_price": _safe_float(row[5]) or None,
@@ -604,7 +606,7 @@ class MetricsAggregator:
                             "grade": _safe_str(row[8]),
                             "grade_score": _safe_float(row[9]) or None,
                             "grade_label": _safe_str(row[10]),
-                            "status": _safe_str(row[11]) or "filled",
+                            "status": _safe_str(row[11]) or OrderStatus.FILLED,
                             "filled_at": row[12].isoformat() if row[12] else None,
                             "graded_at": row[13].isoformat() if row[13] else None,
                             "execution_trace_id": _safe_str(row[14]),
@@ -733,7 +735,7 @@ class MetricsAggregator:
                     pass
 
             if avg_cost > 0 and qty > 0:
-                if side == "long":
+                if side == PositionSide.LONG:
                     pos_pnl = (current_price - avg_cost) * qty
                     pnl_pct = (current_price - avg_cost) / avg_cost
                 else:
