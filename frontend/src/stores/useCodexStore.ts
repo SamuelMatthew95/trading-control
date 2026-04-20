@@ -285,10 +285,31 @@ type CodexState = {
   fetchPrices: () => Promise<void>
 }
 
+const _loadFromStorage = <T>(key: string, limit: number): T[] => {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as T[]).slice(0, limit) : []
+  } catch {
+    return []
+  }
+}
+
+const _saveToStorage = (key: string, data: unknown[]): void => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, JSON.stringify(data))
+  } catch {
+    // quota exceeded or SSR — silently ignore
+  }
+}
+
 export const useCodexStore = create<CodexState>((set) => ({
   prices: {},
-  orders: [],
-  positions: [],
+  orders: _loadFromStorage<Order>('codex.orders', 100),
+  positions: _loadFromStorage<Position>('codex.positions', 50),
   signals: [],
   agentLogs: [],
   riskAlerts: [],
@@ -397,14 +418,18 @@ export const useCodexStore = create<CodexState>((set) => ({
   addSignal: (signal) => set((state) => ({
     signals: [signal, ...state.signals].slice(0, 50)
   })),
-  addOrder: (order) => set((state) => ({
-    orders: [order, ...state.orders].slice(0, 100)
-  })),
-  updateOrder: (order) => set((state) => ({
-    orders: state.orders.some((e) => e.order_id === order.order_id)
+  addOrder: (order) => set((state) => {
+    const next = [order, ...state.orders].slice(0, 100)
+    _saveToStorage('codex.orders', next)
+    return { orders: next }
+  }),
+  updateOrder: (order) => set((state) => {
+    const next = state.orders.some((e) => e.order_id === order.order_id)
       ? state.orders.map((e) => e.order_id === order.order_id ? { ...e, ...order } : e)
       : [order, ...state.orders].slice(0, 100)
-  })),
+    _saveToStorage('codex.orders', next)
+    return { orders: next }
+  }),
   addAgentLog: (log) => set((state) => ({
     agentLogs: [log, ...state.agentLogs].slice(0, 100)
   })),
@@ -506,6 +531,7 @@ export const useCodexStore = create<CodexState>((set) => ({
             !data.orders?.some((newOrder) => newOrder.order_id === order.order_id)
           )
         ].slice(0, 100)
+        _saveToStorage('codex.orders', updates.orders)
       }
 
       if (data.agent_logs) {
@@ -546,6 +572,7 @@ export const useCodexStore = create<CodexState>((set) => ({
 
       if (data.positions) {
         updates.positions = data.positions
+        _saveToStorage('codex.positions', data.positions)
       }
 
       if (data.prices) {
