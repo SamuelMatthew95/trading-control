@@ -40,6 +40,8 @@ class InMemoryStore:
     event_history: list[dict[str, Any]] = field(default_factory=list)
     vector_memory: list[dict[str, Any]] = field(default_factory=list)
     agent_runs: list[dict[str, Any]] = field(default_factory=list)
+    orders: list[dict[str, Any]] = field(default_factory=list)
+    positions: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_health: str = "unknown"
 
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
@@ -106,11 +108,23 @@ class InMemoryStore:
             self.agent_runs = self.agent_runs[-500:]
         return payload
 
+    def add_order(self, order: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(order)
+        payload.setdefault("created_at", time.time())
+        self.orders.append(payload)
+        if len(self.orders) > 500:
+            self.orders = self.orders[-500:]
+        return payload
+
+    def upsert_position(self, symbol: str, position: dict[str, Any]) -> None:
+        existing = self.positions.get(symbol, {})
+        self.positions[symbol] = {**existing, **position}
+
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
         now = time.time()
         return {
-            "orders": [],
-            "positions": [],
+            "orders": list(reversed(self.orders[-50:])),
+            "positions": [p for p in self.positions.values() if float(p.get("qty", 0)) > 0],
             "agent_logs": [],
             "prices": {},
             "ic_weights": {},

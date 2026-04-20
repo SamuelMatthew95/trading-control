@@ -194,10 +194,13 @@ async def test_execution_engine_generates_strategy_id_when_absent():
         "api.services.execution.execution_engine.AsyncSessionFactory", _FakeSessionFactory()
     ):
         with patch("api.services.agents.db_helpers.AsyncSessionFactory", _FakeSessionFactory()):
-            try:
-                await engine.process(order_data)
-            except Exception:
-                pass  # DB errors from fake session are fine; we only care about strategy_id
+            with patch(
+                "api.services.execution.execution_engine.is_db_available", return_value=True
+            ):
+                try:
+                    await engine.process(order_data)
+                except Exception:
+                    pass  # DB errors from fake session are fine; we only care about strategy_id
 
     # Must have captured at least one strategy_id (from the INSERT into orders)
     assert captured_strategy_id, "ExecutionEngine must generate a strategy_id even when absent"
