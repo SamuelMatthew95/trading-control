@@ -463,3 +463,45 @@ async def test_process_in_memory_publishes_streams(
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
     assert "executions" in published_streams
     assert "trade_performance" in published_streams
+
+
+async def test_process_in_memory_deduplicates_replayed_messages(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """A redelivered decision message must not produce a second fill in memory mode.
+
+    BaseStreamConsumer is at-least-once; the Redis SET NX dedup key must prevent
+    the broker from being called more than once for the same idempotency key.
+    """
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_broker.get_position = AsyncMock(return_value={})
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
+    )
+
+    # Track dedup key attempts separately from order-lock NX attempts.
+    # Both use nx=True, so we key off the Redis key prefix to distinguish them.
+    dedup_seen: set[str] = set()
+
+    async def _fake_set(key, value, ex=None, nx=False):
+        if nx and key.startswith("order:dedup:"):
+            if key in dedup_seen:
+                return False  # duplicate — second replay attempt
+            dedup_seen.add(key)
+            return True  # first attempt — let it through
+        return True  # order lock and all non-NX sets always succeed
+
+    mock_redis.set = _fake_set
+
+    order = _make_order("buy")
+
+    # First delivery — should execute
+    await engine.process(order)
+    assert mock_broker.place_order.call_count == 1
+
+    # Second delivery (replay) — same message, same idempotency key
+    await engine.process(order)
+    assert mock_broker.place_order.call_count == 1, (
+        "Broker must NOT be called a second time for a replayed message"
+    )

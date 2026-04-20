@@ -22,8 +22,10 @@ from api.constants import (
     EXECUTION_DECISION_THRESHOLD,
     LARGE_ORDER_THRESHOLD,
     NO_ORDER_ACTIONS,
+    ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
+    REDIS_KEY_ORDER_DEDUP,
     REDIS_KEY_ORDER_LOCK,
     SOURCE_EXECUTION,
     STREAM_DECISIONS,
@@ -424,6 +426,26 @@ class ExecutionEngine(BaseStreamConsumer):
             return
 
         if not self._is_market_open(symbol):
+            return
+
+        # --- Idempotency guard (mirrors the DB-path SELECT on idempotency_key) ---
+        # BaseStreamConsumer is at-least-once; redelivered messages must not
+        # produce duplicate fills. Use Redis SET NX with a 24-hour TTL so any
+        # realistic replay window is covered even when DB is unavailable.
+        order_timestamp = self._parse_timestamp(data.get("timestamp"))
+        idempotency_key = self._build_idempotency_key(
+            strategy_id, symbol, side, order_timestamp, data
+        )
+        dedup_key = REDIS_KEY_ORDER_DEDUP.format(idempotency_key=idempotency_key)
+        is_new = await self.redis.set(dedup_key, "1", ex=ORDER_DEDUP_TTL_SECONDS, nx=True)
+        if not is_new:
+            log_structured(
+                "info",
+                "memory_order_duplicate_skipped",
+                idempotency_key=idempotency_key,
+                symbol=symbol,
+                trace_id=trace_id,
+            )
             return
 
         order_id = str(uuid.uuid4())
