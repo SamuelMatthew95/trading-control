@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
 from api.observability import log_structured
+from api.services.agents.prompts import ADAPTIVE_TRADING_SYSTEM_PROMPT
 
 try:
     import anthropic
@@ -70,6 +71,7 @@ def _to_sync_db_url(raw_url: str) -> str:
 class MemoryGuard:
     def __init__(self, threshold: float = 0.82):
         self.threshold = threshold
+        self.risk_memory_store: dict[str, int] = {}
 
     def check(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         db_url = _to_sync_db_url(os.getenv("DATABASE_URL", "sqlite:///./trading-control.db"))
@@ -96,6 +98,14 @@ class MemoryGuard:
                 similarity = self._cosine(probe_embedding, candidate)
                 if similarity > self.threshold:
                     metadata = json.loads(row.metadata_json) if row.metadata_json else {}
+                    risk_key = f"{tool_name}:{hashlib.sha256(probe.encode('utf-8')).hexdigest()}"
+                    self.risk_memory_store[risk_key] = self.risk_memory_store.get(risk_key, 0) + 1
+                    if self.risk_memory_store[risk_key] > 3:
+                        return {
+                            "similarity": 1.0,
+                            "reason": "repeated_risk_violation",
+                            "content": f"Pattern failed {self.risk_memory_store[risk_key]} times",
+                        }
                     return {
                         "similarity": round(similarity, 3),
                         "reason": metadata.get("reason", "blocked by prior negative memory"),
@@ -357,10 +367,10 @@ class Planner:
 
 class ExecutionEngine:
     AGENT_PROMPTS: dict[str, str] = {
-        "SIGNAL_AGENT": "You normalize trade signals. Return JSON list only.",
-        "CONSENSUS_AGENT": "You aggregate signals and compute consensus. Return JSON object only.",
-        "RISK_AGENT": "You enforce risk limits and can veto trades. Return JSON object only.",
-        "SIZING_AGENT": "You calculate position size using Kelly criterion. Return JSON object only.",
+        "SIGNAL_AGENT": ADAPTIVE_TRADING_SYSTEM_PROMPT,
+        "CONSENSUS_AGENT": "You aggregate signals with IC-weighted consensus. Return JSON object only.",
+        "RISK_AGENT": "You enforce capital preservation first and can veto trades. Return JSON object only.",
+        "SIZING_AGENT": "You calculate Kelly-based position sizing with risk multipliers. Return JSON object only.",
     }
 
     def __init__(self, model: ReasoningModel, retriever: DocumentRetriever, tools: TradeTools):

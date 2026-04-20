@@ -45,13 +45,16 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
-from api.services.agents.prompts import REASONING_CRITIQUE_PROMPT
+from api.services.agents.prompts import (
+    ADAPTIVE_TRADING_SYSTEM_PROMPT,
+    REASONING_CRITIQUE_PROMPT,
+)
 from api.services.agents.vector_helpers import (
     build_vector_literal,
     embed_text,
     search_vector_memory,
 )
-from api.services.llm_router import call_llm, call_llm_with_system
+from api.services.llm_router import call_llm_with_system
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -69,7 +72,7 @@ class ReasoningAgent(BaseStreamConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
-        trace_id = str(uuid.uuid4())
+        trace_id = str(data.get("trace_id") or uuid.uuid4())
 
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
 
@@ -138,6 +141,9 @@ class ReasoningAgent(BaseStreamConsumer):
                     trace_id=trace_id,
                     timeout=LLM_TIMEOUT_SECONDS,
                 )
+
+        # Enforce strict risk hierarchy before persistence/publishing.
+        summary = self._apply_risk_hierarchy(summary, context)
 
         # --- Persist agent run + cost tracking ---------------------------
         agent_run_id = await self._persist_run(
@@ -377,10 +383,99 @@ class ReasoningAgent(BaseStreamConsumer):
                 "similar_trades": similar_trades,
                 "ic_weights": (context or {}).get("ic_weights", {}),
                 "risk_state": (context or {}).get("risk_state", {}),
+                "system_directive": "CAPITAL_PRESERVATION_FIRST",
             },
             default=str,
         )
-        return await call_llm(prompt, trace_id)
+        raw_text, tokens, cost_usd = await call_llm_with_system(
+            prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id
+        )
+        if isinstance(raw_text, dict):
+            return raw_text, tokens, cost_usd
+
+        cleaned = str(raw_text).strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+            if "\n" in cleaned:
+                first, rest = cleaned.split("\n", 1)
+                if first.strip() in {"json", "JSON", ""}:
+                    cleaned = rest
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3].strip()
+        try:
+            parsed = json.loads(cleaned)
+            if not isinstance(parsed, dict):
+                raise json.JSONDecodeError("LLM JSON must be an object", cleaned, 0)
+        except json.JSONDecodeError:
+            parsed = {
+                "action": AgentAction.HOLD,
+                "confidence": 0.0,
+                "primary_edge": "invalid_json",
+                "risk_factors": ["invalid_llm_json"],
+                "size_pct": 0.01,
+                "stop_atr_x": 1.5,
+                "rr_ratio": 2.0,
+            }
+        return parsed, tokens, cost_usd
+
+    def _apply_risk_hierarchy(
+        self, decision: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Enforce capital-preservation-first decision hierarchy."""
+        safe_decision = dict(decision)
+        risk_factors = list(safe_decision.get("risk_factors") or [])
+        action = str(safe_decision.get("action", "hold")).lower()
+
+        # 1) Capital preservation hard stop.
+        drawdown = float(context.get("risk_state", {}).get("drawdown") or 0.0)
+        if drawdown <= -0.15:
+            safe_decision["action"] = AgentAction.HOLD
+            safe_decision["confidence"] = 0.0
+            if "MAX_DRAWDOWN_EXCEEDED" not in risk_factors:
+                risk_factors.append("MAX_DRAWDOWN_EXCEEDED")
+            safe_decision["risk_factors"] = risk_factors
+            return safe_decision
+
+        # 2) IC alignment check.
+        if not self._ic_aligns(action, context.get("ic_weights", {}), safe_decision):
+            safe_decision["action"] = AgentAction.HOLD
+            safe_decision["confidence"] = round(
+                float(safe_decision.get("confidence") or 0.0) * 0.3, 4
+            )
+            if "IC_MISALIGNMENT" not in risk_factors:
+                risk_factors.append("IC_MISALIGNMENT")
+            safe_decision["risk_factors"] = risk_factors
+            return safe_decision
+
+        # 3) Consensus threshold.
+        agreement_ratio = float(safe_decision.get("agreement_ratio") or 1.0)
+        if agreement_ratio < 0.5:
+            safe_decision["action"] = AgentAction.HOLD
+            if "LOW_CONSENSUS" not in risk_factors:
+                risk_factors.append("LOW_CONSENSUS")
+            safe_decision["risk_factors"] = risk_factors
+
+        return safe_decision
+
+    def _ic_aligns(
+        self, signal_direction: str, ic_weights: dict[str, float], decision: dict[str, Any]
+    ) -> bool:
+        """Check whether action direction aligns with dominant IC weight."""
+        if not ic_weights:
+            return True
+        try:
+            factor_name, _weight = max(ic_weights.items(), key=lambda item: float(item[1]))
+        except Exception:
+            return True
+
+        if factor_name != "composite_score":
+            return True
+
+        score = float(decision.get("composite_score") or decision.get("confidence") or 0.0)
+        direction = signal_direction.lower()
+        if score > 0.5:
+            return direction in {AgentAction.BUY, "long"}
+        return direction in {AgentAction.SELL, AgentAction.HOLD, "short", "flat"}
 
     async def _apply_fallback(
         self, data: dict[str, Any], trace_id: str, reason: str
