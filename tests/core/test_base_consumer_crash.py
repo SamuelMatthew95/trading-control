@@ -230,3 +230,31 @@ def test_agent_supervisor_iterates_mixed_agent_list():
         await supervisor._check_health()
 
     asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_agent_supervisor_restart_is_rate_limited():
+    """Supervisor should suppress restarts after max attempts within time window."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from api.constants import SUPERVISOR_MAX_RESTARTS_PER_WINDOW
+    from api.services.agent_supervisor import AgentSupervisor
+
+    agent = MagicMock()
+    agent.has_crashed = True
+    agent.name = "reflection-agent"
+    agent._task = MagicMock()
+    agent._task.exception.return_value = RuntimeError("boom")
+    agent.start = AsyncMock()
+
+    bus_mock = MagicMock()
+    bus_mock.publish = AsyncMock()
+    supervisor = AgentSupervisor(bus_mock, [agent])
+
+    async def _run_checks() -> None:
+        for _ in range(SUPERVISOR_MAX_RESTARTS_PER_WINDOW + 1):
+            await supervisor._check_health()
+
+    asyncio.get_event_loop().run_until_complete(_run_checks())
+
+    assert agent.start.await_count == SUPERVISOR_MAX_RESTARTS_PER_WINDOW
