@@ -519,8 +519,56 @@ class MultiAgentOrchestrator:
             return {"success": False, "error": str(exc)}
 
     def analyze_trade(
-        self, asset: str, timeframe: str, portfolio_state: dict[str, Any]
+        self,
+        asset: str,
+        timeframe: str,
+        portfolio_state: dict[str, Any],
+        *,
+        max_iterations: int = 2,
     ) -> dict[str, Any]:
+        """Run an explicit agentic loop: perceive → think/plan → act → evaluate → repeat."""
+        self.agent_calls = []
+        current_timeframe = timeframe
+        final_decision: dict[str, Any] | None = None
+        final_trajectory_issues: list[str] = []
+        final_outcome_issues: list[str] = []
+
+        for iteration in range(1, max_iterations + 1):
+            decision, trajectory_issues, outcome_issues = self._analyze_trade_once(
+                asset, current_timeframe, portfolio_state
+            )
+            decision["LOOP_ITERATION"] = iteration
+            final_decision = decision
+            final_trajectory_issues = trajectory_issues
+            final_outcome_issues = outcome_issues
+            if not self._should_retry(
+                decision, trajectory_issues, outcome_issues, iteration, max_iterations
+            ):
+                break
+            current_timeframe = self._next_timeframe(current_timeframe)
+            self.conversation_memory.add(
+                {
+                    "loop_event": "retry",
+                    "iteration": iteration,
+                    "next_timeframe": current_timeframe,
+                    "reason": "low_confidence_or_validation_issues",
+                }
+            )
+
+        if final_decision is None:
+            return self._error_decision(asset, "orchestrator produced no decision")
+
+        if final_trajectory_issues or final_outcome_issues:
+            final_decision.setdefault("RISK FLAGS", []).extend(
+                final_trajectory_issues + final_outcome_issues
+            )
+        final_decision["LOOP_COMPLETED"] = True
+        final_decision["LOOP_MAX_ITERATIONS"] = max_iterations
+        return final_decision
+
+    def _analyze_trade_once(
+        self, asset: str, timeframe: str, portfolio_state: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[str], list[str]]:
         task_id = f"{asset}:{datetime.now(timezone.utc).isoformat()}"
         plan = self.planner.build_plan(asset, timeframe)
         context: dict[str, Any] = {
@@ -583,7 +631,7 @@ class MultiAgentOrchestrator:
                     "retrieved_context": context.get("signals", []),
                 }
                 self._persist(task_id, decision)
-                return decision
+                return decision, ["step_failure"], []
 
             self.agent_calls.append(
                 AgentCall(
@@ -600,10 +648,30 @@ class MultiAgentOrchestrator:
         decision = self.executor.run_step(PlanStep("decision"), context)
         trajectory_issues = self.evaluator.validate_trajectory(self.agent_calls)
         outcome_issues = self.evaluator.validate_outcome(decision)
-        if trajectory_issues or outcome_issues:
-            decision.setdefault("RISK FLAGS", []).extend(trajectory_issues + outcome_issues)
         self._persist(task_id, decision)
-        return decision
+        return decision, trajectory_issues, outcome_issues
+
+    def _should_retry(
+        self,
+        decision: dict[str, Any],
+        trajectory_issues: list[str],
+        outcome_issues: list[str],
+        iteration: int,
+        max_iterations: int,
+    ) -> bool:
+        if iteration >= max_iterations:
+            return False
+        if "SYSTEM_ERROR" in decision.get("RISK FLAGS", []):
+            return False
+        if trajectory_issues or outcome_issues:
+            return True
+        if decision.get("CONFIDENCE") == "LOW":
+            return True
+        return "LOW_CONSENSUS" in decision.get("RISK FLAGS", [])
+
+    def _next_timeframe(self, timeframe: str) -> str:
+        fallback_order = {"1W": "1D", "1D": "4H", "4H": "1H", "1H": "1D"}
+        return fallback_order.get(timeframe, "1D")
 
     def process_trade_signals(self, signals: list[dict[str, Any]]) -> dict[str, Any]:
         symbol = signals[0].get("symbol", "AAPL") if signals else "AAPL"

@@ -16,6 +16,7 @@ manual intervention, giving the system self-healing properties.
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict, deque
 from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any
@@ -24,6 +25,8 @@ from api.constants import (
     SOURCE_SUPERVISOR,
     STREAM_RISK_ALERTS,
     SUPERVISOR_CHECK_INTERVAL_SECONDS,
+    SUPERVISOR_MAX_RESTARTS_PER_WINDOW,
+    SUPERVISOR_RESTART_WINDOW_SECONDS,
 )
 from api.events.bus import EventBus
 from api.observability import log_structured
@@ -40,6 +43,7 @@ class AgentSupervisor:
         self._agents = agents
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        self._restart_history: defaultdict[str, deque[datetime]] = defaultdict(deque)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -116,7 +120,17 @@ class AgentSupervisor:
 
             # Restart the agent.
             try:
+                if not self._can_restart(agent_name):
+                    log_structured(
+                        "error",
+                        "supervisor_restart_suppressed",
+                        agent=agent_name,
+                        max_restarts=SUPERVISOR_MAX_RESTARTS_PER_WINDOW,
+                        window_seconds=SUPERVISOR_RESTART_WINDOW_SECONDS,
+                    )
+                    continue
                 await agent.start()
+                self._record_restart(agent_name)
                 log_structured("info", "supervisor_restarted_agent", agent=agent_name)
             except Exception:
                 log_structured(
@@ -125,3 +139,14 @@ class AgentSupervisor:
                     agent=agent_name,
                     exc_info=True,
                 )
+
+    def _can_restart(self, agent_name: str) -> bool:
+        now = datetime.now(timezone.utc)
+        restarts = self._restart_history[agent_name]
+        window_start = now.timestamp() - SUPERVISOR_RESTART_WINDOW_SECONDS
+        while restarts and restarts[0].timestamp() < window_start:
+            restarts.popleft()
+        return len(restarts) < SUPERVISOR_MAX_RESTARTS_PER_WINDOW
+
+    def _record_restart(self, agent_name: str) -> None:
+        self._restart_history[agent_name].append(datetime.now(timezone.utc))

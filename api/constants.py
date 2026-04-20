@@ -276,6 +276,8 @@ ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
 PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
 SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence
+SUPERVISOR_MAX_RESTARTS_PER_WINDOW: Final[int] = 3  # Prevent restart thrashing per agent
+SUPERVISOR_RESTART_WINDOW_SECONDS: Final[int] = 300  # 5-minute restart window
 
 # Agentic pattern constants
 # ReAct self-critique: only critique decisions above this confidence (controls LLM cost)
