@@ -1190,26 +1190,57 @@ class NotificationAgent(MultiStreamAgent):
             return f"decision.{action}" if action else f"stream:{stream}"
         return f"stream:{stream}"
 
+    # User-facing notifications are restricted to actual executed buy/sell
+    # fills. Other streams (signals, decisions, grades, reflections, risk
+    # alerts, proposals) are still consumed for internal state (e.g. session
+    # PnL on STREAM_TRADE_PERFORMANCE), but they do not surface to the
+    # dashboard notification panel.
+    _PUBLISH_STREAMS: frozenset[str] = frozenset({STREAM_EXECUTIONS})
+
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_NOTIFICATIONS:
+            return
+
+        # Track cumulative session PnL from closing fills — runs even when the
+        # notification itself is suppressed, so session totals stay accurate.
+        if stream == STREAM_TRADE_PERFORMANCE:
+            pnl_val = float(data.get("pnl") or 0.0)
+            if pnl_val != 0.0:
+                self._session_pnl += pnl_val
+
+        if stream not in self._PUBLISH_STREAMS:
+            # Still write heartbeat so the dashboard reflects agent health.
+            await self._heartbeat(stream, data)
+            return
+
+        # Require a valid buy/sell side on the fill before surfacing it.
+        side_raw = str(data.get("side") or data.get("action") or "").strip().lower()
+        try:
+            OrderSide(side_raw)
+        except ValueError:
+            log_structured(
+                "debug",
+                "notification_dropped_invalid_side",
+                stream=stream,
+                side=side_raw,
+            )
+            await self._heartbeat(stream, data)
             return
 
         event_type = str(data.get("type") or data.get("notification_type") or stream)
         symbol_key = str(data.get("symbol") or data.get("asset") or "")
         trace_key = str(data.get("trace_id") or data.get("msg_id") or "")
         dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
-            stream=stream, event_type=event_type, symbol=symbol_key, trace=trace_key
+            stream=stream,
+            event_type=event_type,
+            side=side_raw,
+            symbol=symbol_key,
+            trace=trace_key,
         )
 
         if await self.redis.exists(dedup_key):
             return
         await self.redis.setex(dedup_key, self._dedup_window_secs, "1")
-
-        # Track cumulative session PnL from closing fills
-        if stream == STREAM_TRADE_PERFORMANCE:
-            pnl_val = float(data.get("pnl") or 0.0)
-            if pnl_val != 0.0:
-                self._session_pnl += pnl_val
 
         now_iso = datetime.now(timezone.utc).isoformat()
         severity = self._classify_severity(stream, data)
@@ -1240,7 +1271,18 @@ class NotificationAgent(MultiStreamAgent):
         await self.bus.publish(STREAM_NOTIFICATIONS, notification)
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
 
-        # Write heartbeat so dashboard shows NOTIFICATION_AGENT as ACTIVE
+        await self._heartbeat(stream, data, event_type=event_type)
+
+    async def _heartbeat(
+        self, stream: str, data: dict[str, Any], *, event_type: str | None = None
+    ) -> None:
+        """Write a heartbeat so the dashboard shows NOTIFICATION_AGENT as ACTIVE.
+
+        Called both when a notification is published and when an event is
+        consumed-but-suppressed, so the agent looks alive either way.
+        """
+        if event_type is None:
+            event_type = str(data.get("type") or data.get("notification_type") or stream)
         try:
             await _write_heartbeat(
                 self.redis,

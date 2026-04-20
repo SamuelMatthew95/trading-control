@@ -105,10 +105,10 @@ def test_classify_severity_explicit_overrides_grade(notification_agent):
 )
 async def test_deduplication_skips_repeat(notification_agent, mock_bus):
     """The same stream+type combination within the dedup window is forwarded only once."""
-    event = {"type": "agent_grade", "grade": "B", "score": 0.72}
+    event = {"type": "order_filled", "side": "buy", "symbol": "BTC/USD", "qty": 1, "price": 100.0}
 
-    await notification_agent.process("agent_grades", "id-1", event)
-    await notification_agent.process("agent_grades", "id-2", event)
+    await notification_agent.process("executions", "id-1", event)
+    await notification_agent.process("executions", "id-2", event)
 
     notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
     assert len(notifications_calls) == 1
@@ -121,11 +121,11 @@ async def test_deduplication_skips_repeat(notification_agent, mock_bus):
 )
 async def test_deduplication_allows_different_event_types(notification_agent, mock_bus):
     """Two events with different types on the same stream are both forwarded."""
-    event_a = {"type": "agent_grade", "grade": "A"}
-    event_b = {"type": "agent_suspension", "reason": "low grades"}
+    event_a = {"type": "order_filled", "side": "buy", "symbol": "BTC/USD"}
+    event_b = {"type": "order_filled", "side": "sell", "symbol": "BTC/USD"}
 
-    await notification_agent.process("agent_grades", "id-1", event_a)
-    await notification_agent.process("agent_grades", "id-2", event_b)
+    await notification_agent.process("executions", "id-1", event_a)
+    await notification_agent.process("executions", "id-2", event_b)
 
     notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
     assert len(notifications_calls) == 2
@@ -138,11 +138,11 @@ async def test_deduplication_allows_different_event_types(notification_agent, mo
 )
 async def test_deduplication_allows_same_event_type_different_symbol(notification_agent, mock_bus):
     """Same type should not dedup away distinct symbols."""
-    event_a = {"type": "signal", "symbol": "AAPL"}
-    event_b = {"type": "signal", "symbol": "TSLA"}
+    event_a = {"type": "order_filled", "side": "buy", "symbol": "AAPL"}
+    event_b = {"type": "order_filled", "side": "buy", "symbol": "TSLA"}
 
-    await notification_agent.process("signals", "id-1", event_a)
-    await notification_agent.process("signals", "id-2", event_b)
+    await notification_agent.process("executions", "id-1", event_a)
+    await notification_agent.process("executions", "id-2", event_b)
 
     notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
     assert len(notifications_calls) == 2
@@ -176,10 +176,16 @@ async def test_skip_notifications_stream(notification_agent, mock_bus):
     MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
 )
 async def test_publishes_to_notifications_stream(notification_agent, mock_bus):
-    """A valid, non-duplicate event must be forwarded to the 'notifications' stream."""
-    event = {"type": "signal", "symbol": "BTC/USD", "direction": "bullish"}
+    """A valid buy/sell execution event is forwarded to the 'notifications' stream."""
+    event = {
+        "type": "order_filled",
+        "side": "buy",
+        "symbol": "BTC/USD",
+        "qty": 1,
+        "price": 100.0,
+    }
 
-    await notification_agent.process("signals", "id-1", event)
+    await notification_agent.process("executions", "id-1", event)
 
     notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
     assert len(notifications_calls) == 1
@@ -188,6 +194,40 @@ async def test_publishes_to_notifications_stream(notification_agent, mock_bus):
     assert notification["severity"] == "INFO"
     assert notification["source"] == "notification_agent"
     assert "BTC/USD" in notification["message"]
+
+
+@pytest.mark.asyncio
+@patch(
+    "api.core.writer.safe_writer.SafeWriter",
+    MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
+)
+async def test_non_execution_streams_do_not_publish(notification_agent, mock_bus):
+    """Signals, grades, proposals, and risk alerts must NOT surface as user notifications."""
+    await notification_agent.process("signals", "id-1", {"symbol": "BTC/USD"})
+    await notification_agent.process("agent_grades", "id-2", {"grade": "F", "symbol": "AAPL"})
+    await notification_agent.process("risk_alerts", "id-3", {"symbol": "TSLA"})
+    await notification_agent.process("proposals", "id-4", {"symbol": "NVDA"})
+
+    notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
+    assert notifications_calls == []
+
+
+@pytest.mark.asyncio
+@patch(
+    "api.core.writer.safe_writer.SafeWriter",
+    MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
+)
+async def test_execution_without_buy_or_sell_side_is_dropped(notification_agent, mock_bus):
+    """Execution events missing or carrying a non-buy/sell side must not publish."""
+    await notification_agent.process(
+        "executions", "id-1", {"type": "order_filled", "symbol": "BTC/USD"}
+    )
+    await notification_agent.process(
+        "executions", "id-2", {"type": "order_filled", "side": "hold", "symbol": "BTC/USD"}
+    )
+
+    notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
+    assert notifications_calls == []
 
 
 def test_build_message_includes_key_context(notification_agent):
