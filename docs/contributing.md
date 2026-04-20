@@ -51,6 +51,20 @@ grep -rn "^[[:space:]]*print(" api/ --include="*.py" | grep -v ".pyc"
 
 All commands must exit 0. No exceptions.
 
+### Mandatory gate for AI-assisted changes (Codex/agents)
+
+Before committing or opening a PR, always run this exact sequence:
+
+```bash
+ruff check . --fix
+ruff format .
+ruff format --check .
+pytest tests/ -v --tb=short
+```
+
+If `ruff format --check .` prints `Would reformat: ...`, do **not** commit yet.
+Run `ruff format .` and re-run the full sequence until everything is green.
+
 ## PR checklist
 
 - [ ] Scope is focused and understandable.
