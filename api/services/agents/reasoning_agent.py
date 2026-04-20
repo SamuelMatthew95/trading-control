@@ -418,7 +418,9 @@ class ReasoningAgent(BaseStreamConsumer):
             }
         return parsed, tokens, cost_usd
 
-    def _apply_risk_hierarchy(self, decision: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    def _apply_risk_hierarchy(
+        self, decision: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
         """Enforce capital-preservation-first decision hierarchy."""
         safe_decision = dict(decision)
         risk_factors = list(safe_decision.get("risk_factors") or [])
@@ -437,7 +439,9 @@ class ReasoningAgent(BaseStreamConsumer):
         # 2) IC alignment check.
         if not self._ic_aligns(action, context.get("ic_weights", {}), safe_decision):
             safe_decision["action"] = AgentAction.HOLD
-            safe_decision["confidence"] = round(float(safe_decision.get("confidence") or 0.0) * 0.3, 4)
+            safe_decision["confidence"] = round(
+                float(safe_decision.get("confidence") or 0.0) * 0.3, 4
+            )
             if "IC_MISALIGNMENT" not in risk_factors:
                 risk_factors.append("IC_MISALIGNMENT")
             safe_decision["risk_factors"] = risk_factors

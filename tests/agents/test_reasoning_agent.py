@@ -143,7 +143,9 @@ def _valid_summary(action="buy"):
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
-async def test_fallback_when_no_llm_key(mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis):
+async def test_fallback_when_no_llm_key(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
     """When LLM call raises (simulating missing key), agent falls back gracefully."""
     mock_embed.return_value = [0.1] * 1536
     mock_call_llm_with_system.side_effect = RuntimeError("No API key configured")
@@ -251,7 +253,9 @@ async def test_reject_action_no_order_published(
 
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
-async def test_token_budget_check_skips_llm(mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis):
+async def test_token_budget_check_skips_llm(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
     """When daily token budget is at max, LLM is skipped and fallback is used."""
     mock_embed.return_value = [0.1] * 1536
     # Simulate budget already fully consumed
@@ -310,7 +314,9 @@ async def test_vector_memory_search_failure_graceful(
 
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
-async def test_publishes_to_agent_logs(mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis):
+async def test_publishes_to_agent_logs(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
     """After processing a signal, agent publishes to 'agent_logs' stream."""
     mock_embed.return_value = [0.1] * 1536
     mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("sell")), 400, 0.002)
