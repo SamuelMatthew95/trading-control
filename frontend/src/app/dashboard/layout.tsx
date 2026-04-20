@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Settings2, Menu, Power, BarChart3, Activity } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -39,6 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [killSwitchPending, setKillSwitchPending] = useState(false)
   const { killSwitchActive, orders, positions, wsConnected, setKillSwitch } = useCodexStore()
 
   const dailyPnl = useMemo(() => {
@@ -47,16 +48,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return realized + unrealized
   }, [orders, positions])
 
+  // Hydrate the kill-switch state from the server so the UI starts in sync
+  // with Redis even if no one has toggled it in this session yet.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await fetch(api('/dashboard/kill-switch'))
+        if (!response.ok) return
+        const data = (await response.json()) as { active?: boolean }
+        if (!cancelled && typeof data.active === 'boolean') setKillSwitch(data.active)
+      } catch {
+        // Network issues are handled by the WebSocket reconnect loop; leave UI as-is.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [setKillSwitch])
+
   const handleKillSwitch = async (activate: boolean) => {
+    if (killSwitchPending) return
+    setKillSwitchPending(true)
     try {
-      const response = await fetch(api("/dashboard/kill-switch"), {
+      const response = await fetch(api('/dashboard/kill-switch'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: activate }),
       })
       if (response.ok) setKillSwitch(activate)
-    } catch {
-      setKillSwitch(activate)
+    } finally {
+      setKillSwitchPending(false)
     }
   }
 
@@ -165,8 +187,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction className="bg-rose-600 text-slate-100 hover:bg-rose-700" onClick={() => handleKillSwitch(!killSwitchActive)}>
-                        Confirm
+                      <AlertDialogAction
+                        className="bg-rose-600 text-slate-100 hover:bg-rose-700 disabled:opacity-50"
+                        disabled={killSwitchPending}
+                        onClick={() => handleKillSwitch(!killSwitchActive)}
+                      >
+                        {killSwitchPending ? 'Working…' : 'Confirm'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
