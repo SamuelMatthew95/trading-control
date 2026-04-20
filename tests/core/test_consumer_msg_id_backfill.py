@@ -7,6 +7,7 @@ field check in ExecutionEngine.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -302,8 +303,8 @@ async def test_reasoning_agent_publishes_order_with_strategy_id_fallback():
                 AsyncMock(return_value=[]),
             ):
                 with patch(
-                    "api.services.agents.reasoning_agent.call_llm",
-                    AsyncMock(return_value=(llm_response, 100, 0.001)),
+                    "api.services.agents.reasoning_agent.call_llm_with_system",
+                    AsyncMock(return_value=(json.dumps(llm_response), 100, 0.001)),
                 ):
                     with patch(
                         "api.services.agents.db_helpers.AsyncSessionFactory", _FakeSessionFactory()
