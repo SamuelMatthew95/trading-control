@@ -296,7 +296,6 @@ async def test_reasoning_agent_fallback_publishes_logs_and_orders(monkeypatch):
 async def test_execution_engine_updates_existing_short_position_with_signed_math(
     monkeypatch,
 ):
-
     class CaptureSession(FakeSession):
         pass
 
