@@ -31,9 +31,11 @@ class PaperBroker:
     async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         await self.redis.setnx(REDIS_KEY_PAPER_CASH, DEFAULT_PAPER_CASH)
         normalized_side = side.lower()
-        slippage = random.uniform(0.0001, 0.0005)
+        # Slippage is a fraction of price (0.01%–0.05%), not an absolute amount.
+        # Without this, BTC at $60,000 gets $0.0003 slippage — effectively zero.
+        slippage_pct = random.uniform(0.0001, 0.0005)
         direction = 1 if normalized_side in {OrderSide.BUY, PositionSide.LONG} else -1
-        fill_price = round(price + (direction * slippage), 8)
+        fill_price = round(price * (1 + direction * slippage_pct), 8)
         notional = qty * fill_price
         cash = await self.get_cash()
         if direction > 0:

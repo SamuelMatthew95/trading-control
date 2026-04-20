@@ -19,9 +19,7 @@ pytestmark = pytest.mark.asyncio
 # Force is_db_available=True so the engine doesn't route to _process_in_memory.
 @pytest.fixture(autouse=True)
 def _force_db_available(monkeypatch):
-    monkeypatch.setattr(
-        "api.services.execution.execution_engine.is_db_available", lambda: True
-    )
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: True)
 
 
 # ---------------------------------------------------------------------------

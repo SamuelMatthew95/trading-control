@@ -292,7 +292,9 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
         # have real fill data with realized PnL to work with
-        pnl_percent = (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
+        pnl_percent = self._compute_pnl_percent(
+            prior_position, side, qty, entry_price, realized_pnl
+        )
         await self.bus.publish(
             STREAM_TRADE_PERFORMANCE,
             {
@@ -444,8 +446,8 @@ class ExecutionEngine(BaseStreamConsumer):
 
             realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
             entry_price = float(prior_position.get("entry_price") or fill_price)
-            pnl_percent = (
-                (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
+            pnl_percent = self._compute_pnl_percent(
+                prior_position, side, qty, entry_price, realized_pnl
             )
 
             store = get_runtime_store()
@@ -583,6 +585,26 @@ class ExecutionEngine(BaseStreamConsumer):
             )
         except Exception:
             log_structured("warning", "execution_heartbeat_failed_memory", exc_info=True)
+
+    def _compute_pnl_percent(
+        self,
+        prior_position: dict[str, Any],
+        side: str,
+        qty: float,
+        entry_price: float,
+        realized_pnl: float,
+    ) -> float:
+        """Return percentage return on the closed position's cost basis.
+
+        Uses actual closed_qty (not order qty) so oversell scenarios don't
+        inflate the denominator and produce an artificially small percentage.
+        """
+        if entry_price <= 0 or realized_pnl == 0.0:
+            return 0.0
+        prior_qty = float(prior_position.get("qty") or 0)
+        closed_qty = min(qty, prior_qty) if prior_qty > 0 else qty
+        cost_basis = entry_price * (closed_qty if closed_qty > 0 else qty)
+        return (realized_pnl / cost_basis) * 100 if cost_basis > 0 else 0.0
 
     def _compute_realized_pnl(
         self,
