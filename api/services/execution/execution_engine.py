@@ -343,7 +343,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 pnl=realized_pnl,
                 pnl_percent=pnl_percent,
                 order_id=order_id,
-                status="filled",
+                status=OrderStatus.FILLED,
                 filled_at=filled_at.isoformat(),
             )
         except Exception:
@@ -497,7 +497,7 @@ class ExecutionEngine(BaseStreamConsumer):
             existing_pos = store.positions.get(symbol, {})
             existing_signed = float(existing_pos.get("qty", 0)) * (
                 1
-                if str(existing_pos.get("side", "long")).lower()
+                if str(existing_pos.get("side", PositionSide.LONG)).lower()
                 in {PositionSide.LONG, OrderSide.BUY}
                 else -1
             )
