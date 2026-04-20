@@ -1293,7 +1293,7 @@ export function DashboardView({ section }: { section: Section }) {
                   ) : (
                     positions.map((position, index) => {
                       const pnl = toFiniteNumber(position?.pnl)
-                      const pnlPct = toFiniteNumber(position?.pnl_pct)
+                      const pnlPct = toFiniteNumber(position?.pnl_percent)
                       const isPositive = (pnl ?? 0) >= 0
                       const side = sanitizeValue(position?.side).toUpperCase()
                       return (
