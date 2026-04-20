@@ -1168,7 +1168,11 @@ class NotificationAgent(MultiStreamAgent):
     def _build_notification_type(self, stream: str, data: dict[str, Any]) -> str:
         if stream == STREAM_EXECUTIONS:
             side = str(data.get("side") or "").lower()
-            return f"execution.{side}" if side in ("buy", "sell") else f"stream:{stream}"
+            return (
+                f"execution.{side}"
+                if side in {OrderSide.BUY, OrderSide.SELL}
+                else f"stream:{stream}"
+            )
         if stream == STREAM_TRADE_PERFORMANCE:
             pnl = float(data.get("pnl") or 0.0)
             if pnl > 0:
