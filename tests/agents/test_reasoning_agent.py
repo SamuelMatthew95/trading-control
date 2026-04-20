@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from api.config import settings
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
+from api.services.agents.prompts import ADAPTIVE_TRADING_SYSTEM_PROMPT
 from api.services.agents.reasoning_agent import ReasoningAgent
 
 pytestmark = pytest.mark.asyncio
@@ -139,12 +141,14 @@ def _valid_summary(action="buy"):
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
-async def test_fallback_when_no_llm_key(mock_embed, mock_call_llm, agent, mock_bus, mock_redis):
+async def test_fallback_when_no_llm_key(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
     """When LLM call raises (simulating missing key), agent falls back gracefully."""
     mock_embed.return_value = [0.1] * 1536
-    mock_call_llm.side_effect = RuntimeError("No API key configured")
+    mock_call_llm_with_system.side_effect = RuntimeError("No API key configured")
     mock_redis.get = AsyncMock(return_value=b"0")
 
     with patch(
@@ -159,14 +163,14 @@ async def test_fallback_when_no_llm_key(mock_embed, mock_call_llm, agent, mock_b
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
 async def test_processes_signal_event_publishes_order_for_buy(
-    mock_embed, mock_call_llm, agent, mock_bus, mock_redis
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
 ):
     """Valid signal with buy action publishes advisory decision to 'decisions' stream."""
     mock_embed.return_value = [0.1] * 1536
-    mock_call_llm.return_value = (_valid_summary("buy"), 500, 0.001)
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
 
     with patch(
@@ -192,14 +196,14 @@ async def test_processes_signal_event_publishes_order_for_buy(
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
 async def test_hold_action_no_order_published(
-    mock_embed, mock_call_llm, agent, mock_bus, mock_redis
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
 ):
     """When LLM returns action='hold', advisory decision still published to 'decisions' with action=hold."""
     mock_embed.return_value = [0.1] * 1536
-    mock_call_llm.return_value = (_valid_summary("hold"), 300, 0.001)
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("hold")), 300, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
 
     with patch(
@@ -220,14 +224,14 @@ async def test_hold_action_no_order_published(
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
 async def test_reject_action_no_order_published(
-    mock_embed, mock_call_llm, agent, mock_bus, mock_redis
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
 ):
     """When LLM returns action='reject', advisory decision still published to 'decisions' with action=reject."""
     mock_embed.return_value = [0.1] * 1536
-    mock_call_llm.return_value = (_valid_summary("reject"), 300, 0.001)
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("reject")), 300, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
 
     with patch(
@@ -247,9 +251,11 @@ async def test_reject_action_no_order_published(
     assert decision_call.args[1]["action"] == "reject"
 
 
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
-async def test_token_budget_check_skips_llm(mock_embed, mock_call_llm, agent, mock_bus, mock_redis):
+async def test_token_budget_check_skips_llm(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
     """When daily token budget is at max, LLM is skipped and fallback is used."""
     mock_embed.return_value = [0.1] * 1536
     # Simulate budget already fully consumed
@@ -267,21 +273,21 @@ async def test_token_budget_check_skips_llm(mock_embed, mock_call_llm, agent, mo
             await agent.process(_make_signal())
 
     # LLM should NOT have been called
-    mock_call_llm.assert_not_called()
+    mock_call_llm_with_system.assert_not_called()
 
     # Agent still publishes to agent_logs (fallback path)
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
     assert "agent_logs" in published_streams
 
 
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
 async def test_vector_memory_search_failure_graceful(
-    mock_embed, mock_call_llm, agent, mock_bus, mock_redis
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
 ):
     """When the DB inside _search_vector_memory raises, the method returns [] and agent continues."""
     mock_embed.return_value = [0.1] * 1536
-    mock_call_llm.return_value = (_valid_summary("buy"), 500, 0.001)
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
     mock_redis.get = AsyncMock(return_value=b"0")
 
     # Patch _search_vector_memory to return empty list (simulating graceful DB failure
@@ -306,12 +312,14 @@ async def test_vector_memory_search_failure_graceful(
     assert STREAM_AGENT_LOGS in published_streams
 
 
-@patch("api.services.agents.reasoning_agent.call_llm")
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
-async def test_publishes_to_agent_logs(mock_embed, mock_call_llm, agent, mock_bus, mock_redis):
+async def test_publishes_to_agent_logs(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
     """After processing a signal, agent publishes to 'agent_logs' stream."""
     mock_embed.return_value = [0.1] * 1536
-    mock_call_llm.return_value = (_valid_summary("sell"), 400, 0.002)
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("sell")), 400, 0.002)
     mock_redis.get = AsyncMock(return_value=b"0")
 
     with patch(
@@ -336,3 +344,47 @@ async def test_publishes_to_agent_logs(mock_embed, mock_call_llm, agent, mock_bu
     assert log_payload["type"] == "agent_log"
     assert log_payload["source"] == SOURCE_REASONING
     assert "action" in log_payload
+
+
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+async def test_call_llm_uses_adaptive_system_prompt(mock_call_llm_with_system, agent):
+    mock_call_llm_with_system.return_value = ('{"action":"buy","confidence":0.9}', 42, 0.001)
+    decision, tokens, cost = await agent._call_llm(
+        data={"symbol": "BTC/USD", "composite_score": 0.8},
+        similar_trades=[],
+        trace_id="trace-1",
+        context={"ic_weights": {"composite_score": 1.0}, "risk_state": {"drawdown": -0.01}},
+    )
+    assert decision["action"] == "buy"
+    assert tokens == 42
+    assert cost == 0.001
+    assert mock_call_llm_with_system.call_args.args[1] == ADAPTIVE_TRADING_SYSTEM_PROMPT
+
+
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+async def test_call_llm_invalid_json_returns_safe_hold(mock_call_llm_with_system, agent):
+    mock_call_llm_with_system.return_value = ("not-json", 10, 0.0001)
+    decision, tokens, cost = await agent._call_llm(
+        data={"symbol": "BTC/USD", "composite_score": 0.8},
+        similar_trades=[],
+        trace_id="trace-2",
+        context={},
+    )
+    assert decision["action"] == "hold"
+    assert "invalid_llm_json" in decision["risk_factors"]
+    assert decision["confidence"] == 0.0
+    assert tokens == 10
+    assert cost == 0.0001
+
+
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+async def test_call_llm_json_array_returns_safe_hold(mock_call_llm_with_system, agent):
+    mock_call_llm_with_system.return_value = ('[{"action":"buy"}]', 11, 0.0002)
+    decision, _, _ = await agent._call_llm(
+        data={"symbol": "BTC/USD", "composite_score": 0.8},
+        similar_trades=[],
+        trace_id="trace-3",
+        context={},
+    )
+    assert decision["action"] == "hold"
+    assert "invalid_llm_json" in decision["risk_factors"]
