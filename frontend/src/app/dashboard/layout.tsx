@@ -118,8 +118,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-white">Trading Console</span>
             </div>
 
-            <div className="flex flex-1 justify-center text-xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
-              {`${dailyPnl >= 0 ? '+' : '-'}${formatUSD(dailyPnl)}`}
+            <div
+              className={cn(
+                'flex flex-1 justify-center text-xl font-black font-mono tabular-nums',
+                dailyPnl > 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : dailyPnl < 0
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-slate-500 dark:text-slate-400'
+              )}
+            >
+              {dailyPnl > 0 ? `+${formatUSD(dailyPnl)}` : dailyPnl < 0 ? `-${formatUSD(dailyPnl)}` : formatUSD(dailyPnl)}
             </div>
 
             <div className="flex flex-1 justify-end">
