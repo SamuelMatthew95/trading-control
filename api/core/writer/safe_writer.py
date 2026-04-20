@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.constants import SOURCE_REFLECTION, PositionSide
+from api.constants import SOURCE_REFLECTION, OrderStatus, PositionSide
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
 
@@ -269,7 +269,7 @@ class SafeWriter:
                     .values(
                         filled_quantity=data.get("filled_quantity"),
                         filled_price=data.get("filled_price"),
-                        status="filled",
+                        status=OrderStatus.FILLED,
                         commission=data.get("commission", 0),
                     )
                 )

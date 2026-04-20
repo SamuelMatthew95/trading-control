@@ -338,9 +338,26 @@ async def upsert_trade_lifecycle(
 ) -> None:
     """Insert or update one row in trade_lifecycle keyed on execution_trace_id.
 
-    No-op in memory mode.
+    Memory mode: stores a compact order record in InMemoryStore so the
+    dashboard fallback snapshot can show real trade activity.
     """
     if not is_db_available():
+        get_runtime_store().add_order(
+            {
+                "order_id": order_id or execution_trace_id,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "quantity": qty,
+                "price": exit_price or entry_price,
+                "filled_price": exit_price or entry_price,
+                "pnl": pnl or 0.0,
+                "pnl_percent": pnl_percent or 0.0,
+                "status": status,
+                "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
+                "trace_id": execution_trace_id,
+            }
+        )
         return
 
     now_iso = datetime.now(timezone.utc).isoformat()

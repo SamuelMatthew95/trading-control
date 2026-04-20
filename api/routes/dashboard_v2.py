@@ -26,6 +26,7 @@ from api.constants import (
     STREAM_MARKET_EVENTS,
     STREAM_SIGNALS,
     LogType,
+    OrderStatus,
     ProposalStatus,
 )
 from api.database import AsyncSessionFactory
@@ -958,7 +959,7 @@ async def list_proposals() -> dict[str, Any]:
                             "trace_id": data.get("trace_id"),
                             "created_at": row[2].isoformat() if row[2] else None,
                             "source": row[3],
-                            "status": data.get("status", "pending"),
+                            "status": data.get("status", OrderStatus.PENDING),
                         }
                     )
         except Exception:
@@ -992,7 +993,7 @@ async def list_proposals() -> dict[str, Any]:
                             "trace_id": row[0],
                             "created_at": row[2].isoformat() if row[2] else None,
                             "source": "agent_logs",
-                            "status": payload.get("status", "pending"),
+                            "status": payload.get("status", OrderStatus.PENDING),
                         }
                     )
         return {
@@ -1101,7 +1102,7 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                     "requires_approval": payload.get("requires_approval", True),
                     "confidence": payload.get("confidence"),
                     "reflection_trace_id": payload.get("reflection_trace_id"),
-                    "status": payload.get("status", "pending"),
+                    "status": payload.get("status", OrderStatus.PENDING),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
             )
@@ -1137,7 +1138,7 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                                 "requires_approval": True,
                                 "confidence": data.get("confidence"),
                                 "reflection_trace_id": data.get("trace_id"),
-                                "status": data.get("status", "pending"),
+                                "status": data.get("status", OrderStatus.PENDING),
                                 "timestamp": row[2].isoformat() if row[2] else None,
                             }
                         )
@@ -1646,7 +1647,7 @@ async def get_performance_trends() -> dict[str, Any]:
             summary = {
                 "total_pnl": round(float(s[0]), 2) if s else 0.0,
                 "total_trades": total_trades,
-                "win_rate": round(total_wins / total_trades * 100, 1) if total_trades else 0.0,
+                "win_rate": round(total_wins / total_trades, 4) if total_trades else 0.0,
                 "avg_win": round(float(s[3]), 2) if s else 0.0,
                 "avg_loss": round(float(s[4]), 2) if s else 0.0,
                 "best_trade": round(float(s[5]), 2) if s else 0.0,

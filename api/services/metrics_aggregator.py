@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import LogType
+from ..constants import LogType, OrderSide, OrderStatus, PositionSide
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 
@@ -368,35 +368,57 @@ class MetricsAggregator:
             return str(val) if val is not None else None
 
         try:
-            # Recent orders (last 50, newest first)
-            orders_result = await self.session.execute(
-                select(Order).order_by(Order.created_at.desc()).limit(50)
-            )
+            # Recent orders (last 50, newest first) joined with trade_lifecycle
+            # to populate real realized PnL values.
+            orders_sql = text("""
+                SELECT
+                    o.id::text          AS order_id,
+                    o.symbol,
+                    o.side,
+                    o.quantity,
+                    o.price,
+                    o.filled_price,
+                    o.status,
+                    o.created_at,
+                    COALESCE(tl.pnl, 0.0)         AS pnl,
+                    COALESCE(tl.pnl_percent, 0.0)  AS pnl_percent
+                FROM orders o
+                LEFT JOIN trade_lifecycle tl ON tl.order_id = o.id::text
+                ORDER BY o.created_at DESC
+                LIMIT 50
+            """)
+            orders_result = await self.session.execute(orders_sql)
             orders = [
                 {
-                    "order_id": _safe_str(o.id),
-                    "symbol": o.symbol,
-                    "side": o.side,
-                    "quantity": _safe_float(o.quantity),
-                    "price": _safe_float(o.price),
-                    "filled_price": _safe_float(o.filled_price),
-                    "status": o.status,
-                    "pnl": 0.0,  # filled in by trade_performance
-                    "timestamp": o.created_at.isoformat() if o.created_at else None,
-                    "entry_price": _safe_float(o.price),
-                    "current_price": _safe_float(o.filled_price or o.price),
+                    "order_id": row.order_id,
+                    "symbol": row.symbol,
+                    "side": row.side,
+                    "quantity": _safe_float(row.quantity),
+                    "price": _safe_float(row.price),
+                    "filled_price": _safe_float(row.filled_price),
+                    "status": row.status,
+                    "pnl": _safe_float(row.pnl),
+                    "pnl_percent": _safe_float(row.pnl_percent),
+                    "timestamp": row.created_at.isoformat() if row.created_at else None,
+                    "entry_price": _safe_float(row.price),
+                    "current_price": _safe_float(row.filled_price or row.price),
                 }
-                for o in orders_result.scalars().all()
+                for row in orders_result.all()
             ]
 
-            # Current positions
+            # Current positions — only non-flat (quantity != 0)
             positions_result = await self.session.execute(
-                select(Position).order_by(Position.updated_at.desc()).limit(50)
+                select(Position)
+                .where(Position.quantity != 0)
+                .order_by(Position.updated_at.desc())
+                .limit(50)
             )
             positions = [
                 {
                     "symbol": p.symbol,
-                    "side": "long" if _safe_float(p.quantity) >= 0 else "short",
+                    "side": PositionSide.LONG
+                    if _safe_float(p.quantity) > 0
+                    else PositionSide.SHORT,
                     "quantity": _safe_float(p.quantity),
                     "entry_price": _safe_float(p.avg_cost),
                     "current_price": _safe_float(p.last_price or p.avg_cost),
@@ -548,7 +570,7 @@ class MetricsAggregator:
                             "requires_approval": bool(p.get("requires_approval", True)),
                             "confidence": _safe_float(p.get("confidence")) or None,
                             "reflection_trace_id": _safe_str(p.get("reflection_trace_id")),
-                            "status": _safe_str(p.get("status")) or "pending",
+                            "status": _safe_str(p.get("status")) or OrderStatus.PENDING,
                             "timestamp": row[2].isoformat() if row[2] else None,
                         }
                     )
@@ -575,7 +597,7 @@ class MetricsAggregator:
                         {
                             "id": _safe_str(row[0]),
                             "symbol": _safe_str(row[1]) or "",
-                            "side": _safe_str(row[2]) or "buy",
+                            "side": _safe_str(row[2]) or OrderSide.BUY,
                             "qty": _safe_float(row[3]) or None,
                             "entry_price": _safe_float(row[4]) or None,
                             "exit_price": _safe_float(row[5]) or None,
@@ -584,7 +606,7 @@ class MetricsAggregator:
                             "grade": _safe_str(row[8]),
                             "grade_score": _safe_float(row[9]) or None,
                             "grade_label": _safe_str(row[10]),
-                            "status": _safe_str(row[11]) or "filled",
+                            "status": _safe_str(row[11]) or OrderStatus.FILLED,
                             "filled_at": row[12].isoformat() if row[12] else None,
                             "graded_at": row[13].isoformat() if row[13] else None,
                             "execution_trace_id": _safe_str(row[14]),
@@ -713,7 +735,7 @@ class MetricsAggregator:
                     pass
 
             if avg_cost > 0 and qty > 0:
-                if side == "long":
+                if side == PositionSide.LONG:
                     pos_pnl = (current_price - avg_cost) * qty
                     pnl_pct = (current_price - avg_cost) / avg_cost
                 else:

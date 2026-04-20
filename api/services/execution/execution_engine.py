@@ -22,8 +22,10 @@ from api.constants import (
     EXECUTION_DECISION_THRESHOLD,
     LARGE_ORDER_THRESHOLD,
     NO_ORDER_ACTIONS,
+    ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
+    REDIS_KEY_ORDER_DEDUP,
     REDIS_KEY_ORDER_LOCK,
     SOURCE_EXECUTION,
     STREAM_DECISIONS,
@@ -39,6 +41,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
@@ -67,6 +70,9 @@ class ExecutionEngine(BaseStreamConsumer):
     async def process(self, data: dict[str, Any]) -> None:
         if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
+        if not is_db_available():
+            await self._process_in_memory(data)
+            return
 
         # Validate required fields before any DB/broker interaction
         # Accepts both "action" (from STREAM_DECISIONS) and "side" (backward compat)
@@ -288,7 +294,9 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
         # have real fill data with realized PnL to work with
-        pnl_percent = (realized_pnl / (entry_price * qty)) * 100 if entry_price * qty > 0 else 0.0
+        pnl_percent = self._compute_pnl_percent(
+            prior_position, side, qty, entry_price, realized_pnl
+        )
         await self.bus.publish(
             STREAM_TRADE_PERFORMANCE,
             {
@@ -335,7 +343,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 pnl=realized_pnl,
                 pnl_percent=pnl_percent,
                 order_id=order_id,
-                status="filled",
+                status=OrderStatus.FILLED,
                 filled_at=filled_at.isoformat(),
             )
         except Exception:
@@ -376,6 +384,249 @@ class ExecutionEngine(BaseStreamConsumer):
             )
         except Exception:
             log_structured("warning", "execution_heartbeat_failed", exc_info=True)
+
+    async def _process_in_memory(self, data: dict[str, Any]) -> None:
+        """Execute an order entirely in-memory when the DB is unavailable.
+
+        Runs the same validation gates and broker call as the DB path, then
+        writes the filled order and updated position to InMemoryStore so the
+        dashboard fallback snapshot reflects real activity.
+        """
+        side_or_action = str(data.get("action") or data.get("side") or "").lower()
+        missing = [f for f in ("symbol", "qty", "price") if not data.get(f)]
+        if not side_or_action:
+            missing.append("action/side")
+        if missing:
+            log_structured("warning", "order_missing_required_fields_memory", missing=missing)
+            return
+
+        strategy_id = str(data.get("strategy_id") or uuid.uuid4())
+        symbol = str(data["symbol"])
+        side = side_or_action
+        try:
+            qty = float(data["qty"])
+            price = float(data["price"])
+        except (TypeError, ValueError):
+            log_structured("warning", "order_invalid_numeric_fields_memory", symbol=symbol)
+            return
+        trace_id = str(data.get("trace_id") or uuid.uuid4())
+
+        if side in NO_ORDER_ACTIONS:
+            return
+
+        signal_confidence = float(
+            data.get("signal_confidence")
+            or data.get("composite_score")
+            or data.get("confidence")
+            or 0.5
+        )
+        reasoning_score = float(data.get("reasoning_score") or signal_confidence)
+        final_score = self._compute_final_score(signal_confidence, reasoning_score)
+        if final_score < EXECUTION_DECISION_THRESHOLD:
+            return
+
+        if not self._is_market_open(symbol):
+            return
+
+        # --- Idempotency guard (mirrors the DB-path SELECT on idempotency_key) ---
+        # BaseStreamConsumer is at-least-once; redelivered messages must not
+        # produce duplicate fills. Use Redis SET NX with a 24-hour TTL so any
+        # realistic replay window is covered even when DB is unavailable.
+        order_timestamp = self._parse_timestamp(data.get("timestamp"))
+        idempotency_key = self._build_idempotency_key(
+            strategy_id, symbol, side, order_timestamp, data
+        )
+        dedup_key = REDIS_KEY_ORDER_DEDUP.format(idempotency_key=idempotency_key)
+        is_new = await self.redis.set(dedup_key, "1", ex=ORDER_DEDUP_TTL_SECONDS, nx=True)
+        if not is_new:
+            log_structured(
+                "info",
+                "memory_order_duplicate_skipped",
+                idempotency_key=idempotency_key,
+                symbol=symbol,
+                trace_id=trace_id,
+            )
+            return
+
+        order_id = str(uuid.uuid4())
+        vwap_plan = self._build_vwap_plan(qty)
+        lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
+        lock_value = str(uuid.uuid4())
+
+        prior_position = await self.broker.get_position(symbol)
+
+        lock_acquired = await self.redis.set(
+            lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
+        )
+        if not lock_acquired:
+            raise RuntimeError(f"Order lock already held for {symbol}")
+
+        try:
+            broker_result = await self.broker.place_order(symbol, side, qty, price)
+            fill_price = float(broker_result["fill_price"])
+            filled_at = datetime.now(timezone.utc)
+
+            realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
+            entry_price = float(prior_position.get("entry_price") or fill_price)
+            pnl_percent = self._compute_pnl_percent(
+                prior_position, side, qty, entry_price, realized_pnl
+            )
+
+            store = get_runtime_store()
+            store.add_order(
+                {
+                    "order_id": order_id,
+                    "strategy_id": strategy_id,
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "quantity": qty,
+                    "price": fill_price,
+                    "filled_price": fill_price,
+                    "status": broker_result["status"],
+                    "broker_order_id": broker_result["broker_order_id"],
+                    "pnl": realized_pnl,
+                    "pnl_percent": pnl_percent,
+                    "filled_at": filled_at.isoformat(),
+                    "trace_id": trace_id,
+                }
+            )
+
+            # Update position in InMemoryStore
+            signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
+            existing_pos = store.positions.get(symbol, {})
+            existing_signed = float(existing_pos.get("qty", 0)) * (
+                1
+                if str(existing_pos.get("side", PositionSide.LONG)).lower()
+                in {PositionSide.LONG, OrderSide.BUY}
+                else -1
+            )
+            new_signed = existing_signed + signed_qty
+            new_abs_qty = abs(new_signed)
+            new_side = (
+                PositionSide.FLAT
+                if new_abs_qty < 1e-9
+                else (PositionSide.LONG if new_signed > 0 else PositionSide.SHORT)
+            )
+            store.upsert_position(
+                symbol,
+                {
+                    "symbol": symbol,
+                    "side": new_side,
+                    "qty": new_abs_qty,
+                    "quantity": new_abs_qty,
+                    "entry_price": entry_price,
+                    "avg_cost": entry_price,
+                    "current_price": fill_price,
+                    "last_price": fill_price,
+                    "market_value": round(new_abs_qty * fill_price, 8),
+                    "unrealized_pnl": 0.0,
+                    "strategy_id": strategy_id,
+                },
+            )
+
+            # Publish stream events (same as DB path)
+            execution_payload: dict[str, Any] = {
+                "type": "order_filled",
+                "msg_id": str(uuid.uuid4()),
+                "order_id": order_id,
+                "strategy_id": strategy_id,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "price": price,
+                "fill_price": fill_price,
+                "confidence": signal_confidence,
+                "filled_at": filled_at.isoformat(),
+                "trace_id": trace_id,
+                "vwap_plan": vwap_plan,
+                "source": SOURCE_EXECUTION,
+            }
+            await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
+            await self.bus.publish(
+                STREAM_TRADE_PERFORMANCE,
+                {
+                    "msg_id": str(uuid.uuid4()),
+                    "type": "trade_performance",
+                    "order_id": order_id,
+                    "strategy_id": strategy_id,
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "fill_price": fill_price,
+                    "entry_price": entry_price,
+                    "exit_price": fill_price,
+                    "pnl": realized_pnl,
+                    "pnl_percent": pnl_percent,
+                    "trace_id": trace_id,
+                    "filled_at": filled_at.isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "source": SOURCE_EXECUTION,
+                },
+            )
+            await self.bus.publish(
+                STREAM_TRADE_LIFECYCLE,
+                {
+                    "type": "trade_filled",
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "entry_price": entry_price,
+                    "exit_price": fill_price,
+                    "pnl": realized_pnl,
+                    "pnl_percent": pnl_percent,
+                    "order_id": order_id,
+                    "execution_trace_id": trace_id,
+                    "status": OrderStatus.FILLED,
+                    "filled_at": filled_at.isoformat(),
+                    "timestamp": filled_at.isoformat(),
+                    "source": SOURCE_EXECUTION,
+                },
+            )
+            log_structured(
+                "info",
+                "order_executed_memory",
+                order_id=order_id,
+                symbol=symbol,
+                side=side,
+                fill_price=fill_price,
+                realized_pnl=realized_pnl,
+                trace_id=trace_id,
+            )
+        finally:
+            await self.redis.delete(lock_key)
+
+        if self.agent_state:
+            self.agent_state.record_event(_STATE_NAME, task=f"order_filled_memory:{symbol}")
+
+        try:
+            await _write_heartbeat(
+                self.redis,
+                _STATE_NAME,
+                f"order_filled_memory:{symbol} side={side} fill_price={fill_price}",
+            )
+        except Exception:
+            log_structured("warning", "execution_heartbeat_failed_memory", exc_info=True)
+
+    def _compute_pnl_percent(
+        self,
+        prior_position: dict[str, Any],
+        side: str,
+        qty: float,
+        entry_price: float,
+        realized_pnl: float,
+    ) -> float:
+        """Return percentage return on the closed position's cost basis.
+
+        Uses actual closed_qty (not order qty) so oversell scenarios don't
+        inflate the denominator and produce an artificially small percentage.
+        """
+        if entry_price <= 0 or realized_pnl == 0.0:
+            return 0.0
+        prior_qty = float(prior_position.get("qty") or 0)
+        closed_qty = min(qty, prior_qty) if prior_qty > 0 else qty
+        cost_basis = entry_price * (closed_qty if closed_qty > 0 else qty)
+        return (realized_pnl / cost_basis) * 100 if cost_basis > 0 else 0.0
 
     def _compute_realized_pnl(
         self,
