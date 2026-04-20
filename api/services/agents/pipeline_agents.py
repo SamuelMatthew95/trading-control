@@ -1315,6 +1315,10 @@ class ChallengerAgent(MultiStreamAgent):
             consumer=f"challenger-{self._challenger_id}",
             agent_state=agent_state,
         )
+        # Override the base class default (None) so grade/retire payloads carry
+        # a stable identifier even when register_agent_instance() never runs
+        # (e.g. unit tests, or when start() is bypassed).
+        self._instance_id = self._challenger_id
         self._config: dict[str, Any] = challenger_config or {}
         self._max_fills = max_fills
         self._fills = 0
