@@ -36,6 +36,8 @@ from api.constants import (
     STREAM_DECISIONS,
     STREAM_RISK_ALERTS,
     TAKE_PROFIT_PCT,
+    OrderSide,
+    PositionSide,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
@@ -145,7 +147,20 @@ class RiskGuardian:
             if symbol in already_closed:
                 continue
 
-            side = str(pos["side"]).lower()
+            raw_side = str(pos["side"]).strip().lower()
+            try:
+                side_enum = PositionSide(raw_side)
+            except ValueError:
+                log_structured(
+                    "warning",
+                    "risk_guardian_invalid_position_side",
+                    symbol=symbol,
+                    side=raw_side,
+                )
+                continue
+            # Flat positions carry no directional exposure — nothing to close.
+            if side_enum is PositionSide.FLAT:
+                continue
             avg_cost = float(pos["avg_cost"] or 0)
             qty = float(pos["qty"] or 0)
             strategy_id = str(pos["strategy_id"])
@@ -158,12 +173,12 @@ class RiskGuardian:
                 continue
 
             # Unrealized PnL % from entry
-            if side == "long":
+            if side_enum is PositionSide.LONG:
                 pnl_pct = (current_price - avg_cost) / avg_cost
-                close_action = "sell"
-            else:  # short
+                close_action = OrderSide.SELL.value
+            else:  # PositionSide.SHORT
                 pnl_pct = (avg_cost - current_price) / avg_cost
-                close_action = "buy"
+                close_action = OrderSide.BUY.value
 
             if pnl_pct <= -STOP_LOSS_PCT:
                 reason = f"stop_loss({pnl_pct:.2%})"
@@ -176,7 +191,7 @@ class RiskGuardian:
                 "info",
                 "risk_guardian_auto_close",
                 symbol=symbol,
-                side=side,
+                side=side_enum.value,
                 qty=qty,
                 current_price=current_price,
                 avg_cost=avg_cost,
