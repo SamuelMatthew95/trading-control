@@ -27,6 +27,7 @@ from api.constants import (
     SUPERVISOR_CHECK_INTERVAL_SECONDS,
     SUPERVISOR_MAX_RESTARTS_PER_WINDOW,
     SUPERVISOR_RESTART_WINDOW_SECONDS,
+    FieldName,
 )
 from api.events.bus import EventBus
 from api.observability import log_structured
@@ -108,11 +109,11 @@ class AgentSupervisor:
                 await self.bus.publish(
                     STREAM_RISK_ALERTS,
                     {
-                        "type": "agent_crashed",
+                        FieldName.TYPE: "agent_crashed",
                         "agent": agent_name,
                         "error": error_detail,
-                        "source": SOURCE_SUPERVISOR,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        FieldName.SOURCE: SOURCE_SUPERVISOR,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     },
                 )
             except Exception:
