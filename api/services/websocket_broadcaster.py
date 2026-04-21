@@ -176,7 +176,7 @@ class WebSocketBroadcaster:
                     raw = await self._redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
                     if raw:
                         data = json.loads(raw)
-                        last_seen = data.get("last_seen", 0)
+                        last_seen = data.get(FieldName.LAST_SEEN, 0)
                         age = now - last_seen
                         status = (
                             AgentStatus.STALE
@@ -187,8 +187,8 @@ class WebSocketBroadcaster:
                             {
                                 "name": name,
                                 FieldName.STATUS: status,
-                                "event_count": data.get("event_count", 0),
-                                "last_event": data.get("last_event", ""),
+                                "event_count": data.get(FieldName.EVENT_COUNT, 0),
+                                "last_event": data.get(FieldName.LAST_EVENT, ""),
                                 "last_seen": last_seen,
                                 "seconds_ago": age,
                             }
@@ -253,11 +253,11 @@ class WebSocketBroadcaster:
                     FieldName.SYMBOL: payload.get(FieldName.SYMBOL),
                     FieldName.SIDE: side,
                     FieldName.QTY: payload.get(FieldName.QTY),
-                    "fill_price": payload.get("fill_price"),
-                    "pnl": payload.get("pnl", 0),
-                    "order_id": payload.get("order_id"),
+                    "fill_price": payload.get(FieldName.FILL_PRICE),
+                    "pnl": payload.get(FieldName.PNL, 0),
+                    "order_id": payload.get(FieldName.ORDER_ID),
                     FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
-                    "filled_at": payload.get("filled_at"),
+                    "filled_at": payload.get(FieldName.FILLED_AT),
                     FieldName.SOURCE: payload.get(FieldName.SOURCE),
                 }
             # Other execution event types (e.g. rejected) are suppressed
@@ -281,7 +281,7 @@ class WebSocketBroadcaster:
                     FieldName.TYPE: "price_update",
                     FieldName.SYMBOL: raw_payload.get(FieldName.SYMBOL),
                     FieldName.PRICE: raw_payload.get(FieldName.PRICE),
-                    "change": raw_payload.get("change", 0),
+                    "change": raw_payload.get(FieldName.CHANGE, 0),
                     FieldName.PCT: raw_payload.get(FieldName.PCT, 0),
                     FieldName.TS: raw_payload.get(FieldName.TS),
                     FieldName.TRACE_ID: raw_payload.get(FieldName.TRACE_ID),
