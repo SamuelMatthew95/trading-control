@@ -141,7 +141,7 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
         cache_val = json.dumps(
             {
                 FieldName.PRICE: p[FieldName.PRICE],
-                "change": p["change"],
+                "change": p[FieldName.CHANGE],
                 FieldName.PCT: p[FieldName.PCT],
                 FieldName.TS: p[FieldName.TS],
             }
@@ -173,7 +173,7 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
                 {
                     FieldName.SYMBOL: symbol,
                     FieldName.PRICE: p[FieldName.PRICE],
-                    "change": p["change"],
+                    "change": p[FieldName.CHANGE],
                     FieldName.PCT: p[FieldName.PCT],
                     FieldName.TS: p[FieldName.TS],
                 }
@@ -195,7 +195,7 @@ async def flush_to_db(payloads: list[dict]) -> None:
                 FieldName.TYPE: "price_update",
                 FieldName.SYMBOL: p[FieldName.SYMBOL],
                 FieldName.PRICE: p[FieldName.PRICE],
-                "change": p["change"],
+                "change": p[FieldName.CHANGE],
                 FieldName.PCT: p[FieldName.PCT],
                 FieldName.TS: p[FieldName.TS],
             }
@@ -223,7 +223,7 @@ async def flush_to_db(payloads: list[dict]) -> None:
                         {
                             "symbol": p[FieldName.SYMBOL],
                             "price": p[FieldName.PRICE],
-                            "change_amt": p["change"],
+                            "change_amt": p[FieldName.CHANGE],
                             "change_pct": p[FieldName.PCT],
                         },
                     )
