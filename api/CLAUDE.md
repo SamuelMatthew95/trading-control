@@ -29,17 +29,41 @@ from api.constants import (
 )
 ```
 
-### Dict key access — use FieldName, never raw strings
+### Dict key access — use FieldName, never raw strings (ENFORCED BY CI)
+
+Every event-payload / DB-row / Redis-message dict access must go through
+`FieldName`. Raw string keys silently break when a field renames; `FieldName`
+turns drift into an ImportError the type checker catches.
+
 ```python
-# ❌ WRONG
+# ❌ WRONG — raw strings
 side = data.get("side")
 trace = event["trace_id"]
+payload = {"symbol": sym, "side": "buy", "trace_id": tid}
 
-# ✅ RIGHT
+# ✅ RIGHT — FieldName (StrEnum; serializes to the same string)
 side = data.get(FieldName.SIDE)
 trace = event[FieldName.TRACE_ID]
+payload = {FieldName.SYMBOL: sym, FieldName.SIDE: "buy", FieldName.TRACE_ID: tid}
 ```
-Missing a field? Add it to `class FieldName(StrEnum)` first, then reference it.
+
+**Enforced by `tests/core/test_field_name_guardrails.py`** — an AST scan that
+fails CI when any file on the `CLEAN_FILES` allowlist re-introduces a raw
+string FieldName key. When you add a new file to the sweep, append it to
+`CLEAN_FILES` so the guardrail locks it in.
+
+Missing a field? Add it to `class FieldName(StrEnum)` in `api/constants.py`
+first (member name MUST equal value in uppercase — `FOO = "foo"`), then
+reference `FieldName.FOO` everywhere you read/write that payload key.
+
+**Legitimate exceptions** (keep as raw strings):
+- **SQL bind parameters**: keys in the dict passed as the 2nd arg to
+  `session.execute(text("... :name ..."), {...})` must match the `:name`
+  placeholders in the SQL string. Do NOT use `FieldName` there.
+- **SQLAlchemy `.values(col=...)` and `set_={...}` kwargs**: column names,
+  not payload keys. Leave alone.
+- **Kwargs in function calls** like `log_structured("info", "msg", symbol=x)`:
+  the `symbol=x` is a keyword argument, not a dict key. Leave alone.
 
 ## DB access
 - Raw SQL via `text()` + `RETURNING id` for agent_runs/events (INTEGER pks)
