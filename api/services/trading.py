@@ -58,7 +58,7 @@ class TradingService:
                 created_at=datetime.now(timezone.utc),
                 intended_price=price,
                 decision=result.get("DECISION", "FLAT"),
-                confidence=float(result.get("confidence", 0)),
+                confidence=float(result.get(FieldName.CONFIDENCE, 0)),
             )
         )
         return result
