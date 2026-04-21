@@ -55,13 +55,20 @@ FIELD_NAME_VALUES: frozenset[str] = frozenset(f.value for f in FieldName)
 # The list can only grow. Removing a file means a regression was merged.
 CLEAN_FILES: frozenset[str] = frozenset(
     {
+        "api/health.py",
+        "api/main.py",
+        "api/observability.py",
+        "api/core/writer/safe_writer.py",
+        "api/services/agent_heartbeat.py",
+        "api/services/agent_supervisor.py",
         "api/services/agents/pipeline_agents.py",
         "api/services/agents/reasoning_agent.py",
         "api/services/execution/execution_engine.py",
-        "api/core/writer/safe_writer.py",
-        "api/workers/price_poller.py",
         "api/services/metrics_aggregator.py",
+        "api/services/simple_consumers.py",
+        "api/services/trading.py",
         "api/services/websocket_broadcaster.py",
+        "api/workers/price_poller.py",
     }
 )
 
@@ -71,11 +78,12 @@ CLEAN_FILES: frozenset[str] = frozenset(
 SQL_BIND_HEAVY_FILES: frozenset[str] = frozenset(
     {
         "api/core/writer/safe_writer.py",
-        "api/services/metrics_aggregator.py",
-        "api/workers/price_poller.py",
+        "api/services/agent_heartbeat.py",
         "api/services/agents/pipeline_agents.py",
         "api/services/agents/reasoning_agent.py",
         "api/services/execution/execution_engine.py",
+        "api/services/metrics_aggregator.py",
+        "api/workers/price_poller.py",
     }
 )
 
