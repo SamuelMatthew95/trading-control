@@ -10,6 +10,7 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_LEARNING_EVENTS,
     STREAM_RISK_ALERTS,
+    FieldName,
 )
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
@@ -49,9 +50,9 @@ class SimpleConsumer(BaseStreamConsumer):
             "message_processed",
             extra={
                 "stream": self.stream,
-                "msg_id": msg_id,
+                FieldName.MSG_ID: msg_id,
                 "consumer": self.consumer,
-                "payload": data,  # Log actual payload
+                FieldName.PAYLOAD: data,
             },
         )
 
