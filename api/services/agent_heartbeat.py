@@ -17,7 +17,12 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import AGENT_HEARTBEAT_TTL_SECONDS, REDIS_AGENT_STATUS_KEY, AgentStatus
+from api.constants import (
+    AGENT_HEARTBEAT_TTL_SECONDS,
+    REDIS_AGENT_STATUS_KEY,
+    AgentStatus,
+    FieldName,
+)
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
@@ -40,7 +45,7 @@ async def write_heartbeat(
         extra:       Optional extra fields to merge into the payload.
     """
     payload: dict[str, Any] = {
-        "status": "ACTIVE",
+        FieldName.STATUS: "ACTIVE",
         "last_event": last_event,
         "event_count": event_count,
         "last_seen": int(time.time()),
