@@ -123,10 +123,10 @@ class EventPipeline:
             error = str(exc)
             self._last_error = error
             failure = {
-                "msg_id": msg_id,
-                "event_type": event_type,
-                "timestamp": ts,
-                "error": error,
+                FieldName.MSG_ID: msg_id,
+                FieldName.EVENT_TYPE: event_type,
+                FieldName.TIMESTAMP: ts,
+                FieldName.ERROR: error,
                 "retry_count": retry_count,
                 "stream": stream,
             }
@@ -171,11 +171,11 @@ class EventPipeline:
             await self.bus.acknowledge(stream, self._group, redis_id)
             await self.broadcaster.broadcast(
                 {
-                    "type": "dlq_event",
-                    "msg_id": msg_id,
-                    "error": error,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "payload": event,
+                    FieldName.TYPE: "dlq_event",
+                    FieldName.MSG_ID: msg_id,
+                    FieldName.ERROR: error,
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    FieldName.PAYLOAD: event,
                 }
             )
             log_structured(
@@ -226,20 +226,20 @@ class EventPipeline:
             )
 
         outbound = {
-            "type": "event",
+            FieldName.TYPE: "event",
             "stream": stream,
-            "msg_id": msg_id,
-            "event_type": event_type,
-            "payload": event,
-            "timestamp": ts,
+            FieldName.MSG_ID: msg_id,
+            FieldName.EVENT_TYPE: event_type,
+            FieldName.PAYLOAD: event,
+            FieldName.TIMESTAMP: ts,
         }
         if not is_db_available():
             get_runtime_store().add_event(
                 {
                     "id": msg_id,
                     "kind": event_type,
-                    "source": str(event.get(FieldName.SOURCE) or stream),
-                    "created_at": ts,
+                    FieldName.SOURCE: str(event.get(FieldName.SOURCE) or stream),
+                    FieldName.CREATED_AT: ts,
                 }
             )
         if self.agent_state:
@@ -258,11 +258,11 @@ class EventPipeline:
                 )
                 await self.broadcaster.broadcast(
                     {
-                        "type": "agent_status",
-                        "msg_id": msg_id,
-                        "event_type": "agent_status",
-                        "payload": agent_status,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        FieldName.TYPE: "agent_status",
+                        FieldName.MSG_ID: msg_id,
+                        FieldName.EVENT_TYPE: "agent_status",
+                        FieldName.PAYLOAD: agent_status,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     }
                 )
         log_structured(

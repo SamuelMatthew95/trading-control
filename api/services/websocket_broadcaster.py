@@ -187,9 +187,9 @@ class WebSocketBroadcaster:
                             {
                                 "name": name,
                                 FieldName.STATUS: status,
-                                "event_count": data.get(FieldName.EVENT_COUNT, 0),
-                                "last_event": data.get(FieldName.LAST_EVENT, ""),
-                                "last_seen": last_seen,
+                                FieldName.EVENT_COUNT: data.get(FieldName.EVENT_COUNT, 0),
+                                FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
+                                FieldName.LAST_SEEN: last_seen,
                                 "seconds_ago": age,
                             }
                         )
@@ -198,9 +198,9 @@ class WebSocketBroadcaster:
                             {
                                 "name": name,
                                 FieldName.STATUS: AgentStatus.WAITING,
-                                "event_count": 0,
-                                "last_event": "",
-                                "last_seen": 0,
+                                FieldName.EVENT_COUNT: 0,
+                                FieldName.LAST_EVENT: "",
+                                FieldName.LAST_SEEN: 0,
                                 "seconds_ago": 0,
                             }
                         )
@@ -253,11 +253,11 @@ class WebSocketBroadcaster:
                     FieldName.SYMBOL: payload.get(FieldName.SYMBOL),
                     FieldName.SIDE: side,
                     FieldName.QTY: payload.get(FieldName.QTY),
-                    "fill_price": payload.get(FieldName.FILL_PRICE),
-                    "pnl": payload.get(FieldName.PNL, 0),
-                    "order_id": payload.get(FieldName.ORDER_ID),
+                    FieldName.FILL_PRICE: payload.get(FieldName.FILL_PRICE),
+                    FieldName.PNL: payload.get(FieldName.PNL, 0),
+                    FieldName.ORDER_ID: payload.get(FieldName.ORDER_ID),
                     FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
-                    "filled_at": payload.get(FieldName.FILLED_AT),
+                    FieldName.FILLED_AT: payload.get(FieldName.FILLED_AT),
                     FieldName.SOURCE: payload.get(FieldName.SOURCE),
                 }
             # Other execution event types (e.g. rejected) are suppressed
@@ -281,7 +281,7 @@ class WebSocketBroadcaster:
                     FieldName.TYPE: "price_update",
                     FieldName.SYMBOL: raw_payload.get(FieldName.SYMBOL),
                     FieldName.PRICE: raw_payload.get(FieldName.PRICE),
-                    "change": raw_payload.get(FieldName.CHANGE, 0),
+                    FieldName.CHANGE: raw_payload.get(FieldName.CHANGE, 0),
                     FieldName.PCT: raw_payload.get(FieldName.PCT, 0),
                     FieldName.TS: raw_payload.get(FieldName.TS),
                     FieldName.TRACE_ID: raw_payload.get(FieldName.TRACE_ID),

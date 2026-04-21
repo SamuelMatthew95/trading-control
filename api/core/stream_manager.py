@@ -116,7 +116,7 @@ class StreamManager:
                         {
                             "stream": stream_name,
                             "message_id": message_id,
-                            "data": fields,
+                            FieldName.DATA: fields,
                         }
                     )
 

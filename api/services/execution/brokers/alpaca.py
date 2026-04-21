@@ -33,12 +33,12 @@ class AlpacaBroker:
         alpaca_symbol = symbol.replace("/USD", "").replace("/", "")
 
         payload = {
-            "symbol": alpaca_symbol,
-            "qty": str(round(qty, 6)),
-            "side": OrderSide.BUY
+            FieldName.SYMBOL: alpaca_symbol,
+            FieldName.QTY: str(round(qty, 6)),
+            FieldName.SIDE: OrderSide.BUY
             if side.lower() in {OrderSide.BUY, PositionSide.LONG}
             else OrderSide.SELL,
-            "type": "market",
+            FieldName.TYPE: "market",
             "time_in_force": "day",
         }
 
@@ -126,11 +126,11 @@ class AlpacaBroker:
 
         return {
             "broker_order_id": broker_order_id,
-            "symbol": symbol,
-            "side": side.lower(),
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: side.lower(),
             "filled_qty": filled_qty,
-            "fill_price": fill_price,
-            "status": status if status == OrderStatus.FILLED else OrderStatus.PENDING,
+            FieldName.FILL_PRICE: fill_price,
+            FieldName.STATUS: status if status == OrderStatus.FILLED else OrderStatus.PENDING,
         }
 
     async def get_position(self, symbol: str) -> dict[str, Any]:
@@ -143,18 +143,18 @@ class AlpacaBroker:
             ) as resp:
                 if resp.status == 404:
                     return {
-                        "symbol": symbol,
-                        "side": PositionSide.FLAT,
-                        "qty": 0.0,
-                        "entry_price": 0.0,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: PositionSide.FLAT,
+                        FieldName.QTY: 0.0,
+                        FieldName.ENTRY_PRICE: 0.0,
                         "current_price": 0.0,
                     }
                 body = await resp.json()
                 return {
-                    "symbol": symbol,
-                    "side": body.get(FieldName.SIDE, "flat"),
-                    "qty": float(body.get(FieldName.QTY, 0.0)),
-                    "entry_price": float(body.get("avg_entry_price", 0.0)),
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: body.get(FieldName.SIDE, "flat"),
+                    FieldName.QTY: float(body.get(FieldName.QTY, 0.0)),
+                    FieldName.ENTRY_PRICE: float(body.get("avg_entry_price", 0.0)),
                     "current_price": float(body.get("current_price", 0.0)),
                 }
 
@@ -180,9 +180,9 @@ class AlpacaBroker:
                 body = await resp.json()
                 return {
                     "broker_order_id": broker_order_id,
-                    "symbol": body.get(FieldName.SYMBOL),
-                    "side": body.get(FieldName.SIDE),
+                    FieldName.SYMBOL: body.get(FieldName.SYMBOL),
+                    FieldName.SIDE: body.get(FieldName.SIDE),
                     "filled_qty": float(body.get("filled_qty") or 0),
-                    "fill_price": float(body.get("filled_avg_price") or 0),
-                    "status": body.get(FieldName.STATUS),
+                    FieldName.FILL_PRICE: float(body.get("filled_avg_price") or 0),
+                    FieldName.STATUS: body.get(FieldName.STATUS),
                 }

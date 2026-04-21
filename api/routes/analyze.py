@@ -148,5 +148,5 @@ async def shadow_evaluate(
 async def analyze_options():
     return StandardResponse(
         success=True,
-        data={"message": "Analyze endpoints support GET, POST, and OPTIONS"},
+        data={FieldName.MESSAGE: "Analyze endpoints support GET, POST, and OPTIONS"},
     ).model_dump()

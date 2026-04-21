@@ -133,9 +133,9 @@ class MessageProcessor:
         return {
             "original_stream": message.get("stream", "unknown"),
             "original_id": message.get("message_id", "unknown"),
-            "data": message.get(FieldName.DATA, {}),
-            "error": error,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            FieldName.DATA: message.get(FieldName.DATA, {}),
+            FieldName.ERROR: error,
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             "processing_attempt": 1,
         }
 

@@ -269,7 +269,7 @@ class BaseStreamConsumer(ABC):
         """Handle a single message with comprehensive error handling."""
         # Soft guard: use redis stream ID as fallback if producer omitted msg_id
         if "msg_id" not in data:
-            data = {**data, "msg_id": msg_id}
+            data = {**data, FieldName.MSG_ID: msg_id}
             log_structured(
                 "debug",
                 "msg_id_backfilled_from_redis_id",

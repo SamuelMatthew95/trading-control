@@ -43,7 +43,7 @@ async def get_performance_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         performance_metrics = {}
-        return {"success": True, "performance_metrics": performance_metrics}
+        return {"success": True, FieldName.PERFORMANCE_METRICS: performance_metrics}
     except Exception as e:
         log_structured("error", "performance metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -90,9 +90,9 @@ async def get_monitoring_summary() -> dict[str, Any]:
     """Get monitoring summary"""
     try:
         # Mock implementation for now
-        health_score = {"status": "unknown", "score": 0}
+        health_score = {FieldName.STATUS: "unknown", FieldName.SCORE: 0}
         alerts = []
-        metrics = {"performance": {}, "system": {}, "agents": {}, "data": {}}
+        metrics = {"performance": {}, "system": {}, "agents": {}, FieldName.DATA: {}}
         summary = {
             "overall_status": health_score.get(FieldName.STATUS, "unknown"),
             "health_score": health_score.get(FieldName.SCORE, 0),
@@ -115,10 +115,10 @@ async def monitoring_health_check() -> dict[str, Any]:
     """Simple health check for monitoring system"""
     try:
         return {
-            "status": "healthy",
+            FieldName.STATUS: "healthy",
             "monitoring_active": True,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         log_structured("error", "monitoring health check failed", exc_info=True)
-        return {"status": "unhealthy", "monitoring_active": False, "error": str(e)}
+        return {FieldName.STATUS: "unhealthy", "monitoring_active": False, FieldName.ERROR: str(e)}

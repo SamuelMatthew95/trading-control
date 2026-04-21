@@ -52,14 +52,14 @@ class AlpacaProvider(MarketDataProvider):
                 return
             await enqueue_tick(
                 {
-                    "symbol": symbol,
-                    "price": str(getattr(bar, "close", "0")),
+                    FieldName.SYMBOL: symbol,
+                    FieldName.PRICE: str(getattr(bar, "close", "0")),
                     "volume": str(getattr(bar, "volume", "0")),
-                    "timestamp": str(
+                    FieldName.TIMESTAMP: str(
                         getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
                     ),
-                    "source": "alpaca",
-                    "msg_id": str(uuid.uuid4()),
+                    FieldName.SOURCE: "alpaca",
+                    FieldName.MSG_ID: str(uuid.uuid4()),
                 }
             )
 
@@ -75,14 +75,14 @@ class AlpacaProvider(MarketDataProvider):
                 return
             await enqueue_tick(
                 {
-                    "symbol": symbol,
-                    "price": str(getattr(bar, "close", "0")),
+                    FieldName.SYMBOL: symbol,
+                    FieldName.PRICE: str(getattr(bar, "close", "0")),
                     "volume": str(getattr(bar, "volume", "0")),
-                    "timestamp": str(
+                    FieldName.TIMESTAMP: str(
                         getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
                     ),
-                    "source": "alpaca",
-                    "msg_id": str(uuid.uuid4()),
+                    FieldName.SOURCE: "alpaca",
+                    FieldName.MSG_ID: str(uuid.uuid4()),
                 }
             )
 

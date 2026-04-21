@@ -110,8 +110,8 @@ class AgentSupervisor:
                     STREAM_RISK_ALERTS,
                     {
                         FieldName.TYPE: "agent_crashed",
-                        "agent": agent_name,
-                        "error": error_detail,
+                        FieldName.AGENT: agent_name,
+                        FieldName.ERROR: error_detail,
                         FieldName.SOURCE: SOURCE_SUPERVISOR,
                         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     },

@@ -31,7 +31,7 @@ async def replay_dlq_event(event_id: str, request: Request):
     success = await dlq.replay(event_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found in DLQ")
-    return {"replayed": True, "event_id": event_id}
+    return {"replayed": True, FieldName.EVENT_ID: event_id}
 
 
 @router.delete("/dlq/{event_id}")
@@ -39,7 +39,7 @@ async def clear_dlq_event(event_id: str, request: Request):
     """Remove a single event from the DLQ."""
     dlq = _get_dlq(request)
     await dlq.clear(event_id)
-    return {"cleared": True, "event_id": event_id}
+    return {"cleared": True, FieldName.EVENT_ID: event_id}
 
 
 @router.post("/dlq/replay-all")

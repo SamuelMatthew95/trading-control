@@ -40,7 +40,7 @@ class TradingService:
             )
             return {
                 "DECISION": "FLAT",
-                "confidence": 0.0,
+                FieldName.CONFIDENCE: 0.0,
                 "reasoning": "MOCK MODE: Orchestrator not available - analysis disabled",
                 "position_size": 0.0,
                 "risk_assessment": "low",
