@@ -123,8 +123,8 @@ class ExecutionEngine(BaseStreamConsumer):
         # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
         signal_confidence = float(
             data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get("composite_score")
-            or data.get("confidence")
+            or data.get(FieldName.COMPOSITE_SCORE)
+            or data.get(FieldName.CONFIDENCE)
             or 0.5
         )
         # Use reasoning_score if present; fall back to signal_confidence so
@@ -215,7 +215,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                fill_price = float(broker_result["fill_price"])
+                fill_price = float(broker_result[FieldName.FILL_PRICE])
 
                 await session.execute(
                     text(
@@ -269,7 +269,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Compute realized PnL from prior position snapshot
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
-        entry_price = float(prior_position.get("entry_price") or fill_price)
+        entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
 
         # Retrieve the agent's confidence from agent_runs so GradeAgent gets a real value
         confidence = 0.5
@@ -437,8 +437,8 @@ class ExecutionEngine(BaseStreamConsumer):
 
         signal_confidence = float(
             data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get("composite_score")
-            or data.get("confidence")
+            or data.get(FieldName.COMPOSITE_SCORE)
+            or data.get(FieldName.CONFIDENCE)
             or 0.5
         )
         reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
@@ -484,11 +484,11 @@ class ExecutionEngine(BaseStreamConsumer):
 
         try:
             broker_result = await self.broker.place_order(symbol, side, qty, price)
-            fill_price = float(broker_result["fill_price"])
+            fill_price = float(broker_result[FieldName.FILL_PRICE])
             filled_at = datetime.now(timezone.utc)
 
             realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
-            entry_price = float(prior_position.get("entry_price") or fill_price)
+            entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
             pnl_percent = self._compute_pnl_percent(
                 prior_position, side, qty, entry_price, realized_pnl
             )
@@ -658,7 +658,7 @@ class ExecutionEngine(BaseStreamConsumer):
     ) -> float:
         """Compute realized PnL when closing or partially closing a position."""
         prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
-        prior_entry = float(prior_position.get("entry_price") or fill_price)
+        prior_entry = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
         prior_qty = float(prior_position.get(FieldName.QTY) or 0)
 
         # Closing a long position with a sell
@@ -696,8 +696,8 @@ class ExecutionEngine(BaseStreamConsumer):
         if signal_data:
             signal_content = json.dumps(
                 {
-                    "composite_score": signal_data.get("composite_score"),
-                    "signal_type": signal_data.get("signal_type"),
+                    "composite_score": signal_data.get(FieldName.COMPOSITE_SCORE),
+                    "signal_type": signal_data.get(FieldName.SIGNAL_TYPE),
                     FieldName.PRICE: signal_data.get(FieldName.PRICE),
                     FieldName.QTY: signal_data.get(FieldName.QTY),
                 },
