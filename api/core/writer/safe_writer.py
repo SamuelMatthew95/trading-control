@@ -164,15 +164,15 @@ class SafeWriter:
                 # STEP 1: Insert Order FIRST (business logic)
                 order = Order(
                     strategy_id=data[FieldName.STRATEGY_ID],
-                    external_order_id=data.get("external_order_id"),
+                    external_order_id=data.get(FieldName.EXTERNAL_ORDER_ID),
                     idempotency_key=idempotency_key,
                     symbol=data[FieldName.SYMBOL],
                     side=data[FieldName.SIDE],
-                    order_type=data["order_type"],
-                    quantity=data["quantity"],
+                    order_type=data[FieldName.ORDER_TYPE],
+                    quantity=data[FieldName.QUANTITY],
                     price=data.get(FieldName.PRICE),
-                    exchange=data.get("exchange"),
-                    order_metadata=data.get("metadata", {}),
+                    exchange=data.get(FieldName.EXCHANGE),
+                    order_metadata=data.get(FieldName.METADATA, {}),
                 )
 
                 # Handle upsert with race condition protection
@@ -257,7 +257,7 @@ class SafeWriter:
                     insert(Event).values(
                         event_type="order.filled",
                         entity_type="order",
-                        entity_id=data["order_id"],
+                        entity_id=data[FieldName.ORDER_ID],
                         data=data,
                     )
                 )
@@ -265,17 +265,17 @@ class SafeWriter:
                 # Update order with existence check (fix silent failure)
                 result = await session.execute(
                     update(Order)
-                    .where(Order.id == data["order_id"])
+                    .where(Order.id == data[FieldName.ORDER_ID])
                     .values(
-                        filled_quantity=data.get("filled_quantity"),
-                        filled_price=data.get("filled_price"),
+                        filled_quantity=data.get(FieldName.FILLED_QUANTITY),
+                        filled_price=data.get(FieldName.FILLED_PRICE),
                         status=OrderStatus.FILLED,
-                        commission=data.get("commission", 0),
+                        commission=data.get(FieldName.COMMISSION, 0),
                     )
                 )
 
                 if result.rowcount == 0:
-                    raise ValueError(f"Order {data['order_id']} not found for execution")
+                    raise ValueError(f"Order {data[FieldName.ORDER_ID]} not found for execution")
 
                 # Upsert position with on_conflict_do_update
                 position_stmt = (
@@ -283,21 +283,21 @@ class SafeWriter:
                     .values(
                         strategy_id=data[FieldName.STRATEGY_ID],
                         symbol=data[FieldName.SYMBOL],
-                        quantity=data.get("new_quantity"),
-                        avg_cost=data.get("new_avg_cost"),
-                        market_value=data.get("market_value"),
-                        unrealized_pnl=data.get("unrealized_pnl", 0),
-                        last_price=data.get("filled_price"),
-                        metadata=data.get("metadata", {}),
+                        quantity=data.get(FieldName.NEW_QUANTITY),
+                        avg_cost=data.get(FieldName.NEW_AVG_COST),
+                        market_value=data.get(FieldName.MARKET_VALUE),
+                        unrealized_pnl=data.get(FieldName.UNREALIZED_PNL, 0),
+                        last_price=data.get(FieldName.FILLED_PRICE),
+                        metadata=data.get(FieldName.METADATA, {}),
                     )
                     .on_conflict_do_update(
                         index_elements=["strategy_id", "symbol"],
                         set_={
-                            "quantity": data.get("new_quantity"),
-                            "avg_cost": data.get("new_avg_cost"),
-                            "market_value": data.get("market_value"),
-                            "unrealized_pnl": data.get("unrealized_pnl", 0),
-                            "last_price": data.get("filled_price"),
+                            "quantity": data.get(FieldName.NEW_QUANTITY),
+                            "avg_cost": data.get(FieldName.NEW_AVG_COST),
+                            "market_value": data.get(FieldName.MARKET_VALUE),
+                            "unrealized_pnl": data.get(FieldName.UNREALIZED_PNL, 0),
+                            "last_price": data.get(FieldName.FILLED_PRICE),
                             "updated_at": func.now(),
                         },
                     )
@@ -321,7 +321,7 @@ class SafeWriter:
                     "write success",
                     msg_id=msg_id,
                     stream=stream,
-                    order_id=data["order_id"],
+                    order_id=data[FieldName.ORDER_ID],
                 )
                 return True
 
@@ -359,11 +359,13 @@ class SafeWriter:
                     created_at = datetime.now(timezone.utc)
 
                 log_data = {
-                    "agent_run_id": data.get("agent_id"),  # Map agent_id to agent_run_id (optional)
-                    "log_level": data.get("log_level", "INFO"),
-                    "message": data["message"],
-                    "step_name": data.get("step_name"),
-                    "step_data": data.get("step_data", {}),
+                    "agent_run_id": data.get(
+                        FieldName.AGENT_ID
+                    ),  # Map agent_id to agent_run_id (optional)
+                    "log_level": data.get(FieldName.LOG_LEVEL, "INFO"),
+                    "message": data[FieldName.MESSAGE],
+                    "step_name": data.get(FieldName.STEP_NAME),
+                    "step_data": data.get(FieldName.STEP_DATA, {}),
                     "trace_id": data.get(FieldName.TRACE_ID, msg_id),
                     "schema_version": data.get(FieldName.SCHEMA_VERSION, "v2"),
                     "source": data.get(FieldName.SOURCE, "unknown"),
@@ -389,7 +391,7 @@ class SafeWriter:
                     "agent log write success",
                     msg_id=msg_id,
                     stream=stream,
-                    agent_run=data["agent_id"],
+                    agent_run=data[FieldName.AGENT_ID],
                 )
                 return True
 
@@ -504,7 +506,7 @@ class SafeWriter:
                 self._log_write_operation("write_trade_performance", "TradePerformance", msg_id)
 
                 # Handle timestamps with explicit fallback logging
-                entry_time_str = data["entry_time"]
+                entry_time_str = data[FieldName.ENTRY_TIME]
                 entry_time = self.safe_parse_dt(entry_time_str)
 
                 if entry_time is None:
@@ -520,25 +522,25 @@ class SafeWriter:
 
                 perf_data = {
                     "strategy_id": data[FieldName.STRATEGY_ID],
-                    "agent_id": data.get("agent_id"),
+                    "agent_id": data.get(FieldName.AGENT_ID),
                     "symbol": data[FieldName.SYMBOL],
-                    "trade_id": data["trade_id"],
+                    "trade_id": data[FieldName.TRADE_ID],
                     "entry_time": entry_time,
-                    "exit_time": self.safe_parse_dt(data.get("exit_time")),
-                    "entry_price": data["entry_price"],
-                    "exit_price": data.get("exit_price"),
-                    "quantity": data["quantity"],
-                    "pnl": data.get("pnl"),
-                    "pnl_percent": data.get("pnl_percent"),
-                    "holding_period_minutes": data.get("holding_period_minutes"),
-                    "max_drawdown": data.get("max_drawdown"),
-                    "max_runup": data.get("max_runup"),
-                    "sharpe_ratio": data.get("sharpe_ratio"),
-                    "trade_type": data.get("trade_type", PositionSide.LONG),
-                    "exit_reason": data.get("exit_reason"),
-                    "regime": data.get("regime"),
-                    "hour_utc": data.get("hour_utc"),
-                    "performance_metrics": data.get("performance_metrics", {}),
+                    "exit_time": self.safe_parse_dt(data.get(FieldName.EXIT_TIME)),
+                    "entry_price": data[FieldName.ENTRY_PRICE],
+                    "exit_price": data.get(FieldName.EXIT_PRICE),
+                    "quantity": data[FieldName.QUANTITY],
+                    "pnl": data.get(FieldName.PNL),
+                    "pnl_percent": data.get(FieldName.PNL_PERCENT),
+                    "holding_period_minutes": data.get(FieldName.HOLDING_PERIOD_MINUTES),
+                    "max_drawdown": data.get(FieldName.MAX_DRAWDOWN),
+                    "max_runup": data.get(FieldName.MAX_RUNUP),
+                    "sharpe_ratio": data.get(FieldName.SHARPE_RATIO),
+                    "trade_type": data.get(FieldName.TRADE_TYPE, PositionSide.LONG),
+                    "exit_reason": data.get(FieldName.EXIT_REASON),
+                    "regime": data.get(FieldName.REGIME),
+                    "hour_utc": data.get(FieldName.HOUR_UTC),
+                    "performance_metrics": data.get(FieldName.PERFORMANCE_METRICS, {}),
                 }
 
                 await session.execute(insert(TradePerformance).values(**perf_data))
@@ -552,7 +554,7 @@ class SafeWriter:
                     "info",
                     "trade performance write success",
                     msg_id=msg_id,
-                    trade_id=data["trade_id"],
+                    trade_id=data[FieldName.TRADE_ID],
                 )
                 return True
 
@@ -577,7 +579,7 @@ class SafeWriter:
                 self.validate_payload(data, ["content", "content_type", "embedding"])
 
                 # Validate embedding size and type
-                embedding = data["embedding"]
+                embedding = data[FieldName.EMBEDDING]
                 if not isinstance(embedding, list) or len(embedding) != 1536:
                     raise ValueError("embedding must be 1536-length list")
 
@@ -588,11 +590,13 @@ class SafeWriter:
                 self._log_write_operation("write_vector_memory", "VectorMemory", msg_id)
 
                 vector_data = {
-                    "content": data["content"],
-                    "content_type": data["content_type"],
-                    "embedding": data["embedding"],  # Validated to be 1536 floats
-                    "vector_metadata": data.get("metadata", {}),  # Map metadata to vector_metadata
-                    "agent_id": data.get("agent_id"),
+                    "content": data[FieldName.CONTENT],
+                    "content_type": data[FieldName.CONTENT_TYPE],
+                    "embedding": data[FieldName.EMBEDDING],  # Validated to be 1536 floats
+                    "vector_metadata": data.get(
+                        FieldName.METADATA, {}
+                    ),  # Map metadata to vector_metadata
+                    "agent_id": data.get(FieldName.AGENT_ID),
                     "strategy_id": data.get(FieldName.STRATEGY_ID),
                     "schema_version": data.get(FieldName.SCHEMA_VERSION, "v2"),
                     "source": data.get(FieldName.SOURCE, "unknown"),
@@ -609,7 +613,7 @@ class SafeWriter:
                     "info",
                     "vector memory write success",
                     msg_id=msg_id,
-                    content_type=data["content_type"],
+                    content_type=data[FieldName.CONTENT_TYPE],
                 )
                 return True
 
@@ -642,7 +646,7 @@ class SafeWriter:
                     "info",
                     "risk alert write success",
                     msg_id=msg_id,
-                    alert_type=data.get("alert_type"),
+                    alert_type=data.get(FieldName.ALERT_TYPE),
                 )
                 return True
 
@@ -665,12 +669,12 @@ class SafeWriter:
                 self._log_write_operation("write_agent_grade", "AgentGrades", msg_id)
 
                 grade_data = {
-                    "agent_id": data["agent_id"],
+                    "agent_id": data[FieldName.AGENT_ID],
                     "agent_run_id": data[FieldName.AGENT_RUN_ID],
                     "grade_type": data[FieldName.GRADE_TYPE],
                     "score": data[FieldName.SCORE],
                     "metrics": data.get(FieldName.METRICS, {}),
-                    "feedback": data.get("feedback"),
+                    "feedback": data.get(FieldName.FEEDBACK),
                     "schema_version": data.get(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION),
                     "source": data.get(FieldName.SOURCE, "unknown"),
                 }
@@ -686,7 +690,7 @@ class SafeWriter:
                     "info",
                     "agent grade write success",
                     msg_id=msg_id,
-                    agent_id=data["agent_id"],
+                    agent_id=data[FieldName.AGENT_ID],
                     grade_type=data[FieldName.GRADE_TYPE],
                 )
                 return True
@@ -713,7 +717,7 @@ class SafeWriter:
                 event_data = {
                     "event_type": "ic.weight_updated",
                     "entity_type": "factor",
-                    "entity_id": data.get("factor_id"),
+                    "entity_id": data.get(FieldName.FACTOR_ID),
                     "data": data,
                 }
 
@@ -728,7 +732,7 @@ class SafeWriter:
                     "info",
                     "ic weight write success",
                     msg_id=msg_id,
-                    factor_name=data.get("factor_name"),
+                    factor_name=data.get(FieldName.FACTOR_NAME),
                 )
                 return True
 
@@ -752,17 +756,19 @@ class SafeWriter:
 
                 # Insert as vector memory for semantic search
                 vector_data = {
-                    "content": data.get("insights", ""),
+                    "content": data.get(FieldName.INSIGHTS, ""),
                     "content_type": "reflection",
-                    "embedding": data.get("embedding", [0.0] * 1536),  # Placeholder embedding
+                    "embedding": data.get(
+                        FieldName.EMBEDDING, [0.0] * 1536
+                    ),  # Placeholder embedding
                     "vector_metadata": {
-                        "reflection_type": data.get("reflection_type"),
-                        "agent_id": data.get("agent_id"),
+                        "reflection_type": data.get(FieldName.REFLECTION_TYPE),
+                        "agent_id": data.get(FieldName.AGENT_ID),
                         "trace_id": data.get(FieldName.TRACE_ID),
                         "schema_version": data.get(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION),
                         "source": data.get(FieldName.SOURCE, SOURCE_REFLECTION),
                     },
-                    "agent_id": data.get("agent_id"),
+                    "agent_id": data.get(FieldName.AGENT_ID),
                     "strategy_id": data.get(FieldName.STRATEGY_ID),
                     "schema_version": data.get(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION),
                     "source": data.get(FieldName.SOURCE, SOURCE_REFLECTION),
@@ -779,7 +785,7 @@ class SafeWriter:
                     "info",
                     "reflection output write success",
                     msg_id=msg_id,
-                    agent_id=data.get("agent_id"),
+                    agent_id=data.get(FieldName.AGENT_ID),
                 )
                 return True
 
@@ -825,7 +831,7 @@ class SafeWriter:
                     "info",
                     "strategy proposal write success",
                     msg_id=msg_id,
-                    proposal_type=data.get("proposal_type"),
+                    proposal_type=data.get(FieldName.PROPOSAL_TYPE),
                 )
                 return True
 
@@ -856,7 +862,7 @@ class SafeWriter:
                 event_data = {
                     "event_type": "notification.created",
                     "entity_type": "notification",
-                    "entity_id": data.get("notification_id")
+                    "entity_id": data.get(FieldName.NOTIFICATION_ID)
                     or data.get(FieldName.TRACE_ID)
                     or msg_id,
                     "data": data,
@@ -873,7 +879,7 @@ class SafeWriter:
                     "info",
                     "notification write success",
                     msg_id=msg_id,
-                    notification_type=data.get("notification_type"),
+                    notification_type=data.get(FieldName.NOTIFICATION_TYPE),
                 )
                 return True
 
