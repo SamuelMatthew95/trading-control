@@ -564,11 +564,13 @@ class MetricsAggregator:
                     proposals.append(
                         {
                             "id": _safe_str(row[0]) or _safe_str(p.get(FieldName.MSG_ID)),
-                            "proposal_type": _safe_str(p.get("proposal_type"))
+                            "proposal_type": _safe_str(p.get(FieldName.PROPOSAL_TYPE))
                             or "parameter_change",
-                            "content": _safe_str(p.get("content") or p.get("description") or ""),
-                            "requires_approval": bool(p.get("requires_approval", True)),
-                            "confidence": _safe_float(p.get("confidence")) or None,
+                            "content": _safe_str(
+                                p.get(FieldName.CONTENT) or p.get("description") or ""
+                            ),
+                            "requires_approval": bool(p.get(FieldName.REQUIRES_APPROVAL, True)),
+                            "confidence": _safe_float(p.get(FieldName.CONFIDENCE)) or None,
                             "reflection_trace_id": _safe_str(p.get("reflection_trace_id")),
                             "status": _safe_str(p.get(FieldName.STATUS)) or OrderStatus.PENDING,
                             "timestamp": row[2].isoformat() if row[2] else None,
@@ -686,7 +688,7 @@ class MetricsAggregator:
         realized_pnl = 0.0
         winning = 0
         for row in closed_rows:
-            pnl = float(row["pnl"] or 0)
+            pnl = float(row[FieldName.PNL] or 0)
             realized_pnl += pnl
             if pnl > 0:
                 winning += 1
@@ -695,14 +697,18 @@ class MetricsAggregator:
                     FieldName.SYMBOL: row[FieldName.SYMBOL],
                     FieldName.SIDE: row[FieldName.SIDE],
                     FieldName.QTY: float(row[FieldName.QTY] or 0),
-                    "entry_price": float(row["entry_price"] or 0),
-                    "exit_price": float(row["exit_price"] or 0),
+                    "entry_price": float(row[FieldName.ENTRY_PRICE] or 0),
+                    "exit_price": float(row[FieldName.EXIT_PRICE] or 0),
                     "pnl": round(pnl, 8),
-                    "pnl_percent": round(float(row["pnl_percent"] or 0), 4),
-                    "grade": row.get("grade"),
+                    "pnl_percent": round(float(row[FieldName.PNL_PERCENT] or 0), 4),
+                    "grade": row.get(FieldName.GRADE),
                     FieldName.STATUS: row.get(FieldName.STATUS),
-                    "filled_at": row["filled_at"].isoformat() if row["filled_at"] else None,
-                    "order_id": str(row["order_id"]) if row.get("order_id") else None,
+                    "filled_at": row[FieldName.FILLED_AT].isoformat()
+                    if row[FieldName.FILLED_AT]
+                    else None,
+                    "order_id": str(row[FieldName.ORDER_ID])
+                    if row.get(FieldName.ORDER_ID)
+                    else None,
                     FieldName.TRACE_ID: row.get("execution_trace_id"),
                 }
             )
