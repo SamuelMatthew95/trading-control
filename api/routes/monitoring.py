@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from api.constants import FieldName
 from api.observability import log_structured
 
 logger = logging.getLogger(__name__)
@@ -93,14 +94,14 @@ async def get_monitoring_summary() -> dict[str, Any]:
         alerts = []
         metrics = {"performance": {}, "system": {}, "agents": {}, "data": {}}
         summary = {
-            "overall_status": health_score.get("status", "unknown"),
-            "health_score": health_score.get("score", 0),
+            "overall_status": health_score.get(FieldName.STATUS, "unknown"),
+            "health_score": health_score.get(FieldName.SCORE, 0),
             "active_alerts": len(alerts),
             "critical_alerts": len([a for a in alerts if a.get("severity") == "critical"]),
             "system_load": metrics.get("performance", {}).get("system_load", 0),
             "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
             "agents_active": metrics.get("agents", {}).get("agents_active", 0),
-            "data_freshness_ms": metrics.get("data", {}).get("data_freshness_ms", 0),
+            "data_freshness_ms": metrics.get(FieldName.DATA, {}).get("data_freshness_ms", 0),
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
         return {"success": True, "summary": summary}

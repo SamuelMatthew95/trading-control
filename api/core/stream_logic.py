@@ -7,7 +7,7 @@ Contains message processing logic separated from infrastructure concerns.
 from datetime import datetime, timezone
 from typing import Any
 
-from api.constants import OrderSide, OrderStatus
+from api.constants import FieldName, OrderSide, OrderStatus
 
 from .schemas import ProcessResult
 
@@ -45,9 +45,9 @@ class MessageProcessor:
 
         # Business logic for order processing
         try:
-            symbol = data.get("symbol")
-            side = data.get("side")
-            quantity = data.get("quantity")
+            symbol = data.get(FieldName.SYMBOL)
+            side = data.get(FieldName.SIDE)
+            quantity = data.get(FieldName.QUANTITY)
 
             if not all([symbol, side, quantity]):
                 return ProcessResult(
@@ -95,8 +95,8 @@ class MessageProcessor:
             return validation
 
         try:
-            order_id = data.get("order_id")
-            status = data.get("status")
+            order_id = data.get(FieldName.ORDER_ID)
+            status = data.get(FieldName.STATUS)
 
             if not order_id:
                 return ProcessResult(success=False, retryable=False, message="Missing order_id")
@@ -133,7 +133,7 @@ class MessageProcessor:
         return {
             "original_stream": message.get("stream", "unknown"),
             "original_id": message.get("message_id", "unknown"),
-            "data": message.get("data", {}),
+            "data": message.get(FieldName.DATA, {}),
             "error": error,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "processing_attempt": 1,

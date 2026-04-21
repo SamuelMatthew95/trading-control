@@ -14,6 +14,7 @@ import aiohttp
 from sqlalchemy import text
 
 from api.config import settings
+from api.constants import FieldName
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
@@ -45,7 +46,7 @@ async def embed_text(text_value: str) -> list[float]:
                 if response.status >= 400:
                     raise RuntimeError(f"Embedding API error: HTTP {response.status}")
                 payload = await response.json()
-                return payload["data"][0]["embedding"]
+                return payload[FieldName.DATA][0][FieldName.EMBEDDING]
 
     # Deterministic fallback: spread SHA-256 bytes into 1536 floats in [0, 1]
     digest = hashlib.sha256(text_value.encode("utf-8")).digest()
@@ -63,9 +64,9 @@ def _memory_vector_results(store_entries: list[dict]) -> list[dict[str, Any]]:
     return [
         {
             "id": str(item.get("id", f"mem-{i}")),
-            "content": item.get("content"),
-            "metadata": item.get("metadata", {}),
-            "outcome": item.get("outcome", {}),
+            "content": item.get(FieldName.CONTENT),
+            "metadata": item.get(FieldName.METADATA, {}),
+            "outcome": item.get(FieldName.OUTCOME, {}),
             "sim": 0.0,
         }
         for i, item in enumerate(reversed(store_entries), start=1)
@@ -98,9 +99,9 @@ async def search_vector_memory(embedding: list[float]) -> list[dict[str, Any]]:
             return [
                 {
                     "id": str(row["id"]),
-                    "content": row["content"],
+                    "content": row[FieldName.CONTENT],
                     "metadata": row["metadata_"],
-                    "outcome": row["outcome"],
+                    "outcome": row[FieldName.OUTCOME],
                     "sim": float(row["sim"]),
                 }
                 for row in result.mappings().all()

@@ -25,6 +25,7 @@ from api.constants import (
     STREAM_GRADED_DECISIONS,
     STREAM_MARKET_EVENTS,
     STREAM_SIGNALS,
+    FieldName,
     LogType,
     OrderStatus,
     ProposalStatus,
@@ -464,18 +465,18 @@ async def get_agents_status() -> dict[str, Any]:
             raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
             if raw:
                 data = json.loads(raw)
-                last_seen = data.get("last_seen", 0)
+                last_seen = data.get(FieldName.LAST_SEEN, 0)
                 age = now - last_seen
                 if age > AGENT_STALE_THRESHOLD_SECONDS:
                     status = "STALE"
                 else:
-                    status = data.get("status", "ACTIVE")
+                    status = data.get(FieldName.STATUS, "ACTIVE")
                 agents.append(
                     {
                         "name": name,
                         "status": status,
-                        "event_count": data.get("event_count", 0),
-                        "last_event": data.get("last_event", ""),
+                        "event_count": data.get(FieldName.EVENT_COUNT, 0),
+                        "last_event": data.get(FieldName.LAST_EVENT, ""),
                         "last_seen": last_seen,
                         "seconds_ago": age,
                     }
@@ -503,11 +504,11 @@ async def get_agents_status() -> dict[str, Any]:
         agents = [
             {
                 "name": name,
-                "status": (store.get_agent(name) or {}).get("status", "WAITING"),
-                "event_count": (store.get_agent(name) or {}).get("event_count", 0),
-                "last_event": (store.get_agent(name) or {}).get("last_event", ""),
-                "last_seen": (store.get_agent(name) or {}).get("last_seen", 0),
-                "seconds_ago": now - (store.get_agent(name) or {}).get("last_seen", now),
+                "status": (store.get_agent(name) or {}).get(FieldName.STATUS, "WAITING"),
+                "event_count": (store.get_agent(name) or {}).get(FieldName.EVENT_COUNT, 0),
+                "last_event": (store.get_agent(name) or {}).get(FieldName.LAST_EVENT, ""),
+                "last_seen": (store.get_agent(name) or {}).get(FieldName.LAST_SEEN, 0),
+                "seconds_ago": now - (store.get_agent(name) or {}).get(FieldName.LAST_SEEN, now),
             }
             for name in ALL_AGENT_NAMES
         ]
@@ -809,7 +810,7 @@ async def get_worker_health() -> dict[str, Any]:
             if cached_value:
                 try:
                     price_data = json.loads(cached_value)
-                    timestamp_str = price_data.get("timestamp")
+                    timestamp_str = price_data.get(FieldName.TIMESTAMP)
                     if timestamp_str:
                         timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
                         timestamps.append(timestamp)
@@ -949,17 +950,17 @@ async def list_proposals() -> dict[str, Any]:
                     proposals.append(
                         {
                             "id": str(row[0]),
-                            "symbol": data.get("symbol"),
-                            "action": data.get("action"),
-                            "grade_score": data.get("grade_score"),
-                            "bias": data.get("bias"),
+                            "symbol": data.get(FieldName.SYMBOL),
+                            "action": data.get(FieldName.ACTION),
+                            "grade_score": data.get(FieldName.GRADE_SCORE),
+                            "bias": data.get(FieldName.BIAS),
                             "buys": data.get("buys"),
                             "sells": data.get("sells"),
-                            "strategy_name": data.get("strategy_name"),
-                            "trace_id": data.get("trace_id"),
+                            "strategy_name": data.get(FieldName.STRATEGY_NAME),
+                            "trace_id": data.get(FieldName.TRACE_ID),
                             "created_at": row[2].isoformat() if row[2] else None,
                             "source": row[3],
-                            "status": data.get("status", OrderStatus.PENDING),
+                            "status": data.get(FieldName.STATUS, OrderStatus.PENDING),
                         }
                     )
         except Exception:
@@ -983,17 +984,17 @@ async def list_proposals() -> dict[str, Any]:
                     proposals.append(
                         {
                             "id": str(row[0]),
-                            "symbol": payload.get("symbol"),
-                            "action": payload.get("action"),
-                            "grade_score": payload.get("grade_score"),
-                            "bias": payload.get("bias"),
+                            "symbol": payload.get(FieldName.SYMBOL),
+                            "action": payload.get(FieldName.ACTION),
+                            "grade_score": payload.get(FieldName.GRADE_SCORE),
+                            "bias": payload.get(FieldName.BIAS),
                             "buys": payload.get("buys"),
                             "sells": payload.get("sells"),
-                            "strategy_name": payload.get("strategy_name"),
+                            "strategy_name": payload.get(FieldName.STRATEGY_NAME),
                             "trace_id": row[0],
                             "created_at": row[2].isoformat() if row[2] else None,
                             "source": "agent_logs",
-                            "status": payload.get("status", OrderStatus.PENDING),
+                            "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
                         }
                     )
         return {
@@ -1026,7 +1027,7 @@ async def approve_proposal(proposal_id: str) -> dict[str, Any]:
                     raise HTTPException(status_code=404, detail="Proposal not found") from None
                 raw = row[1]
                 data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
-                data["status"] = "approved"
+                data[FieldName.STATUS] = "approved"
                 await session.execute(
                     text("UPDATE events SET data = :data WHERE id = :id"),
                     {"data": json.dumps(data), "id": proposal_id},
@@ -1057,7 +1058,7 @@ async def reject_proposal(proposal_id: str) -> dict[str, Any]:
                     raise HTTPException(status_code=404, detail="Proposal not found") from None
                 raw = row[1]
                 data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
-                data["status"] = "rejected"
+                data[FieldName.STATUS] = "rejected"
                 await session.execute(
                     text("UPDATE events SET data = :data WHERE id = :id"),
                     {"data": json.dumps(data), "id": proposal_id},
@@ -1097,12 +1098,12 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
             proposals.append(
                 {
                     "id": row[0],
-                    "proposal_type": payload.get("proposal_type", "parameter_change"),
-                    "content": payload.get("content", {}),
-                    "requires_approval": payload.get("requires_approval", True),
-                    "confidence": payload.get("confidence"),
+                    "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
+                    "content": payload.get(FieldName.CONTENT, {}),
+                    "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
+                    "confidence": payload.get(FieldName.CONFIDENCE),
                     "reflection_trace_id": payload.get("reflection_trace_id"),
-                    "status": payload.get("status", OrderStatus.PENDING),
+                    "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
             )
@@ -1133,12 +1134,14 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                         proposals.append(
                             {
                                 "id": str(row[0]),
-                                "proposal_type": data.get("proposal_type", "strategy_proposal"),
+                                "proposal_type": data.get(
+                                    FieldName.PROPOSAL_TYPE, "strategy_proposal"
+                                ),
                                 "content": data,
                                 "requires_approval": True,
-                                "confidence": data.get("confidence"),
-                                "reflection_trace_id": data.get("trace_id"),
-                                "status": data.get("status", OrderStatus.PENDING),
+                                "confidence": data.get(FieldName.CONFIDENCE),
+                                "reflection_trace_id": data.get(FieldName.TRACE_ID),
+                                "status": data.get(FieldName.STATUS, OrderStatus.PENDING),
                                 "timestamp": row[2].isoformat() if row[2] else None,
                             }
                         )
@@ -1193,10 +1196,10 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
             grades.append(
                 {
                     "trace_id": row[0],
-                    "grade": payload.get("grade"),
-                    "score": payload.get("score"),
-                    "score_pct": payload.get("score_pct"),
-                    "metrics": payload.get("metrics", {}),
+                    "grade": payload.get(FieldName.GRADE),
+                    "score": payload.get(FieldName.SCORE),
+                    "score_pct": payload.get(FieldName.SCORE_PCT),
+                    "metrics": payload.get(FieldName.METRICS, {}),
                     "fills_graded": payload.get("fills_graded"),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
@@ -1722,8 +1725,8 @@ async def get_agent_instances() -> dict[str, Any]:
             for r in rows
         ]
 
-        active = [i for i in instances if i["status"] == "active"]
-        retired = [i for i in instances if i["status"] == "retired"]
+        active = [i for i in instances if i[FieldName.STATUS] == "active"]
+        retired = [i for i in instances if i[FieldName.STATUS] == "retired"]
 
         return {
             "instances": instances,

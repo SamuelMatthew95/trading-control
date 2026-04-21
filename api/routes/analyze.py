@@ -6,7 +6,7 @@ from typing import Annotated
 from api.services.trading_service import TradingService
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.constants import AGENT_EXECUTION, AGENT_GRADE, AGENT_REASONING, AGENT_SIGNAL
+from api.constants import AGENT_EXECUTION, AGENT_GRADE, AGENT_REASONING, AGENT_SIGNAL, FieldName
 from api.core.schemas import StandardResponse, TradeDecision, TradeRequest
 from api.database import get_async_session
 from api.main_state import (
@@ -87,7 +87,7 @@ async def analyze_trade(
         decision = TradeDecision(
             symbol=request.symbol,
             decision=result.get("DECISION", "FLAT"),
-            confidence=float(result.get("confidence", 0.0)),
+            confidence=float(result.get(FieldName.CONFIDENCE, 0.0)),
             reasoning=result.get("reasoning", "Analysis completed"),
             timestamp=datetime.now(timezone.utc),
             position_size=result.get("position_size"),
@@ -133,7 +133,7 @@ async def shadow_evaluate(
             raise HTTPException(status_code=400, detail="Symbol and valid price are required")
 
         result = trading_service.evaluate_shadow(symbol, observed_price)
-        if result.get("status") == "no_data":
+        if result.get(FieldName.STATUS) == "no_data":
             raise HTTPException(status_code=404, detail="No shadow trades for symbol")
         return StandardResponse(success=True, data=result).model_dump()
     except HTTPException:

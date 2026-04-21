@@ -14,6 +14,7 @@ from api.constants import (
     REDIS_KEY_PAPER_CASH,
     REDIS_KEY_PAPER_ORDER,
     REDIS_KEY_PAPER_POSITION,
+    FieldName,
     OrderSide,
     OrderStatus,
     PositionSide,
@@ -44,7 +45,7 @@ class PaperBroker:
             cash += notional
         await self.redis.set(REDIS_KEY_PAPER_CASH, cash)
         current_position = await self.get_position(symbol)
-        current_qty = float(current_position.get("qty", 0.0))
+        current_qty = float(current_position.get(FieldName.QTY, 0.0))
         new_qty = current_qty + (qty * direction)
         position_payload = {
             "symbol": symbol,

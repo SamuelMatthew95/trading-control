@@ -18,6 +18,7 @@ from api.constants import (
     REDIS_KEY_PRICES,
     VALID_SYMBOLS,
     AgentStatus,
+    FieldName,
 )
 from api.events.bus import STREAMS
 from api.observability import log_structured
@@ -46,10 +47,10 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
         # Included in the initial snapshot so the UI always has P&L data on
         # connect/reconnect without a separate REST fetch.
         try:
-            data["pnl"] = await aggregator.get_paired_pnl(redis_client=redis_client)
+            data[FieldName.PNL] = await aggregator.get_paired_pnl(redis_client=redis_client)
         except Exception:
             log_structured("warning", "ws_snapshot_pnl_failed", exc_info=True)
-            data["pnl"] = {"closed_trades": [], "open_positions": [], "summary": {}}
+            data[FieldName.PNL] = {"closed_trades": [], "open_positions": [], "summary": {}}
 
     # Enrich with current prices from Redis cache
     if redis_client is not None:
@@ -84,19 +85,19 @@ async def _build_snapshot(redis_client: Any) -> dict[str, Any]:
         raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
         if raw:
             data = json.loads(raw)
-            last_seen = data.get("last_seen", 0)
+            last_seen = data.get(FieldName.LAST_SEEN, 0)
             age = now - last_seen
             status = (
                 AgentStatus.STALE
                 if age > AGENT_STALE_THRESHOLD_SECONDS
-                else data.get("status", AgentStatus.ACTIVE)
+                else data.get(FieldName.STATUS, AgentStatus.ACTIVE)
             )
             agents.append(
                 {
                     "name": name,
                     "status": status,
-                    "event_count": data.get("event_count", 0),
-                    "last_event": data.get("last_event", ""),
+                    "event_count": data.get(FieldName.EVENT_COUNT, 0),
+                    "last_event": data.get(FieldName.LAST_EVENT, ""),
                     "last_seen": last_seen,
                     "seconds_ago": age,
                 }

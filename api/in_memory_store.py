@@ -15,6 +15,7 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
+    FieldName,
 )
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
@@ -124,15 +125,15 @@ class InMemoryStore:
         now = time.time()
         return {
             "orders": list(reversed(self.orders[-50:])),
-            "positions": [p for p in self.positions.values() if float(p.get("qty", 0)) > 0],
+            "positions": [p for p in self.positions.values() if float(p.get(FieldName.QTY, 0)) > 0],
             "agent_logs": [],
             "prices": {},
             "ic_weights": {},
             "agent_statuses": [
                 {
                     "name": name,
-                    "status": data.get("status", "unknown"),
-                    "last_seen": data.get("last_seen", now),
+                    "status": data.get(FieldName.STATUS, "unknown"),
+                    "last_seen": data.get(FieldName.LAST_SEEN, now),
                 }
                 for name, data in self.agents.items()
             ],

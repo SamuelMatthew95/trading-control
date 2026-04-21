@@ -14,7 +14,7 @@ from alpaca.data.live.crypto import CryptoDataStream
 from alpaca.data.live.stock import StockDataStream
 
 from api.config import settings
-from api.constants import STREAM_MARKET_TICKS
+from api.constants import STREAM_MARKET_TICKS, FieldName
 from api.events.bus import EventBus
 from api.observability import log_structured
 
@@ -154,12 +154,12 @@ class MarketDataIngestor:
 
     def _is_valid_tick(self, tick: dict[str, Any]) -> bool:
         try:
-            symbol = str(tick.get("symbol", ""))
-            price = float(tick.get("price", 0) or 0)
+            symbol = str(tick.get(FieldName.SYMBOL, ""))
+            price = float(tick.get(FieldName.PRICE, 0) or 0)
             bid = float(tick.get("bid", price) or price)
             ask = float(tick.get("ask", price) or price)
             volume = float(tick.get("volume", 0) or 0)
-            timestamp = str(tick.get("timestamp", ""))
+            timestamp = str(tick.get(FieldName.TIMESTAMP, ""))
         except Exception:
             return False
         return bool(

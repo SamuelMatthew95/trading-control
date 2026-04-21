@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from api.constants import ALL_AGENT_NAMES, AgentStatus
+from api.constants import ALL_AGENT_NAMES, AgentStatus, FieldName
 
 # Re-export for backwards compatibility with existing importers
 AGENT_NAMES = ALL_AGENT_NAMES
@@ -40,12 +40,12 @@ class AgentStateRegistry:
             }
             self._states[name] = state
         now = datetime.now(timezone.utc).isoformat()
-        state["status"] = AgentStatus.ACTIVE
+        state[FieldName.STATUS] = AgentStatus.ACTIVE
         state["health"] = "ok"
         state["last_task"] = task
-        state["event_count"] = int(state.get("event_count") or 0) + 1
-        state["last_seen"] = now
-        state["updated_at"] = now
+        state[FieldName.EVENT_COUNT] = int(state.get(FieldName.EVENT_COUNT) or 0) + 1
+        state[FieldName.LAST_SEEN] = now
+        state[FieldName.UPDATED_AT] = now
 
     @staticmethod
     def _normalize_status(status: str) -> AgentStatus:
@@ -79,7 +79,7 @@ class AgentStateRegistry:
                 "status": self._normalize_status(status),
                 "health": health,
                 "last_task": last_task,
-                "event_count": int(state.get("event_count") or 0) + 1,
+                "event_count": int(state.get(FieldName.EVENT_COUNT) or 0) + 1,
                 "last_seen": now,
                 "updated_at": now,
             }

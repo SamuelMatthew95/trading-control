@@ -8,7 +8,7 @@ from typing import Any
 import aiohttp
 
 from api.config import settings
-from api.constants import OrderSide, OrderStatus, PositionSide
+from api.constants import FieldName, OrderSide, OrderStatus, PositionSide
 from api.observability import log_structured
 
 
@@ -46,7 +46,7 @@ class AlpacaBroker:
             "info",
             "Placing Alpaca order",
             symbol=alpaca_symbol,
-            side=payload["side"],
+            side=payload[FieldName.SIDE],
             qty=qty,
         )
 
@@ -64,9 +64,11 @@ class AlpacaBroker:
                         "Alpaca order rejected",
                         symbol=alpaca_symbol,
                         status=resp.status,
-                        error=body.get("message", "unknown"),
+                        error=body.get(FieldName.MESSAGE, "unknown"),
                     )
-                    raise RuntimeError(f"Alpaca order failed {resp.status}: {body.get('message')}")
+                    raise RuntimeError(
+                        f"Alpaca order failed {resp.status}: {body.get(FieldName.MESSAGE)}"
+                    )
 
         broker_order_id = body["id"]
         log_structured(
@@ -88,7 +90,7 @@ class AlpacaBroker:
                 ) as resp:
                     order = await resp.json()
 
-            status = order.get("status", "pending")
+            status = order.get(FieldName.STATUS, "pending")
             filled_avg_price = order.get("filled_avg_price")
 
             if status == OrderStatus.FILLED and filled_avg_price:
@@ -150,8 +152,8 @@ class AlpacaBroker:
                 body = await resp.json()
                 return {
                     "symbol": symbol,
-                    "side": body.get("side", "flat"),
-                    "qty": float(body.get("qty", 0.0)),
+                    "side": body.get(FieldName.SIDE, "flat"),
+                    "qty": float(body.get(FieldName.QTY, 0.0)),
                     "entry_price": float(body.get("avg_entry_price", 0.0)),
                     "current_price": float(body.get("current_price", 0.0)),
                 }
@@ -178,9 +180,9 @@ class AlpacaBroker:
                 body = await resp.json()
                 return {
                     "broker_order_id": broker_order_id,
-                    "symbol": body.get("symbol"),
-                    "side": body.get("side"),
+                    "symbol": body.get(FieldName.SYMBOL),
+                    "side": body.get(FieldName.SIDE),
                     "filled_qty": float(body.get("filled_qty") or 0),
                     "fill_price": float(body.get("filled_avg_price") or 0),
-                    "status": body.get("status"),
+                    "status": body.get(FieldName.STATUS),
                 }

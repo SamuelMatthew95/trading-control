@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from api.config import settings
+from api.constants import FieldName
 from api.observability import log_structured
 
 SYSTEM_PROMPT = (
@@ -41,7 +42,7 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
     try:
         parsed = json.loads(text)
         parsed["fallback"] = False
-        parsed["trace_id"] = trace_id
+        parsed[FieldName.TRACE_ID] = trace_id
         parsed.setdefault("latency_ms", 0)
         parsed.setdefault("cost_usd", cost_usd)
         parsed.setdefault("risk_factors", [])
@@ -109,7 +110,11 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
             if resp.status >= 400:
                 raise RuntimeError(f"anthropic_status_{resp.status}")
             body = await resp.json()
-    text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
+    text = "".join(
+        b.get("text", "")
+        for b in body.get(FieldName.CONTENT, [])
+        if b.get(FieldName.TYPE) == "text"
+    )
     tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
         body.get("usage", {}).get("output_tokens", 0)
     )
@@ -192,7 +197,9 @@ async def _call_provider_raw(
                     raise RuntimeError(f"anthropic_status_{resp.status}")
                 body = await resp.json()
         text = "".join(
-            b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"
+            b.get("text", "")
+            for b in body.get(FieldName.CONTENT, [])
+            if b.get(FieldName.TYPE) == "text"
         )
         tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
             body.get("usage", {}).get("output_tokens", 0)

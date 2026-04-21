@@ -10,7 +10,7 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from api.constants import PROCESS_TIMEOUT_SECONDS, REDIS_KEY_DLQ_RETRIES
+from api.constants import PROCESS_TIMEOUT_SECONDS, REDIS_KEY_DLQ_RETRIES, FieldName
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -101,7 +101,7 @@ class BaseStreamConsumer(ABC):
 
     def extract_msg_id(self, data: dict[str, Any]) -> str:
         """Extract and validate msg_id from event data. Centralized enforcement."""
-        msg_id = data.get("msg_id")
+        msg_id = data.get(FieldName.MSG_ID)
         if not msg_id:
             log_structured(
                 "error",
@@ -278,7 +278,7 @@ class BaseStreamConsumer(ABC):
             )
 
         # V3 Schema Validation - Accept legacy and current versions
-        schema_version = data.get("schema_version")
+        schema_version = data.get(FieldName.SCHEMA_VERSION)
         if schema_version not in ACCEPTED_SCHEMA_VERSIONS:
             # Send invalid schema messages to DLQ immediately
             await self.dlq.push(
@@ -307,7 +307,7 @@ class BaseStreamConsumer(ABC):
                 "Message processed and acknowledged",
                 stream=self.stream,
                 message_id=msg_id,
-                trace_id=data.get("trace_id"),
+                trace_id=data.get(FieldName.TRACE_ID),
             )
         except Exception as exc:  # noqa: BLE001
             try:
@@ -323,7 +323,7 @@ class BaseStreamConsumer(ABC):
                         stream=self.stream,
                         message_id=msg_id,
                         retries=retries,
-                        trace_id=data.get("trace_id"),
+                        trace_id=data.get(FieldName.TRACE_ID),
                     )
                 else:
                     log_structured(
@@ -331,7 +331,7 @@ class BaseStreamConsumer(ABC):
                         "Message processing failed, will retry",
                         stream=self.stream,
                         message_id=msg_id,
-                        trace_id=data.get("trace_id"),
+                        trace_id=data.get(FieldName.TRACE_ID),
                     )
             except (RedisConnectionError, RedisTimeoutError):
                 log_structured(
@@ -357,5 +357,5 @@ class BaseStreamConsumer(ABC):
                     message_id=msg_id,
                     exc_info=True,
                     dlq_sent=send_to_dlq,
-                    trace_id=data.get("trace_id"),
+                    trace_id=data.get(FieldName.TRACE_ID),
                 )

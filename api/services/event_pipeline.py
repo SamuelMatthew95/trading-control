@@ -20,6 +20,7 @@ from api.constants import (
     STREAM_REFLECTION_OUTPUTS,
     STREAM_RISK_ALERTS,
     STREAM_TRADE_PERFORMANCE,
+    FieldName,
 )
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
@@ -110,9 +111,9 @@ class EventPipeline:
             await asyncio.sleep(0.05)  # Event processing throttle - allowed
 
     async def _process_with_retry(self, stream: str, redis_id: str, event: dict[str, Any]) -> None:
-        event_type = str(event.get("type") or stream)
-        msg_id = str(event.get("msg_id") or redis_id)
-        ts = str(event.get("timestamp") or datetime.now(timezone.utc).isoformat())
+        event_type = str(event.get(FieldName.TYPE) or stream)
+        msg_id = str(event.get(FieldName.MSG_ID) or redis_id)
+        ts = str(event.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat())
         retry_count = int(event.get("retry_count") or 0)
 
         try:
@@ -237,17 +238,21 @@ class EventPipeline:
                 {
                     "id": msg_id,
                     "kind": event_type,
-                    "source": str(event.get("source") or stream),
+                    "source": str(event.get(FieldName.SOURCE) or stream),
                     "created_at": ts,
                 }
             )
         if self.agent_state:
-            payload = event.get("payload") if isinstance(event.get("payload"), dict) else event
-            agent_name = payload.get("agent_name") or payload.get("agent")
+            payload = (
+                event.get(FieldName.PAYLOAD)
+                if isinstance(event.get(FieldName.PAYLOAD), dict)
+                else event
+            )
+            agent_name = payload.get(FieldName.AGENT_NAME) or payload.get(FieldName.AGENT)
             if agent_name:
                 agent_status = self.agent_state.update(
                     str(agent_name),
-                    status=str(payload.get("status") or "running"),
+                    status=str(payload.get(FieldName.STATUS) or "running"),
                     health=str(payload.get("health") or "ok"),
                     last_task=str(payload.get("last_task") or event_type),
                 )

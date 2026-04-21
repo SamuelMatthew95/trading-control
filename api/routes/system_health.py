@@ -17,6 +17,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from api.constants import FieldName
+
 from ..core.config import get_settings
 from ..core.models import Event, Order, Position
 from ..observability import log_structured
@@ -134,8 +136,8 @@ async def get_position_sync_status():
             sync_status = []
             for fill in fill_events:
                 fill_data = fill.data
-                strategy_id = fill_data.get("strategy_id")
-                symbol = fill_data.get("symbol")
+                strategy_id = fill_data.get(FieldName.STRATEGY_ID)
+                symbol = fill_data.get(FieldName.SYMBOL)
 
                 if strategy_id and symbol:
                     position_query = select(Position).where(
@@ -151,7 +153,7 @@ async def get_position_sync_status():
                             "fill_time": fill.created_at.isoformat(),
                             "position_exists": position is not None,
                             "position_quantity": (float(position.quantity) if position else None),
-                            "expected_quantity": fill_data.get("new_quantity"),
+                            "expected_quantity": fill_data.get(FieldName.NEW_QUANTITY),
                             "sync_status": "synced" if position else "missing",
                             "alert_level": "red" if not position else "green",
                         }
@@ -198,7 +200,7 @@ async def stream_agent_logs(
                 trace_col = "trace_id" if "trace_id" in available_columns else "NULL"
                 step_name_col = "step_name" if "step_name" in available_columns else "NULL"
                 step_data_col = "step_data" if "step_data" in available_columns else "NULL"
-                payload_is_json = column_types.get("payload") in {"json", "jsonb"}
+                payload_is_json = column_types.get(FieldName.PAYLOAD) in {"json", "jsonb"}
                 payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
                 payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
                 payload_text = "payload::text" if "payload" in available_columns else "NULL"
@@ -221,7 +223,7 @@ async def stream_agent_logs(
                 params: dict[str, Any] = {"limit": limit}
                 if agent_id:
                     base_sql += " AND " + run_col + " = :agent_id"
-                    params["agent_id"] = agent_id
+                    params[FieldName.AGENT_ID] = agent_id
                 if level:
                     base_sql += " AND LOWER(COALESCE(" + level_col + "::text, '')) = :level"
                     params["level"] = level.lower()
@@ -403,7 +405,9 @@ async def get_worker_heartbeats(redis_client) -> dict[str, Any]:
         for worker_id, data in heartbeat_data.items():
             try:
                 parsed = json.loads(data)
-                last_seen = datetime.fromisoformat(parsed["last_seen"].replace("Z", "+00:00"))
+                last_seen = datetime.fromisoformat(
+                    parsed[FieldName.LAST_SEEN].replace("Z", "+00:00")
+                )
                 age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
 
                 heartbeats[worker_id] = {
@@ -444,7 +448,7 @@ async def get_db_pool_status() -> dict[str, Any]:
 def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status: dict) -> str:
     """Calculate traffic light status."""
     # Check for critical conditions
-    if db_pool_status.get("status") == "error":
+    if db_pool_status.get(FieldName.STATUS) == "error":
         return "red"
 
     if dlq_count > 0:
@@ -452,7 +456,7 @@ def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status:
 
     # Check stream health
     for _stream, health in stream_health.items():
-        if health.get("status") == "error":
+        if health.get(FieldName.STATUS) == "error":
             return "red"
         if health.get("oldest_msg_age_seconds", 0) > 60:
             return "yellow"

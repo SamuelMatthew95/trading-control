@@ -16,6 +16,7 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
+from api.constants import FieldName
 from api.observability import log_structured
 from api.services.agents.prompts import ADAPTIVE_TRADING_SYSTEM_PROMPT
 
@@ -108,7 +109,9 @@ class MemoryGuard:
                         }
                     return {
                         "similarity": round(similarity, 3),
-                        "reason": metadata.get("reason", "blocked by prior negative memory"),
+                        "reason": metadata.get(
+                            FieldName.REASON, "blocked by prior negative memory"
+                        ),
                         "content": row.content,
                     }
             except Exception:
@@ -204,9 +207,11 @@ class DeterministicReasoningModel:
                     "agreement_ratio": 0.0,
                     "signal_strength": 0.0,
                 }
-            direction = signals[0]["direction"]
-            agreement = sum(1 for s in signals if s["direction"] == direction) / len(signals)
-            confidence = sum(float(s.get("confidence", 0)) for s in signals) / len(signals)
+            direction = signals[0][FieldName.DIRECTION]
+            agreement = sum(1 for s in signals if s[FieldName.DIRECTION] == direction) / len(
+                signals
+            )
+            confidence = sum(float(s.get(FieldName.CONFIDENCE, 0)) for s in signals) / len(signals)
             return {
                 "direction": direction,
                 "agreement_ratio": agreement,
@@ -285,7 +290,7 @@ class TradeTools:
         if not match:
             return
         self.guard_hits += 1
-        reason = match.get("reason", "blocked")
+        reason = match.get(FieldName.REASON, "blocked")
         raise ToolError(f"skipped_by_memory_guard:{reason}")
 
     def get_current_price(self, asset: str) -> float:
@@ -426,13 +431,13 @@ class ExecutionEngine:
             "HIGH" if signal_strength > 0.8 else "MEDIUM" if signal_strength > 0.6 else "LOW"
         )
         return {
-            "DECISION": consensus.get("direction", "FLAT"),
+            "DECISION": consensus.get(FieldName.DIRECTION, "FLAT"),
             "ASSET": context["asset"],
             "SIZE": f"{sizing.get('units', 0)} units",
             "ENTRY": f"{float(sizing.get('entry', 0)):.2f}",
             "STOP": f"{float(sizing.get('stop', 0)):.2f}",
             "TARGET": f"{float(sizing.get('target', 0)):.2f}",
-            "R/R RATIO": f"{float(sizing.get('rr_ratio', 0)):.1f}:1",
+            "R/R RATIO": f"{float(sizing.get(FieldName.RR_RATIO, 0)):.1f}:1",
             "CONFIDENCE": confidence,
             "SIGNAL SUMMARY": [
                 f"Consensus={consensus.get('agreement_ratio', 0):.1%}",
@@ -674,8 +679,8 @@ class MultiAgentOrchestrator:
         return fallback_order.get(timeframe, "1D")
 
     def process_trade_signals(self, signals: list[dict[str, Any]]) -> dict[str, Any]:
-        symbol = signals[0].get("symbol", "AAPL") if signals else "AAPL"
-        price = float(signals[0].get("price", 100)) if signals else 100
+        symbol = signals[0].get(FieldName.SYMBOL, "AAPL") if signals else "AAPL"
+        price = float(signals[0].get(FieldName.PRICE, 100)) if signals else 100
         portfolio = {
             "total_value": 100000,
             "cash": 50000,

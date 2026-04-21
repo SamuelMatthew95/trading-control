@@ -7,7 +7,7 @@ from api.services.learning_service import LearningService
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
-from api.constants import PositionSide
+from api.constants import FieldName, PositionSide
 from api.core.models import AgentRun, TradePerformance
 from api.database import get_async_session
 from api.main_state import get_learning_service
@@ -44,8 +44,12 @@ async def get_all_performance(
 @router.get("/api/statistics")
 async def get_statistics(force_refresh: bool = False):
     now = time.time()
-    if not force_refresh and _STATS_CACHE["payload"] and now < float(_STATS_CACHE["expires_at"]):
-        return _STATS_CACHE["payload"]
+    if (
+        not force_refresh
+        and _STATS_CACHE[FieldName.PAYLOAD]
+        and now < float(_STATS_CACHE["expires_at"])
+    ):
+        return _STATS_CACHE[FieldName.PAYLOAD]
 
     async with get_async_session() as session:
         total_trades = (
@@ -78,7 +82,7 @@ async def get_statistics(force_refresh: bool = False):
             "total_pnl": round(total_pnl, 2),
             "cached_until_epoch": int(now + 15),
         }
-        _STATS_CACHE["payload"] = payload
+        _STATS_CACHE[FieldName.PAYLOAD] = payload
         _STATS_CACHE["expires_at"] = now + 15
         return payload
 
