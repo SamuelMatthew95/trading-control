@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
+from api.constants import FieldName
 from api.core.schemas import ErrorResponse
 from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, ensure_all_streams_ready
@@ -236,9 +237,9 @@ async def lifespan(app: FastAPI):
 
         await broadcaster.broadcast(
             {
-                "type": "system",
-                "status": "running",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                FieldName.TYPE: "system",
+                FieldName.STATUS: "running",
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             }
         )
 
