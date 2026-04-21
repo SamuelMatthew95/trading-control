@@ -82,6 +82,7 @@ ON CONFLICT (idempotency_key) DO NOTHING
 ### Guardrail tests (always run these)
 ```
 tests/core/test_production_schema_guardrails.py  — source-code inspection
+tests/core/test_field_name_guardrails.py         — enforces FieldName enum on all CLEAN_FILES
 tests/agents/test_signal_generator_db_writes.py  — functional SQL capture
 tests/agents/test_signal_generator_schema_fix.py — regression for column names
 ```
@@ -98,10 +99,12 @@ tests/agents/test_signal_generator_schema_fix.py — regression for column names
 - ❌ Hardcoded TTL values (`ex=30`, `ex=90000`) → Use named constants
 - ❌ String-literal dict keys for event payloads (`data.get("side")`, `pos["symbol"]`) → Use `FieldName` enum from `api/constants.py`
 
-## Event Payload Field Access (CRITICAL — no raw string keys)
-All event/DB row dict access must go through the `FieldName` StrEnum in `api/constants.py`.
-Raw string keys silently break when a payload field is renamed, and drift between
-producers and consumers causes invisible field-name bugs the type checker can't catch.
+## Event Payload Field Access (CRITICAL — no raw string keys, ENFORCED BY CI)
+
+All event / DB-row / Redis-message dict access must go through the
+`FieldName` StrEnum in `api/constants.py`. Raw string keys silently break
+when a payload field is renamed; producer/consumer drift becomes an invisible
+bug the type checker can't catch.
 
 ```python
 from api.constants import FieldName
@@ -110,15 +113,46 @@ from api.constants import FieldName
 side = data.get("side") or data.get("action")
 symbol = pos["symbol"]
 trace = event.get("trace_id")
+payload = {"symbol": s, "side": "buy", "trace_id": tid}
 
-# ✅ RIGHT — FieldName enum (StrEnum, so it works as a dict key directly)
+# ✅ RIGHT — FieldName enum (StrEnum, serializes to the same string)
 side = data.get(FieldName.SIDE) or data.get(FieldName.ACTION)
 symbol = pos[FieldName.SYMBOL]
 trace = event.get(FieldName.TRACE_ID)
+payload = {FieldName.SYMBOL: s, FieldName.SIDE: "buy", FieldName.TRACE_ID: tid}
 ```
 
-Adding a new field? Add it to `class FieldName(StrEnum)` in `api/constants.py` first,
-then reference `FieldName.YOUR_FIELD` everywhere you read/write the payload.
+### Enforcement: the CLEAN_FILES ratchet
+`tests/core/test_field_name_guardrails.py` does an AST scan and hard-fails CI
+whenever a file on `CLEAN_FILES` re-introduces a raw string FieldName key.
+The list can only grow — removing a file is a regression.
+
+When you sweep a new file clean of raw-string FieldName keys:
+1. Replace every raw string with the corresponding `FieldName.NAME`.
+2. Verify with:
+   ```
+   python -c "import ast; ast.parse(open('<path>').read()); print('OK')"
+   ```
+3. Add the file path to the `CLEAN_FILES` set in
+   `tests/core/test_field_name_guardrails.py`.
+4. Run `pytest tests/core/test_field_name_guardrails.py -v` — it must pass.
+
+### Adding a new field
+Add it to `class FieldName(StrEnum)` in `api/constants.py` FIRST (member name
+MUST equal value in uppercase — `FOO = "foo"`; the test
+`test_names_match_values` enforces this). Then reference `FieldName.FOO`
+everywhere you read/write the payload key.
+
+### Legitimate exceptions (keep as raw strings)
+- **SQL bind parameters**: keys passed as the 2nd arg to
+  `session.execute(text("... :name ..."), {...})` must match `:name`
+  placeholders. The guardrail exempts dict-LITERAL keys in files listed in
+  `SQL_BIND_HEAVY_FILES`, but READ operations (`.get`, `[...]`) are always
+  enforced everywhere.
+- **SQLAlchemy `.values(col=...)` and `set_={col: ...}` kwargs**: column
+  names, not payload keys. Not caught by the guardrail anyway.
+- **Function keyword arguments** (`log_structured("info", "msg", symbol=x)`):
+  not dict keys. Not caught.
 
 ## Redis Key Constants (All Redis Keys Live in api/constants.py)
 ```python
