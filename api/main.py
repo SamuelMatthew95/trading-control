@@ -40,6 +40,7 @@ from api.runtime_state import (
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.agent_supervisor import AgentSupervisor
 from api.services.agents.pipeline_agents import (
+    ChallengerAgent,
     GradeAgent,
     ICUpdater,
     NotificationAgent,
@@ -209,8 +210,8 @@ async def lifespan(app: FastAPI):
         app.state.keep_alive_task = keep_alive_task
 
         agents = [
-            SignalGenerator(event_bus, dlq_manager),
-            ReasoningAgent(event_bus, dlq_manager, redis_client),
+            SignalGenerator(event_bus, dlq_manager, agent_state=agent_state),
+            ReasoningAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ExecutionEngine(
                 event_bus, dlq_manager, redis_client, paper_broker, agent_state=agent_state
             ),
@@ -219,9 +220,17 @@ async def lifespan(app: FastAPI):
             ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state),
             StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
             NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
+            ChallengerAgent(event_bus, dlq_manager, agent_state=agent_state),
         ]
         for agent in agents:
             await agent.start()
+            log_structured(
+                "info",
+                "agent_subscription_ready",
+                agent=agent.name,
+                stream=getattr(agent, "stream", None),
+                streams=getattr(agent, "streams", None),
+            )
         app.state.agents = agents
 
         # RiskGuardian: periodic position monitor (stop-loss, take-profit, daily loss limit)

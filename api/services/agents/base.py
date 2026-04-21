@@ -114,6 +114,12 @@ class MultiStreamAgent:
             return
         await self._register_instance()
         self._running = True
+        if self.agent_state and self._state_name:
+            self.agent_state.transition(
+                self._state_name,
+                "ready",
+                task=f"subscribed:{','.join(self.streams)}",
+            )
         self._task = asyncio.create_task(self._run(), name=f"agent:{self.consumer}")
 
     async def stop(self) -> None:
@@ -133,6 +139,8 @@ class MultiStreamAgent:
         raise NotImplementedError
 
     async def _run(self) -> None:
+        if self.agent_state and self._state_name:
+            self.agent_state.transition(self._state_name, "active", task="polling")
         while self._running:
             for stream in self.streams:
                 messages = await self.bus.consume(
@@ -144,6 +152,19 @@ class MultiStreamAgent:
                 )
                 for redis_id, data in messages:
                     try:
+                        if self.agent_state and self._state_name:
+                            self.agent_state.transition(
+                                self._state_name,
+                                "processing",
+                                task=f"{stream}:{redis_id}",
+                            )
+                        log_structured(
+                            "info",
+                            "multi_stream_event_consumed",
+                            agent=self.consumer,
+                            stream=stream,
+                            redis_id=redis_id,
+                        )
                         await self.process(stream, redis_id, data)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
                         if self.agent_state and self._state_name:
@@ -151,6 +172,7 @@ class MultiStreamAgent:
                                 self._state_name,
                                 task=f"{stream}:{data.get(FieldName.TYPE, 'event')}",
                             )
+                            self.agent_state.transition(self._state_name, "active", task="polling")
                         # Best-effort event counter on instance row
                         if self._instance_id:
                             try:

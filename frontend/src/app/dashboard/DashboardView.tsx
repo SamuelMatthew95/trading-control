@@ -36,9 +36,9 @@ const toSanitizeInput = (value: unknown): string | number | boolean | null | und
 // Agent Thought Stream. The backend writes `primary_edge = "fallback:<mode>"`
 // whenever the LLM is unavailable; the raw token is ugly in the UI.
 const FALLBACK_LABELS: Record<string, string> = {
-  skip_reasoning: 'LLM unavailable — rule-based fallback',
-  reject_signal: 'LLM unavailable — signal rejected',
-  use_last_reflection: 'LLM unavailable — reusing last reflection',
+  skip_reasoning: 'Rule-based fallback decision',
+  reject_signal: 'Rule-based fallback: signal rejected',
+  use_last_reflection: 'Rule-based fallback: reused last reflection',
 }
 const formatAgentMessage = (raw: unknown): string => {
   const text = sanitizeValue(toSanitizeInput(raw))

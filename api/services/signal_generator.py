@@ -42,18 +42,22 @@ from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat
+from api.services.agent_state import AgentStateRegistry
 
 AGENT_NAME = AGENT_SIGNAL
 
 
 class SignalGenerator(BaseStreamConsumer):
-    def __init__(self, bus: EventBus, dlq: DLQManager):
+    def __init__(
+        self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
+    ):
         super().__init__(
             bus,
             dlq,
             stream=STREAM_MARKET_EVENTS,
             group=DEFAULT_GROUP,
             consumer="signal-agent",
+            agent_state=agent_state,
         )
         self.total_events = 0
         self._agent_pool_id: str | None = None
@@ -119,12 +123,19 @@ class SignalGenerator(BaseStreamConsumer):
             signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
 
         signal_payload: dict[str, Any] = {
-            FieldName.TYPE: signal_type,
+            FieldName.TYPE: signal_type.value,
             FieldName.SYMBOL: symbol,
             FieldName.PRICE: price,
             FieldName.PCT: pct,
-            FieldName.DIRECTION: direction,
-            FieldName.STRENGTH: strength,
+            FieldName.DIRECTION: direction.value,
+            FieldName.STRENGTH: strength.value,
+            FieldName.COMPOSITE_SCORE: round(score / 100.0, 4),
+            FieldName.CONFIDENCE: round(score / 100.0, 4),
+            FieldName.ACTION: (
+                "buy"
+                if direction == MarketDirection.BULLISH
+                else ("sell" if direction == MarketDirection.BEARISH else "hold")
+            ),
             FieldName.TRACE_ID: trace_id,
             FieldName.TS: int(time.time()),
             FieldName.SOURCE: AGENT_NAME,

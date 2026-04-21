@@ -96,6 +96,57 @@ async def test_trade_feed_falls_back_when_query_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pnl_metrics_uses_in_memory_state_when_db_unavailable():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "o1", "symbol": "BTC/USD", "pnl": 125.5})
+    store.add_order({"order_id": "o2", "symbol": "ETH/USD", "pnl": -25.0})
+    store.upsert_position(
+        "BTC/USD",
+        {"symbol": "BTC/USD", "side": "long", "qty": 1.0, "unrealized_pnl": 10.0},
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_pnl_metrics()
+
+    assert payload["source"] == "in_memory"
+    assert payload["total_pnl"] == pytest.approx(100.5)
+    assert payload["winning_trades"] == 1
+    assert payload["losing_trades"] == 1
+    assert payload["active_positions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_paired_pnl_fallback_uses_in_memory_orders(monkeypatch):
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "o1", "symbol": "BTC/USD", "pnl": 200.0})
+    store.upsert_position(
+        "BTC/USD",
+        {"symbol": "BTC/USD", "side": "long", "qty": 2.0, "unrealized_pnl": 35.0},
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_paired_pnl(RequestStub())
+
+    assert payload["source"] == "in_memory"
+    assert payload["summary"]["total_pnl"] == pytest.approx(200.0)
+    assert payload["summary"]["open_positions"] == 1
+
+
+class RequestStub:
+    class _State:
+        redis_client = None
+
+    class _App:
+        def __init__(self):
+            self.state = RequestStub._State()
+
+    def __init__(self):
+        self.app = self._App()
+
+
+@pytest.mark.asyncio
 async def test_performance_trends_falls_back_when_query_fails(monkeypatch):
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_performance_trends()

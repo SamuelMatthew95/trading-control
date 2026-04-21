@@ -45,6 +45,7 @@ from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
+from api.services.agent_state import AgentStateRegistry
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
 from api.services.agents.prompts import (
     ADAPTIVE_TRADING_SYSTEM_PROMPT,
@@ -65,9 +66,21 @@ class ReasoningAgent(BaseStreamConsumer):
     to STREAM_DECISIONS. The ExecutionEngine is the sole authority for BUY/SELL orders.
     """
 
-    def __init__(self, bus: EventBus, dlq: DLQManager, redis_client):
+    def __init__(
+        self,
+        bus: EventBus,
+        dlq: DLQManager,
+        redis_client,
+        *,
+        agent_state: AgentStateRegistry | None = None,
+    ):
         super().__init__(
-            bus, dlq, stream=STREAM_SIGNALS, group=DEFAULT_GROUP, consumer="reasoning-agent"
+            bus,
+            dlq,
+            stream=STREAM_SIGNALS,
+            group=DEFAULT_GROUP,
+            consumer="reasoning-agent",
+            agent_state=agent_state,
         )
         self.redis = redis_client
 
@@ -250,6 +263,13 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.STOP_ATR_X: float(summary.get(FieldName.STOP_ATR_X) or 1.5),
                 FieldName.RR_RATIO: float(summary.get(FieldName.RR_RATIO) or 2.0),
             },
+        )
+        log_structured(
+            "info",
+            "reasoning_dispatch_published",
+            trace_id=trace_id,
+            stream=STREAM_DECISIONS,
+            action=action,
         )
 
     # ------------------------------------------------------------------
@@ -492,6 +512,20 @@ class ReasoningAgent(BaseStreamConsumer):
         self, data: dict[str, Any], trace_id: str, reason: str
     ) -> dict[str, Any]:
         base_action = str(data.get(FieldName.ACTION) or data.get("signal") or "hold").lower()
+        signal_direction = str(data.get(FieldName.DIRECTION) or "").lower()
+        if base_action in {"none", "", AgentAction.HOLD}:
+            if signal_direction in {"bullish", AgentAction.BUY, "long"}:
+                base_action = AgentAction.BUY
+            elif signal_direction in {"bearish", AgentAction.SELL, "short"}:
+                base_action = AgentAction.SELL
+            else:
+                pct = float(data.get(FieldName.PCT) or 0.0)
+                if pct > 0:
+                    base_action = AgentAction.BUY
+                elif pct < 0:
+                    base_action = AgentAction.SELL
+                else:
+                    base_action = AgentAction.HOLD
         composite_score = float(data.get(FieldName.COMPOSITE_SCORE, 0.0) or 0.0)
 
         if settings.LLM_FALLBACK_MODE == LLM_FALLBACK_MODE_REJECT_SIGNAL:
