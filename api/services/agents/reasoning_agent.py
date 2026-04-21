@@ -121,7 +121,7 @@ class ReasoningAgent(BaseStreamConsumer):
         # ReAct Step 2: Self-critique for high-confidence actionable decisions
         # Only runs when: not a fallback, action is buy/sell, confidence is high enough
         action = str(summary.get(FieldName.ACTION, "")).lower()
-        confidence = float(summary.get("confidence") or 0.0)
+        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
         if (
             not is_fallback
             and action not in NO_ORDER_ACTIONS
@@ -229,9 +229,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.ACTION: action,
                 # Advisory scores — ExecutionEngine uses these in weighted formula
-                FieldName.REASONING_SCORE: float(summary.get("confidence") or 0.0),
+                FieldName.REASONING_SCORE: float(summary.get(FieldName.CONFIDENCE) or 0.0),
                 FieldName.SIGNAL_CONFIDENCE: float(
-                    data.get("composite_score") or data.get("confidence") or 0.0
+                    data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.CONFIDENCE) or 0.0
                 ),
                 # Order parameters forwarded for ExecutionEngine use
                 FieldName.QTY: max(
@@ -261,9 +261,9 @@ class ReasoningAgent(BaseStreamConsumer):
             {
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.PRICE: data.get(FieldName.PRICE),
-                "composite_score": data.get("composite_score"),
+                "composite_score": data.get(FieldName.COMPOSITE_SCORE),
                 # Signal publishes "type" (e.g. "STRONG_MOMENTUM"); some callers use "signal_type"
-                "signal_type": data.get("signal_type") or data.get(FieldName.TYPE),
+                "signal_type": data.get(FieldName.SIGNAL_TYPE) or data.get(FieldName.TYPE),
                 "context": data.get("context", {}),
             },
             sort_keys=True,
@@ -288,17 +288,17 @@ class ReasoningAgent(BaseStreamConsumer):
 
         # Derive risk state from the signal itself
         context["risk_state"] = {
-            "composite_score": float(data.get("composite_score") or 0.0),
+            "composite_score": float(data.get(FieldName.COMPOSITE_SCORE) or 0.0),
             "momentum_pct": float(data.get(FieldName.PCT) or 0.0),
             "signal_strength": data.get(FieldName.STRENGTH, "NORMAL"),
-            "signal_type": data.get(FieldName.TYPE) or data.get("signal_type", "UNKNOWN"),
+            "signal_type": data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE, "UNKNOWN"),
         }
 
         log_structured(
             "info",
             "reasoning_context_gathered",
             has_ic_weights=bool(context.get("ic_weights")),
-            signal_type=context["risk_state"]["signal_type"],
+            signal_type=context["risk_state"][FieldName.SIGNAL_TYPE],
         )
         return context
 
@@ -353,7 +353,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     critique.get("recommended_action") or decision[FieldName.ACTION]
                 ).lower()
                 rec_confidence = float(
-                    critique.get("recommended_confidence") or decision["confidence"]
+                    critique.get("recommended_confidence") or decision[FieldName.CONFIDENCE]
                 )
                 refined = {
                     **decision,
@@ -439,7 +439,7 @@ class ReasoningAgent(BaseStreamConsumer):
         drawdown = float(context.get("risk_state", {}).get("drawdown") or 0.0)
         if drawdown <= -0.15:
             safe_decision[FieldName.ACTION] = AgentAction.HOLD
-            safe_decision["confidence"] = 0.0
+            safe_decision[FieldName.CONFIDENCE] = 0.0
             if "MAX_DRAWDOWN_EXCEEDED" not in risk_factors:
                 risk_factors.append("MAX_DRAWDOWN_EXCEEDED")
             safe_decision[FieldName.RISK_FACTORS] = risk_factors
@@ -448,8 +448,8 @@ class ReasoningAgent(BaseStreamConsumer):
         # 2) IC alignment check.
         if not self._ic_aligns(action, context.get("ic_weights", {}), safe_decision):
             safe_decision[FieldName.ACTION] = AgentAction.HOLD
-            safe_decision["confidence"] = round(
-                float(safe_decision.get("confidence") or 0.0) * 0.3, 4
+            safe_decision[FieldName.CONFIDENCE] = round(
+                float(safe_decision.get(FieldName.CONFIDENCE) or 0.0) * 0.3, 4
             )
             if "IC_MISALIGNMENT" not in risk_factors:
                 risk_factors.append("IC_MISALIGNMENT")
@@ -480,7 +480,9 @@ class ReasoningAgent(BaseStreamConsumer):
         if factor_name != "composite_score":
             return True
 
-        score = float(decision.get("composite_score") or decision.get("confidence") or 0.0)
+        score = float(
+            decision.get(FieldName.COMPOSITE_SCORE) or decision.get(FieldName.CONFIDENCE) or 0.0
+        )
         direction = signal_direction.lower()
         if score > 0.5:
             return direction in {AgentAction.BUY, "long"}
@@ -490,7 +492,7 @@ class ReasoningAgent(BaseStreamConsumer):
         self, data: dict[str, Any], trace_id: str, reason: str
     ) -> dict[str, Any]:
         base_action = str(data.get(FieldName.ACTION) or data.get("signal") or "hold").lower()
-        composite_score = float(data.get("composite_score", 0.0) or 0.0)
+        composite_score = float(data.get(FieldName.COMPOSITE_SCORE, 0.0) or 0.0)
 
         if settings.LLM_FALLBACK_MODE == LLM_FALLBACK_MODE_REJECT_SIGNAL:
             action = AgentAction.REJECT
@@ -594,7 +596,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 "symbol": data.get(FieldName.SYMBOL),
                 "signal_data": json.dumps(data, default=str),
                 "action": summary[FieldName.ACTION],
-                "confidence": summary["confidence"],
+                "confidence": summary[FieldName.CONFIDENCE],
                 "primary_edge": summary[FieldName.PRIMARY_EDGE],
                 "risk_factors": json.dumps(summary[FieldName.RISK_FACTORS], default=str),
                 "size_pct": summary[FieldName.SIZE_PCT],
@@ -642,7 +644,10 @@ class ReasoningAgent(BaseStreamConsumer):
                 "embedding": build_vector_literal(embedding),
                 "metadata": json.dumps({"trace_id": summary[FieldName.TRACE_ID]}),
                 "outcome": json.dumps(
-                    {"action": summary[FieldName.ACTION], "confidence": summary["confidence"]}
+                    {
+                        "action": summary[FieldName.ACTION],
+                        "confidence": summary[FieldName.CONFIDENCE],
+                    }
                 ),
             },
         )
@@ -663,7 +668,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.TRACE_ID: trace_id,
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.ACTION: summary.get(FieldName.ACTION),
-                "confidence": summary.get("confidence"),
+                "confidence": summary.get(FieldName.CONFIDENCE),
                 "fallback": fallback,
                 FieldName.SOURCE: AGENT_REASONING,
                 FieldName.STATUS: "running",
@@ -681,7 +686,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 "metadata": {FieldName.TRACE_ID: summary.get(FieldName.TRACE_ID)},
                 "outcome": {
                     FieldName.ACTION: summary.get(FieldName.ACTION),
-                    "confidence": summary.get("confidence"),
+                    "confidence": summary.get(FieldName.CONFIDENCE),
                 },
             }
         )
