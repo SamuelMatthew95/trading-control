@@ -15,17 +15,28 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.schema_version import ACCEPTED_DB_SCHEMA_VERSIONS
+from api.services.agent_state import AgentStateRegistry
 
 ACCEPTED_SCHEMA_VERSIONS = ACCEPTED_DB_SCHEMA_VERSIONS
 
 
 class BaseStreamConsumer(ABC):
-    def __init__(self, bus: EventBus, dlq: DLQManager, stream: str, group: str, consumer: str):
+    def __init__(
+        self,
+        bus: EventBus,
+        dlq: DLQManager,
+        stream: str,
+        group: str,
+        consumer: str,
+        *,
+        agent_state: AgentStateRegistry | None = None,
+    ):
         self.bus = bus
         self.dlq = dlq
         self.stream = stream
         self.group = group
         self.consumer = consumer
+        self.agent_state = agent_state
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -67,6 +78,8 @@ class BaseStreamConsumer(ABC):
         self._backoff = 1  # Reset backoff
 
         self._task = asyncio.create_task(self._run(), name=f"consumer:{self.stream}")
+        if self.agent_state:
+            self.agent_state.transition(self.consumer, "ready", task=f"subscribed:{self.stream}")
         log_structured("info", "Consumer started", stream=self.stream, consumer=self.consumer)
 
     async def stop(self) -> None:
@@ -145,6 +158,8 @@ class BaseStreamConsumer(ABC):
     async def _run(self) -> None:
         """Main consumer loop with responsive shutdown and non-blocking operations."""
         log_structured("info", "Consumer loop starting", stream=self.stream)
+        if self.agent_state:
+            self.agent_state.transition(self.consumer, "active", task=f"polling:{self.stream}")
 
         try:
             # Initial reclaim of stale messages
@@ -267,6 +282,15 @@ class BaseStreamConsumer(ABC):
 
     async def _handle_message(self, msg_id: str, data: dict[str, Any]) -> None:
         """Handle a single message with comprehensive error handling."""
+        if self.agent_state:
+            self.agent_state.transition(self.consumer, "processing", task=f"msg:{msg_id}")
+        log_structured(
+            "info",
+            "consumer_message_received",
+            consumer=self.consumer,
+            stream=self.stream,
+            message_id=msg_id,
+        )
         # Soft guard: use redis stream ID as fallback if producer omitted msg_id
         if "msg_id" not in data:
             data = {**data, FieldName.MSG_ID: msg_id}
@@ -302,6 +326,9 @@ class BaseStreamConsumer(ABC):
         try:
             await self._process_with_timeout(data)
             await self.bus.acknowledge(self.stream, self.group, msg_id)
+            if self.agent_state:
+                self.agent_state.record_event(self.consumer, task=f"acked:{self.stream}")
+                self.agent_state.transition(self.consumer, "active", task=f"polling:{self.stream}")
             log_structured(
                 "debug",
                 "Message processed and acknowledged",
@@ -350,6 +377,10 @@ class BaseStreamConsumer(ABC):
                     exc_info=True,
                 )
             finally:
+                if self.agent_state:
+                    self.agent_state.transition(
+                        self.consumer, "active", task=f"failed:{self.stream}"
+                    )
                 log_structured(
                     "warning",
                     "Stream consumer failed to process message",

@@ -56,6 +56,38 @@ def _as_dict(payload: Any) -> dict[str, Any]:
     return {}
 
 
+def _in_memory_pnl_payload() -> dict[str, Any]:
+    """Compute dashboard PnL metrics directly from in-memory runtime state."""
+    store = get_runtime_store()
+    orders = list(store.orders)
+    positions = list(store.positions.values())
+    total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
+    wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
+    losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
+
+    return {
+        "pnl": orders[-100:],
+        "total_pnl": round(total_pnl, 2),
+        "winning_trades": wins,
+        "losing_trades": losses,
+        "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
+        "active_positions": sum(
+            1
+            for p in positions
+            if str(p.get(FieldName.SIDE, "")).lower() in {"long", "short"}
+            and float(p.get(FieldName.QTY) or 0.0) > 0
+        ),
+        "best_trade": round(
+            max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
+        ),
+        "worst_trade": round(
+            min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
+
+
 @router.get("/snapshot")
 async def get_dashboard_snapshot() -> dict[str, Any]:
     """
@@ -204,6 +236,8 @@ async def get_system_health() -> dict[str, Any]:
 @router.get("/pnl")
 async def get_pnl_metrics() -> dict[str, Any]:
     """Get PnL metrics."""
+    if not is_db_available():
+        return _in_memory_pnl_payload()
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
@@ -211,12 +245,7 @@ async def get_pnl_metrics() -> dict[str, Any]:
 
     except Exception:
         log_structured("warning", "pnl_metrics_db_unavailable", exc_info=True)
-        return {
-            "pnl": [],
-            "total_pnl": 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        return _in_memory_pnl_payload()
 
 
 @router.get("/pnl/paired")
@@ -228,6 +257,31 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
     Open positions are read from the ``positions`` table and enriched with current
     price so unrealized PnL updates on every request.
     """
+    if not is_db_available():
+        metrics = _in_memory_pnl_payload()
+        winning_trades = int(metrics["winning_trades"])
+        total_trades = winning_trades + int(metrics["losing_trades"])
+        return {
+            "closed_trades": metrics.get(FieldName.PNL, []),
+            "open_positions": list(get_runtime_store().positions.values()),
+            "summary": {
+                "realized_pnl": float(metrics["total_pnl"]),
+                "unrealized_pnl": sum(
+                    float(p.get(FieldName.UNREALIZED_PNL) or 0.0)
+                    for p in get_runtime_store().positions.values()
+                ),
+                "total_pnl": float(metrics["total_pnl"]),
+                "closed_trades": total_trades,
+                "winning_trades": winning_trades,
+                "win_rate_percent": round(
+                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
+                ),
+                "open_positions": len(get_runtime_store().positions),
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
     redis_client = getattr(request.app.state, "redis_client", None)
     try:
         async with AsyncSessionFactory() as session:
@@ -235,17 +289,25 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
             return await aggregator.get_paired_pnl(redis_client=redis_client)
     except Exception:
         log_structured("warning", "paired_pnl_unavailable", exc_info=True)
+        metrics = _in_memory_pnl_payload()
+        winning_trades = int(metrics["winning_trades"])
+        total_trades = winning_trades + int(metrics["losing_trades"])
         return {
-            "closed_trades": [],
-            "open_positions": [],
+            "closed_trades": metrics.get(FieldName.PNL, []),
+            "open_positions": list(get_runtime_store().positions.values()),
             "summary": {
-                "realized_pnl": 0.0,
-                "unrealized_pnl": 0.0,
-                "total_pnl": 0.0,
-                "closed_trades": 0,
-                "winning_trades": 0,
-                "win_rate_percent": 0.0,
-                "open_positions": 0,
+                "realized_pnl": float(metrics["total_pnl"]),
+                "unrealized_pnl": sum(
+                    float(p.get(FieldName.UNREALIZED_PNL) or 0.0)
+                    for p in get_runtime_store().positions.values()
+                ),
+                "total_pnl": float(metrics["total_pnl"]),
+                "closed_trades": total_trades,
+                "winning_trades": winning_trades,
+                "win_rate_percent": round(
+                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
+                ),
+                "open_positions": len(get_runtime_store().positions),
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",

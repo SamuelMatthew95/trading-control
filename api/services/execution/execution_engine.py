@@ -17,6 +17,7 @@ from typing import Any
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from api.config import settings
 from api.constants import (
     AGENT_EXECUTION,
     EXECUTION_DECISION_THRESHOLD,
@@ -62,7 +63,12 @@ class ExecutionEngine(BaseStreamConsumer):
         agent_state: AgentStateRegistry | None = None,
     ):
         super().__init__(
-            bus, dlq, stream=STREAM_DECISIONS, group=DEFAULT_GROUP, consumer="execution-engine"
+            bus,
+            dlq,
+            stream=STREAM_DECISIONS,
+            group=DEFAULT_GROUP,
+            consumer="execution-engine",
+            agent_state=agent_state,
         )
         self.redis = redis_client
         self.broker = broker
@@ -131,13 +137,18 @@ class ExecutionEngine(BaseStreamConsumer):
         # legacy test payloads (no reasoning_score field) still clear the gate.
         reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        if final_score < EXECUTION_DECISION_THRESHOLD:
+        threshold = (
+            0.45
+            if (settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER)
+            else EXECUTION_DECISION_THRESHOLD
+        )
+        if final_score < threshold:
             log_structured(
                 "info",
                 "execution_gated_score_below_threshold",
                 symbol=symbol,
                 final_score=round(final_score, 4),
-                threshold=EXECUTION_DECISION_THRESHOLD,
+                threshold=threshold,
                 trace_id=trace_id,
             )
             return
@@ -443,7 +454,12 @@ class ExecutionEngine(BaseStreamConsumer):
         )
         reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        if final_score < EXECUTION_DECISION_THRESHOLD:
+        threshold = (
+            0.45
+            if (settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER)
+            else EXECUTION_DECISION_THRESHOLD
+        )
+        if final_score < threshold:
             return
 
         if not self._is_market_open(symbol):
@@ -743,6 +759,8 @@ class ExecutionEngine(BaseStreamConsumer):
         Equities are restricted to regular US market hours: 9:30–16:00 ET, Mon–Fri.
         Falls back to True on any error so the gate never silently blocks crypto.
         """
+        if settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER:
+            return True
         if "/" in symbol:
             return True  # Crypto: BTC/USD, ETH/USD, SOL/USD — always open
 

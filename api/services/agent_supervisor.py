@@ -75,6 +75,7 @@ class AgentSupervisor:
     async def _run(self) -> None:
         while self._running:
             try:
+                log_structured("debug", "supervisor_tick", agent_count=len(self._agents))
                 await self._check_health()
             except asyncio.CancelledError:
                 raise

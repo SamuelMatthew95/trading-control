@@ -388,3 +388,19 @@ async def test_call_llm_json_array_returns_safe_hold(mock_call_llm_with_system, 
     )
     assert decision["action"] == "hold"
     assert "invalid_llm_json" in decision["risk_factors"]
+
+
+async def test_fallback_derives_directional_action_when_llm_unavailable(agent):
+    bullish = await agent._apply_fallback(
+        {"direction": "bullish", "pct": 0.3, "action": "hold"},
+        trace_id="trace-fallback-buy",
+        reason="missing_api_key",
+    )
+    bearish = await agent._apply_fallback(
+        {"direction": "bearish", "pct": -0.2, "action": "hold"},
+        trace_id="trace-fallback-sell",
+        reason="missing_api_key",
+    )
+
+    assert bullish["action"] == "buy"
+    assert bearish["action"] == "sell"

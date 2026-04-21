@@ -17,6 +17,7 @@ class AgentStateRegistry:
             name: {
                 "name": name,
                 "status": AgentStatus.WAITING,
+                "lifecycle": "registered",
                 "health": "ok",
                 "last_task": "none",
                 "event_count": 0,
@@ -41,11 +42,34 @@ class AgentStateRegistry:
             self._states[name] = state
         now = datetime.now(timezone.utc).isoformat()
         state[FieldName.STATUS] = AgentStatus.ACTIVE
+        state["lifecycle"] = "processing"
         state["health"] = "ok"
         state["last_task"] = task
         state[FieldName.EVENT_COUNT] = int(state.get(FieldName.EVENT_COUNT) or 0) + 1
         state[FieldName.LAST_SEEN] = now
         state[FieldName.UPDATED_AT] = now
+
+    def transition(self, name: str, lifecycle: str, *, task: str = "event") -> dict[str, Any]:
+        """Update lifecycle phase with explicit timestamps for UI observability."""
+        state = self._states.get(name)
+        if state is None:
+            state = {
+                "name": name,
+                "status": AgentStatus.WAITING,
+                "health": "ok",
+                "last_task": "none",
+                "event_count": 0,
+                "last_seen": None,
+            }
+            self._states[name] = state
+        now = datetime.now(timezone.utc).isoformat()
+        state["lifecycle"] = lifecycle
+        state["last_task"] = task
+        if lifecycle in {"active", "processing"}:
+            state[FieldName.STATUS] = AgentStatus.ACTIVE
+            state[FieldName.LAST_SEEN] = now
+        state[FieldName.UPDATED_AT] = now
+        return state
 
     @staticmethod
     def _normalize_status(status: str) -> AgentStatus:

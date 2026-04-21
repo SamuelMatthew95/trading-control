@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
+from api.services.agents.pipeline_agents import GradeAgent, ReflectionAgent
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -374,6 +376,91 @@ async def test_dashboard_ws_closes_without_redis_client():
 
     assert websocket.accepted is True
     assert websocket.closed == 1013
+
+
+@pytest.mark.asyncio
+async def test_full_chain_runs_from_signal_to_execution_grade_and_reflection(monkeypatch):
+    import api.services.agents.pipeline_agents as pipeline_module
+    import api.services.agents.reasoning_agent as reasoning_module
+    import api.services.execution.execution_engine as execution_module
+    import api.services.llm_router as llm_router_module
+
+    redis = FakeRedis()
+    bus = RecordingBus(redis)
+    dlq = DLQManager(redis, bus)
+
+    monkeypatch.setattr(execution_module, "is_db_available", lambda: False)
+    monkeypatch.setattr(reasoning_module, "is_db_available", lambda: False)
+    monkeypatch.setattr(reasoning_module, "embed_text", AsyncMock(return_value=[0.1] * 16))
+    monkeypatch.setattr(reasoning_module, "search_vector_memory", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        reasoning_module,
+        "call_llm_with_system",
+        AsyncMock(
+            return_value=(
+                '{"action":"buy","confidence":0.82,"primary_edge":"momentum","risk_factors":[],"size_pct":0.02,"stop_atr_x":1.5,"rr_ratio":2.0}',
+                0,
+                0.0,
+            )
+        ),
+    )
+    monkeypatch.setattr(pipeline_module.settings, "GRADE_EVERY_N_FILLS", 1)
+    monkeypatch.setattr(pipeline_module.settings, "REFLECT_EVERY_N_FILLS", 1)
+    monkeypatch.setattr(
+        llm_router_module,
+        "call_llm_with_system",
+        AsyncMock(
+            return_value=(
+                '{"summary":"ok","hypotheses":[{"type":"parameter","confidence":0.8,"description":"x"}]}',
+                0,
+                0.0,
+            )
+        ),
+    )
+    monkeypatch.setattr(GradeAgent, "_information_coefficient", AsyncMock(return_value=0.55))
+    monkeypatch.setattr(GradeAgent, "_cost_efficiency", AsyncMock(return_value=0.8))
+    monkeypatch.setattr(GradeAgent, "_latency_score", AsyncMock(return_value=0.9))
+
+    reasoning = ReasoningAgent(bus, dlq, redis)
+    engine = ExecutionEngine(bus, dlq, redis, FakeBroker())
+    grade = GradeAgent(bus, dlq)
+    reflection = ReflectionAgent(bus, dlq)
+
+    signal = {
+        "msg_id": "sig-1",
+        "strategy_id": "strat-1",
+        "symbol": "BTC/USD",
+        "price": 100.0,
+        "pct": 0.6,
+        "direction": "bullish",
+        "action": "buy",
+        "qty": 1.0,
+        "composite_score": 0.8,
+        "confidence": 0.8,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trace_id": "trace-e2e-1",
+        "schema_version": "v3",
+    }
+
+    await reasoning.process(signal)
+    decision = next(event for stream, event in bus.published if stream == "decisions")
+    await engine.process(decision)
+
+    execution_event = next(event for stream, event in bus.published if stream == "executions")
+    trade_perf = next(event for stream, event in bus.published if stream == "trade_performance")
+
+    await grade.process("executions", "id-ex", execution_event)
+    await grade.process("trade_performance", "id-tp", trade_perf)
+    grade_event = next(event for stream, event in bus.published if stream == "agent_grades")
+
+    for idx in range(3):
+        await reflection.process("trade_performance", f"id-tp-{idx}", trade_perf)
+    await reflection.process("agent_grades", "id-grade", grade_event)
+
+    assert any(stream == "executions" for stream, _ in bus.published)
+    assert any(stream == "trade_performance" for stream, _ in bus.published)
+    assert any(stream == "agent_grades" for stream, _ in bus.published)
+    assert any(stream == "reflection_outputs" for stream, _ in bus.published)
 
 
 def _execution_handler(sql: str, params):
