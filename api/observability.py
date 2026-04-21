@@ -13,6 +13,8 @@ from typing import Any
 
 import structlog
 
+from api.constants import FieldName
+
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
 
@@ -56,8 +58,8 @@ class MetricsStore:
         with self._lock:
             self.recent_events.appendleft(
                 {
-                    "event_type": event_type,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    FieldName.EVENT_TYPE: event_type,
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     "request_id": request_id_ctx.get(),
                     **data,
                 }
@@ -74,8 +76,8 @@ class MetricsStore:
         with self._lock:
             self.agent_status[name] = {
                 "name": name,
-                "status": status,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                FieldName.STATUS: status,
+                FieldName.UPDATED_AT: datetime.now(timezone.utc).isoformat(),
                 **data,
             }
 
