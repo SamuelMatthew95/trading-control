@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from api.constants import FieldName
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.services.execution.brokers.paper import PaperBroker
@@ -64,7 +65,7 @@ class OrderReconciler:
                 if broker_status is not None:
                     await session.execute(
                         text("UPDATE orders SET status = :status WHERE id = :order_id"),
-                        {"status": broker_status["status"], "order_id": row["id"]},
+                        {"status": broker_status[FieldName.STATUS], "order_id": row["id"]},
                     )
                 await session.execute(
                     text(
@@ -89,14 +90,14 @@ class OrderReconciler:
             return {
                 "order_id": str(order_row["id"]),
                 "broker_order_id": str(order_row["broker_order_id"]),
-                "db_status": order_row["status"],
+                "db_status": order_row[FieldName.STATUS],
                 "broker_status": "missing",
             }
-        if broker_status.get("status") == order_row["status"]:
+        if broker_status.get(FieldName.STATUS) == order_row[FieldName.STATUS]:
             return None
         return {
             "order_id": str(order_row["id"]),
             "broker_order_id": str(order_row["broker_order_id"]),
-            "db_status": order_row["status"],
-            "broker_status": broker_status.get("status"),
+            "db_status": order_row[FieldName.STATUS],
+            "broker_status": broker_status.get(FieldName.STATUS),
         }

@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, GradeType, LogType
+from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, FieldName, GradeType, LogType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
@@ -40,12 +40,13 @@ async def write_agent_log(
             store.add_grade(
                 {
                     "trace_id": trace_id,
-                    "grade": payload.get("grade"),
-                    "score": payload.get("score"),
-                    "score_pct": payload.get("score_pct"),
-                    "metrics": payload.get("metrics", {}),
+                    "grade": payload.get(FieldName.GRADE),
+                    "score": payload.get(FieldName.SCORE),
+                    "score_pct": payload.get(FieldName.SCORE_PCT),
+                    "metrics": payload.get(FieldName.METRICS, {}),
                     "fills_graded": payload.get("fills_graded"),
-                    "timestamp": payload.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+                    "timestamp": payload.get(FieldName.TIMESTAMP)
+                    or datetime.now(timezone.utc).isoformat(),
                 }
             )
         else:
@@ -157,7 +158,7 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
 
     Memory mode: writes to InMemoryStore event_history.
     """
-    trace_id = proposal.get("reflection_trace_id") or proposal.get("msg_id") or ""
+    trace_id = proposal.get("reflection_trace_id") or proposal.get(FieldName.MSG_ID) or ""
     if not is_db_available():
         get_runtime_store().add_event(
             {

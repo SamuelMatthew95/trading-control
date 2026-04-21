@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
+from api.constants import FieldName
 from api.core.models import TradePerformance
 from api.core.schemas import StandardResponse
 from api.core.writer.safe_writer import SafeWriter
@@ -66,7 +67,7 @@ async def save_trade(
     """Save a new trade using SafeWriter (only write path)."""
     try:
         # Validate input data
-        if not trade_data.get("symbol") or not trade_data.get("trade_type"):
+        if not trade_data.get(FieldName.SYMBOL) or not trade_data.get(FieldName.TRADE_TYPE):
             raise HTTPException(status_code=400, detail="Symbol and trade_type are required")
 
         # Generate unique message ID for exactly-once semantics
@@ -160,7 +161,7 @@ async def get_trading_status() -> dict[str, Any]:
             success=True,
             data={
                 "running": bot_state["running"],
-                "status": bot_state["status"],
+                "status": bot_state[FieldName.STATUS],
                 "last_action": bot_state["last_action"],
                 "uptime": f"{bot_state['uptime_minutes'] // 60}h {bot_state['uptime_minutes'] % 60}m",
                 "active_position": bot_state.get("active_position", "None"),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from api.config import settings
+from api.constants import FieldName
 from api.observability import log_structured
 
 SYSTEM_PROMPT = (
@@ -31,27 +32,27 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
     text = text.strip()
     if not text:
         return {
-            "action": "reject",
-            "trace_id": trace_id,
+            FieldName.ACTION: "reject",
+            FieldName.TRACE_ID: trace_id,
             "fallback": True,
-            "error": "Empty response from LLM",
+            FieldName.ERROR: "Empty response from LLM",
             "latency_ms": 0,
             "cost_usd": cost_usd,
         }
     try:
         parsed = json.loads(text)
         parsed["fallback"] = False
-        parsed["trace_id"] = trace_id
+        parsed[FieldName.TRACE_ID] = trace_id
         parsed.setdefault("latency_ms", 0)
         parsed.setdefault("cost_usd", cost_usd)
         parsed.setdefault("risk_factors", [])
         return parsed
     except json.JSONDecodeError as exc:
         return {
-            "action": "reject",
-            "trace_id": trace_id,
+            FieldName.ACTION: "reject",
+            FieldName.TRACE_ID: trace_id,
             "fallback": True,
-            "error": f"Invalid JSON from LLM: {exc}",
+            FieldName.ERROR: f"Invalid JSON from LLM: {exc}",
             "latency_ms": 0,
             "cost_usd": cost_usd,
         }
@@ -75,8 +76,8 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         max_tokens=300,
         temperature=0.2,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "system", FieldName.CONTENT: SYSTEM_PROMPT},
+            {"role": "user", FieldName.CONTENT: prompt},
         ],
     )
     text = response.choices[0].message.content
@@ -94,7 +95,7 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
         "max_tokens": 300,
         "temperature": 0.2,
         "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", FieldName.CONTENT: prompt}],
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -109,7 +110,11 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
             if resp.status >= 400:
                 raise RuntimeError(f"anthropic_status_{resp.status}")
             body = await resp.json()
-    text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
+    text = "".join(
+        b.get("text", "")
+        for b in body.get(FieldName.CONTENT, [])
+        if b.get(FieldName.TYPE) == "text"
+    )
     tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
         body.get("usage", {}).get("output_tokens", 0)
     )
@@ -126,8 +131,8 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         max_tokens=300,
         temperature=0.2,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "system", FieldName.CONTENT: SYSTEM_PROMPT},
+            {"role": "user", FieldName.CONTENT: prompt},
         ],
     )
     text = response.choices[0].message.content
@@ -158,8 +163,8 @@ async def _call_provider_raw(
             max_tokens=800,
             temperature=0.3,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
+                {"role": "system", FieldName.CONTENT: system_prompt},
+                {"role": "user", FieldName.CONTENT: prompt},
             ],
         )
         text = response.choices[0].message.content or ""
@@ -176,7 +181,7 @@ async def _call_provider_raw(
             "max_tokens": 800,
             "temperature": 0.3,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", FieldName.CONTENT: prompt}],
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -192,7 +197,9 @@ async def _call_provider_raw(
                     raise RuntimeError(f"anthropic_status_{resp.status}")
                 body = await resp.json()
         text = "".join(
-            b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"
+            b.get("text", "")
+            for b in body.get(FieldName.CONTENT, [])
+            if b.get(FieldName.TYPE) == "text"
         )
         tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
             body.get("usage", {}).get("output_tokens", 0)
@@ -208,8 +215,8 @@ async def _call_provider_raw(
             max_tokens=800,
             temperature=0.3,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
+                {"role": "system", FieldName.CONTENT: system_prompt},
+                {"role": "user", FieldName.CONTENT: prompt},
             ],
         )
         text = response.choices[0].message.content or ""

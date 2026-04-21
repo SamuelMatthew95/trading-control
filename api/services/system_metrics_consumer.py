@@ -7,7 +7,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from api.constants import REDIS_KEY_KILL_SWITCH, STREAM_SYSTEM_METRICS
+from api.constants import REDIS_KEY_KILL_SWITCH, STREAM_SYSTEM_METRICS, FieldName
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -43,7 +43,7 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         msg_id = self.extract_msg_id(data)
 
         # Parse timestamp, fallback to UTC now
-        timestamp = self.safe_parse_dt(data.get("timestamp")) or datetime.now(timezone.utc)
+        timestamp = self.safe_parse_dt(data.get(FieldName.TIMESTAMP)) or datetime.now(timezone.utc)
 
         # Map input data to DB columns
         metric_name = data.get("metric_name")

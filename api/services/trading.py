@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from api.constants import FieldName
+
 try:
     from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
 except ImportError:
@@ -38,12 +40,12 @@ class TradingService:
             )
             return {
                 "DECISION": "FLAT",
-                "confidence": 0.0,
+                FieldName.CONFIDENCE: 0.0,
                 "reasoning": "MOCK MODE: Orchestrator not available - analysis disabled",
                 "position_size": 0.0,
                 "risk_assessment": "low",
             }
-        signals = [{"symbol": symbol, "price": price}, *extra_signals]
+        signals = [{FieldName.SYMBOL: symbol, FieldName.PRICE: price}, *extra_signals]
         return self.orchestrator.process_trade_signals(signals)
 
     def run_shadow(
@@ -56,7 +58,7 @@ class TradingService:
                 created_at=datetime.now(timezone.utc),
                 intended_price=price,
                 decision=result.get("DECISION", "FLAT"),
-                confidence=float(result.get("confidence", 0)),
+                confidence=float(result.get(FieldName.CONFIDENCE, 0)),
             )
         )
         return result
@@ -64,7 +66,7 @@ class TradingService:
     def evaluate_shadow(self, symbol: str, observed_price: float) -> dict[str, Any]:
         candidates = [trade for trade in self.virtual_trades if trade.symbol == symbol]
         if not candidates:
-            return {"status": "no_data"}
+            return {FieldName.STATUS: "no_data"}
         trade = candidates[-1]
         slippage_variance = abs(observed_price - trade.intended_price) / max(
             trade.intended_price, 1
@@ -74,8 +76,8 @@ class TradingService:
             observed_price < trade.intended_price and trade.decision == "SHORT"
         )
         return {
-            "status": "evaluated",
-            "symbol": symbol,
+            FieldName.STATUS: "evaluated",
+            FieldName.SYMBOL: symbol,
             "decision": trade.decision,
             "slippage_variance": round(slippage_variance, 6),
             "trajectory_similarity": 1.0 if profitable else 0.0,

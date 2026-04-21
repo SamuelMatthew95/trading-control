@@ -120,10 +120,10 @@ class GradeAgent(MultiStreamAgent):
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_PERFORMANCE:
-            self._pnl_buffer.append(float(data.get("pnl") or 0.0))
+            self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
         elif stream == STREAM_EXECUTIONS:
-            self._confidence_buffer.append(float(data.get("confidence") or 0.5))
+            self._confidence_buffer.append(float(data.get(FieldName.CONFIDENCE) or 0.5))
 
         trigger = max(int(settings.GRADE_EVERY_N_FILLS), 1)
         if self._fills == 0 or self._fills % trigger != 0:
@@ -159,15 +159,15 @@ class GradeAgent(MultiStreamAgent):
         grade = score_to_grade(score)
 
         payload = {
-            "msg_id": str(uuid.uuid4()),
-            "type": "agent_grade",
-            "source": SOURCE_GRADE,
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.TYPE: "agent_grade",
+            FieldName.SOURCE: SOURCE_GRADE,
             "agent": SOURCE_REASONING,
-            "trace_id": trace_id,
+            FieldName.TRACE_ID: trace_id,
             "grade": grade,
-            "score": score,
+            FieldName.SCORE: score,
             "score_pct": round(score * 100, 1),
-            "metrics": {
+            FieldName.METRICS: {
                 "accuracy": round(accuracy, 4),
                 "ic": round(ic, 4),
                 "ic_normalized": round(ic_norm, 4),
@@ -176,14 +176,14 @@ class GradeAgent(MultiStreamAgent):
                 "latency_score": round(latency, 4),
             },
             "fills_graded": self._fills,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         }
 
         await self.bus.publish(STREAM_AGENT_GRADES, payload)
         log_structured("info", "grade_computed", grade=grade, score=score, fills=self._fills, ic=ic)
 
         await write_agent_log(trace_id, LogType.GRADE, payload)
-        await write_grade_to_db(trace_id, payload["score_pct"], payload["metrics"])
+        await write_grade_to_db(trace_id, payload[FieldName.SCORE_PCT], payload[FieldName.METRICS])
         await self._take_grade_action(grade, payload)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
@@ -195,9 +195,9 @@ class GradeAgent(MultiStreamAgent):
             await _write_heartbeat(
                 _redis,
                 self._state_name,
-                f"grade={grade} score={payload['score_pct']}",
+                f"grade={grade} score={payload[FieldName.SCORE_PCT]}",
                 self._fills,
-                extra={"last_grade_score": payload["score_pct"]},
+                extra={"last_grade_score": payload[FieldName.SCORE_PCT]},
             )
         except Exception:
             log_structured("warning", "grade_heartbeat_failed", exc_info=True)
@@ -215,8 +215,8 @@ class GradeAgent(MultiStreamAgent):
             from api.services.agents.db_helpers import upsert_trade_lifecycle
 
             grade_label = (
-                f"Grade {grade}: accuracy={payload['metrics']['accuracy']:.0%} "
-                f"IC={payload['metrics']['ic']:+.3f}"
+                f"Grade {grade}: accuracy={payload[FieldName.METRICS]['accuracy']:.0%} "
+                f"IC={payload[FieldName.METRICS]['ic']:+.3f}"
             )
             async with AsyncSessionFactory() as _sess:
                 row = await _sess.execute(
@@ -234,7 +234,7 @@ class GradeAgent(MultiStreamAgent):
                     side=OrderSide.BUY,
                     grade_trace_id=trace_id,
                     grade=grade,
-                    grade_score=payload["score_pct"],
+                    grade_score=payload[FieldName.SCORE_PCT],
                     grade_label=grade_label,
                     status="graded",
                     graded_at=datetime.now(timezone.utc).isoformat(),
@@ -332,18 +332,18 @@ class GradeAgent(MultiStreamAgent):
             await self.bus.publish(
                 STREAM_NOTIFICATIONS,
                 {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": SOURCE_GRADE,
-                    "type": "notification",
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.SOURCE: SOURCE_GRADE,
+                    FieldName.TYPE: "notification",
                     "severity": severity,
                     "notification_type": "agent_grade",
                     "message": (
-                        f"Agent grade {grade} ({payload['score_pct']}%) — "
-                        f"accuracy={payload['metrics']['accuracy']:.1%} "
-                        f"IC={payload['metrics']['ic']:+.3f}"
+                        f"Agent grade {grade} ({payload[FieldName.SCORE_PCT]}%) — "
+                        f"accuracy={payload[FieldName.METRICS]['accuracy']:.1%} "
+                        f"IC={payload[FieldName.METRICS]['ic']:+.3f}"
                     ),
-                    "payload": payload,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    FieldName.PAYLOAD: payload,
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -358,7 +358,7 @@ class GradeAgent(MultiStreamAgent):
                     "content": {
                         "action": "reduce_signal_weight",
                         "reduction_pct": 30,
-                        "reason": f"Grade {grade}: score {payload['score_pct']}%",
+                        "reason": f"Grade {grade}: score {payload[FieldName.SCORE_PCT]}%",
                         "grade_payload": payload,
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -396,7 +396,7 @@ class GradeAgent(MultiStreamAgent):
                     "proposal_type": ProposalType.AGENT_RETIREMENT,
                     "content": {
                         "action": "retire_immediately",
-                        "reason": f"Grade F: score {payload['score_pct']}%",
+                        "reason": f"Grade F: score {payload[FieldName.SCORE_PCT]}%",
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
@@ -441,8 +441,8 @@ class ICUpdater(MultiStreamAgent):
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         self._fills += 1
-        pnl = float(data.get("pnl") or 0.0)
-        composite_score = await self._fetch_composite_score(data.get("trace_id"))
+        pnl = float(data.get(FieldName.PNL) or 0.0)
+        composite_score = await self._fetch_composite_score(data.get(FieldName.TRACE_ID))
         self._score_pnl_buffer.append((composite_score, pnl))
 
         trigger = max(int(settings.IC_UPDATE_EVERY_N_FILLS), 1)
@@ -590,30 +590,30 @@ class ReflectionAgent(MultiStreamAgent):
             self._fills += 1
             self._recent_fills.append(
                 {
-                    "symbol": data.get("symbol"),
-                    "side": data.get("side"),
-                    "pnl": data.get("pnl"),
-                    "pnl_percent": data.get("pnl_percent"),
-                    "fill_price": data.get("fill_price"),
-                    "filled_at": data.get("filled_at"),
+                    FieldName.SYMBOL: data.get(FieldName.SYMBOL),
+                    FieldName.SIDE: data.get(FieldName.SIDE),
+                    "pnl": data.get(FieldName.PNL),
+                    "pnl_percent": data.get(FieldName.PNL_PERCENT),
+                    "fill_price": data.get(FieldName.FILL_PRICE),
+                    "filled_at": data.get(FieldName.FILLED_AT),
                 }
             )
         elif stream == STREAM_AGENT_GRADES:
             self._recent_grades.append(
                 {
-                    "grade": data.get("grade"),
-                    "score": data.get("score"),
-                    "metrics": data.get("metrics", {}),
-                    "timestamp": data.get("timestamp"),
+                    "grade": data.get(FieldName.GRADE),
+                    FieldName.SCORE: data.get(FieldName.SCORE),
+                    FieldName.METRICS: data.get(FieldName.METRICS, {}),
+                    FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP),
                 }
             )
         elif stream == STREAM_FACTOR_IC_HISTORY:
             self._recent_ic.append(
                 {
-                    "factor": data.get("factor_name"),
+                    "factor": data.get(FieldName.FACTOR_NAME),
                     "ic": data.get("ic_score"),
                     "weight": data.get("weight"),
-                    "timestamp": data.get("timestamp"),
+                    FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP),
                 }
             )
 
@@ -751,9 +751,9 @@ class ReflectionAgent(MultiStreamAgent):
 
     def _build_prompt(self) -> str:
         recent_fills = list(self._recent_fills)[-20:]
-        total_pnl = sum(float(f.get("pnl") or 0) for f in recent_fills)
+        total_pnl = sum(float(f.get(FieldName.PNL) or 0) for f in recent_fills)
         win_rate = (
-            sum(1 for f in recent_fills if float(f.get("pnl") or 0) > 0) / len(recent_fills)
+            sum(1 for f in recent_fills if float(f.get(FieldName.PNL) or 0) > 0) / len(recent_fills)
             if recent_fills
             else 0
         )
@@ -817,7 +817,9 @@ class StrategyProposer(MultiStreamAgent):
         min_confidence = float(settings.HYPOTHESIS_MIN_CONFIDENCE)
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        strong = [h for h in hypotheses if float(h.get("confidence") or 0) >= min_confidence]
+        strong = [
+            h for h in hypotheses if float(h.get(FieldName.CONFIDENCE) or 0) >= min_confidence
+        ]
 
         if not strong:
             log_structured(
@@ -825,17 +827,17 @@ class StrategyProposer(MultiStreamAgent):
                 "strategy_proposer_no_strong_hypotheses",
                 total=len(hypotheses),
                 threshold=min_confidence,
-                reflection_trace_id=data.get("trace_id"),
+                reflection_trace_id=data.get(FieldName.TRACE_ID),
             )
             return
 
         # Agentic planning step: rank strong hypotheses by expected impact before acting
-        strong = await self._plan_and_rank(hypotheses, strong, data.get("trace_id", ""))
+        strong = await self._plan_and_rank(hypotheses, strong, data.get(FieldName.TRACE_ID, ""))
 
         for hypothesis in strong:
             proposal = self._build_proposal(hypothesis, data, now_iso)
 
-            if proposal["proposal_type"] == ProposalType.CODE_CHANGE:
+            if proposal[FieldName.PROPOSAL_TYPE] == ProposalType.CODE_CHANGE:
                 await self.bus.publish(
                     STREAM_GITHUB_PRS,
                     {
@@ -846,7 +848,7 @@ class StrategyProposer(MultiStreamAgent):
                         "body": json.dumps(
                             {
                                 "hypothesis": hypothesis,
-                                "reflection_trace_id": data.get("trace_id"),
+                                "reflection_trace_id": data.get(FieldName.TRACE_ID),
                                 "fills_analyzed": data.get("fills_analyzed"),
                             },
                             default=str,
@@ -866,8 +868,8 @@ class StrategyProposer(MultiStreamAgent):
                     "severity": Severity.INFO,
                     "notification_type": "proposal",
                     "message": (
-                        f"New {proposal['proposal_type']} proposal "
-                        f"(confidence={float(hypothesis.get('confidence') or 0):.0%}): "
+                        f"New {proposal[FieldName.PROPOSAL_TYPE]} proposal "
+                        f"(confidence={float(hypothesis.get(FieldName.CONFIDENCE) or 0):.0%}): "
                         f"{hypothesis.get('description', '')[:100]}"
                     ),
                     "timestamp": now_iso,
@@ -879,7 +881,7 @@ class StrategyProposer(MultiStreamAgent):
             "strategy_proposals_published",
             total_hypotheses=len(hypotheses),
             strong_hypotheses=len(strong),
-            reflection_trace_id=data.get("trace_id"),
+            reflection_trace_id=data.get(FieldName.TRACE_ID),
         )
 
         # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE
@@ -950,16 +952,16 @@ class StrategyProposer(MultiStreamAgent):
     def _build_proposal(
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
     ) -> dict[str, Any]:
-        hyp_type = str(hypothesis.get("type") or "parameter").lower()
+        hyp_type = str(hypothesis.get(FieldName.TYPE) or "parameter").lower()
         description = str(hypothesis.get("description") or "")
-        confidence = float(hypothesis.get("confidence") or 0)
+        confidence = float(hypothesis.get(FieldName.CONFIDENCE) or 0)
 
         base = {
             "msg_id": str(uuid.uuid4()),
             "source": SOURCE_STRATEGY_PROPOSER,
             "type": "proposal",
             "requires_approval": True,
-            "reflection_trace_id": reflection_data.get("trace_id"),
+            "reflection_trace_id": reflection_data.get(FieldName.TRACE_ID),
             "timestamp": now_iso,
             "content": {
                 "description": description,
@@ -969,26 +971,28 @@ class StrategyProposer(MultiStreamAgent):
         }
 
         if hyp_type == HypothesisType.PARAMETER:
-            base["proposal_type"] = ProposalType.PARAMETER_CHANGE
-            base["content"]["implementation"] = "db_update"
-            base["content"]["note"] = "Update config parameter via DB — no deploy required."
+            base[FieldName.PROPOSAL_TYPE] = ProposalType.PARAMETER_CHANGE
+            base[FieldName.CONTENT]["implementation"] = "db_update"
+            base[FieldName.CONTENT]["note"] = "Update config parameter via DB — no deploy required."
         elif hyp_type == HypothesisType.RULE:
-            base["proposal_type"] = ProposalType.CODE_CHANGE
-            base["content"]["implementation"] = "github_pr"
-            base["content"]["note"] = "Rule change requires PR review and deploy."
+            base[FieldName.PROPOSAL_TYPE] = ProposalType.CODE_CHANGE
+            base[FieldName.CONTENT]["implementation"] = "github_pr"
+            base[FieldName.CONTENT]["note"] = "Rule change requires PR review and deploy."
         elif hyp_type == HypothesisType.NEW_AGENT:
             # Propose spawning a challenger agent instance with different config
-            base["proposal_type"] = ProposalType.NEW_AGENT
-            base["requires_approval"] = True
-            base["content"]["implementation"] = "challenger_spawn"
-            base["content"]["challenger_config"] = reflection_data.get("challenger_config", {})
-            base["content"]["note"] = (
+            base[FieldName.PROPOSAL_TYPE] = ProposalType.NEW_AGENT
+            base[FieldName.REQUIRES_APPROVAL] = True
+            base[FieldName.CONTENT]["implementation"] = "challenger_spawn"
+            base[FieldName.CONTENT]["challenger_config"] = reflection_data.get(
+                "challenger_config", {}
+            )
+            base[FieldName.CONTENT]["note"] = (
                 "Spawn a parallel challenger agent with the proposed config changes. "
                 "It runs alongside the current agent; retire it via the dashboard."
             )
         else:
-            base["proposal_type"] = ProposalType.REGIME_ADJUSTMENT
-            base["content"]["regime_context"] = reflection_data.get("regime_edge", {})
+            base[FieldName.PROPOSAL_TYPE] = ProposalType.REGIME_ADJUSTMENT
+            base[FieldName.CONTENT]["regime_context"] = reflection_data.get("regime_edge", {})
 
         return base
 
@@ -1053,10 +1057,10 @@ class NotificationAgent(MultiStreamAgent):
     # ------------------------------------------------------------------
 
     def _msg_execution(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get("symbol") or "?")
-        side = str(data.get("side") or "").upper()
-        qty = float(data.get("qty") or 0)
-        fill_price = float(data.get("fill_price") or data.get("price") or 0)
+        symbol = str(data.get(FieldName.SYMBOL) or "?")
+        side = str(data.get(FieldName.SIDE) or "").upper()
+        qty = float(data.get(FieldName.QTY) or 0)
+        fill_price = float(data.get(FieldName.FILL_PRICE) or data.get(FieldName.PRICE) or 0)
         dollar_value = fill_price * qty
 
         parts = [f"{side} FILLED — {symbol}"]
@@ -1074,16 +1078,16 @@ class NotificationAgent(MultiStreamAgent):
         return " · ".join(parts)
 
     def _msg_trade_performance(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get("symbol") or "?")
-        side = str(data.get("side") or "").upper()
-        exit_price = float(data.get("exit_price") or data.get("fill_price") or 0)
-        entry_price = float(data.get("entry_price") or exit_price)
-        pnl = float(data.get("pnl") or 0)
-        pnl_pct = float(data.get("pnl_percent") or 0)
+        symbol = str(data.get(FieldName.SYMBOL) or "?")
+        side = str(data.get(FieldName.SIDE) or "").upper()
+        exit_price = float(data.get(FieldName.EXIT_PRICE) or data.get(FieldName.FILL_PRICE) or 0)
+        entry_price = float(data.get(FieldName.ENTRY_PRICE) or exit_price)
+        pnl = float(data.get(FieldName.PNL) or 0)
+        pnl_pct = float(data.get(FieldName.PNL_PERCENT) or 0)
 
         if pnl == 0.0:
             # Opening fill — no realized PnL yet
-            qty = float(data.get("qty") or 0)
+            qty = float(data.get(FieldName.QTY) or 0)
             return f"OPENED — {symbol} ({side}) · Price: ${exit_price:,.2f} | Qty: {qty:.4g}"
 
         sign = "+" if pnl >= 0 else ""
@@ -1095,10 +1099,10 @@ class NotificationAgent(MultiStreamAgent):
         )
 
     def _msg_signal(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get("symbol") or "?")
-        sig_type = str(data.get("type") or data.get("signal_type") or "signal")
-        price = float(data.get("price") or data.get("last_price") or 0)
-        score = float(data.get("composite_score") or data.get("score") or 0)
+        symbol = str(data.get(FieldName.SYMBOL) or "?")
+        sig_type = str(data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE) or "signal")
+        price = float(data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE) or 0)
+        score = float(data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.SCORE) or 0)
 
         parts = [f"SIGNAL — {symbol} | {sig_type}"]
         if price > 0:
@@ -1108,16 +1112,16 @@ class NotificationAgent(MultiStreamAgent):
         return " · ".join(parts)
 
     def _msg_risk_alert(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get("symbol") or "?")
-        reason = str(data.get("reason") or data.get("message") or "risk event")
+        symbol = str(data.get(FieldName.SYMBOL) or "?")
+        reason = str(data.get(FieldName.REASON) or data.get(FieldName.MESSAGE) or "risk event")
         return f"RISK ALERT — {symbol} · {reason}"
 
     def _msg_decision(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get("symbol") or "?")
-        action = str(data.get("action") or "?").upper()
-        score = float(data.get("reasoning_score") or 0)
-        edge = str(data.get("primary_edge") or "")
-        rr = float(data.get("rr_ratio") or 0)
+        symbol = str(data.get(FieldName.SYMBOL) or "?")
+        action = str(data.get(FieldName.ACTION) or "?").upper()
+        score = float(data.get(FieldName.REASONING_SCORE) or 0)
+        edge = str(data.get(FieldName.PRIMARY_EDGE) or "")
+        rr = float(data.get(FieldName.RR_RATIO) or 0)
 
         parts = [f"DECISION — {symbol} | {action}"]
         if score:
@@ -1141,12 +1145,12 @@ class NotificationAgent(MultiStreamAgent):
             return self._msg_decision(data)
 
         # Generic fallback for all other streams
-        symbol = data.get("symbol")
-        action = data.get("action") or data.get("side")
-        agent_name = data.get("agent_name") or data.get("agent")
-        grade = data.get("grade")
-        score = data.get("score")
-        reason = data.get("reason")
+        symbol = data.get(FieldName.SYMBOL)
+        action = data.get(FieldName.ACTION) or data.get(FieldName.SIDE)
+        agent_name = data.get(FieldName.AGENT_NAME) or data.get(FieldName.AGENT)
+        grade = data.get(FieldName.GRADE)
+        score = data.get(FieldName.SCORE)
+        reason = data.get(FieldName.REASON)
 
         details: list[str] = []
         if symbol:
@@ -1168,26 +1172,28 @@ class NotificationAgent(MultiStreamAgent):
 
     def _build_notification_type(self, stream: str, data: dict[str, Any]) -> str:
         if stream == STREAM_EXECUTIONS:
-            side = str(data.get("side") or "").lower()
+            side = str(data.get(FieldName.SIDE) or "").lower()
             return (
                 f"execution.{side}"
                 if side in {OrderSide.BUY, OrderSide.SELL}
                 else f"stream:{stream}"
             )
         if stream == STREAM_TRADE_PERFORMANCE:
-            pnl = float(data.get("pnl") or 0.0)
+            pnl = float(data.get(FieldName.PNL) or 0.0)
             if pnl > 0:
                 return "trade.profit"
             if pnl < 0:
                 return "trade.loss"
             return "trade.opened"
         if stream == STREAM_SIGNALS:
-            sig = str(data.get("type") or data.get("signal_type") or "signal").lower()
+            sig = str(
+                data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE) or "signal"
+            ).lower()
             return f"signal.{sig}"
         if stream == STREAM_RISK_ALERTS:
             return "risk.alert"
         if stream == STREAM_DECISIONS:
-            action = str(data.get("action") or "").lower()
+            action = str(data.get(FieldName.ACTION) or "").lower()
             return f"decision.{action}" if action else f"stream:{stream}"
         return f"stream:{stream}"
 
@@ -1205,7 +1211,7 @@ class NotificationAgent(MultiStreamAgent):
         # Track cumulative session PnL from closing fills — runs even when the
         # notification itself is suppressed, so session totals stay accurate.
         if stream == STREAM_TRADE_PERFORMANCE:
-            pnl_val = float(data.get("pnl") or 0.0)
+            pnl_val = float(data.get(FieldName.PNL) or 0.0)
             if pnl_val != 0.0:
                 self._session_pnl += pnl_val
 
@@ -1228,7 +1234,9 @@ class NotificationAgent(MultiStreamAgent):
             await self._heartbeat(stream, data)
             return
 
-        event_type = str(data.get(FieldName.TYPE) or data.get("notification_type") or stream)
+        event_type = str(
+            data.get(FieldName.TYPE) or data.get(FieldName.NOTIFICATION_TYPE) or stream
+        )
         symbol_key = str(data.get(FieldName.SYMBOL) or data.get("asset") or "")
         trace_key = str(data.get(FieldName.TRACE_ID) or data.get(FieldName.MSG_ID) or "")
         dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
@@ -1264,7 +1272,7 @@ class NotificationAgent(MultiStreamAgent):
 
             writer = SafeWriter(AsyncSessionFactory)
             await writer.write_notification(
-                notification["msg_id"], STREAM_NOTIFICATIONS, notification
+                notification[FieldName.MSG_ID], STREAM_NOTIFICATIONS, notification
             )
         except Exception:
             log_structured("warning", "notification_persist_failed", stream=stream, exc_info=True)
@@ -1283,7 +1291,9 @@ class NotificationAgent(MultiStreamAgent):
         consumed-but-suppressed, so the agent looks alive either way.
         """
         if event_type is None:
-            event_type = str(data.get("type") or data.get("notification_type") or stream)
+            event_type = str(
+                data.get(FieldName.TYPE) or data.get(FieldName.NOTIFICATION_TYPE) or stream
+            )
         try:
             await _write_heartbeat(
                 self.redis,
@@ -1297,14 +1307,14 @@ class NotificationAgent(MultiStreamAgent):
     def _classify_severity(self, stream: str, data: dict[str, Any]) -> str:
         if explicit := data.get("severity"):
             return str(explicit)
-        grade = str(data.get("grade") or "")
+        grade = str(data.get(FieldName.GRADE) or "")
         if grade == Grade.F:
             return Severity.CRITICAL
         if grade == Grade.D:
             return Severity.URGENT
         # Negative PnL on a closing fill → warning
         if stream == STREAM_TRADE_PERFORMANCE:
-            pnl = float(data.get("pnl") or 0.0)
+            pnl = float(data.get(FieldName.PNL) or 0.0)
             if pnl < 0:
                 return Severity.WARNING
         return _STREAM_SEVERITY.get(stream, Severity.INFO)
@@ -1370,7 +1380,7 @@ class ChallengerAgent(MultiStreamAgent):
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_PERFORMANCE:
-            self._pnl_buffer.append(float(data.get("pnl") or 0.0))
+            self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
 
         if self._fills > 0 and self._fills % max(int(self._config.get("grade_every", 10)), 1) == 0:
@@ -1408,7 +1418,7 @@ class ChallengerAgent(MultiStreamAgent):
                 "score": win_rate,
                 "score_pct": round(win_rate * 100, 1),
                 "metrics": grade_result,
-                "timestamp": grade_result["timestamp"],
+                "timestamp": grade_result[FieldName.TIMESTAMP],
             },
         )
         log_structured(

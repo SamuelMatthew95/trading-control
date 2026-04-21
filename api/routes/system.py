@@ -18,6 +18,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from api.constants import FieldName
+
 from ..core.config import get_settings
 from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
@@ -105,7 +107,7 @@ async def get_system_status():
                     "lag_seconds": data.get("lag_seconds", 0) or 0,
                     "head_id": data.get("head_id", ""),
                     "last_processed_id": data.get("last_processed_id", ""),
-                    "error": data.get("error"),
+                    "error": data.get(FieldName.ERROR),
                 }
             else:
                 sanitized_lag[stream] = data
@@ -200,7 +202,7 @@ async def stream_agent_logs(
                 trace_col = "trace_id" if "trace_id" in available_columns else "NULL"
                 step_name_col = "step_name" if "step_name" in available_columns else "NULL"
                 step_data_col = "step_data" if "step_data" in available_columns else "NULL"
-                payload_is_json = column_types.get("payload") in {"json", "jsonb"}
+                payload_is_json = column_types.get(FieldName.PAYLOAD) in {"json", "jsonb"}
                 payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
                 payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
                 payload_text = "payload::text" if "payload" in available_columns else "NULL"
@@ -222,7 +224,7 @@ async def stream_agent_logs(
                 params: dict[str, Any] = {"limit": limit}
                 if agent_id:
                     base_sql += " AND " + run_col + " = :agent_id"
-                    params["agent_id"] = agent_id
+                    params[FieldName.AGENT_ID] = agent_id
                 if level:
                     base_sql += " AND LOWER(COALESCE(" + level_col + "::text, '')) = :level"
                     params["level"] = level.lower()

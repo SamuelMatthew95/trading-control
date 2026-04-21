@@ -21,6 +21,7 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     AgentStatus,
+    FieldName,
     OrderSide,
 )
 from api.observability import log_structured
@@ -175,20 +176,20 @@ class WebSocketBroadcaster:
                     raw = await self._redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
                     if raw:
                         data = json.loads(raw)
-                        last_seen = data.get("last_seen", 0)
+                        last_seen = data.get(FieldName.LAST_SEEN, 0)
                         age = now - last_seen
                         status = (
                             AgentStatus.STALE
                             if age > AGENT_STALE_THRESHOLD_SECONDS
-                            else data.get("status", AgentStatus.ACTIVE)
+                            else data.get(FieldName.STATUS, AgentStatus.ACTIVE)
                         )
                         agents.append(
                             {
                                 "name": name,
-                                "status": status,
-                                "event_count": data.get("event_count", 0),
-                                "last_event": data.get("last_event", ""),
-                                "last_seen": last_seen,
+                                FieldName.STATUS: status,
+                                FieldName.EVENT_COUNT: data.get(FieldName.EVENT_COUNT, 0),
+                                FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
+                                FieldName.LAST_SEEN: last_seen,
                                 "seconds_ago": age,
                             }
                         )
@@ -196,10 +197,10 @@ class WebSocketBroadcaster:
                         agents.append(
                             {
                                 "name": name,
-                                "status": AgentStatus.WAITING,
-                                "event_count": 0,
-                                "last_event": "",
-                                "last_seen": 0,
+                                FieldName.STATUS: AgentStatus.WAITING,
+                                FieldName.EVENT_COUNT: 0,
+                                FieldName.LAST_EVENT: "",
+                                FieldName.LAST_SEEN: 0,
                                 "seconds_ago": 0,
                             }
                         )
@@ -213,10 +214,10 @@ class WebSocketBroadcaster:
 
                 await self.broadcast(
                     {
-                        "type": "agent_status_update",
+                        FieldName.TYPE: "agent_status_update",
                         "agents": agents,
-                        "metrics": metrics,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        FieldName.METRICS: metrics,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     }
                 )
             except asyncio.CancelledError:
@@ -239,25 +240,25 @@ class WebSocketBroadcaster:
 
         Returns None for events that should be suppressed (not broadcast to clients).
         """
-        base = {"stream": stream, "msg_id": msg_id}
+        base = {"stream": stream, FieldName.MSG_ID: msg_id}
 
         # --- Executions: only surface actual BUY/SELL fills ------------------
         if stream == STREAM_EXECUTIONS:
-            event_type = str(payload.get("type", "")).lower()
-            side = str(payload.get("side", "")).lower()
+            event_type = str(payload.get(FieldName.TYPE, "")).lower()
+            side = str(payload.get(FieldName.SIDE, "")).lower()
             if event_type == "order_filled" and side in (OrderSide.BUY, OrderSide.SELL):
                 return {
                     **base,
-                    "type": "trade_notification",
-                    "symbol": payload.get("symbol"),
-                    "side": side,
-                    "qty": payload.get("qty"),
-                    "fill_price": payload.get("fill_price"),
-                    "pnl": payload.get("pnl", 0),
-                    "order_id": payload.get("order_id"),
-                    "trace_id": payload.get("trace_id"),
-                    "filled_at": payload.get("filled_at"),
-                    "source": payload.get("source"),
+                    FieldName.TYPE: "trade_notification",
+                    FieldName.SYMBOL: payload.get(FieldName.SYMBOL),
+                    FieldName.SIDE: side,
+                    FieldName.QTY: payload.get(FieldName.QTY),
+                    FieldName.FILL_PRICE: payload.get(FieldName.FILL_PRICE),
+                    FieldName.PNL: payload.get(FieldName.PNL, 0),
+                    FieldName.ORDER_ID: payload.get(FieldName.ORDER_ID),
+                    FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
+                    FieldName.FILLED_AT: payload.get(FieldName.FILLED_AT),
+                    FieldName.SOURCE: payload.get(FieldName.SOURCE),
                 }
             # Other execution event types (e.g. rejected) are suppressed
             return None
@@ -268,23 +269,23 @@ class WebSocketBroadcaster:
 
         # --- Market events: price ticker only (no payload noise) --------------
         if stream == STREAM_MARKET_EVENTS:
-            raw_payload = payload.get("payload", payload)
+            raw_payload = payload.get(FieldName.PAYLOAD, payload)
             if isinstance(raw_payload, str):
                 try:
                     raw_payload = json.loads(raw_payload)
                 except (json.JSONDecodeError, TypeError):
                     raw_payload = payload
-            if isinstance(raw_payload, dict) and raw_payload.get("symbol"):
+            if isinstance(raw_payload, dict) and raw_payload.get(FieldName.SYMBOL):
                 return {
                     **base,
-                    "type": "price_update",
-                    "symbol": raw_payload.get("symbol"),
-                    "price": raw_payload.get("price"),
-                    "change": raw_payload.get("change", 0),
-                    "pct": raw_payload.get("pct", 0),
-                    "ts": raw_payload.get("ts"),
-                    "trace_id": raw_payload.get("trace_id"),
-                    "timestamp": payload.get("timestamp"),
+                    FieldName.TYPE: "price_update",
+                    FieldName.SYMBOL: raw_payload.get(FieldName.SYMBOL),
+                    FieldName.PRICE: raw_payload.get(FieldName.PRICE),
+                    FieldName.CHANGE: raw_payload.get(FieldName.CHANGE, 0),
+                    FieldName.PCT: raw_payload.get(FieldName.PCT, 0),
+                    FieldName.TS: raw_payload.get(FieldName.TS),
+                    FieldName.TRACE_ID: raw_payload.get(FieldName.TRACE_ID),
+                    FieldName.TIMESTAMP: payload.get(FieldName.TIMESTAMP),
                 }
             return None
 
@@ -299,7 +300,7 @@ class WebSocketBroadcaster:
     @classmethod
     def _decode_redis_payload(cls, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, dict):
-            return {"payload": payload}
+            return {FieldName.PAYLOAD: payload}
 
         decoded_payload: dict[str, Any] = {}
         for key, value in payload.items():
@@ -354,9 +355,9 @@ class WebSocketBroadcaster:
         )
 
     async def broadcast(self, data: dict[str, Any]) -> None:
-        msg_id = str(data.get("msg_id", "none"))
-        event_type = str(data.get("event_type", data.get("type", "unknown")))
-        ts = str(data.get("timestamp", datetime.now(timezone.utc).isoformat()))
+        msg_id = str(data.get(FieldName.MSG_ID, "none"))
+        event_type = str(data.get(FieldName.EVENT_TYPE, data.get(FieldName.TYPE, "unknown")))
+        ts = str(data.get(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat()))
 
         disconnected: list[WebSocket] = []
         for websocket in self._connections:

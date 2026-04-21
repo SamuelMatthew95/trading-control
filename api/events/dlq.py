@@ -11,6 +11,7 @@ from api.constants import (
     DLQ_RETRIES_TTL_SECONDS,
     REDIS_KEY_DLQ,
     REDIS_KEY_DLQ_RETRIES,
+    FieldName,
 )
 from api.events.bus import STREAMS, EventBus
 
@@ -56,7 +57,7 @@ class DLQManager:
             for value in values.values():
                 raw = value.decode("utf-8") if isinstance(value, bytes) else value
                 items.append(json.loads(raw))
-        items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        items.sort(key=lambda x: x.get(FieldName.TIMESTAMP, ""), reverse=True)
         return items[:limit]
 
     async def stats(self) -> dict[str, Any]:
@@ -75,7 +76,7 @@ class DLQManager:
                 event = json.loads(raw)
                 retries = int(event.get("retries", 0))
                 retry_buckets[str(retries)] = retry_buckets.get(str(retries), 0) + 1
-                last_error = event.get("error") or last_error
+                last_error = event.get(FieldName.ERROR) or last_error
 
         return {
             "total": total,
@@ -92,7 +93,7 @@ class DLQManager:
                 continue
             raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
             record = json.loads(raw)
-            await self.bus.publish(record["stream"], record["payload"])
+            await self.bus.publish(record["stream"], record[FieldName.PAYLOAD])
             await self.clear(event_id)
             return True
         return False

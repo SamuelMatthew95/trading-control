@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 from sqlalchemy import text
 
+from api.constants import FieldName
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import close_redis, get_redis
@@ -52,7 +53,7 @@ async def health_check():
     uptime_seconds = (now - PROCESS_START_TIME).total_seconds()
     if uptime_seconds < 60:
         return {
-            "status": "starting",
+            FieldName.STATUS: "starting",
             "message": "Service is warming up",
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat(),
@@ -64,14 +65,14 @@ async def health_check():
 
     if redis_ok and db_ok:
         return {
-            "status": "healthy",
+            FieldName.STATUS: "healthy",
             "redis": "ok",
             "postgres": "ok",
             "uptime_seconds": uptime_seconds,
             "check_time": now.isoformat(),
         }
     return {
-        "status": "degraded",
+        FieldName.STATUS: "degraded",
         "message": "Some dependencies are unavailable",
         "redis": "ok" if redis_ok else "unavailable",
         "postgres": "ok" if db_ok else "unavailable",

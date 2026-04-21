@@ -14,6 +14,7 @@ from api.constants import (
     REDIS_KEY_PAPER_CASH,
     REDIS_KEY_PAPER_ORDER,
     REDIS_KEY_PAPER_POSITION,
+    FieldName,
     OrderSide,
     OrderStatus,
     PositionSide,
@@ -44,13 +45,13 @@ class PaperBroker:
             cash += notional
         await self.redis.set(REDIS_KEY_PAPER_CASH, cash)
         current_position = await self.get_position(symbol)
-        current_qty = float(current_position.get("qty", 0.0))
+        current_qty = float(current_position.get(FieldName.QTY, 0.0))
         new_qty = current_qty + (qty * direction)
         position_payload = {
-            "symbol": symbol,
-            "side": PositionSide.LONG if new_qty >= 0 else PositionSide.SHORT,
-            "qty": new_qty,
-            "entry_price": fill_price,
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: PositionSide.LONG if new_qty >= 0 else PositionSide.SHORT,
+            FieldName.QTY: new_qty,
+            FieldName.ENTRY_PRICE: fill_price,
             "current_price": fill_price,
         }
         await self.redis.set(
@@ -59,11 +60,11 @@ class PaperBroker:
         broker_order_id = str(uuid.uuid4())
         order_payload = {
             "broker_order_id": broker_order_id,
-            "symbol": symbol,
-            "side": normalized_side,
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: normalized_side,
             "filled_qty": qty,
-            "fill_price": fill_price,
-            "status": OrderStatus.FILLED,
+            FieldName.FILL_PRICE: fill_price,
+            FieldName.STATUS: OrderStatus.FILLED,
         }
         await self.redis.set(
             REDIS_KEY_PAPER_ORDER.format(broker_order_id=broker_order_id),
@@ -75,10 +76,10 @@ class PaperBroker:
         raw = await self.redis.get(REDIS_KEY_PAPER_POSITION.format(symbol=symbol))
         if not raw:
             return {
-                "symbol": symbol,
-                "side": PositionSide.FLAT,
-                "qty": 0.0,
-                "entry_price": 0.0,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: PositionSide.FLAT,
+                FieldName.QTY: 0.0,
+                FieldName.ENTRY_PRICE: 0.0,
                 "current_price": 0.0,
             }
         return json.loads(raw)

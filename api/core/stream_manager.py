@@ -13,7 +13,7 @@ from typing import Any
 
 import redis.asyncio as redis
 
-from api.constants import STREAM_DLQ, STREAM_ORDERS
+from api.constants import STREAM_DLQ, STREAM_ORDERS, FieldName
 from api.observability import log_structured
 
 from .config import get_settings
@@ -116,7 +116,7 @@ class StreamManager:
                         {
                             "stream": stream_name,
                             "message_id": message_id,
-                            "data": fields,
+                            FieldName.DATA: fields,
                         }
                     )
 
@@ -155,9 +155,9 @@ class StreamManager:
         """Process a single message with atomic guarantees."""
         stream = message["stream"]
         message_id = message["message_id"]
-        data = message["data"]
-        msg_id = data.get("msg_id", message_id)
-        trace_id = data.get("trace_id", message_id)
+        data = message[FieldName.DATA]
+        msg_id = data.get(FieldName.MSG_ID, message_id)
+        trace_id = data.get(FieldName.TRACE_ID, message_id)
 
         try:
             # Get handler

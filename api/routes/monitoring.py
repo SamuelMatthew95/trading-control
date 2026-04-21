@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from api.constants import FieldName
 from api.observability import log_structured
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ async def get_performance_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         performance_metrics = {}
-        return {"success": True, "performance_metrics": performance_metrics}
+        return {"success": True, FieldName.PERFORMANCE_METRICS: performance_metrics}
     except Exception as e:
         log_structured("error", "performance metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -89,18 +90,18 @@ async def get_monitoring_summary() -> dict[str, Any]:
     """Get monitoring summary"""
     try:
         # Mock implementation for now
-        health_score = {"status": "unknown", "score": 0}
+        health_score = {FieldName.STATUS: "unknown", FieldName.SCORE: 0}
         alerts = []
-        metrics = {"performance": {}, "system": {}, "agents": {}, "data": {}}
+        metrics = {"performance": {}, "system": {}, "agents": {}, FieldName.DATA: {}}
         summary = {
-            "overall_status": health_score.get("status", "unknown"),
-            "health_score": health_score.get("score", 0),
+            "overall_status": health_score.get(FieldName.STATUS, "unknown"),
+            "health_score": health_score.get(FieldName.SCORE, 0),
             "active_alerts": len(alerts),
             "critical_alerts": len([a for a in alerts if a.get("severity") == "critical"]),
             "system_load": metrics.get("performance", {}).get("system_load", 0),
             "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
             "agents_active": metrics.get("agents", {}).get("agents_active", 0),
-            "data_freshness_ms": metrics.get("data", {}).get("data_freshness_ms", 0),
+            "data_freshness_ms": metrics.get(FieldName.DATA, {}).get("data_freshness_ms", 0),
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
         return {"success": True, "summary": summary}
@@ -114,10 +115,10 @@ async def monitoring_health_check() -> dict[str, Any]:
     """Simple health check for monitoring system"""
     try:
         return {
-            "status": "healthy",
+            FieldName.STATUS: "healthy",
             "monitoring_active": True,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         log_structured("error", "monitoring health check failed", exc_info=True)
-        return {"status": "unhealthy", "monitoring_active": False, "error": str(e)}
+        return {FieldName.STATUS: "unhealthy", "monitoring_active": False, FieldName.ERROR: str(e)}

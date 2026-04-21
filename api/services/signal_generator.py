@@ -354,7 +354,7 @@ class SignalGenerator(BaseStreamConsumer):
                         {
                             "entity_id": trace_id,
                             "data": json.dumps(signal_payload),
-                            "idem_key": f"signal-{signal_payload['symbol']}-{trace_id}",
+                            "idem_key": f"signal-{signal_payload[FieldName.SYMBOL]}-{trace_id}",
                             "schema_version": DB_SCHEMA_VERSION,
                             "source": SOURCE_SIGNAL,
                         },
@@ -375,8 +375,8 @@ class SignalGenerator(BaseStreamConsumer):
                             "score": score,
                             "metrics": json.dumps(
                                 {
-                                    "signal_type": signal_payload["type"],
-                                    "symbol": signal_payload["symbol"],
+                                    "signal_type": signal_payload[FieldName.TYPE],
+                                    "symbol": signal_payload[FieldName.SYMBOL],
                                 }
                             ),
                             "source": SOURCE_SIGNAL,

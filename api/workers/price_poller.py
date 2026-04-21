@@ -35,6 +35,7 @@ from api.constants import (
     REDIS_PUBSUB_PRICE_UPDATES,
     STREAM_MARKET_EVENTS,
     WORKER_HEARTBEAT_TTL_SECONDS,
+    FieldName,
 )
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
@@ -119,16 +120,16 @@ async def build_symbol_payload(redis_client, symbol: str, current_price: float) 
     """Compute change/pct from cached previous price, return full payload."""
     prev_raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
     prev_data = json.loads(prev_raw) if prev_raw else None
-    prev_price = float(prev_data["price"]) if prev_data else None
+    prev_price = float(prev_data[FieldName.PRICE]) if prev_data else None
     change = round(current_price - prev_price, 4) if prev_price else 0.0
     pct = round((change / prev_price) * 100, 4) if prev_price else 0.0
     return {
-        "symbol": symbol,
-        "price": current_price,
+        FieldName.SYMBOL: symbol,
+        FieldName.PRICE: current_price,
         "change": change,
-        "pct": pct,
-        "ts": int(time.time()),
-        "trace_id": str(uuid.uuid4()),
+        FieldName.PCT: pct,
+        FieldName.TS: int(time.time()),
+        FieldName.TRACE_ID: str(uuid.uuid4()),
     }
 
 
@@ -136,18 +137,33 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
     """Write all symbol payloads to Redis cache, stream, and pub/sub."""
     pipe = redis_client.pipeline()
     for p in payloads:
-        symbol = p["symbol"]
+        symbol = p[FieldName.SYMBOL]
         cache_val = json.dumps(
-            {"price": p["price"], "change": p["change"], "pct": p["pct"], "ts": p["ts"]}
+            {
+                FieldName.PRICE: p[FieldName.PRICE],
+                "change": p[FieldName.CHANGE],
+                FieldName.PCT: p[FieldName.PCT],
+                FieldName.TS: p[FieldName.TS],
+            }
         )
         pipe.set(REDIS_KEY_PRICES.format(symbol=symbol), cache_val, ex=REDIS_PRICES_TTL_SECONDS)
         pipe.xadd(
             STREAM_MARKET_EVENTS,
             {
-                "msg_id": str(uuid.uuid4()),
-                "schema_version": "v3",
-                "payload": json.dumps(
-                    {k: p[k] for k in ("symbol", "price", "change", "pct", "ts", "trace_id")}
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SCHEMA_VERSION: "v3",
+                FieldName.PAYLOAD: json.dumps(
+                    {
+                        k: p[k]
+                        for k in (
+                            FieldName.SYMBOL,
+                            FieldName.PRICE,
+                            "change",
+                            FieldName.PCT,
+                            FieldName.TS,
+                            FieldName.TRACE_ID,
+                        )
+                    }
                 ),
             },
         )
@@ -155,11 +171,11 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
             REDIS_PUBSUB_PRICE_UPDATES,
             json.dumps(
                 {
-                    "symbol": symbol,
-                    "price": p["price"],
-                    "change": p["change"],
-                    "pct": p["pct"],
-                    "ts": p["ts"],
+                    FieldName.SYMBOL: symbol,
+                    FieldName.PRICE: p[FieldName.PRICE],
+                    "change": p[FieldName.CHANGE],
+                    FieldName.PCT: p[FieldName.PCT],
+                    FieldName.TS: p[FieldName.TS],
                 }
             ),
         )
@@ -169,19 +185,19 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
 
 async def flush_to_db(payloads: list[dict]) -> None:
     """Persist symbol prices: memory store always; Postgres when DB is available."""
-    symbols = [p["symbol"] for p in payloads]
+    symbols = [p[FieldName.SYMBOL] for p in payloads]
 
     # Always write to memory store so dashboard has current prices
     store = get_runtime_store()
     for p in payloads:
         store.add_event(
             {
-                "type": "price_update",
-                "symbol": p["symbol"],
-                "price": p["price"],
-                "change": p["change"],
-                "pct": p["pct"],
-                "ts": p["ts"],
+                FieldName.TYPE: "price_update",
+                FieldName.SYMBOL: p[FieldName.SYMBOL],
+                FieldName.PRICE: p[FieldName.PRICE],
+                "change": p[FieldName.CHANGE],
+                FieldName.PCT: p[FieldName.PCT],
+                FieldName.TS: p[FieldName.TS],
             }
         )
 
@@ -205,10 +221,10 @@ async def flush_to_db(payloads: list[dict]) -> None:
                                 updated_at  = NOW()
                         """),
                         {
-                            "symbol": p["symbol"],
-                            "price": p["price"],
-                            "change_amt": p["change"],
-                            "change_pct": p["pct"],
+                            "symbol": p[FieldName.SYMBOL],
+                            "price": p[FieldName.PRICE],
+                            "change_amt": p[FieldName.CHANGE],
+                            "change_pct": p[FieldName.PCT],
                         },
                     )
                     await session.execute(
@@ -220,8 +236,13 @@ async def flush_to_db(payloads: list[dict]) -> None:
                                     :tags, 'v3', 'price_poller', NOW())
                         """),
                         {
-                            "price": p["price"],
-                            "tags": json.dumps({"symbol": p["symbol"], "ts": p["ts"]}),
+                            "price": p[FieldName.PRICE],
+                            "tags": json.dumps(
+                                {
+                                    FieldName.SYMBOL: p[FieldName.SYMBOL],
+                                    FieldName.TS: p[FieldName.TS],
+                                }
+                            ),
                         },
                     )
     except Exception:

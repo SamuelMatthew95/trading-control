@@ -10,6 +10,7 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_LEARNING_EVENTS,
     STREAM_RISK_ALERTS,
+    FieldName,
 )
 from api.core.writer.safe_writer import SafeWriter
 from api.database import AsyncSessionFactory
@@ -49,9 +50,9 @@ class SimpleConsumer(BaseStreamConsumer):
             "message_processed",
             extra={
                 "stream": self.stream,
-                "msg_id": msg_id,
+                FieldName.MSG_ID: msg_id,
                 "consumer": self.consumer,
-                "payload": data,  # Log actual payload
+                FieldName.PAYLOAD: data,
             },
         )
 
@@ -83,7 +84,7 @@ class ExecutionsConsumer(SimpleConsumer):
                     "execution_processed",
                     stream=self.stream,
                     msg_id=msg_id,
-                    order_id=data.get("order_id"),
+                    order_id=data.get(FieldName.ORDER_ID),
                 )
             else:
                 log_structured(
@@ -131,7 +132,7 @@ class RiskAlertsConsumer(SimpleConsumer):
                     "risk_alert_processed",
                     stream=self.stream,
                     msg_id=msg_id,
-                    alert_type=data.get("alert_type"),
+                    alert_type=data.get(FieldName.ALERT_TYPE),
                 )
             else:
                 log_structured(
@@ -179,7 +180,7 @@ class LearningEventsConsumer(SimpleConsumer):
                     "learning_event_processed",
                     stream=self.stream,
                     msg_id=msg_id,
-                    content_type=data.get("content_type"),
+                    content_type=data.get(FieldName.CONTENT_TYPE),
                 )
             else:
                 log_structured(
@@ -227,7 +228,7 @@ class AgentLogsConsumer(SimpleConsumer):
                     "agent_log_processed",
                     stream=self.stream,
                     msg_id=msg_id,
-                    agent_id=data.get("agent_id"),
+                    agent_id=data.get(FieldName.AGENT_ID),
                 )
             else:
                 log_structured(

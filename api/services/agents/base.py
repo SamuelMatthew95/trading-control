@@ -6,6 +6,7 @@ import asyncio
 from contextlib import suppress
 from typing import Any
 
+from api.constants import FieldName
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -147,7 +148,8 @@ class MultiStreamAgent:
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
                         if self.agent_state and self._state_name:
                             self.agent_state.record_event(
-                                self._state_name, task=f"{stream}:{data.get('type', 'event')}"
+                                self._state_name,
+                                task=f"{stream}:{data.get(FieldName.TYPE, 'event')}",
                             )
                         # Best-effort event counter on instance row
                         if self._instance_id:

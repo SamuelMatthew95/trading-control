@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 
+from api.constants import FieldName
+
 router = APIRouter(tags=["dlq"])
 
 
@@ -29,7 +31,7 @@ async def replay_dlq_event(event_id: str, request: Request):
     success = await dlq.replay(event_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found in DLQ")
-    return {"replayed": True, "event_id": event_id}
+    return {"replayed": True, FieldName.EVENT_ID: event_id}
 
 
 @router.delete("/dlq/{event_id}")
@@ -37,7 +39,7 @@ async def clear_dlq_event(event_id: str, request: Request):
     """Remove a single event from the DLQ."""
     dlq = _get_dlq(request)
     await dlq.clear(event_id)
-    return {"cleared": True, "event_id": event_id}
+    return {"cleared": True, FieldName.EVENT_ID: event_id}
 
 
 @router.post("/dlq/replay-all")
@@ -48,11 +50,11 @@ async def replay_all_dlq(request: Request):
     replayed = []
     failed = []
     for item in items:
-        success = await dlq.replay(item["event_id"])
+        success = await dlq.replay(item[FieldName.EVENT_ID])
         if success:
-            replayed.append(item["event_id"])
+            replayed.append(item[FieldName.EVENT_ID])
         else:
-            failed.append(item["event_id"])
+            failed.append(item[FieldName.EVENT_ID])
     return {"replayed": replayed, "failed": failed, "total": len(items)}
 
 
@@ -62,5 +64,5 @@ async def clear_all_dlq(request: Request):
     dlq = _get_dlq(request)
     items = await dlq.get_all()
     for item in items:
-        await dlq.clear(item["event_id"])
+        await dlq.clear(item[FieldName.EVENT_ID])
     return {"cleared": len(items)}

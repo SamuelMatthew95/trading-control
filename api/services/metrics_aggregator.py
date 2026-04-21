@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import LogType, OrderSide, OrderStatus, PositionSide
+from ..constants import FieldName, LogType, OrderSide, OrderStatus, PositionSide
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 
@@ -87,7 +87,7 @@ class MetricsAggregator:
             # Check each stream health
             for stream, metrics in lag_metrics.items():
                 lag_ms = metrics["lag_ms"]
-                timestamp_str = metrics["timestamp"]
+                timestamp_str = metrics[FieldName.TIMESTAMP]
 
                 # Parse timestamp to check staleness
                 is_stale = False
@@ -451,7 +451,7 @@ class MetricsAggregator:
 
             # Live DB stores payload as TEXT (JSON string), not native JSONB.
             # Treat text as parseable JSON too so message extraction works.
-            payload_col_type = column_types.get("payload", "")
+            payload_col_type = column_types.get(FieldName.PAYLOAD, "")
             payload_exists = "payload" in available_columns
             payload_is_native_json = payload_col_type in {"json", "jsonb"}
             # For text columns we still cast to jsonb for field extraction;
@@ -563,14 +563,16 @@ class MetricsAggregator:
                         p = {}
                     proposals.append(
                         {
-                            "id": _safe_str(row[0]) or _safe_str(p.get("msg_id")),
-                            "proposal_type": _safe_str(p.get("proposal_type"))
+                            "id": _safe_str(row[0]) or _safe_str(p.get(FieldName.MSG_ID)),
+                            "proposal_type": _safe_str(p.get(FieldName.PROPOSAL_TYPE))
                             or "parameter_change",
-                            "content": _safe_str(p.get("content") or p.get("description") or ""),
-                            "requires_approval": bool(p.get("requires_approval", True)),
-                            "confidence": _safe_float(p.get("confidence")) or None,
+                            "content": _safe_str(
+                                p.get(FieldName.CONTENT) or p.get("description") or ""
+                            ),
+                            "requires_approval": bool(p.get(FieldName.REQUIRES_APPROVAL, True)),
+                            "confidence": _safe_float(p.get(FieldName.CONFIDENCE)) or None,
                             "reflection_trace_id": _safe_str(p.get("reflection_trace_id")),
-                            "status": _safe_str(p.get("status")) or OrderStatus.PENDING,
+                            "status": _safe_str(p.get(FieldName.STATUS)) or OrderStatus.PENDING,
                             "timestamp": row[2].isoformat() if row[2] else None,
                         }
                     )
@@ -686,24 +688,28 @@ class MetricsAggregator:
         realized_pnl = 0.0
         winning = 0
         for row in closed_rows:
-            pnl = float(row["pnl"] or 0)
+            pnl = float(row[FieldName.PNL] or 0)
             realized_pnl += pnl
             if pnl > 0:
                 winning += 1
             closed_trades.append(
                 {
-                    "symbol": row["symbol"],
-                    "side": row["side"],
-                    "qty": float(row["qty"] or 0),
-                    "entry_price": float(row["entry_price"] or 0),
-                    "exit_price": float(row["exit_price"] or 0),
+                    FieldName.SYMBOL: row[FieldName.SYMBOL],
+                    FieldName.SIDE: row[FieldName.SIDE],
+                    FieldName.QTY: float(row[FieldName.QTY] or 0),
+                    "entry_price": float(row[FieldName.ENTRY_PRICE] or 0),
+                    "exit_price": float(row[FieldName.EXIT_PRICE] or 0),
                     "pnl": round(pnl, 8),
-                    "pnl_percent": round(float(row["pnl_percent"] or 0), 4),
-                    "grade": row.get("grade"),
-                    "status": row.get("status"),
-                    "filled_at": row["filled_at"].isoformat() if row["filled_at"] else None,
-                    "order_id": str(row["order_id"]) if row.get("order_id") else None,
-                    "trace_id": row.get("execution_trace_id"),
+                    "pnl_percent": round(float(row[FieldName.PNL_PERCENT] or 0), 4),
+                    "grade": row.get(FieldName.GRADE),
+                    FieldName.STATUS: row.get(FieldName.STATUS),
+                    "filled_at": row[FieldName.FILLED_AT].isoformat()
+                    if row[FieldName.FILLED_AT]
+                    else None,
+                    "order_id": str(row[FieldName.ORDER_ID])
+                    if row.get(FieldName.ORDER_ID)
+                    else None,
+                    FieldName.TRACE_ID: row.get("execution_trace_id"),
                 }
             )
 
@@ -714,10 +720,10 @@ class MetricsAggregator:
         open_positions = []
         unrealized_pnl = 0.0
         for row in open_rows:
-            symbol = str(row["symbol"])
-            avg_cost = float(row["avg_cost"] or 0)
-            qty = float(row["qty"] or 0)
-            side = str(row["side"]).lower()
+            symbol = str(row[FieldName.SYMBOL])
+            avg_cost = float(row[FieldName.AVG_COST] or 0)
+            qty = float(row[FieldName.QTY] or 0)
+            side = str(row[FieldName.SIDE]).lower()
 
             # Try enriching with live price from Redis
             current_price = avg_cost  # fallback
@@ -729,7 +735,9 @@ class MetricsAggregator:
                     if raw:
                         price_data = _json.loads(raw)
                         current_price = float(
-                            price_data.get("price") or price_data.get("last_price") or avg_cost
+                            price_data.get(FieldName.PRICE)
+                            or price_data.get(FieldName.LAST_PRICE)
+                            or avg_cost
                         )
                 except Exception:
                     pass
@@ -748,10 +756,10 @@ class MetricsAggregator:
             unrealized_pnl += pos_pnl
             open_positions.append(
                 {
-                    "symbol": symbol,
-                    "side": side,
-                    "qty": qty,
-                    "avg_cost": avg_cost,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.AVG_COST: avg_cost,
                     "current_price": round(current_price, 8),
                     "unrealized_pnl": round(pos_pnl, 8),
                     "unrealized_pnl_pct": round(pnl_pct * 100, 4),

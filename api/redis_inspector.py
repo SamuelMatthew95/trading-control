@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.config import settings
-from api.constants import STREAM_MARKET_TICKS
+from api.constants import STREAM_MARKET_TICKS, FieldName
 from api.events.bus import STREAMS
 from api.observability import log_structured
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 class TestEventRequest(BaseModel):
     stream: str = STREAM_MARKET_TICKS
-    payload: dict[str, Any] = {"message": "hello"}
+    payload: dict[str, Any] = {FieldName.MESSAGE: "hello"}
 
 
 def _mask_redis_url(url: str) -> str:
@@ -40,10 +40,10 @@ async def debug_redis(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Redis unavailable")
     pong = await redis_client.ping()
     return {
-        "status": "ok" if pong else "error",
+        FieldName.STATUS: "ok" if pong else "error",
         "ping": bool(pong),
         "masked_url": _mask_redis_url(settings.REDIS_URL or ""),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         "last_error": getattr(
             getattr(request.app.state, "event_pipeline", None), "_last_error", None
         ),
@@ -82,7 +82,9 @@ async def debug_streams(
             for msg_id, fields in messages:
                 parsed.append(
                     {
-                        "msg_id": (msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)),
+                        FieldName.MSG_ID: (
+                            msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)
+                        ),
                         "fields": {
                             (k.decode() if isinstance(k, bytes) else str(k)): (
                                 v.decode() if isinstance(v, bytes) else v
@@ -94,7 +96,7 @@ async def debug_streams(
             data[stream] = parsed
         except Exception as exc:  # noqa: BLE001
             log_structured("error", "debug_stream_read_failed", stream=stream, exc_info=True)
-            data[stream] = [{"error": str(exc)}]
+            data[stream] = [{FieldName.ERROR: str(exc)}]
 
     return {
         "streams": data,
@@ -115,7 +117,7 @@ async def debug_ws(request: Request) -> dict[str, Any]:
         "messages_sent": broadcaster.messages_sent,
         "last_error": broadcaster.last_error,
         "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -162,17 +164,17 @@ async def publish_test_event(request: Request, payload: TestEventRequest) -> dic
 
     msg_id = str(uuid.uuid4())
     event = {
-        "type": "test_event",
-        "msg_id": msg_id,
-        "payload": payload.payload,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        FieldName.TYPE: "test_event",
+        FieldName.MSG_ID: msg_id,
+        FieldName.PAYLOAD: payload.payload,
+        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
     }
     redis_id = await bus.publish(payload.stream, event)
 
     return {
-        "status": "published",
+        FieldName.STATUS: "published",
         "stream": payload.stream,
-        "msg_id": msg_id,
+        FieldName.MSG_ID: msg_id,
         "redis_id": redis_id,
         "event": event,
     }
