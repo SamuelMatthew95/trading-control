@@ -52,6 +52,7 @@ from api.constants import (
     STREAM_SIGNALS,
     STREAM_TRADE_PERFORMANCE,
     TAKE_PROFIT_PCT,
+    FieldName,
     Grade,
     HypothesisType,
     LogType,
@@ -1214,7 +1215,7 @@ class NotificationAgent(MultiStreamAgent):
             return
 
         # Require a valid buy/sell side on the fill before surfacing it.
-        side_raw = str(data.get("side") or data.get("action") or "").strip().lower()
+        side_raw = str(data.get(FieldName.SIDE) or data.get(FieldName.ACTION) or "").strip().lower()
         try:
             OrderSide(side_raw)
         except ValueError:
@@ -1227,9 +1228,9 @@ class NotificationAgent(MultiStreamAgent):
             await self._heartbeat(stream, data)
             return
 
-        event_type = str(data.get("type") or data.get("notification_type") or stream)
-        symbol_key = str(data.get("symbol") or data.get("asset") or "")
-        trace_key = str(data.get("trace_id") or data.get("msg_id") or "")
+        event_type = str(data.get(FieldName.TYPE) or data.get("notification_type") or stream)
+        symbol_key = str(data.get(FieldName.SYMBOL) or data.get("asset") or "")
+        trace_key = str(data.get(FieldName.TRACE_ID) or data.get(FieldName.MSG_ID) or "")
         dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
             stream=stream,
             event_type=event_type,
@@ -1244,7 +1245,7 @@ class NotificationAgent(MultiStreamAgent):
 
         now_iso = datetime.now(timezone.utc).isoformat()
         severity = self._classify_severity(stream, data)
-        msg_id = str(data.get("msg_id") or redis_id)
+        msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
 
         notification = {
             "msg_id": str(uuid.uuid4()),

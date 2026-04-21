@@ -96,6 +96,29 @@ tests/agents/test_signal_generator_schema_fix.py — regression for column names
 - ❌ Missing imports for types → Always import what you use
 - ❌ Hardcoded Redis keys anywhere → Use constants from `api/constants.py`
 - ❌ Hardcoded TTL values (`ex=30`, `ex=90000`) → Use named constants
+- ❌ String-literal dict keys for event payloads (`data.get("side")`, `pos["symbol"]`) → Use `FieldName` enum from `api/constants.py`
+
+## Event Payload Field Access (CRITICAL — no raw string keys)
+All event/DB row dict access must go through the `FieldName` StrEnum in `api/constants.py`.
+Raw string keys silently break when a payload field is renamed, and drift between
+producers and consumers causes invisible field-name bugs the type checker can't catch.
+
+```python
+from api.constants import FieldName
+
+# ❌ WRONG — string literals
+side = data.get("side") or data.get("action")
+symbol = pos["symbol"]
+trace = event.get("trace_id")
+
+# ✅ RIGHT — FieldName enum (StrEnum, so it works as a dict key directly)
+side = data.get(FieldName.SIDE) or data.get(FieldName.ACTION)
+symbol = pos[FieldName.SYMBOL]
+trace = event.get(FieldName.TRACE_ID)
+```
+
+Adding a new field? Add it to `class FieldName(StrEnum)` in `api/constants.py` first,
+then reference `FieldName.YOUR_FIELD` everywhere you read/write the payload.
 
 ## Redis Key Constants (All Redis Keys Live in api/constants.py)
 ```python
