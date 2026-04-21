@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.constants import SOURCE_REFLECTION, OrderStatus, PositionSide
+from api.constants import SOURCE_REFLECTION, FieldName, OrderStatus, PositionSide
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
 
@@ -44,12 +44,12 @@ class SafeWriter:
     def _validate_schema_v3(self, data: dict[str, Any], model_name: str) -> None:
         """Strict V3 schema validation - centralized enforcement."""
         # All models must have schema_version
-        if "schema_version" not in data:
+        if FieldName.SCHEMA_VERSION not in data:
             raise ValueError(f"{model_name}: Missing required field 'schema_version'")
 
-        if data["schema_version"] != DB_SCHEMA_VERSION:
+        if data[FieldName.SCHEMA_VERSION] != DB_SCHEMA_VERSION:
             raise ValueError(
-                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected '{DB_SCHEMA_VERSION}'"
+                f"{model_name}: Invalid schema version '{data[FieldName.SCHEMA_VERSION]}'. Expected '{DB_SCHEMA_VERSION}'"
             )
 
         # Source field validation for models that have it
@@ -61,23 +61,23 @@ class SafeWriter:
             "SystemMetrics",
             "TradePerformance",
         ]:
-            if "source" not in data or not data["source"]:
+            if FieldName.SOURCE not in data or not data[FieldName.SOURCE]:
                 raise ValueError(f"{model_name}: Source field is required and cannot be empty")
 
         # Trace ID validation for v3 (optional for notifications)
         if model_name != "Notification":
-            if "trace_id" not in data or not data["trace_id"]:
+            if FieldName.TRACE_ID not in data or not data[FieldName.TRACE_ID]:
                 raise ValueError(f"{model_name}: trace_id field is required for v3 events")
 
     def _validate_schema_v2(self, data: dict[str, Any], model_name: str) -> None:
         """V2 schema validation for backward compatibility."""
         # All models must have schema_version
-        if "schema_version" not in data:
+        if FieldName.SCHEMA_VERSION not in data:
             raise ValueError(f"{model_name}: Missing required field 'schema_version'")
 
-        if data["schema_version"] != "v2":
+        if data[FieldName.SCHEMA_VERSION] != "v2":
             raise ValueError(
-                f"{model_name}: Invalid schema version '{data['schema_version']}'. Expected 'v2'"
+                f"{model_name}: Invalid schema version '{data[FieldName.SCHEMA_VERSION]}'. Expected 'v2'"
             )
 
     def _log_write_operation(self, operation: str, model_name: str, entity_id: str) -> None:
@@ -109,7 +109,7 @@ class SafeWriter:
             "write_trade_performance",
         ]
         if operation in financial_operations:
-            if "idempotency_key" not in data or not data["idempotency_key"]:
+            if FieldName.IDEMPOTENCY_KEY not in data or not data[FieldName.IDEMPOTENCY_KEY]:
                 raise ValueError(f"idempotency_key is required for {operation}")
 
     def safe_parse_dt(self, dt_str: str | None) -> datetime | None:
@@ -154,7 +154,7 @@ class SafeWriter:
                 )
 
                 # Require idempotency_key (fix NULL dedup issue)
-                idempotency_key = data.get("idempotency_key")
+                idempotency_key = data.get(FieldName.IDEMPOTENCY_KEY)
                 if not idempotency_key:
                     raise ValueError("idempotency_key is required for order deduplication")
 
@@ -163,14 +163,14 @@ class SafeWriter:
 
                 # STEP 1: Insert Order FIRST (business logic)
                 order = Order(
-                    strategy_id=data["strategy_id"],
+                    strategy_id=data[FieldName.STRATEGY_ID],
                     external_order_id=data.get("external_order_id"),
                     idempotency_key=idempotency_key,
-                    symbol=data["symbol"],
-                    side=data["side"],
+                    symbol=data[FieldName.SYMBOL],
+                    side=data[FieldName.SIDE],
                     order_type=data["order_type"],
                     quantity=data["quantity"],
-                    price=data.get("price"),
+                    price=data.get(FieldName.PRICE),
                     exchange=data.get("exchange"),
                     order_metadata=data.get("metadata", {}),
                 )
@@ -224,7 +224,7 @@ class SafeWriter:
                     "write order",
                     msg_id=msg_id,
                     stream=stream,
-                    symbol=data["symbol"],
+                    symbol=data[FieldName.SYMBOL],
                 )
                 return True
 
@@ -281,8 +281,8 @@ class SafeWriter:
                 position_stmt = (
                     pg_insert(Position)
                     .values(
-                        strategy_id=data["strategy_id"],
-                        symbol=data["symbol"],
+                        strategy_id=data[FieldName.STRATEGY_ID],
+                        symbol=data[FieldName.SYMBOL],
                         quantity=data.get("new_quantity"),
                         avg_cost=data.get("new_avg_cost"),
                         market_value=data.get("market_value"),
@@ -344,7 +344,7 @@ class SafeWriter:
                 self._log_write_operation("write_agent_log", "AgentLog", msg_id)
 
                 # Handle timestamp with explicit fallback logging
-                timestamp_str = data.get("timestamp")
+                timestamp_str = data.get(FieldName.TIMESTAMP)
                 created_at = self.safe_parse_dt(timestamp_str)
 
                 if created_at is None:
@@ -364,9 +364,9 @@ class SafeWriter:
                     "message": data["message"],
                     "step_name": data.get("step_name"),
                     "step_data": data.get("step_data", {}),
-                    "trace_id": data.get("trace_id", msg_id),
-                    "schema_version": data.get("schema_version", "v2"),
-                    "source": data.get("source", "unknown"),
+                    "trace_id": data.get(FieldName.TRACE_ID, msg_id),
+                    "schema_version": data.get(FieldName.SCHEMA_VERSION, "v2"),
+                    "source": data.get(FieldName.SOURCE, "unknown"),
                     "created_at": created_at,
                 }
 
@@ -519,9 +519,9 @@ class SafeWriter:
                     entry_time = datetime.now(timezone.utc)
 
                 perf_data = {
-                    "strategy_id": data["strategy_id"],
+                    "strategy_id": data[FieldName.STRATEGY_ID],
                     "agent_id": data.get("agent_id"),
-                    "symbol": data["symbol"],
+                    "symbol": data[FieldName.SYMBOL],
                     "trade_id": data["trade_id"],
                     "entry_time": entry_time,
                     "exit_time": self.safe_parse_dt(data.get("exit_time")),
@@ -593,9 +593,9 @@ class SafeWriter:
                     "embedding": data["embedding"],  # Validated to be 1536 floats
                     "vector_metadata": data.get("metadata", {}),  # Map metadata to vector_metadata
                     "agent_id": data.get("agent_id"),
-                    "strategy_id": data.get("strategy_id"),
-                    "schema_version": data.get("schema_version", "v2"),
-                    "source": data.get("source", "unknown"),
+                    "strategy_id": data.get(FieldName.STRATEGY_ID),
+                    "schema_version": data.get(FieldName.SCHEMA_VERSION, "v2"),
+                    "source": data.get(FieldName.SOURCE, "unknown"),
                 }
 
                 await session.execute(insert(VectorMemory).values(**vector_data))
@@ -626,8 +626,8 @@ class SafeWriter:
             try:
                 event_data = {
                     "event_type": "risk.alert",
-                    "entity_type": data.get("entity_type", "system"),
-                    "entity_id": data.get("entity_id"),
+                    "entity_type": data.get(FieldName.ENTITY_TYPE, "system"),
+                    "entity_id": data.get(FieldName.ENTITY_ID),
                     "data": data,
                 }
 
@@ -666,13 +666,13 @@ class SafeWriter:
 
                 grade_data = {
                     "agent_id": data["agent_id"],
-                    "agent_run_id": data["agent_run_id"],
-                    "grade_type": data["grade_type"],
-                    "score": data["score"],
-                    "metrics": data.get("metrics", {}),
+                    "agent_run_id": data[FieldName.AGENT_RUN_ID],
+                    "grade_type": data[FieldName.GRADE_TYPE],
+                    "score": data[FieldName.SCORE],
+                    "metrics": data.get(FieldName.METRICS, {}),
                     "feedback": data.get("feedback"),
-                    "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
-                    "source": data.get("source", "unknown"),
+                    "schema_version": data.get(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION),
+                    "source": data.get(FieldName.SOURCE, "unknown"),
                 }
 
                 await session.execute(insert(AgentGrades).values(**grade_data))
@@ -687,7 +687,7 @@ class SafeWriter:
                     "agent grade write success",
                     msg_id=msg_id,
                     agent_id=data["agent_id"],
-                    grade_type=data["grade_type"],
+                    grade_type=data[FieldName.GRADE_TYPE],
                 )
                 return True
 
@@ -758,14 +758,14 @@ class SafeWriter:
                     "vector_metadata": {
                         "reflection_type": data.get("reflection_type"),
                         "agent_id": data.get("agent_id"),
-                        "trace_id": data.get("trace_id"),
-                        "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
-                        "source": data.get("source", SOURCE_REFLECTION),
+                        "trace_id": data.get(FieldName.TRACE_ID),
+                        "schema_version": data.get(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION),
+                        "source": data.get(FieldName.SOURCE, SOURCE_REFLECTION),
                     },
                     "agent_id": data.get("agent_id"),
-                    "strategy_id": data.get("strategy_id"),
-                    "schema_version": data.get("schema_version", DB_SCHEMA_VERSION),
-                    "source": data.get("source", SOURCE_REFLECTION),
+                    "strategy_id": data.get(FieldName.STRATEGY_ID),
+                    "schema_version": data.get(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION),
+                    "source": data.get(FieldName.SOURCE, SOURCE_REFLECTION),
                 }
 
                 await session.execute(insert(VectorMemory).values(**vector_data))
@@ -810,7 +810,7 @@ class SafeWriter:
                 event_data = {
                     "event_type": "strategy.proposed",
                     "entity_type": "strategy",
-                    "entity_id": data.get("strategy_id"),
+                    "entity_id": data.get(FieldName.STRATEGY_ID),
                     "data": data,
                 }
 
@@ -856,7 +856,9 @@ class SafeWriter:
                 event_data = {
                     "event_type": "notification.created",
                     "entity_type": "notification",
-                    "entity_id": data.get("notification_id") or data.get("trace_id") or msg_id,
+                    "entity_id": data.get("notification_id")
+                    or data.get(FieldName.TRACE_ID)
+                    or msg_id,
                     "data": data,
                 }
 
