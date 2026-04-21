@@ -59,6 +59,19 @@
 
 ---
 
+## Agentic AI learnings applied
+
+Inspired by common agentic design patterns (reflection, planning, tool use, and multi-agent coordination), this codebase applies the following in production:
+
+- **Reflection loop**: `ReflectionAgent` runs evaluator/optimizer-style refinement when first-pass hypotheses are too weak.
+- **Planning before action**: `StrategyProposer` ranks high-confidence hypotheses by expected impact before proposal generation.
+- **Tool use with safe fallbacks**: agents rely on typed services (DB, Redis streams, LLM client) and degrade safely when external calls fail.
+- **Supervised autonomy**: `AgentSupervisor` provides self-healing restarts with rate-limits to prevent crash/restart thrashing.
+
+This keeps autonomy high while retaining operational guardrails for a trading environment.
+
+---
+
 ## Architecture
 
 <p align="center">

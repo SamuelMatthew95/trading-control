@@ -144,6 +144,92 @@ class LogType(StrEnum):
     SIGNAL_GENERATED = "signal_generated"
 
 
+class AgentLogType(StrEnum):
+    """In-memory/event-bus log type labels (legacy uppercase contract)."""
+
+    SIGNAL_GENERATED = "SIGNAL_GENERATED"
+
+
+class FieldName(StrEnum):
+    """Canonical payload / JSON field names used across services."""
+
+    ACTION = "action"
+    AGENT_RUN_ID = "agent_run_id"
+    AVG_COST = "avg_cost"
+    CREATED_AT = "created_at"
+    DATA = "data"
+    DIRECTION = "direction"
+    ENTITY_ID = "entity_id"
+    ENTITY_TYPE = "entity_type"
+    EVENT_TYPE = "event_type"
+    EXECUTION_TIME_MS = "execution_time_ms"
+    GRADE_TYPE = "grade_type"
+    IDEMPOTENCY_KEY = "idempotency_key"
+    INPUT_DATA = "input_data"
+    LAST_PRICE = "last_price"
+    LOG_TYPE = "log_type"
+    METRICS = "metrics"
+    MSG_ID = "msg_id"
+    OUTPUT_DATA = "output_data"
+    PAYLOAD = "payload"
+    PCT = "pct"
+    PRICE = "price"
+    PRIMARY_EDGE = "primary_edge"
+    QTY = "qty"
+    REASONING_SCORE = "reasoning_score"
+    RISK_FACTORS = "risk_factors"
+    RUN_ID = "run_id"
+    SCHEMA_VERSION = "schema_version"
+    SCORE = "score"
+    SIDE = "side"
+    SIGNAL_CONFIDENCE = "signal_confidence"
+    SIZE_PCT = "size_pct"
+    SOURCE = "source"
+    STATUS = "status"
+    STOP_ATR_X = "stop_atr_x"
+    STRENGTH = "strength"
+    STRATEGY_ID = "strategy_id"
+    SYMBOL = "symbol"
+    TIMESTAMP = "timestamp"
+    TRACE_ID = "trace_id"
+    TS = "ts"
+    TYPE = "type"
+    UPDATED_AT = "updated_at"
+    RR_RATIO = "rr_ratio"
+
+
+class StatusValue(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+
+
+class EventType(StrEnum):
+    SIGNAL_GENERATED = "signal.generated"
+    DAILY_LOSS_LIMIT_BREACHED = "daily_loss_limit_breached"
+
+
+class EntityType(StrEnum):
+    SIGNAL = "signal"
+
+
+class SignalType(StrEnum):
+    STRONG_MOMENTUM = "STRONG_MOMENTUM"
+    MOMENTUM = "MOMENTUM"
+    PRICE_UPDATE = "PRICE_UPDATE"
+
+
+class SignalStrength(StrEnum):
+    HIGH = "HIGH"
+    NORMAL = "NORMAL"
+    LOW = "LOW"
+
+
+class MarketDirection(StrEnum):
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+    NEUTRAL = "neutral"
+
+
 # ---------------------------------------------------------------------------
 # Agent identity constants — single source of truth for all agent names.
 # These must match the Redis heartbeat keys written by each agent.
@@ -278,6 +364,8 @@ ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
 PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
 SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence
+SUPERVISOR_MAX_RESTARTS_PER_WINDOW: Final[int] = 3  # Prevent restart thrashing per agent
+SUPERVISOR_RESTART_WINDOW_SECONDS: Final[int] = 300  # 5-minute restart window
 
 # Agentic pattern constants
 # ReAct self-critique: only critique decisions above this confidence (controls LLM cost)

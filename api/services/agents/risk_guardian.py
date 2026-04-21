@@ -36,7 +36,9 @@ from api.constants import (
     STREAM_DECISIONS,
     STREAM_RISK_ALERTS,
     TAKE_PROFIT_PCT,
-    OrderSide,
+    AgentAction,
+    EventType,
+    FieldName,
     PositionSide,
 )
 from api.database import AsyncSessionFactory
@@ -135,7 +137,11 @@ class RiskGuardian:
                 return  # DB not yet available — skip silently
 
         # Batch-fetch prices for all distinct symbols in one pass.
-        symbols = {str(p["symbol"]) for p in self._position_cache if float(p["avg_cost"] or 0) > 0}
+        symbols = {
+            str(p[FieldName.SYMBOL])
+            for p in self._position_cache
+            if float(p[FieldName.AVG_COST] or 0) > 0
+        }
         price_results = await asyncio.gather(*[self._get_price(s) for s in symbols])
         price_map: dict[str, float | None] = dict(zip(symbols, price_results, strict=False))
 
@@ -143,27 +149,25 @@ class RiskGuardian:
         already_closed: set[str] = set()
 
         for pos in self._position_cache:
-            symbol = str(pos["symbol"])
+            symbol = str(pos[FieldName.SYMBOL])
             if symbol in already_closed:
                 continue
 
-            raw_side = str(pos["side"]).strip().lower()
             try:
-                side_enum = PositionSide(raw_side)
+                side = PositionSide(str(pos[FieldName.SIDE]).lower())
             except ValueError:
                 log_structured(
                     "warning",
                     "risk_guardian_invalid_position_side",
                     symbol=symbol,
-                    side=raw_side,
+                    side=str(pos[FieldName.SIDE]),
                 )
                 continue
-            # Flat positions carry no directional exposure — nothing to close.
-            if side_enum is PositionSide.FLAT:
+            if side is PositionSide.FLAT:
                 continue
-            avg_cost = float(pos["avg_cost"] or 0)
-            qty = float(pos["qty"] or 0)
-            strategy_id = str(pos["strategy_id"])
+            avg_cost = float(pos[FieldName.AVG_COST] or 0)
+            qty = float(pos[FieldName.QTY] or 0)
+            strategy_id = str(pos[FieldName.STRATEGY_ID])
 
             if avg_cost <= 0 or qty <= 0:
                 continue
@@ -173,12 +177,12 @@ class RiskGuardian:
                 continue
 
             # Unrealized PnL % from entry
-            if side_enum is PositionSide.LONG:
+            if side is PositionSide.LONG:
                 pnl_pct = (current_price - avg_cost) / avg_cost
-                close_action = OrderSide.SELL.value
+                close_action = AgentAction.SELL
             else:  # PositionSide.SHORT
                 pnl_pct = (avg_cost - current_price) / avg_cost
-                close_action = OrderSide.BUY.value
+                close_action = AgentAction.BUY
 
             if pnl_pct <= -STOP_LOSS_PCT:
                 reason = f"stop_loss({pnl_pct:.2%})"
@@ -191,7 +195,7 @@ class RiskGuardian:
                 "info",
                 "risk_guardian_auto_close",
                 symbol=symbol,
-                side=side_enum.value,
+                side=side.value,
                 qty=qty,
                 current_price=current_price,
                 avg_cost=avg_cost,
@@ -238,12 +242,12 @@ class RiskGuardian:
                 await self.bus.publish(
                     STREAM_RISK_ALERTS,
                     {
-                        "type": "daily_loss_limit_breached",
+                        FieldName.TYPE: EventType.DAILY_LOSS_LIMIT_BREACHED,
                         "daily_pnl": daily_pnl,
                         "threshold": loss_threshold,
                         "kill_switch_activated": True,
-                        "source": self._SOURCE,
-                        "timestamp": now,
+                        FieldName.SOURCE: self._SOURCE,
+                        FieldName.TIMESTAMP: now,
                     },
                 )
             except Exception:
@@ -259,7 +263,7 @@ class RiskGuardian:
             raw = await self.redis.get(REDIS_KEY_PRICES.format(symbol=symbol))
             if raw:
                 data = json.loads(raw)
-                price = data.get("price") or data.get("last_price")
+                price = data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE)
                 if price:
                     return float(price)
         except Exception:
@@ -269,7 +273,7 @@ class RiskGuardian:
     async def _publish_close(
         self,
         symbol: str,
-        action: str,
+        action: AgentAction,
         qty: float,
         price: float,
         strategy_id: str,
@@ -285,22 +289,22 @@ class RiskGuardian:
         await self.bus.publish(
             STREAM_DECISIONS,
             {
-                "msg_id": str(uuid.uuid4()),
-                "source": self._SOURCE,
-                "strategy_id": strategy_id,
-                "symbol": symbol,
-                "action": action,
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: self._SOURCE,
+                FieldName.STRATEGY_ID: strategy_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.ACTION: action,
                 # Max scores — risk closes must always execute
-                "signal_confidence": 1.0,
-                "reasoning_score": 1.0,
-                "qty": qty,
-                "price": price,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "trace_id": trace_id,
-                "primary_edge": f"risk_guardian:{reason}",
-                "risk_factors": [reason],
-                "size_pct": 1.0,  # Close entire position
-                "stop_atr_x": 0.0,
-                "rr_ratio": 0.0,
+                FieldName.SIGNAL_CONFIDENCE: 1.0,
+                FieldName.REASONING_SCORE: 1.0,
+                FieldName.QTY: qty,
+                FieldName.PRICE: price,
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TRACE_ID: trace_id,
+                FieldName.PRIMARY_EDGE: f"risk_guardian:{reason}",
+                FieldName.RISK_FACTORS: [reason],
+                FieldName.SIZE_PCT: 1.0,  # Close entire position
+                FieldName.STOP_ATR_X: 0.0,
+                FieldName.RR_RATIO: 0.0,
             },
         )

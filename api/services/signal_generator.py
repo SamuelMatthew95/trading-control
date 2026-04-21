@@ -23,8 +23,16 @@ from api.constants import (
     SOURCE_SIGNAL,
     STREAM_MARKET_EVENTS,
     STREAM_SIGNALS,
+    AgentLogType,
+    EntityType,
+    EventType,
+    FieldName,
     GradeType,
     LogType,
+    MarketDirection,
+    SignalStrength,
+    SignalType,
+    StatusValue,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -79,7 +87,7 @@ class SignalGenerator(BaseStreamConsumer):
 
     async def process(self, data: dict[str, Any]) -> None:
         # --- Parse incoming tick -----------------------------------------
-        raw = data.get("payload")
+        raw = data.get(FieldName.PAYLOAD)
         if isinstance(raw, str):
             payload = json.loads(raw)
         elif isinstance(raw, dict):
@@ -87,36 +95,40 @@ class SignalGenerator(BaseStreamConsumer):
         else:
             payload = data
 
-        symbol = payload.get("symbol")
-        price = float(payload.get("price", 0))
-        pct = float(payload.get("pct", 0))
-        trace_id = payload.get("trace_id") or str(uuid.uuid4())
-        msg_id = data.get("msg_id") or str(uuid.uuid4())
+        symbol = payload.get(FieldName.SYMBOL)
+        price = float(payload.get(FieldName.PRICE, 0))
+        pct = float(payload.get(FieldName.PCT, 0))
+        trace_id = payload.get(FieldName.TRACE_ID) or str(uuid.uuid4())
+        msg_id = data.get(FieldName.MSG_ID) or str(uuid.uuid4())
 
         if not symbol or price <= 0:
             return
 
         # --- Classify signal ---------------------------------------------
         abs_pct = abs(pct)
-        direction = "bullish" if pct > 0 else ("bearish" if pct < 0 else "neutral")
+        direction = (
+            MarketDirection.BULLISH
+            if pct > 0
+            else (MarketDirection.BEARISH if pct < 0 else MarketDirection.NEUTRAL)
+        )
         if abs_pct >= 3.0:
-            signal_type, strength, score = "STRONG_MOMENTUM", "HIGH", 80.0
+            signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
         elif abs_pct >= 1.5:
-            signal_type, strength, score = "MOMENTUM", "NORMAL", 55.0
+            signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
         else:
-            signal_type, strength, score = "PRICE_UPDATE", "LOW", 30.0
+            signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
 
         signal_payload: dict[str, Any] = {
-            "type": signal_type,
-            "symbol": symbol,
-            "price": price,
-            "pct": pct,
-            "direction": direction,
-            "strength": strength,
-            "trace_id": trace_id,
-            "ts": int(time.time()),
-            "source": AGENT_NAME,
-            "msg_id": str(uuid.uuid4()),
+            FieldName.TYPE: signal_type,
+            FieldName.SYMBOL: symbol,
+            FieldName.PRICE: price,
+            FieldName.PCT: pct,
+            FieldName.DIRECTION: direction,
+            FieldName.STRENGTH: strength,
+            FieldName.TRACE_ID: trace_id,
+            FieldName.TS: int(time.time()),
+            FieldName.SOURCE: AGENT_NAME,
+            FieldName.MSG_ID: str(uuid.uuid4()),
         }
 
         # --- Begin run (dedup check + run start write) -------------------
@@ -178,13 +190,13 @@ class SignalGenerator(BaseStreamConsumer):
             return True, db_run_id
         get_runtime_store().add_agent_run(
             {
-                "run_id": run_id,
-                "trace_id": trace_id,
-                "input_data": payload,
-                "schema_version": DB_SCHEMA_VERSION,
-                "source": SOURCE_SIGNAL,
-                "status": "running",
-                "created_at": time.time(),
+                FieldName.RUN_ID: run_id,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.INPUT_DATA: payload,
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                FieldName.SOURCE: SOURCE_SIGNAL,
+                FieldName.STATUS: StatusValue.RUNNING,
+                FieldName.CREATED_AT: time.time(),
             }
         )
         return True, None
@@ -209,48 +221,51 @@ class SignalGenerator(BaseStreamConsumer):
                 db_run_id, run_id, trace_id, signal_payload, elapsed_ms
             )
             return
-        symbol = signal_payload["symbol"]
+        symbol = signal_payload[FieldName.SYMBOL]
         store = get_runtime_store()
         store.add_event(
             {
-                "event_type": "signal.generated",
-                "entity_type": "signal",
-                "entity_id": trace_id,
-                "data": signal_payload,
-                "idempotency_key": f"signal-{symbol}-{trace_id}",
-                "schema_version": DB_SCHEMA_VERSION,
-                "source": SOURCE_SIGNAL,
+                FieldName.EVENT_TYPE: EventType.SIGNAL_GENERATED,
+                FieldName.ENTITY_TYPE: EntityType.SIGNAL,
+                FieldName.ENTITY_ID: trace_id,
+                FieldName.DATA: signal_payload,
+                FieldName.IDEMPOTENCY_KEY: f"signal-{symbol}-{trace_id}",
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                FieldName.SOURCE: SOURCE_SIGNAL,
             }
         )
         store.add_grade(
             {
-                "trace_id": trace_id,
-                "grade_type": "ACCURACY",
-                "score": score,
-                "metrics": {"signal_type": signal_payload["type"], "symbol": symbol},
-                "source": SOURCE_SIGNAL,
-                "schema_version": DB_SCHEMA_VERSION,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.GRADE_TYPE: GradeType.ACCURACY,
+                FieldName.SCORE: score,
+                FieldName.METRICS: {
+                    "signal_type": signal_payload[FieldName.TYPE],
+                    "symbol": symbol,
+                },
+                FieldName.SOURCE: SOURCE_SIGNAL,
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
             }
         )
         for run in store.agent_runs:
-            if run.get("run_id") == run_id:
+            if run.get(FieldName.RUN_ID) == run_id:
                 run.update(
                     {
-                        "status": "completed",
-                        "output_data": signal_payload,
-                        "execution_time_ms": elapsed_ms,
+                        FieldName.STATUS: StatusValue.COMPLETED,
+                        FieldName.OUTPUT_DATA: signal_payload,
+                        FieldName.EXECUTION_TIME_MS: elapsed_ms,
                     }
                 )
                 break
         store.add_event(
             {
-                "agent_run_id": run_id,
-                "trace_id": trace_id,
-                "log_type": "SIGNAL_GENERATED",
-                "payload": signal_payload,
-                "schema_version": DB_SCHEMA_VERSION,
-                "source": AGENT_NAME,
-                "timestamp": time.time(),
+                FieldName.AGENT_RUN_ID: run_id,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.LOG_TYPE: AgentLogType.SIGNAL_GENERATED,
+                FieldName.PAYLOAD: signal_payload,
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                FieldName.SOURCE: AGENT_NAME,
+                FieldName.TIMESTAMP: time.time(),
             }
         )
 
