@@ -32,6 +32,7 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
+    FieldName,
     OrderSide,
     OrderStatus,
     PositionSide,
@@ -76,8 +77,8 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Validate required fields before any DB/broker interaction
         # Accepts both "action" (from STREAM_DECISIONS) and "side" (backward compat)
-        side_or_action = str(data.get("action") or data.get("side") or "").lower()
-        missing = [f for f in ("symbol", "qty", "price") if not data.get(f)]
+        side_or_action = str(data.get(FieldName.ACTION) or data.get(FieldName.SIDE) or "").lower()
+        missing = [f for f in (FieldName.SYMBOL, FieldName.QTY, FieldName.PRICE) if not data.get(f)]
         if not side_or_action:
             missing.append("action/side")
         if missing:
@@ -85,12 +86,12 @@ class ExecutionEngine(BaseStreamConsumer):
             return
 
         # strategy_id is required by the DB; fall back to a generated UUID if absent
-        strategy_id = str(data.get("strategy_id") or uuid.uuid4())
-        symbol = str(data["symbol"])
+        strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
+        symbol = str(data[FieldName.SYMBOL])
         side = side_or_action
         try:
-            qty = float(data["qty"])
-            price = float(data["price"])
+            qty = float(data[FieldName.QTY])
+            price = float(data[FieldName.PRICE])
         except (TypeError, ValueError):
             log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
             return
@@ -105,7 +106,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 price=price,
             )
             return
-        trace_id = str(data.get("trace_id") or uuid.uuid4())
+        trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
 
         # --- Execution gate 1: skip non-order actions (hold, reject, flat) ----
         if side in NO_ORDER_ACTIONS:
@@ -121,14 +122,14 @@ class ExecutionEngine(BaseStreamConsumer):
         # --- Execution gate 2: weighted decision score -----------------------
         # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
         signal_confidence = float(
-            data.get("signal_confidence")
+            data.get(FieldName.SIGNAL_CONFIDENCE)
             or data.get("composite_score")
             or data.get("confidence")
             or 0.5
         )
         # Use reasoning_score if present; fall back to signal_confidence so
         # legacy test payloads (no reasoning_score field) still clear the gate.
-        reasoning_score = float(data.get("reasoning_score") or signal_confidence)
+        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         if final_score < EXECUTION_DECISION_THRESHOLD:
             log_structured(
@@ -150,7 +151,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 trace_id=trace_id,
             )
             return
-        order_timestamp = self._parse_timestamp(data.get("timestamp"))
+        order_timestamp = self._parse_timestamp(data.get(FieldName.TIMESTAMP))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
         )
@@ -173,7 +174,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     "info",
                     "Skipping duplicate order event",
                     idempotency_key=idempotency_key,
-                    order_id=str(existing_row["id"]),
+                    order_id=str(existing_row["id"]),  # SQLAlchemy Row mapping key
                 )
                 return
 
@@ -230,7 +231,7 @@ class ExecutionEngine(BaseStreamConsumer):
                         "WHERE id = :order_id"
                     ),
                     {
-                        "status": broker_result["status"],
+                        "status": broker_result[FieldName.STATUS],
                         "broker_order_id": broker_result["broker_order_id"],
                         "fill_price": fill_price,
                         "qty": qty,
@@ -403,20 +404,20 @@ class ExecutionEngine(BaseStreamConsumer):
         writes the filled order and updated position to InMemoryStore so the
         dashboard fallback snapshot reflects real activity.
         """
-        side_or_action = str(data.get("action") or data.get("side") or "").lower()
-        missing = [f for f in ("symbol", "qty", "price") if not data.get(f)]
+        side_or_action = str(data.get(FieldName.ACTION) or data.get(FieldName.SIDE) or "").lower()
+        missing = [f for f in (FieldName.SYMBOL, FieldName.QTY, FieldName.PRICE) if not data.get(f)]
         if not side_or_action:
             missing.append("action/side")
         if missing:
             log_structured("warning", "order_missing_required_fields_memory", missing=missing)
             return
 
-        strategy_id = str(data.get("strategy_id") or uuid.uuid4())
-        symbol = str(data["symbol"])
+        strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
+        symbol = str(data[FieldName.SYMBOL])
         side = side_or_action
         try:
-            qty = float(data["qty"])
-            price = float(data["price"])
+            qty = float(data[FieldName.QTY])
+            price = float(data[FieldName.PRICE])
         except (TypeError, ValueError):
             log_structured("warning", "order_invalid_numeric_fields_memory", symbol=symbol)
             return
@@ -429,18 +430,18 @@ class ExecutionEngine(BaseStreamConsumer):
                 price=price,
             )
             return
-        trace_id = str(data.get("trace_id") or uuid.uuid4())
+        trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
 
         if side in NO_ORDER_ACTIONS:
             return
 
         signal_confidence = float(
-            data.get("signal_confidence")
+            data.get(FieldName.SIGNAL_CONFIDENCE)
             or data.get("composite_score")
             or data.get("confidence")
             or 0.5
         )
-        reasoning_score = float(data.get("reasoning_score") or signal_confidence)
+        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         if final_score < EXECUTION_DECISION_THRESHOLD:
             return
@@ -452,7 +453,7 @@ class ExecutionEngine(BaseStreamConsumer):
         # BaseStreamConsumer is at-least-once; redelivered messages must not
         # produce duplicate fills. Use Redis SET NX with a 24-hour TTL so any
         # realistic replay window is covered even when DB is unavailable.
-        order_timestamp = self._parse_timestamp(data.get("timestamp"))
+        order_timestamp = self._parse_timestamp(data.get(FieldName.TIMESTAMP))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
         )
@@ -503,7 +504,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     "quantity": qty,
                     "price": fill_price,
                     "filled_price": fill_price,
-                    "status": broker_result["status"],
+                    "status": broker_result[FieldName.STATUS],
                     "broker_order_id": broker_result["broker_order_id"],
                     "pnl": realized_pnl,
                     "pnl_percent": pnl_percent,
@@ -515,9 +516,9 @@ class ExecutionEngine(BaseStreamConsumer):
             # Update position in InMemoryStore
             signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
             existing_pos = store.positions.get(symbol, {})
-            existing_signed = float(existing_pos.get("qty", 0)) * (
+            existing_signed = float(existing_pos.get(FieldName.QTY, 0)) * (
                 1
-                if str(existing_pos.get("side", PositionSide.LONG)).lower()
+                if str(existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
                 in {PositionSide.LONG, OrderSide.BUY}
                 else -1
             )
@@ -643,7 +644,7 @@ class ExecutionEngine(BaseStreamConsumer):
         """
         if entry_price <= 0 or realized_pnl == 0.0:
             return 0.0
-        prior_qty = float(prior_position.get("qty") or 0)
+        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
         closed_qty = min(qty, prior_qty) if prior_qty > 0 else qty
         cost_basis = entry_price * (closed_qty if closed_qty > 0 else qty)
         return (realized_pnl / cost_basis) * 100 if cost_basis > 0 else 0.0
@@ -656,9 +657,9 @@ class ExecutionEngine(BaseStreamConsumer):
         fill_price: float,
     ) -> float:
         """Compute realized PnL when closing or partially closing a position."""
-        prior_side = str(prior_position.get("side") or PositionSide.FLAT).lower()
+        prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
         prior_entry = float(prior_position.get("entry_price") or fill_price)
-        prior_qty = float(prior_position.get("qty") or 0)
+        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
 
         # Closing a long position with a sell
         if (
@@ -697,8 +698,8 @@ class ExecutionEngine(BaseStreamConsumer):
                 {
                     "composite_score": signal_data.get("composite_score"),
                     "signal_type": signal_data.get("signal_type"),
-                    "price": signal_data.get("price"),
-                    "qty": signal_data.get("qty"),
+                    FieldName.PRICE: signal_data.get(FieldName.PRICE),
+                    FieldName.QTY: signal_data.get(FieldName.QTY),
                 },
                 sort_keys=True,
                 default=str,
@@ -807,8 +808,8 @@ class ExecutionEngine(BaseStreamConsumer):
                 },
             )
             return
-        existing_side = str(row["side"]).lower()
-        existing_qty = float(row["qty"])
+        existing_side = str(row[FieldName.SIDE]).lower()
+        existing_qty = float(row[FieldName.QTY])
         existing_signed_qty = (
             existing_qty
             if existing_side in {PositionSide.LONG, OrderSide.BUY}
