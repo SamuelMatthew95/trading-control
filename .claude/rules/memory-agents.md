@@ -23,31 +23,50 @@ event = {
 
 ### Trace ID Propagation (MANDATORY)
 ```python
+from api.constants import FieldName
+
 # ALL agents must follow this pattern
 async def process_event(self, event_data: dict) -> None:
-    # 1. Extract incoming trace_id
-    incoming_trace_id = event_data.get("trace_id")
-    
+    # 1. Extract incoming trace_id — use FieldName, never string literals
+    incoming_trace_id = event_data.get(FieldName.TRACE_ID)
+
     # 2. Generate new trace_id for this processing
     current_trace_id = str(uuid.uuid4())
-    
+
     # 3. Log the handoff
-    log_structured("info", "agent handoff", 
+    log_structured("info", "agent handoff",
                   agent=self.agent_id,
                   incoming_trace_id=incoming_trace_id,
                   current_trace_id=current_trace_id)
-    
+
     # 4. Process with current_trace_id
     result = await self._do_work(event_data, current_trace_id)
-    
-    # 5. Publish with current_trace_id
+
+    # 5. Publish with current_trace_id — FieldName keys on writes too
     await self.redis.publish("output_stream", {
-        "type": "agent_result",
-        "data": result,
-        "trace_id": current_trace_id,
-        "agent_id": self.agent_id
+        FieldName.TYPE: "agent_result",
+        FieldName.DATA: result,
+        FieldName.TRACE_ID: current_trace_id,
+        FieldName.SOURCE: self.agent_id,
     })
 ```
+
+### Dict Key Rule (NO RAW STRINGS IN PAYLOADS)
+Every read/write of an agent payload or DB row dict must go through `FieldName`.
+Raw string keys (`data["side"]`, `event.get("trace_id")`) are an anti-pattern — they
+silently break under field renames and hide producer/consumer drift.
+
+```python
+# ❌ WRONG
+side = data.get("side") or data.get("action")
+symbol = pos["symbol"]
+
+# ✅ RIGHT
+side = data.get(FieldName.SIDE) or data.get(FieldName.ACTION)
+symbol = pos[FieldName.SYMBOL]
+```
+
+If the field isn't in `class FieldName` yet, add it there first, then reference it.
 
 ## Specific Hand-off Patterns
 

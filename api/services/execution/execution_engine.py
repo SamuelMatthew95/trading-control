@@ -94,6 +94,17 @@ class ExecutionEngine(BaseStreamConsumer):
         except (TypeError, ValueError):
             log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
             return
+        # Reject non-positive quantity / price to prevent broker-side errors and
+        # accidental zero-size orders slipping past the gate.
+        if qty <= 0 or price <= 0:
+            log_structured(
+                "warning",
+                "order_non_positive_numeric_fields",
+                symbol=symbol,
+                qty=qty,
+                price=price,
+            )
+            return
         trace_id = str(data.get("trace_id") or uuid.uuid4())
 
         # --- Execution gate 1: skip non-order actions (hold, reject, flat) ----
@@ -408,6 +419,15 @@ class ExecutionEngine(BaseStreamConsumer):
             price = float(data["price"])
         except (TypeError, ValueError):
             log_structured("warning", "order_invalid_numeric_fields_memory", symbol=symbol)
+            return
+        if qty <= 0 or price <= 0:
+            log_structured(
+                "warning",
+                "order_non_positive_numeric_fields_memory",
+                symbol=symbol,
+                qty=qty,
+                price=price,
+            )
             return
         trace_id = str(data.get("trace_id") or uuid.uuid4())
 

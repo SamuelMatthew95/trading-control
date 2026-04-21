@@ -32,6 +32,24 @@ const toSanitizeInput = (value: unknown): string | number | boolean | null | und
   return String(value)
 }
 
+// Map internal reasoning fallback markers to human-readable text for the
+// Agent Thought Stream. The backend writes `primary_edge = "fallback:<mode>"`
+// whenever the LLM is unavailable; the raw token is ugly in the UI.
+const FALLBACK_LABELS: Record<string, string> = {
+  skip_reasoning: 'LLM unavailable — rule-based fallback',
+  reject_signal: 'LLM unavailable — signal rejected',
+  use_last_reflection: 'LLM unavailable — reusing last reflection',
+}
+const formatAgentMessage = (raw: unknown): string => {
+  const text = sanitizeValue(toSanitizeInput(raw))
+  if (text === '--') return 'N/A'
+  if (text.startsWith('fallback:')) {
+    const mode = text.slice('fallback:'.length)
+    return FALLBACK_LABELS[mode] ?? 'LLM unavailable'
+  }
+  return text
+}
+
 const formatUSD = (value?: number | null): string => {
   if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
   return `$${Math.abs(value).toFixed(2)}`;
@@ -1244,7 +1262,7 @@ export function DashboardView({ section }: { section: Section }) {
                             </button>
                           ) : null}
                         </div>
-                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.message || log?.summary || log?.primary_edge))}</p>
+                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
                       </div>
                     )
                   })}
@@ -1275,7 +1293,7 @@ export function DashboardView({ section }: { section: Section }) {
                   ) : (
                     positions.map((position, index) => {
                       const pnl = toFiniteNumber(position?.pnl)
-                      const pnlPct = toFiniteNumber(position?.pnl_pct)
+                      const pnlPct = toFiniteNumber(position?.pnl_percent)
                       const isPositive = (pnl ?? 0) >= 0
                       const side = sanitizeValue(position?.side).toUpperCase()
                       return (

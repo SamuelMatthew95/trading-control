@@ -156,6 +156,14 @@ class RiskGuardian:
             try:
                 side = PositionSide(str(pos[FieldName.SIDE]).lower())
             except ValueError:
+                log_structured(
+                    "warning",
+                    "risk_guardian_invalid_position_side",
+                    symbol=symbol,
+                    side=str(pos[FieldName.SIDE]),
+                )
+                continue
+            if side is PositionSide.FLAT:
                 continue
             avg_cost = float(pos[FieldName.AVG_COST] or 0)
             qty = float(pos[FieldName.QTY] or 0)
@@ -169,10 +177,10 @@ class RiskGuardian:
                 continue
 
             # Unrealized PnL % from entry
-            if side == PositionSide.LONG:
+            if side is PositionSide.LONG:
                 pnl_pct = (current_price - avg_cost) / avg_cost
                 close_action = AgentAction.SELL
-            else:  # short
+            else:  # PositionSide.SHORT
                 pnl_pct = (avg_cost - current_price) / avg_cost
                 close_action = AgentAction.BUY
 
@@ -187,7 +195,7 @@ class RiskGuardian:
                 "info",
                 "risk_guardian_auto_close",
                 symbol=symbol,
-                side=side,
+                side=side.value,
                 qty=qty,
                 current_price=current_price,
                 avg_cost=avg_cost,
