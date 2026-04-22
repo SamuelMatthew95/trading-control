@@ -780,7 +780,11 @@ export function DashboardView({ section }: { section: Section }) {
     return () => clearInterval(interval)
   }, [])
 
-  // Fetch performance summary on mount
+  // Fetch performance summary on mount, every 30 s, and on WS reconnect.
+  // Without the interval, a single transient fetch failure on initial mount
+  // left performanceSummary permanently null, so the PnL headline card
+  // stayed at "--" even after fills successfully landed in the DB. Matches
+  // the retry cadence of fetchTradeFeed / fetchLearning.
   useEffect(() => {
     const fetchPerformance = async () => {
       try {
@@ -792,7 +796,9 @@ export function DashboardView({ section }: { section: Section }) {
       }
     }
     fetchPerformance()
-  }, [])
+    const interval = setInterval(fetchPerformance, 30_000)
+    return () => clearInterval(interval)
+  }, [wsConnected])
 
   // Fetch agent instances on mount and every 30s
   useEffect(() => {
