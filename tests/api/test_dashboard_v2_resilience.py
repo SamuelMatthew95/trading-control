@@ -87,12 +87,13 @@ class _FactoryOneSuccessThenFail:
 
 @pytest.mark.asyncio
 async def test_trade_feed_falls_back_when_query_fails(monkeypatch):
+    _enable_db(monkeypatch)
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_trade_feed()
 
     assert payload["count"] == 0
     assert payload["trades"] == []
-    assert payload["error"] == "trade_feed_unavailable"
+    assert payload["source"] == "in_memory"
 
 
 @pytest.mark.asyncio
@@ -265,6 +266,7 @@ async def test_learning_grades_uses_in_memory_when_db_unavailable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
+    _enable_db(monkeypatch)
     session_rows = [
         [[]],
         [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None, None)]],
@@ -362,6 +364,71 @@ class _FakeAggregator:
 
     async def get_raw_snapshot(self):
         return {"orders": [], "positions": [], "agent_logs": []}
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_returns_in_memory_trades_when_db_unavailable():
+    """When is_db_available() is False, /trade-feed must surface the in-memory trade_feed
+    so paper fills that landed while the DB was down still appear on the dashboard."""
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_trade_fill(
+        {
+            "id": "trace-mem-fill",
+            "symbol": "BTC/USD",
+            "side": "buy",
+            "qty": 0.1,
+            "entry_price": 50000.0,
+            "exit_price": 50500.0,
+            "pnl": 50.0,
+            "order_id": "ord-mem-fill",
+            "execution_trace_id": "trace-mem-fill",
+            "status": "filled",
+        }
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+
+    assert payload["count"] == 1
+    assert payload["source"] == "in_memory"
+    assert payload["trades"][0]["id"] == "trace-mem-fill"
+    assert payload["trades"][0]["symbol"] == "BTC/USD"
+    assert payload["trades"][0]["pnl"] == pytest.approx(50.0)
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_prefers_in_memory_when_db_returns_empty(monkeypatch):
+    """When the DB is up but trade_lifecycle AND orders are both empty, the endpoint
+    must fall back to the in-memory trade_feed — not return count=0."""
+    _enable_db(monkeypatch)
+    session_rows = [[[]], [[]]]  # lifecycle empty, orders empty
+    monkeypatch.setattr(
+        dashboard_v2,
+        "AsyncSessionFactory",
+        _FactoryWithQueuedSessions(session_rows),
+    )
+    store = InMemoryStore()
+    store.upsert_trade_fill(
+        {
+            "id": "trace-bridge",
+            "symbol": "ETH/USD",
+            "side": "sell",
+            "qty": 1.0,
+            "entry_price": 3000.0,
+            "exit_price": 2950.0,
+            "pnl": -50.0,
+            "execution_trace_id": "trace-bridge",
+            "status": "filled",
+        }
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+
+    assert payload["count"] == 1
+    assert payload["source"] == "in_memory"
+    assert payload["trades"][0]["id"] == "trace-bridge"
 
 
 @pytest.mark.asyncio
