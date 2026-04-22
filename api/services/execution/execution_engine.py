@@ -320,25 +320,35 @@ class ExecutionEngine(BaseStreamConsumer):
         pnl_percent = self._compute_pnl_percent(
             prior_position, side, qty, entry_price, realized_pnl
         )
+        # SafeWriter.write_trade_performance requires trade_id, quantity,
+        # entry_time, and schema_version (v3). Without these the persist layer
+        # raises, the pipeline swallows it as best-effort, and the row never
+        # lands -> trade_performance table stays empty -> PnL shows as zero.
+        filled_at_iso = filled_at.isoformat()
         await self.bus.publish(
             STREAM_TRADE_PERFORMANCE,
             {
-                "msg_id": str(uuid.uuid4()),
-                "type": "trade_performance",
-                "order_id": order_id,
-                "strategy_id": strategy_id,
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "fill_price": fill_price,
-                "entry_price": entry_price,
-                "exit_price": fill_price,
-                "pnl": realized_pnl,
-                "pnl_percent": pnl_percent,
-                "trace_id": trace_id,
-                "filled_at": filled_at.isoformat(),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": SOURCE_EXECUTION,
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.TYPE: "trade_performance",
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                FieldName.ORDER_ID: order_id,
+                FieldName.TRADE_ID: order_id,
+                FieldName.STRATEGY_ID: strategy_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.QUANTITY: qty,
+                FieldName.FILL_PRICE: fill_price,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: fill_price,
+                FieldName.PNL: realized_pnl,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.FILLED_AT: filled_at_iso,
+                FieldName.ENTRY_TIME: filled_at_iso,
+                FieldName.EXIT_TIME: filled_at_iso,
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.SOURCE: SOURCE_EXECUTION,
             },
         )
         log_structured(
