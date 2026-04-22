@@ -5,21 +5,19 @@ Simple integration test for trade ledger service.
 import asyncio
 import uuid
 from decimal import Decimal
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from api.services.trade_ledger_service import TradeLedgerService
-from api.core.models.trade_ledger import TradeLedger
 
 
 async def test_trade_ledger_integration():
     """Test trade ledger service with minimal dependencies."""
     print("Testing trade ledger integration...")
-    
+
     # Mock database session
     session = AsyncMock()
     service = TradeLedgerService(session)
-    
+
     # Test BUY trade creation
     strategy_id = uuid.uuid4()
     buy_trade = await service.create_buy_trade(
@@ -33,11 +31,11 @@ async def test_trade_ledger_integration():
         trace_id="test_123",
         metadata={"test": True},
     )
-    
+
     print(f"✓ BUY trade created: {buy_trade.symbol} @ ${buy_trade.entry_price}")
     assert buy_trade.trade_type == "BUY"
     assert buy_trade.status == "OPEN"
-    
+
     # Test SELL trade with pairing
     sell_trade, parent_buy = await service.create_sell_trade(
         agent_id="test_agent",
@@ -50,16 +48,16 @@ async def test_trade_ledger_integration():
         trace_id="test_123",
         metadata={"test": True},
     )
-    
+
     print(f"✓ SELL trade paired: P&L = ${sell_trade.pnl_realized}")
     assert sell_trade.trade_type == "SELL"
     assert sell_trade.status == "CLOSED"
     assert sell_trade.pnl_realized == Decimal("1000.00")
-    
+
     # Test portfolio summary
     summary = await service.get_portfolio_summary()
     print(f"✓ Portfolio summary: {summary['open_positions']} open, ${summary['total_pnl']} P&L")
-    
+
     print("Integration test PASSED")
     return True
 

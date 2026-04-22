@@ -1,16 +1,24 @@
 """Tests for trade sequencing chronological ordering and session boundaries."""
 
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
-from api.routes.dashboard_v2 import get_trade_feed, _in_memory_trade_feed_payload
+from unittest.mock import AsyncMock, patch, MagicMock
+import pytest
+import asyncio
+import time
+
+from api.constants import (
+    STREAM_TRADE_PERFORMANCE,
+    STREAM_EXECUTIONS,
+    FieldName,
+)
+from api.services.execution.execution_engine import ExecutionEngine
 from api.runtime_state import get_runtime_store, set_db_available
 
 
 @pytest.mark.asyncio
 async def test_trade_feed_chronological_ordering_db_mode():
     """Test that trade feed returns trades in chronological order in DB mode."""
-    
+
     # Mock database mode
     with patch('api.routes.dashboard_v2.is_db_available', return_value=True):
         with patch('api.routes.dashboard_v2.AsyncSessionFactory') as mock_session_factory:
@@ -18,11 +26,11 @@ async def test_trade_feed_chronological_ordering_db_mode():
             mock_session = AsyncMock()
             mock_session_factory.return_value.__aenter__.return_value = mock_session
             mock_session_factory.return_value.__aexit__.return_value = None
-            
+
             # Mock database response with trades in chronological order
             mock_rows = [
                 (
-                    "trade1", "TSLA", "buy", 1.0, 380.0, 385.0, 5.0, 1.31, "order1", 
+                    "trade1", "TSLA", "buy", 1.0, 380.0, 385.0, 5.0, 1.31, "order1",
                     "trace1", "signal1", "A", 85.0, "Excellent", "completed",
                     datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
                     datetime(2024, 1, 1, 10, 1, tzinfo=timezone.utc),
@@ -46,14 +54,14 @@ async def test_trade_feed_chronological_ordering_db_mode():
                     datetime(2024, 1, 1, 10, 4, tzinfo=timezone.utc)  # session_date
                 ),
             ]
-            
+
             mock_result = AsyncMock()
             mock_result.all.return_value = mock_rows
             mock_session.execute.return_value = mock_result
-            
+
             # Call the endpoint
             result = await get_trade_feed(limit=50)
-            
+
             # Verify chronological ordering
             trades = result["trades"]
             assert len(trades) == 3
@@ -66,13 +74,13 @@ async def test_trade_feed_chronological_ordering_db_mode():
 @pytest.mark.asyncio
 async def test_trade_feed_session_boundaries():
     """Test that session boundaries are properly included in trade feed."""
-    
+
     with patch('api.routes.dashboard_v2.is_db_available', return_value=True):
         with patch('api.routes.dashboard_v2.AsyncSessionFactory') as mock_session_factory:
             mock_session = AsyncMock()
             mock_session_factory.return_value.__aenter__.return_value = mock_session
             mock_session_factory.return_value.__aexit__.return_value = None
-            
+
             # Mock trades from different sessions
             mock_rows = [
                 (
@@ -92,13 +100,13 @@ async def test_trade_feed_session_boundaries():
                     datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc)  # session_date
                 ),
             ]
-            
+
             mock_result = AsyncMock()
             mock_result.all.return_value = mock_rows
             mock_session.execute.return_value = mock_result
-            
+
             result = await get_trade_feed(limit=50)
-            
+
             # Verify session dates are included
             trades = result["trades"]
             assert len(trades) == 2
@@ -109,14 +117,14 @@ async def test_trade_feed_session_boundaries():
 @pytest.mark.asyncio
 async def test_in_memory_trade_feed_chronological_ordering():
     """Test that in-memory trade feed returns trades in chronological order."""
-    
+
     # Set up in-memory mode
     set_db_available(False)
     store = get_runtime_store()
-    
+
     # Clear existing trades
     store.trade_feed.clear()
-    
+
     # Add trades in chronological order (simulating real-time additions)
     trades_data = [
         {
@@ -131,7 +139,7 @@ async def test_in_memory_trade_feed_chronological_ordering():
         },
         {
             "id": "trade2",
-            "symbol": "TSLA", 
+            "symbol": "TSLA",
             "side": "sell",
             "qty": 1.0,
             "entry_price": 380.0,
@@ -150,13 +158,13 @@ async def test_in_memory_trade_feed_chronological_ordering():
             "created_at": datetime(2024, 1, 1, 10, 4, tzinfo=timezone.utc).timestamp(),
         },
     ]
-    
+
     for trade in trades_data:
         store.upsert_trade_fill(trade)
-    
+
     # Test in-memory trade feed payload
     result = _in_memory_trade_feed_payload(limit=50)
-    
+
     # Verify chronological ordering
     trades = result["trades"]
     assert len(trades) == 3
@@ -170,12 +178,12 @@ async def test_in_memory_trade_feed_chronological_ordering():
 @pytest.mark.asyncio
 async def test_trade_feed_buy_before_sell_sequence():
     """Test that trades follow proper BUY before SELL sequence within sessions."""
-    
+
     with patch('api.routes.dashboard_v2.is_db_available', return_value=True):
         with patch('api.routes.dashboard_v2.AsyncSessionFactory') as mock_session_factory:
             mock_session = AsyncMock()
             mock_session_factory.return_value.__aenter__.return_value = mock_session
-            
+
             # Mock proper sequence: BUY -> SELL -> BUY -> SELL
             mock_rows = [
                 (
@@ -205,13 +213,13 @@ async def test_trade_feed_buy_before_sell_sequence():
                     None, datetime(2024, 1, 1, 10, 6, tzinfo=timezone.utc)
                 ),
             ]
-            
+
             mock_result = AsyncMock()
             mock_result.all.return_value = mock_rows
             mock_session.execute.return_value = mock_result
-            
+
             result = await get_trade_feed(limit=50)
-            
+
             # Verify proper sequence
             trades = result["trades"]
             assert len(trades) == 4
@@ -224,11 +232,11 @@ async def test_trade_feed_buy_before_sell_sequence():
 @pytest.mark.asyncio
 async def test_trade_feed_limit_respects_chronological_order():
     """Test that limit parameter works correctly while maintaining chronological order."""
-    
+
     set_db_available(False)
     store = get_runtime_store()
     store.trade_feed.clear()
-    
+
     # Add 10 trades
     for i in range(10):
         trade = {
@@ -239,10 +247,10 @@ async def test_trade_feed_limit_respects_chronological_order():
             "created_at": (datetime(2024, 1, 1, 10, i, tzinfo=timezone.utc)).timestamp(),
         }
         store.upsert_trade_fill(trade)
-    
+
     # Test with limit of 5
     result = _in_memory_trade_feed_payload(limit=5)
-    
+
     # Should return the 5 most recent trades in chronological order
     trades = result["trades"]
     assert len(trades) == 5

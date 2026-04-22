@@ -118,7 +118,7 @@ class GradeAgent(MultiStreamAgent):
         self._pnl_buffer: deque[float] = deque(maxlen=100)
         self._confidence_buffer: deque[float] = deque(maxlen=100)
         self._consecutive_low_grades = 0
-        
+
         log_structured("info", "grade_agent_subscribed", streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -189,7 +189,7 @@ class GradeAgent(MultiStreamAgent):
         await write_grade_to_db(trace_id, payload[FieldName.SCORE_PCT], payload[FieldName.METRICS])
         await self._take_grade_action(grade, payload)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
-        
+
         # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
         await self.bus.publish(
             STREAM_LEARNING_EVENTS,
@@ -454,7 +454,7 @@ class ICUpdater(MultiStreamAgent):
         self.redis = redis_client
         self._fills = 0
         self._score_pnl_buffer: deque[tuple[float, float]] = deque(maxlen=200)
-        
+
         log_structured("info", "ic_updater_subscribed", streams=[STREAM_TRADE_PERFORMANCE])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -469,7 +469,7 @@ class ICUpdater(MultiStreamAgent):
             return
 
         await self._recompute_and_publish()
-        
+
         # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
         await self.bus.publish(
             STREAM_LEARNING_EVENTS,
@@ -616,7 +616,7 @@ class ReflectionAgent(MultiStreamAgent):
         self._recent_fills: deque[dict[str, Any]] = deque(maxlen=50)
         self._recent_grades: deque[dict[str, Any]] = deque(maxlen=20)
         self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
-        
+
         log_structured("info", "reflection_agent_subscribed", streams=[STREAM_TRADE_PERFORMANCE, STREAM_AGENT_GRADES, STREAM_FACTOR_IC_HISTORY])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -659,7 +659,7 @@ class ReflectionAgent(MultiStreamAgent):
             return
 
         await self._run_reflection()
-        
+
         # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
         await self.bus.publish(
             STREAM_LEARNING_EVENTS,
@@ -859,7 +859,7 @@ class StrategyProposer(MultiStreamAgent):
             consumer="strategy-proposer",
             agent_state=agent_state,
         )
-        
+
         log_structured("info", "strategy_proposer_subscribed", streams=[STREAM_REFLECTION_OUTPUTS])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -933,7 +933,7 @@ class StrategyProposer(MultiStreamAgent):
             strong_hypotheses=len(strong),
             reflection_trace_id=data.get(FieldName.TRACE_ID),
         )
-        
+
         # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
         await self.bus.publish(
             STREAM_LEARNING_EVENTS,

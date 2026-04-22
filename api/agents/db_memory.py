@@ -13,23 +13,23 @@ MEMORY DISCIPLINE:
 - Agents ONLY operate on verified DB data
 """
 
-from decimal import Decimal
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from typing import Any
 
-from api.observability import log_structured
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from api.core.models.trade_ledger import TradeLedger
+from api.observability import log_structured
 
 
 class AgentMemoryDiscipline:
     """Enforces DB-only memory model for agents."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
-    
-    async def get_current_positions(self, agent_id: str) -> Dict[str, Any]:
+
+    async def get_current_positions(self, agent_id: str) -> dict[str, Any]:
         """Get agent's current positions from DB only."""
         try:
             stmt = select(TradeLedger).where(
@@ -38,10 +38,10 @@ class AgentMemoryDiscipline:
                     TradeLedger.status == "OPEN"
                 )
             ).order_by(TradeLedger.created_at.desc())
-            
+
             result = await self.session.execute(stmt)
             positions = result.scalars().all()
-            
+
             position_data = {}
             for position in positions:
                 position_data[position.symbol] = {
@@ -49,7 +49,7 @@ class AgentMemoryDiscipline:
                     "entry_price": float(position.entry_price),
                     "created_at": position.created_at.isoformat(),
                 }
-            
+
             log_structured(
                 "info",
                 "agent_memory_db_query",
@@ -57,13 +57,13 @@ class AgentMemoryDiscipline:
                 positions_count=len(positions),
                 source="database_only",
             )
-            
+
             return {
                 "positions": position_data,
                 "source": "database_only",
                 "query_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -72,23 +72,23 @@ class AgentMemoryDiscipline:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "positions": {},
                 "source": "database_only",
                 "error": str(e),
             }
-    
-    async def get_trade_history(self, agent_id: str, limit: int = 50) -> Dict[str, Any]:
+
+    async def get_trade_history(self, agent_id: str, limit: int = 50) -> dict[str, Any]:
         """Get agent's trade history from DB only."""
         try:
             stmt = select(TradeLedger).where(
                 TradeLedger.agent_id == agent_id
             ).order_by(TradeLedger.created_at.desc()).limit(limit)
-            
+
             result = await self.session.execute(stmt)
             trades = result.scalars().all()
-            
+
             trade_data = []
             for trade in trades:
                 trade_data.append({
@@ -102,7 +102,7 @@ class AgentMemoryDiscipline:
                     "status": trade.status,
                     "created_at": trade.created_at.isoformat(),
                 })
-            
+
             log_structured(
                 "info",
                 "agent_memory_history_query",
@@ -110,13 +110,13 @@ class AgentMemoryDiscipline:
                 trades_count=len(trade_data),
                 source="database_only",
             )
-            
+
             return {
                 "trades": trade_data,
                 "source": "database_only",
                 "query_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -125,14 +125,14 @@ class AgentMemoryDiscipline:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "trades": [],
                 "source": "database_only",
                 "error": str(e),
             }
-    
-    async def get_exposure_summary(self, agent_id: str) -> Dict[str, Any]:
+
+    async def get_exposure_summary(self, agent_id: str) -> dict[str, Any]:
         """Get agent's current exposure from DB only."""
         try:
             # Calculate current exposure
@@ -146,10 +146,10 @@ class AgentMemoryDiscipline:
                     TradeLedger.status == "OPEN"
                 )
             )
-            
+
             result = await self.session.execute(stmt)
             exposure_data = result.first()
-            
+
             if not exposure_data:
                 return {
                     "total_exposure": 0.0,
@@ -157,11 +157,11 @@ class AgentMemoryDiscipline:
                     "open_positions": 0,
                     "source": "database_only",
                 }
-            
+
             total_exposure = float(exposure_data[0] or 0)
             unrealized_pnl = float(exposure_data[1] or 0)
             open_positions = int(exposure_data[2] or 0)
-            
+
             log_structured(
                 "info",
                 "agent_memory_exposure_query",
@@ -171,14 +171,14 @@ class AgentMemoryDiscipline:
                 open_positions=open_positions,
                 source="database_only",
             )
-            
+
             return {
                 "total_exposure": total_exposure,
                 "unrealized_pnl": unrealized_pnl,
                 "open_positions": open_positions,
                 "source": "database_only",
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -187,7 +187,7 @@ class AgentMemoryDiscipline:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "total_exposure": 0.0,
                 "unrealized_pnl": 0.0,
@@ -195,7 +195,7 @@ class AgentMemoryDiscipline:
                 "source": "database_only",
                 "error": str(e),
             }
-    
+
     async def validate_signal_id_processed(self, agent_id: str, signal_id: str) -> bool:
         """Check if signal_id was already processed by this agent."""
         try:
@@ -205,10 +205,10 @@ class AgentMemoryDiscipline:
                     TradeLedger.trace_id == signal_id
                 )
             )
-            
+
             result = await self.session.execute(stmt)
             existing_trade = result.scalar_one_or_none()
-            
+
             if existing_trade:
                 log_structured(
                     "info",
@@ -219,9 +219,9 @@ class AgentMemoryDiscipline:
                     source="database_only",
                 )
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -231,6 +231,6 @@ class AgentMemoryDiscipline:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             # On error, assume not processed to be safe
             return False

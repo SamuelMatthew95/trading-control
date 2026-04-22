@@ -8,33 +8,32 @@ powering the transaction architecture dashboard with real P&L and agent performa
 from __future__ import annotations
 
 import uuid
-from decimal import Decimal
-from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_async_session
-from api.services.trade_ledger_service import get_trade_ledger_service, TradeLedgerService
-from api.services.performance_analytics import get_performance_analytics, PerformanceAnalytics
 from api.observability import log_structured
+from api.services.performance_analytics import PerformanceAnalytics, get_performance_analytics
+from api.services.trade_ledger_service import TradeLedgerService, get_trade_ledger_service
 
 router = APIRouter(prefix="/api/trades", tags=["trades"])
 
 
 @router.get("/summary")
 async def get_portfolio_summary(
-    agent_id: Optional[str] = Query(None, description="Filter by specific agent"),
-    strategy_id: Optional[str] = Query(None, description="Filter by specific strategy"),
+    agent_id: str | None = Query(None, description="Filter by specific agent"),
+    strategy_id: str | None = Query(None, description="Filter by specific strategy"),
     session: AsyncSession = Depends(get_async_session),
     trade_service: TradeLedgerService = Depends(get_trade_ledger_service),
     analytics: PerformanceAnalytics = Depends(get_performance_analytics),
 ):
     """
     Get portfolio summary for dashboard stats.
-    
+
     Returns the key metrics that populate the Overview cards:
     - Daily P&L
-    - Win Rate  
+    - Win Rate
     - Active Positions
     - Total P&L
     """
@@ -43,7 +42,7 @@ async def get_portfolio_summary(
             agent_id=agent_id,
             strategy_id=uuid.UUID(strategy_id) if strategy_id else None,
         )
-        
+
         return {
             "success": True,
             "data": {
@@ -67,14 +66,14 @@ async def get_portfolio_summary(
 @router.get("/recent")
 async def get_recent_trades(
     limit: int = Query(50, ge=1, le=200, description="Number of trades to return"),
-    agent_id: Optional[str] = Query(None, description="Filter by specific agent"),
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
+    agent_id: str | None = Query(None, description="Filter by specific agent"),
+    symbol: str | None = Query(None, description="Filter by symbol"),
     session: AsyncSession = Depends(get_async_session),
     trade_service: TradeLedgerService = Depends(get_trade_ledger_service),
 ):
     """
     Get recent trades for the dashboard feed.
-    
+
     Returns the terminal-style feed that shows:
     - Green rows for BUY trades
     - Red rows for SELL trades with P&L
@@ -87,7 +86,7 @@ async def get_recent_trades(
             agent_id=agent_id,
             symbol=symbol,
         )
-        
+
         formatted_trades = []
         for trade in trades:
             trade_data = {
@@ -101,7 +100,7 @@ async def get_recent_trades(
                 "confidence_score": float(trade.confidence_score) if trade.confidence_score else None,
                 "agent_id": trade.agent_id,
             }
-            
+
             if trade.trade_type == "BUY":
                 trade_data.update({
                     "price": float(trade.entry_price),
@@ -114,14 +113,14 @@ async def get_recent_trades(
                     "pnl_realized": float(trade.pnl_realized),
                     "display_text": f"🔴 SELL {trade.symbol} @ ${trade.exit_price:.2f} | P&L: ${trade.pnl_realized:+.2f}",
                 })
-            
+
             formatted_trades.append(trade_data)
-        
+
         return {
             "success": True,
             "data": formatted_trades,
         }
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -134,14 +133,14 @@ async def get_recent_trades(
 
 @router.get("/positions")
 async def get_open_positions(
-    agent_id: Optional[str] = Query(None, description="Filter by specific agent"),
-    strategy_id: Optional[str] = Query(None, description="Filter by specific strategy"),
+    agent_id: str | None = Query(None, description="Filter by specific agent"),
+    strategy_id: str | None = Query(None, description="Filter by specific strategy"),
     session: AsyncSession = Depends(get_async_session),
     trade_service: TradeLedgerService = Depends(get_trade_ledger_service),
 ):
     """
     Get currently open positions.
-    
+
     Returns all BUY trades that haven't been closed yet,
     showing the current portfolio composition.
     """
@@ -150,7 +149,7 @@ async def get_open_positions(
             agent_id=agent_id,
             strategy_id=uuid.UUID(strategy_id) if strategy_id else None,
         )
-        
+
         formatted_positions = []
         for position in positions:
             formatted_positions.append({
@@ -164,12 +163,12 @@ async def get_open_positions(
                 "created_at": position.created_at.isoformat(),
                 "display_text": f"{position.symbol}: {position.quantity} @ ${position.entry_price:.2f}",
             })
-        
+
         return {
             "success": True,
             "data": formatted_positions,
         }
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -188,7 +187,7 @@ async def get_agents_performance(
 ):
     """
     Get performance metrics for all agents.
-    
+
     Returns agent grading data for the Agents tab,
     including win rates, P&L, and performance grades.
     """
@@ -198,7 +197,7 @@ async def get_agents_performance(
             lookback_days=lookback_days,
             sort_by="total_pnl",
         )
-        
+
         formatted_agents = []
         for agent in agents:
             formatted_agents.append({
@@ -213,12 +212,12 @@ async def get_agents_performance(
                 "consistency_score": agent.consistency_score,
                 "recent_performance": agent.recent_performance,
             })
-        
+
         return {
             "success": True,
             "data": formatted_agents,
         }
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -238,7 +237,7 @@ async def get_agent_performance(
 ):
     """
     Get detailed performance for a specific agent.
-    
+
     Returns comprehensive metrics for a single agent,
     useful for agent detail pages and debugging.
     """
@@ -247,7 +246,7 @@ async def get_agent_performance(
             agent_id=agent_id,
             lookback_days=lookback_days,
         )
-        
+
         return {
             "success": True,
             "data": {
@@ -267,7 +266,7 @@ async def get_agent_performance(
                 "recent_performance": performance.recent_performance,
             }
         }
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -281,15 +280,15 @@ async def get_agent_performance(
 
 @router.get("/portfolio/metrics")
 async def get_portfolio_metrics(
-    agent_id: Optional[str] = Query(None, description="Filter by specific agent"),
-    strategy_id: Optional[str] = Query(None, description="Filter by specific strategy"),
+    agent_id: str | None = Query(None, description="Filter by specific agent"),
+    strategy_id: str | None = Query(None, description="Filter by specific strategy"),
     lookback_days: int = Query(30, ge=1, le=365, description="Lookback period in days"),
     session: AsyncSession = Depends(get_async_session),
     analytics: PerformanceAnalytics = Depends(get_performance_analytics),
 ):
     """
     Get comprehensive portfolio metrics.
-    
+
     Returns advanced metrics including Sharpe ratio, max drawdown,
     and other risk-adjusted performance measures.
     """
@@ -299,7 +298,7 @@ async def get_portfolio_metrics(
             strategy_id=uuid.UUID(strategy_id) if strategy_id else None,
             lookback_days=lookback_days,
         )
-        
+
         return {
             "success": True,
             "data": {
@@ -317,7 +316,7 @@ async def get_portfolio_metrics(
                 "max_drawdown": float(metrics.max_drawdown) if metrics.max_drawdown else None,
             }
         }
-        
+
     except Exception as e:
         log_structured(
             "error",

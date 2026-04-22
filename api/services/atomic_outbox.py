@@ -12,15 +12,15 @@ OUTBOX PATTERN:
 - Prevents UI lying when WebSocket fails
 """
 
-from decimal import Decimal
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
-from sqlalchemy.orm import selectinload
+from decimal import Decimal
+from typing import Any
 
-from api.observability import log_structured
+from sqlalchemy import and_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from api.core.models.trade_ledger import TradeLedger
+from api.observability import log_structured
 
 
 class OutboxEvent(BaseModel):
@@ -33,29 +33,29 @@ class OutboxEvent(BaseModel):
     price: Decimal = Field(..., gt=0, description="Trade price")
     quantity: Decimal = Field(..., gt=0, description="Trade quantity")
     status: str = Field(..., description="Trade status")
-    payload: Dict[str, Any] = Field(..., description="Event payload")
+    payload: dict[str, Any] = Field(..., description="Event payload")
     created_at: datetime = Field(..., description="Event creation timestamp")
-    published_at: Optional[datetime] = Field(None, description="Event publish timestamp")
+    published_at: datetime | None = Field(None, description="Event publish timestamp")
     retry_count: int = Field(default=0, description="Retry count")
     max_retries: int = Field(default=3, description="Maximum retries")
-    error_message: Optional[str] = Field(None, description="Error message")
-    
+    error_message: str | None = Field(None, description="Error message")
+
     @property
     def is_published(self) -> bool:
         """Check if event is published."""
         return self.published_at is not None
-    
+
     @property
     def is_failed(self) -> bool:
         """Check if event failed permanently."""
         return self.retry_count >= self.max_retries
-    
+
     @property
     def can_retry(self) -> bool:
         """Check if event can be retried."""
         return not self.is_published and not self.is_failed
-    
-    def to_websocket_payload(self) -> Dict[str, Any]:
+
+    def to_websocket_payload(self) -> dict[str, Any]:
         """Convert to WebSocket payload format."""
         return {
             "type": "trade_execution",
@@ -70,20 +70,20 @@ class OutboxEvent(BaseModel):
 
 class AtomicOutboxManager:
     """Manages atomic outbox operations."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self._outbox_table = self._get_outbox_table()
         self._metadata = self._get_metadata()
-    
+
     async def create_trade_with_outbox(
         self,
-        trade_data: Dict[str, Any],
-        websocket_payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        trade_data: dict[str, Any],
+        websocket_payload: dict[str, Any],
+    ) -> dict[str, Any]:
         """
         Create trade and outbox event in same atomic transaction.
-        
+
         This ensures DB commit and outbox creation are atomic.
         """
         try:
@@ -93,7 +93,7 @@ class AtomicOutboxManager:
                 trade = TradeLedger(**trade_data)
                 self.session.add(trade)
                 await self.session.flush()  # Get trade_id
-                
+
                 # Create outbox event
                 outbox_event = OutboxEvent(
                     event_id=str(uuid.uuid4()),
@@ -107,7 +107,7 @@ class AtomicOutboxManager:
                     payload=websocket_payload,
                     created_at=datetime.now(timezone.utc),
                 )
-                
+
                 # Store outbox event
                 stmt = self._outbox_table.insert().values(
                     event_id=outbox_event.event_id,
@@ -123,12 +123,12 @@ class AtomicOutboxManager:
                     retry_count=outbox_event.retry_count,
                     max_retries=outbox_event.max_retries,
                 )
-                
+
                 await self.session.execute(stmt)
-                
+
                 # Commit both trade and outbox atomically
                 await self.session.commit()
-                
+
                 log_structured(
                     "info",
                     "atomic_trade_outbox_created",
@@ -137,7 +137,7 @@ class AtomicOutboxManager:
                     signal_id=outbox_event.signal_id,
                     symbol=outbox_event.symbol,
                 )
-                
+
                 return {
                     "trade_id": str(trade.trade_id),
                     "event_id": outbox_event.event_id,
@@ -146,23 +146,23 @@ class AtomicOutboxManager:
                     "status": "created",
                     "atomic": True,
                 }
-                
+
         except Exception as e:
             await self.session.rollback()
-            
+
             log_structured(
                 "error",
                 "atomic_trade_outbox_failed",
                 error=str(e),
                 exc_info=True,
             )
-            
+
             raise Exception(f"Atomic trade creation failed: {str(e)}")
-    
-    async def publish_pending_events(self, broadcaster) -> List[Dict[str, Any]]:
+
+    async def publish_pending_events(self, broadcaster) -> list[dict[str, Any]]:
         """
         Publish all pending outbox events.
-        
+
         This runs separately from trade creation to ensure
         WebSocket failures don't affect trade persistence.
         """
@@ -171,13 +171,13 @@ class AtomicOutboxManager:
             stmt = select(self._outbox_table).where(
                 self._outbox_table.c.published_at.is_(None)
             ).order_by(self._outbox_table.c.created_at)
-            
+
             result = await self.session.execute(stmt)
             pending_events = result.fetchall()
-            
+
             published_events = []
             failed_events = []
-            
+
             for event_data in pending_events:
                 try:
                     # Create OutboxEvent object
@@ -195,43 +195,43 @@ class AtomicOutboxManager:
                         retry_count=event_data.retry_count,
                         max_retries=event_data.max_retries,
                     )
-                    
+
                     # Broadcast to WebSocket
                     await broadcaster.broadcast(outbox_event.to_websocket_payload())
-                    
+
                     # Mark as published
                     await self._mark_event_published(outbox_event.event_id)
-                    
+
                     published_events.append({
                         "event_id": outbox_event.event_id,
                         "trade_id": outbox_event.trade_id,
                         "status": "published",
                     })
-                    
+
                 except Exception as e:
                     # Mark as failed or increment retry count
                     await self._mark_event_failed(event_data.event_id, str(e))
-                    
+
                     failed_events.append({
                         "event_id": event_data.event_id,
                         "trade_id": event_data.trade_id,
                         "status": "failed",
                         "error": str(e),
                     })
-            
+
             log_structured(
                 "info",
                 "outbox_publish_completed",
                 published_count=len(published_events),
                 failed_count=len(failed_events),
             )
-            
+
             return {
                 "published_events": published_events,
                 "failed_events": failed_events,
                 "total_processed": len(pending_events),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -239,9 +239,9 @@ class AtomicOutboxManager:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             raise Exception(f"Outbox publish failed: {str(e)}")
-    
+
     async def _mark_event_published(self, event_id: str) -> None:
         """Mark event as published."""
         stmt = self._outbox_table.update().where(
@@ -249,10 +249,10 @@ class AtomicOutboxManager:
         ).values(
             published_at=datetime.now(timezone.utc),
         )
-        
+
         await self.session.execute(stmt)
         await self.session.commit()
-    
+
     async def _mark_event_failed(self, event_id: str, error_message: str) -> None:
         """Mark event as failed or increment retry count."""
         # Get current event
@@ -261,12 +261,12 @@ class AtomicOutboxManager:
         )
         result = await self.session.execute(stmt)
         event_data = result.fetchone()
-        
+
         if not event_data:
             return
-        
+
         new_retry_count = event_data.retry_count + 1
-        
+
         if new_retry_count >= event_data.max_retries:
             # Mark as permanently failed
             stmt = self._outbox_table.update().where(
@@ -282,30 +282,30 @@ class AtomicOutboxManager:
             ).values(
                 retry_count=new_retry_count,
             )
-        
+
         await self.session.execute(stmt)
         await self.session.commit()
-    
-    async def get_outbox_status(self) -> Dict[str, Any]:
+
+    async def get_outbox_status(self) -> dict[str, Any]:
         """Get outbox status for monitoring."""
         try:
             # Get counts
             total_stmt = select(func.count(self._outbox_table.c.event_id))
             total_result = await self.session.execute(total_stmt)
             total_events = total_result.scalar() or 0
-            
+
             pending_stmt = select(func.count(self._outbox_table.c.event_id)).where(
                 self._outbox_table.c.published_at.is_(None)
             )
             pending_result = await self.session.execute(pending_stmt)
             pending_events = pending_result.scalar() or 0
-            
+
             published_stmt = select(func.count(self._outbox_table.c.event_id)).where(
                 self._outbox_table.c.published_at.isnot(None)
             )
             published_result = await self.session.execute(published_stmt)
             published_events = published_result.scalar() or 0
-            
+
             failed_stmt = select(func.count(self._outbox_table.c.event_id)).where(
                 and_(
                     self._outbox_table.c.retry_count >= self._outbox_table.c.max_retries,
@@ -314,7 +314,7 @@ class AtomicOutboxManager:
             )
             failed_result = await self.session.execute(failed_stmt)
             failed_events = failed_result.scalar() or 0
-            
+
             return {
                 "total_events": total_events,
                 "pending_events": pending_events,
@@ -322,7 +322,7 @@ class AtomicOutboxManager:
                 "failed_events": failed_events,
                 "status_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -330,16 +330,16 @@ class AtomicOutboxManager:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "error": str(e),
                 "status_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-    
+
     def _get_outbox_table(self):
         """Get outbox table model."""
-        from sqlalchemy import Table, Column, String, DateTime, Integer, Text, Numeric
-        
+        from sqlalchemy import Column, DateTime, Integer, Numeric, String, Table, Text
+
         return Table(
             'atomic_outbox',
             self._metadata,
@@ -358,7 +358,7 @@ class AtomicOutboxManager:
             Column('max_retries', Integer, default=3),
             Column('error_message', Text, nullable=True),
         )
-    
+
     def _get_metadata(self):
         """Get SQLAlchemy metadata."""
         from sqlalchemy import MetaData

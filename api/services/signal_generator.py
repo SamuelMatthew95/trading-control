@@ -115,7 +115,7 @@ class SignalGenerator(BaseStreamConsumer):
             if pct > 0
             else (MarketDirection.BEARISH if pct < 0 else MarketDirection.NEUTRAL)
         )
-        
+
         # Debug logging for signal generation
         log_structured(
             "debug",
@@ -126,7 +126,7 @@ class SignalGenerator(BaseStreamConsumer):
             abs_pct=abs_pct,
             direction=direction.value,
         )
-        
+
         if abs_pct >= 3.0:
             signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
         elif abs_pct >= 1.5:

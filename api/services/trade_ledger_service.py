@@ -8,17 +8,15 @@ to calculate real P&L, replacing the logging-only architecture.
 from __future__ import annotations
 
 import uuid
-from decimal import Decimal
-from typing import Optional, Tuple, List, Dict, Any
 from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import select, update, and_, desc, func
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.models.trade_ledger import TradeLedger
-from api.core.models.strategy import Strategy
 from api.observability import log_structured
-from api.runtime_state import is_db_available
 
 
 class TradeLedgerService:
@@ -34,13 +32,13 @@ class TradeLedgerService:
         symbol: str,
         quantity: Decimal,
         entry_price: Decimal,
-        confidence_score: Optional[float] = None,
+        confidence_score: float | None = None,
         execution_mode: str = "MOCK",
-        trace_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        trace_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> TradeLedger:
         """Create a BUY trade that opens a position."""
-        
+
         trade = TradeLedger(
             agent_id=agent_id,
             strategy_id=strategy_id,
@@ -57,7 +55,7 @@ class TradeLedgerService:
 
         self.session.add(trade)
         await self.session.flush()  # Get the trade_id
-        
+
         log_structured(
             "info",
             "trade_ledger_buy_created",
@@ -79,19 +77,19 @@ class TradeLedgerService:
         symbol: str,
         quantity: Decimal,
         exit_price: Decimal,
-        confidence_score: Optional[float] = None,
+        confidence_score: float | None = None,
         execution_mode: str = "MOCK",
-        trace_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[TradeLedger, Optional[TradeLedger]]:
+        trace_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[TradeLedger, TradeLedger | None]:
         """
         Create a SELL trade that closes a position.
-        
+
         Returns:
             Tuple[SELL_TRADE, PARENT_BUY_TRADE or None]
             The parent BUY trade is returned if found and paired successfully.
         """
-        
+
         # Find the latest OPEN BUY trade for this symbol and agent/strategy
         parent_buy = await self._find_open_buy_trade(
             agent_id=agent_id,
@@ -184,9 +182,9 @@ class TradeLedgerService:
         strategy_id: uuid.UUID,
         symbol: str,
         quantity: Decimal,
-    ) -> Optional[TradeLedger]:
+    ) -> TradeLedger | None:
         """Find the latest OPEN BUY trade for the given criteria."""
-        
+
         stmt = (
             select(TradeLedger)
             .where(
@@ -208,11 +206,11 @@ class TradeLedgerService:
 
     async def get_open_positions(
         self,
-        agent_id: Optional[str] = None,
-        strategy_id: Optional[uuid.UUID] = None,
-    ) -> List[TradeLedger]:
+        agent_id: str | None = None,
+        strategy_id: uuid.UUID | None = None,
+    ) -> list[TradeLedger]:
         """Get all open positions (BUY trades that haven't been closed)."""
-        
+
         stmt = select(TradeLedger).where(
             and_(
                 TradeLedger.trade_type == "BUY",
@@ -233,11 +231,11 @@ class TradeLedgerService:
     async def get_recent_trades(
         self,
         limit: int = 50,
-        agent_id: Optional[str] = None,
-        symbol: Optional[str] = None,
-    ) -> List[TradeLedger]:
+        agent_id: str | None = None,
+        symbol: str | None = None,
+    ) -> list[TradeLedger]:
         """Get recent trades for the dashboard feed."""
-        
+
         stmt = select(TradeLedger).order_by(desc(TradeLedger.created_at)).limit(limit)
 
         if agent_id:
@@ -252,11 +250,11 @@ class TradeLedgerService:
         self,
         agent_id: str,
         lookback_days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Calculate agent performance metrics for grading."""
-        
+
         from datetime import timedelta
-        
+
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
         # Get all closed trades for this agent in the lookback period
@@ -309,26 +307,25 @@ class TradeLedgerService:
         total_trades: int,
     ) -> str:
         """Calculate agent grade based on performance metrics."""
-        
+
         if total_trades < 5:
             return "INSUFFICIENT_DATA"
 
         if win_rate >= 60 and total_pnl > 0:
             return "A"
-        elif win_rate >= 50 and total_pnl > 0:
+        if win_rate >= 50 and total_pnl > 0:
             return "B"
-        elif win_rate >= 40:
+        if win_rate >= 40:
             return "C"
-        else:
-            return "D"
+        return "D"
 
     async def get_portfolio_summary(
         self,
-        agent_id: Optional[str] = None,
-        strategy_id: Optional[uuid.UUID] = None,
-    ) -> Dict[str, Any]:
+        agent_id: str | None = None,
+        strategy_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
         """Get portfolio summary for dashboard stats."""
-        
+
         # Get open positions count
         open_positions_stmt = (
             select(func.count(TradeLedger.trade_id))
@@ -401,7 +398,7 @@ class TradeLedgerService:
 
         win_rate_result = await self.session.execute(win_rate_stmt)
         win_rate_row = win_rate_result.first()
-        
+
         total_trades = win_rate_row.total or 0
         wins = win_rate_row.wins or 0
         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0

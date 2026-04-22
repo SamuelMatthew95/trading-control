@@ -13,7 +13,8 @@ LIFECYCLE ENFORCEMENT:
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,18 +22,17 @@ from api.database import get_async_session
 from api.observability import log_structured
 from api.services.trade_lifecycle_enforcer import TradeLifecycleEnforcer
 
-
 router = APIRouter(prefix="/api/trades/lifecycle", tags=["trade-lifecycle"])
 
 
 @router.post("/enforce/sell-before-buy")
 async def enforce_sell_before_buy(
-    trade_data: Dict[str, Any],
+    trade_data: dict[str, Any],
     session: AsyncSession = Depends(get_async_session),
 ):
     """
     Enforce SELL before BUY rule for all trades.
-    
+
     Prevents invalid trade sequences:
     - No orphaned SELL trades
     - Proper parent/child relationships
@@ -41,10 +41,10 @@ async def enforce_sell_before_buy(
     try:
         enforcer = TradeLifecycleEnforcer(session)
         result = await enforcer.enforce_sell_before_buy_rule(trade_data)
-        
+
         if result["rejected"]:
             raise HTTPException(status_code=400, detail=result["reason"])
-        
+
         response = {
             "success": True,
             "data": {
@@ -57,7 +57,7 @@ async def enforce_sell_before_buy(
                 "enforcement_type": "sell_before_buy_rule",
             },
         }
-        
+
         log_structured(
             "info",
             "sell_before_buy_enforced",
@@ -65,9 +65,9 @@ async def enforce_sell_before_buy(
             agent_id=result.get("agent_id"),
             symbol=result.get("symbol"),
         )
-        
+
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -78,18 +78,18 @@ async def enforce_sell_before_buy(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="SELL before BUY enforcement failed")
 
 
 @router.post("/enforce/buy-sequence")
 async def enforce_buy_sequence(
-    trade_data: Dict[str, Any],
+    trade_data: dict[str, Any],
     session: AsyncSession = Depends(get_async_session),
 ):
     """
     Enforce BUY sequence rules for all trades.
-    
+
     Prevents invalid trade sequences:
     - No multiple OPEN positions for same symbol
     - Position limits respected
@@ -98,10 +98,10 @@ async def enforce_buy_sequence(
     try:
         enforcer = TradeLifecycleEnforcer(session)
         result = await enforcer.enforce_buy_sequence_rule(trade_data)
-        
+
         if result["rejected"]:
             raise HTTPException(status_code=400, detail=result["reason"])
-        
+
         response = {
             "success": True,
             "data": {
@@ -114,7 +114,7 @@ async def enforce_buy_sequence(
                 "enforcement_type": "buy_sequence_rule",
             },
         }
-        
+
         log_structured(
             "info",
             "buy_sequence_enforced",
@@ -122,9 +122,9 @@ async def enforce_buy_sequence(
             agent_id=result.get("agent_id"),
             symbol=result.get("symbol"),
         )
-        
+
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -135,7 +135,7 @@ async def enforce_buy_sequence(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="BUY sequence enforcement failed")
 
 
@@ -146,7 +146,7 @@ async def get_lifecycle_violations(
 ):
     """
     Get all lifecycle violations for an agent.
-    
+
     Returns:
     - SELL before BUY violations
     - BUY sequence violations
@@ -155,12 +155,12 @@ async def get_lifecycle_violations(
     """
     try:
         enforcer = TradeLifecycleEnforcer(session)
-        
+
         # Get all violations
         orphaned_sells = await enforcer.check_orphaned_sells()
         sequence_violations = await enforcer.check_sequence_violations(agent_id)
         position_issues = await enforcer.check_position_consistency(agent_id)
-        
+
         violations = {
             "orphaned_sells": len(orphaned_sells),
             "sequence_violations": len(sequence_violations),
@@ -169,7 +169,7 @@ async def get_lifecycle_violations(
             "agent_id": agent_id,
             "check_timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        
+
         response = {
             "success": True,
             "data": violations,
@@ -178,16 +178,16 @@ async def get_lifecycle_violations(
                 "check_type": "violations_summary",
             },
         }
-        
+
         log_structured(
             "info",
             "lifecycle_violations_retrieved",
             agent_id=agent_id,
             total_violations=violations["total_violations"],
         )
-        
+
         return response
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -196,7 +196,7 @@ async def get_lifecycle_violations(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="Lifecycle violations check failed")
 
 
@@ -206,15 +206,15 @@ async def lifecycle_enforcement_health(
 ):
     """
     Health check for trade lifecycle enforcement service.
-    
+
     Returns service status and basic metrics.
     """
     try:
         enforcer = TradeLifecycleEnforcer(session)
-        
+
         # Get basic metrics
         orphaned_count = len(await enforcer.check_orphaned_sells())
-        
+
         response = {
             "success": True,
             "data": {
@@ -228,16 +228,16 @@ async def lifecycle_enforcement_health(
                 "check_type": "health",
             },
         }
-        
+
         log_structured(
             "info",
             "lifecycle_enforcement_health",
             status="healthy",
             orphaned_sells=orphaned_count,
         )
-        
+
         return response
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -245,5 +245,5 @@ async def lifecycle_enforcement_health(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="Lifecycle enforcement health check failed")

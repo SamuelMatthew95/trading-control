@@ -13,16 +13,14 @@ GATING LAYER:
 - Provides deterministic decision flow
 """
 
-from decimal import Decimal
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
+from typing import Any
 
-from api.observability import log_structured
-from api.agents.contracts import AgentOutput, AgentOutputValidator, AgentRole, AgentPermissions
-from api.services.schema_validation import SignalSchema
+from api.agents.contracts import AgentOutputValidator, AgentPermissions, AgentRole
 from api.core.events import SignalEvent
+from api.observability import log_structured
 
 
 class GateDecision(Enum):
@@ -43,27 +41,27 @@ class RiskLevel(Enum):
 class GateResult:
     """Result of execution gate validation."""
     decision: GateDecision
-    reason: Optional[str] = None
-    modified_signal: Optional[Dict[str, Any]] = None
+    reason: str | None = None
+    modified_signal: dict[str, Any] | None = None
     risk_level: RiskLevel = RiskLevel.LOW
-    confidence_adjustment: Optional[float] = None
+    confidence_adjustment: float | None = None
 
 
 class ExecutionGate:
     """Execution gating layer to prevent bad trades."""
-    
+
     def __init__(self, session):
         self.session = session
         self.validator = AgentOutputValidator({})
         self._recent_decisions = []
-    
+
     async def evaluate_signal(
-        self, 
-        signal: SignalEvent, 
+        self,
+        signal: SignalEvent,
         agent_permissions: AgentPermissions
     ) -> GateResult:
         """Evaluate signal against execution gate rules."""
-        
+
         try:
             # Step 1: Basic signal validation
             validation_result = self.validator.enforce_signal_contract(signal.dict())
@@ -73,21 +71,20 @@ class ExecutionGate:
                     reason=f"Signal validation failed: {validation_result.get('error')}",
                     risk_level=RiskLevel.CRITICAL,
                 )
-            
+
             # Step 2: Role-based permission check
             if agent_permissions.role == AgentRole.ANALYST:
                 return self._evaluate_analyst_signal(signal, agent_permissions)
-            elif agent_permissions.role == AgentRole.RISK:
+            if agent_permissions.role == AgentRole.RISK:
                 return self._evaluate_risk_signal(signal, agent_permissions)
-            elif agent_permissions.role == AgentRole.EXECUTOR:
+            if agent_permissions.role == AgentRole.EXECUTOR:
                 return self._evaluate_executor_signal(signal, agent_permissions)
-            else:
-                return GateResult(
-                    decision=GateDecision.REJECT,
-                    reason=f"Unknown agent role: {agent_permissions.role}",
-                    risk_level=RiskLevel.CRITICAL,
-                )
-                
+            return GateResult(
+                decision=GateDecision.REJECT,
+                reason=f"Unknown agent role: {agent_permissions.role}",
+                risk_level=RiskLevel.CRITICAL,
+            )
+
         except Exception as e:
             log_structured(
                 "error",
@@ -100,7 +97,7 @@ class ExecutionGate:
                 reason=f"Gate evaluation error: {str(e)}",
                 risk_level=RiskLevel.CRITICAL,
             )
-    
+
     def _evaluate_analyst_signal(self, signal: SignalEvent, permissions: AgentPermissions) -> GateResult:
         """Evaluate analyst agent signal - can only analyze, not trade."""
         if signal.action not in ["HOLD", "ANALYZE"]:
@@ -109,7 +106,7 @@ class ExecutionGate:
                 reason="Analyst agents can only output HOLD or ANALYZE actions",
                 risk_level=RiskLevel.HIGH,
             )
-        
+
         # Analysts cannot have high confidence for trading signals
         if signal.action in ["BUY", "SELL"] and signal.confidence and signal.confidence > 70:
             return GateResult(
@@ -118,16 +115,16 @@ class ExecutionGate:
                 confidence_adjustment=min(50, signal.confidence),
                 risk_level=RiskLevel.MEDIUM,
             )
-        
+
         return GateResult(
             decision=GateDecision.APPROVE,
             reason="Analyst signal approved",
             risk_level=RiskLevel.LOW,
         )
-    
+
     def _evaluate_risk_signal(self, signal: SignalEvent, permissions: AgentPermissions) -> GateResult:
         """Evaluate risk agent signal - can block or modify."""
-        
+
         # Check if risk agent is allowed to trade this symbol
         if permissions.allowed_symbols and signal.symbol not in permissions.allowed_symbols:
             return GateResult(
@@ -135,7 +132,7 @@ class ExecutionGate:
                 reason=f"Symbol {signal.symbol} not in allowed symbols list",
                 risk_level=RiskLevel.HIGH,
             )
-        
+
         # Check position size limits
         if permissions.max_position_size and signal.metadata.get("quantity"):
             quantity = Decimal(str(signal.metadata.get("quantity", "1")))
@@ -152,7 +149,7 @@ class ExecutionGate:
                     },
                     risk_level=RiskLevel.MEDIUM,
                 )
-        
+
         # Risk agents can reduce confidence but not below minimum
         if signal.confidence is not None and signal.confidence < 10:
             return GateResult(
@@ -161,13 +158,13 @@ class ExecutionGate:
                 confidence_adjustment=10,
                 risk_level=RiskLevel.MEDIUM,
             )
-        
+
         return GateResult(
             decision=GateDecision.APPROVE,
             reason="Risk agent signal approved",
             risk_level=RiskLevel.LOW,
         )
-    
+
     def _evaluate_executor_signal(self, signal: SignalEvent, permissions: AgentPermissions) -> GateResult:
         """Evaluate executor agent signal - only role that can execute trades."""
         if signal.action not in ["BUY", "SELL"]:
@@ -176,7 +173,7 @@ class ExecutionGate:
                 reason="Executor agents can only output BUY or SELL actions",
                 risk_level=RiskLevel.CRITICAL,
             )
-        
+
         # Check position size limits
         if permissions.max_position_size and signal.metadata.get("quantity"):
             quantity = Decimal(str(signal.metadata.get("quantity", "1")))
@@ -193,7 +190,7 @@ class ExecutionGate:
                     },
                     risk_level=RiskLevel.MEDIUM,
                 )
-        
+
         # Executors must have reasonable confidence
         if signal.confidence is not None and signal.confidence > 95:
             return GateResult(
@@ -202,13 +199,13 @@ class ExecutionGate:
                 confidence_adjustment=95,
                 risk_level=RiskLevel.MEDIUM,
             )
-        
+
         return GateResult(
             decision=GateDecision.APPROVE,
             reason="Executor signal approved",
             risk_level=RiskLevel.LOW,
         )
-    
+
     async def apply_gate_modifications(self, signal: SignalEvent, gate_result: GateResult) -> SignalEvent:
         """Apply gate modifications to signal."""
         if gate_result.modified_signal:
@@ -222,9 +219,9 @@ class ExecutionGate:
                 timestamp=signal.timestamp,
                 metadata=gate_result.modified_signal.get("metadata", signal.metadata),
             )
-        
+
         return signal
-    
+
     def log_gate_decision(self, signal: SignalEvent, gate_result: GateResult) -> None:
         """Log gate decision for audit trail."""
         log_structured(

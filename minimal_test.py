@@ -2,9 +2,7 @@
 Minimal test to verify system works without complex setup.
 """
 
-import asyncio
 import uuid
-from decimal import Decimal
 
 # Test only what we know works
 from api.services.trade_signal_filter import get_trade_signal_filter
@@ -13,31 +11,31 @@ from api.services.trade_signal_filter import get_trade_signal_filter
 def test_basic_functionality():
     """Test basic functionality without database."""
     print("Testing basic functionality...")
-    
+
     # Test 1: Trade signal filter
     filter = get_trade_signal_filter()
-    
+
     trade_event = {
         "type": "TRADE_SIGNAL",
         "payload": {"action": "BUY", "symbol": "BTC"},
         "msg_id": str(uuid.uuid4()),
     }
-    
+
     result = filter.filter_event(trade_event)
     assert result["action"] == "process"
     print("✓ Trade signal filter works")
-    
+
     # Test 2: Noise filtering
     noise_event = {
         "type": "agent_log",
         "payload": {"message": "holding"},
         "msg_id": str(uuid.uuid4()),
     }
-    
+
     result = filter.filter_event(noise_event)
     assert result["action"] in ["log_only", "discard"]
     print("✓ Noise filtering works")
-    
+
     print("Basic functionality test PASSED")
     return True
 

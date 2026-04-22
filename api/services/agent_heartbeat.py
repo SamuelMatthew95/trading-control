@@ -92,11 +92,11 @@ async def write_heartbeat(
                         "count": event_count,
                     },
                 )
-                
+
                 # Create or update agent_instances lifecycle record
                 # Use a deterministic instance_key based on agent name
                 instance_key = f"{agent_name.lower()}_lifecycle"
-                
+
                 await session.execute(
                     text("""
                         INSERT INTO agent_instances

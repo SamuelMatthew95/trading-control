@@ -7,12 +7,12 @@ DATA CONTRACT:
 - DB is a projection layer, not source of truth
 """
 
-from dataclasses import dataclass
-from decimal import Decimal
-from datetime import datetime
-from typing import Optional, Dict, Any, Literal
-from enum import Enum
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
+from enum import Enum
+from typing import Any
 
 
 class SignalAction(Enum):
@@ -30,11 +30,11 @@ class SignalEvent:
     action: SignalAction
     price: Decimal
     timestamp: datetime
-    confidence: Optional[float] = None
-    metadata: Optional[Dict[str, Any]] = None
-    
+    confidence: float | None = None
+    metadata: dict[str, Any] | None = None
+
     @classmethod
-    def from_redis_event(cls, event: Dict[str, Any]) -> "SignalEvent":
+    def from_redis_event(cls, event: dict[str, Any]) -> "SignalEvent":
         """Create SignalEvent from Redis stream data."""
         return cls(
             signal_id=str(event.get("msg_id") or event.get("signal_id") or str(uuid.uuid4())),
@@ -56,26 +56,26 @@ class TradeExecutionEvent:
     agent_id: str
     symbol: str
     action: SignalAction
-    entry_price: Optional[Decimal] = None
-    exit_price: Optional[Decimal] = None
+    entry_price: Decimal | None = None
+    exit_price: Decimal | None = None
     quantity: Decimal = Decimal("0")
-    pnl_realized: Optional[Decimal] = None
+    pnl_realized: Decimal | None = None
     status: str = "OPEN"
     execution_mode: str = "MOCK"
     timestamp: datetime = None
-    
+
     @property
     def is_buy(self) -> bool:
         return self.action == SignalAction.BUY
-    
+
     @property
     def is_sell(self) -> bool:
         return self.action == SignalAction.SELL
-    
+
     @property
     def is_open(self) -> bool:
         return self.status == "OPEN"
-    
+
     @property
     def is_closed(self) -> bool:
         return self.status == "CLOSED"
@@ -87,18 +87,18 @@ class PositionState:
     symbol: str
     quantity: Decimal
     avg_cost: Decimal
-    unrealized_pnl: Optional[Decimal] = None
-    last_trade_id: Optional[str] = None
+    unrealized_pnl: Decimal | None = None
+    last_trade_id: str | None = None
     updated_at: datetime = None
-    
+
     @property
     def is_long(self) -> bool:
         return self.quantity > 0
-    
+
     @property
     def is_short(self) -> bool:
         return self.quantity < 0
-    
+
     @property
     def is_flat(self) -> bool:
         return self.quantity == 0

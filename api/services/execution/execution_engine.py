@@ -98,12 +98,12 @@ class ExecutionEngine(BaseStreamConsumer):
         try:
             base_qty = float(data[FieldName.QTY])
             price = float(data[FieldName.PRICE])
-            
+
             # Implement position sizing based on confidence and volatility
             try:
                 confidence = float(data.get(FieldName.CONFIDENCE) or data.get(FieldName.COMPOSITE_SCORE) or 0.5)
                 volatility_factor = abs(float(data.get(FieldName.PCT, 0))) / 100.0  # Convert percentage to decimal
-                
+
                 # Validate inputs
                 if not (0.0 <= confidence <= 1.0):
                     log_structured("warning", "position_sizing_invalid_confidence", confidence=confidence, symbol=symbol)
@@ -119,19 +119,19 @@ class ExecutionEngine(BaseStreamConsumer):
                         qty_multiplier = 2.0  # Medium confidence, moderate volatility -> medium position
                     else:
                         qty_multiplier = 1.0  # Low confidence or high volatility -> minimum position
-                
+
                 qty = round(base_qty * qty_multiplier, 2)
                 qty = max(1.0, qty)  # Ensure minimum quantity of 1
-                
+
                 # Final validation
                 if not (0.1 <= qty <= 1000.0):  # Reasonable bounds
                     log_structured("warning", "position_sizing_out_of_bounds", qty=qty, symbol=symbol)
                     qty = max(1.0, min(1000.0, qty))  # Clamp to reasonable range
-                    
+
             except (ValueError, TypeError) as e:
                 log_structured("error", "position_sizing_calculation_failed", error=str(e), symbol=symbol, exc_info=True)
                 qty = max(1.0, base_qty)  # Fallback to base quantity with minimum
-            
+
             log_structured(
                 "info",
                 "position_sizing_applied",
@@ -329,7 +329,7 @@ class ExecutionEngine(BaseStreamConsumer):
         else:
             # BUY fills: calculate unrealized PnL if we have an existing position, otherwise null
             realized_pnl = self._compute_unrealized_pnl(prior_position, side, qty, fill_price)
-        
+
         entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
 
         # Retrieve the agent's confidence from agent_runs so GradeAgent gets a real value
@@ -489,12 +489,12 @@ class ExecutionEngine(BaseStreamConsumer):
         try:
             base_qty = float(data[FieldName.QTY])
             price = float(data[FieldName.PRICE])
-            
+
             # Implement position sizing based on confidence and volatility (same as DB path)
             try:
                 confidence = float(data.get(FieldName.CONFIDENCE) or data.get(FieldName.COMPOSITE_SCORE) or 0.5)
                 volatility_factor = abs(float(data.get(FieldName.PCT, 0))) / 100.0
-                
+
                 # Validate inputs
                 if not (0.0 <= confidence <= 1.0):
                     log_structured("warning", "position_sizing_invalid_confidence", confidence=confidence, symbol=symbol)
@@ -510,19 +510,19 @@ class ExecutionEngine(BaseStreamConsumer):
                         qty_multiplier = 2.0
                     else:
                         qty_multiplier = 1.0
-                
+
                 qty = round(base_qty * qty_multiplier, 2)
                 qty = max(1.0, qty)
-                
+
                 # Final validation
                 if not (0.1 <= qty <= 1000.0):  # Reasonable bounds
                     log_structured("warning", "position_sizing_out_of_bounds", qty=qty, symbol=symbol)
                     qty = max(1.0, min(1000.0, qty))  # Clamp to reasonable range
-                    
+
             except (ValueError, TypeError) as e:
                 log_structured("error", "position_sizing_calculation_failed", error=str(e), symbol=symbol, exc_info=True)
                 qty = max(1.0, base_qty)  # Fallback to base quantity with minimum
-            
+
             log_structured(
                 "info",
                 "position_sizing_applied_memory",
@@ -614,7 +614,7 @@ class ExecutionEngine(BaseStreamConsumer):
             else:
                 # BUY fills: calculate unrealized PnL if we have an existing position, otherwise null
                 realized_pnl = self._compute_unrealized_pnl(prior_position, side, qty, fill_price)
-            
+
             entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
             pnl_percent = self._compute_pnl_percent(
                 prior_position, side, qty, entry_price, realized_pnl
@@ -844,21 +844,21 @@ class ExecutionEngine(BaseStreamConsumer):
         fill_price: float,
     ) -> float | None:
         """Compute unrealized PnL for BUY fills when opening or adding to positions.
-        
+
         Returns null if no position exists, or calculated unrealized PnL if position exists.
         """
         prior_qty = float(prior_position.get(FieldName.QTY) or 0)
-        
+
         # If we have an existing position, calculate unrealized PnL
         if prior_qty > 0:
             prior_entry = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
             if side in (OrderSide.BUY, PositionSide.LONG):
                 # Adding to long position - calculate unrealized PnL on existing qty
                 return round((fill_price - prior_entry) * prior_qty, 8)
-            elif side in (OrderSide.SELL, PositionSide.SHORT):
+            if side in (OrderSide.SELL, PositionSide.SHORT):
                 # Adding to short position - calculate unrealized PnL on existing qty
                 return round((prior_entry - fill_price) * prior_qty, 8)
-        
+
         # No existing position - return null (unrealized)
         return None
 

@@ -7,17 +7,15 @@ that power the dashboard with meaningful data instead of empty placeholders.
 
 from __future__ import annotations
 
-from decimal import Decimal
-from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import select, func, and_, desc, case
+from sqlalchemy import and_, case, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.models.trade_ledger import TradeLedger
-from api.core.models.strategy import Strategy
-from api.observability import log_structured
 
 
 @dataclass
@@ -33,8 +31,8 @@ class PortfolioMetrics:
     avg_win: Decimal
     avg_loss: Decimal
     profit_factor: float
-    sharpe_ratio: Optional[float]
-    max_drawdown: Optional[Decimal]
+    sharpe_ratio: float | None
+    max_drawdown: Decimal | None
 
 
 @dataclass
@@ -51,7 +49,7 @@ class AgentPerformance:
     avg_win: Decimal
     avg_loss: Decimal
     profit_factor: float
-    recent_performance: List[Dict[str, Any]]
+    recent_performance: list[dict[str, Any]]
     risk_score: float
     consistency_score: float
 
@@ -59,7 +57,7 @@ class AgentPerformance:
 class PerformanceAnalytics:
     """
     P&L calculation and agent grading engine.
-    
+
     This service transforms raw trade data into actionable insights
     that power the dashboard and agent management systems.
     """
@@ -69,25 +67,25 @@ class PerformanceAnalytics:
 
     async def get_portfolio_metrics(
         self,
-        agent_id: Optional[str] = None,
-        strategy_id: Optional[str] = None,
+        agent_id: str | None = None,
+        strategy_id: str | None = None,
         lookback_days: int = 30,
     ) -> PortfolioMetrics:
         """
         Calculate comprehensive portfolio metrics.
-        
+
         Args:
             agent_id: Filter by specific agent
             strategy_id: Filter by specific strategy
             lookback_days: Lookback period for calculations
-            
+
         Returns:
             PortfolioMetrics object with all performance data
         """
-        
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+
+        datetime.now(timezone.utc) - timedelta(days=lookback_days)
         today_start = datetime.combine(
-            datetime.now(timezone.utc).date(), 
+            datetime.now(timezone.utc).date(),
             datetime.min.time()
         ).replace(tzinfo=timezone.utc)
 
@@ -162,7 +160,7 @@ class PerformanceAnalytics:
             )
             .where(and_(*base_filters))
         )
-        
+
         trade_stats_result = await self.session.execute(trade_stats_query)
         stats = trade_stats_result.first()
 
@@ -218,17 +216,17 @@ class PerformanceAnalytics:
     ) -> AgentPerformance:
         """
         Calculate comprehensive agent performance for grading.
-        
+
         Args:
             agent_id: The agent to analyze
             lookback_days: Lookback period for analysis
-            
+
         Returns:
             AgentPerformance object with detailed metrics
         """
-        
+
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-        
+
         # Get agent's trade statistics
         base_filters = [
             TradeLedger.agent_id == agent_id,
@@ -280,7 +278,7 @@ class PerformanceAnalytics:
             )
             .where(and_(*base_filters))
         )
-        
+
         trade_stats_result = await self.session.execute(trade_stats_query)
         stats = trade_stats_result.first()
 
@@ -356,19 +354,19 @@ class PerformanceAnalytics:
         limit: int = 10,
         lookback_days: int = 30,
         sort_by: str = "total_pnl",
-    ) -> List[AgentPerformance]:
+    ) -> list[AgentPerformance]:
         """
         Get top-performing agents by various metrics.
-        
+
         Args:
             limit: Maximum number of agents to return
             lookback_days: Lookback period for analysis
             sort_by: Metric to sort by (total_pnl, win_rate, profit_factor)
-            
+
         Returns:
             List of AgentPerformance objects sorted by the specified metric
         """
-        
+
         # Get all unique agent IDs
         agents_query = (
             select(TradeLedger.agent_id)
@@ -395,13 +393,13 @@ class PerformanceAnalytics:
 
         return agent_performances[:limit]
 
-    async def _calculate_sharpe_ratio(self, base_filters: List[Any]) -> Optional[float]:
+    async def _calculate_sharpe_ratio(self, base_filters: list[Any]) -> float | None:
         """Calculate simplified Sharpe ratio."""
         # This is a simplified calculation - in production, you'd want
         # more sophisticated risk-adjusted return calculations
         return None  # Placeholder for now
 
-    async def _calculate_max_drawdown(self, base_filters: List[Any]) -> Optional[Decimal]:
+    async def _calculate_max_drawdown(self, base_filters: list[Any]) -> Decimal | None:
         """Calculate maximum drawdown."""
         # This would require tracking portfolio value over time
         # For now, return None as placeholder
@@ -415,11 +413,11 @@ class PerformanceAnalytics:
     ) -> float:
         """
         Calculate risk score (0-100, lower is better).
-        
+
         Considers win rate, profit factor, and average loss size.
         """
         risk_score = 0
-        
+
         # Win rate component (30% weight)
         if win_rate < 40:
             risk_score += 30
@@ -454,11 +452,11 @@ class PerformanceAnalytics:
 
     def _calculate_consistency_score(
         self,
-        recent_performance: List[Dict[str, Any]],
+        recent_performance: list[dict[str, Any]],
     ) -> float:
         """
         Calculate consistency score (0-100, higher is better).
-        
+
         Measures how consistent recent performance has been.
         """
         if len(recent_performance) < 5:
@@ -489,7 +487,7 @@ class PerformanceAnalytics:
     ) -> str:
         """
         Calculate overall agent grade.
-        
+
         Uses multiple factors to determine the final grade.
         """
         if total_trades < 5:
@@ -520,14 +518,13 @@ class PerformanceAnalytics:
         # Determine grade based on final score
         if final_score >= 85:
             return "A"
-        elif final_score >= 70:
+        if final_score >= 70:
             return "B"
-        elif final_score >= 55:
+        if final_score >= 55:
             return "C"
-        elif final_score >= 40:
+        if final_score >= 40:
             return "D"
-        else:
-            return "F"
+        return "F"
 
 
 # Factory function for dependency injection

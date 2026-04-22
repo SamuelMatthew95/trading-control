@@ -13,32 +13,33 @@ LIFECYCLE RULES:
 - Position consistency must be maintained
 """
 
-from decimal import Decimal
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
 
-from api.observability import log_structured
 from api.core.models.trade_ledger import TradeLedger
+from api.observability import log_structured
 
 
 class TradeLifecycleEnforcer:
     """Enforces trade lifecycle rules to prevent invalid sequences."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
-    
+
     async def validate_sell_before_buy(
-        self, 
-        agent_id: str, 
-        symbol: str, 
-        sell_signal_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self,
+        agent_id: str,
+        symbol: str,
+        sell_signal_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Validate that SELL trade has corresponding BUY parent.
-        
+
         Rules enforced:
         - Every SELL must reference an existing BUY trade
         - BUY trade must be in OPEN status
@@ -55,10 +56,10 @@ class TradeLifecycleEnforcer:
                     TradeLedger.status == "OPEN"
                 )
             ).order_by(TradeLedger.created_at.desc())
-            
+
             result = await self.session.execute(stmt)
             parent_buy_trades = result.scalars().all()
-            
+
             if not parent_buy_trades:
                 return {
                     "valid": False,
@@ -68,11 +69,11 @@ class TradeLifecycleEnforcer:
                     "required_action": "Open BUY position first",
                     "sell_signal": sell_signal_data,
                 }
-            
+
             # Check if SELL quantity exceeds available BUY quantity
             parent_trade = parent_buy_trades[0]  # Use most recent
             sell_quantity = Decimal(str(sell_signal_data.get("quantity", "1")))
-            
+
             if sell_quantity > parent_trade.quantity:
                 return {
                     "valid": False,
@@ -84,7 +85,7 @@ class TradeLifecycleEnforcer:
                     "parent_buy_quantity": float(parent_trade.quantity),
                     "sell_quantity": float(sell_quantity),
                 }
-            
+
             return {
                 "valid": True,
                 "reason": "SELL trade validation passed",
@@ -95,7 +96,7 @@ class TradeLifecycleEnforcer:
                 "sell_quantity": float(sell_quantity),
                 "sell_signal": sell_signal_data,
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -105,7 +106,7 @@ class TradeLifecycleEnforcer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "valid": False,
                 "reason": f"Validation error: {str(e)}",
@@ -113,16 +114,16 @@ class TradeLifecycleEnforcer:
                 "symbol": symbol,
                 "error": str(e),
             }
-    
+
     async def validate_buy_sequence(
-        self, 
-        agent_id: str, 
-        symbol: str, 
-        buy_signal_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self,
+        agent_id: str,
+        symbol: str,
+        buy_signal_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Validate BUY trade sequence rules.
-        
+
         Rules enforced:
         - BUY trades must not have existing OPEN position
         - Agent position limits must be respected
@@ -138,10 +139,10 @@ class TradeLifecycleEnforcer:
                     TradeLedger.status == "OPEN"
                 )
             )
-            
+
             result = await self.session.execute(stmt)
             existing_open = result.scalar_one_or_none()
-            
+
             if existing_open:
                 return {
                     "valid": False,
@@ -152,11 +153,11 @@ class TradeLifecycleEnforcer:
                     "required_action": "Close existing position first",
                     "buy_signal": buy_signal_data,
                 }
-            
+
             # Check position limits (example: max 10 units per symbol)
             max_position_size = Decimal("10.0")
             buy_quantity = Decimal(str(buy_signal_data.get("quantity", "1")))
-            
+
             # Get current exposure for this symbol
             exposure_stmt = select(
                 func.sum(TradeLedger.quantity)
@@ -168,10 +169,10 @@ class TradeLifecycleEnforcer:
                     TradeLedger.status == "OPEN"
                 )
             )
-            
+
             exposure_result = await self.session.execute(exposure_stmt)
             current_exposure = exposure_result.scalar() or Decimal("0")
-            
+
             if current_exposure + buy_quantity > max_position_size:
                 return {
                     "valid": False,
@@ -183,7 +184,7 @@ class TradeLifecycleEnforcer:
                     "required_action": "Reduce BUY quantity",
                     "buy_signal": buy_signal_data,
                 }
-            
+
             return {
                 "valid": True,
                 "reason": "BUY trade validation passed",
@@ -194,7 +195,7 @@ class TradeLifecycleEnforcer:
                 "buy_quantity": float(buy_quantity),
                 "buy_signal": buy_signal_data,
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -204,7 +205,7 @@ class TradeLifecycleEnforcer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "valid": False,
                 "reason": f"Validation error: {str(e)}",
@@ -212,12 +213,12 @@ class TradeLifecycleEnforcer:
                 "symbol": symbol,
                 "error": str(e),
             }
-    
+
     async def get_position_summary(
-        self, 
-        agent_id: str, 
-        symbol: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self,
+        agent_id: str,
+        symbol: str | None = None
+    ) -> dict[str, Any]:
         """Get position summary for validation."""
         try:
             # Get all OPEN trades
@@ -231,10 +232,10 @@ class TradeLifecycleEnforcer:
                     )
                 )
             ).options(selectinload(TradeLedger.parent_trade))
-            
+
             result = await self.session.execute(stmt)
             open_trades = result.scalars().all()
-            
+
             positions = []
             for trade in open_trades:
                 positions.append({
@@ -246,7 +247,7 @@ class TradeLifecycleEnforcer:
                     "has_parent": trade.parent_trade_id is not None,
                     "parent_trade_id": str(trade.parent_trade_id) if trade.parent_trade_id else None,
                 })
-            
+
             return {
                 "agent_id": agent_id,
                 "symbol_filter": symbol,
@@ -254,7 +255,7 @@ class TradeLifecycleEnforcer:
                 "positions": positions,
                 "validation_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -264,14 +265,14 @@ class TradeLifecycleEnforcer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "agent_id": agent_id,
                 "error": str(e),
                 "validation_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-    
-    async def check_orphaned_sells(self) -> List[Dict[str, Any]]:
+
+    async def check_orphaned_sells(self) -> list[dict[str, Any]]:
         """Find SELL trades without corresponding BUY parents."""
         try:
             # Find SELL trades with parent_trade_id is None or non-existent
@@ -288,10 +289,10 @@ class TradeLifecycleEnforcer:
                     )
                 )
             )
-            
+
             result = await self.session.execute(stmt)
             orphaned_sells = result.scalars().all()
-            
+
             orphaned_list = []
             for sell in orphaned_sells:
                 orphaned_list.append({
@@ -305,15 +306,15 @@ class TradeLifecycleEnforcer:
                     "orphan_reason": "No corresponding BUY parent found",
                     "created_at": sell.created_at.isoformat(),
                 })
-            
+
             log_structured(
                 "warning",
                 "orphaned_sells_found",
                 count=len(orphaned_list),
             )
-            
+
             return orphaned_list
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -321,27 +322,27 @@ class TradeLifecycleEnforcer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return []
-    
+
     async def enforce_sell_before_buy_rule(
-        self, 
-        trade_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self,
+        trade_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Enforce SELL before BUY rule for all trades.
-        
+
         This is called during trade creation to prevent invalid sequences.
         """
         try:
             trade_type = trade_data.get("trade_type", "")
             symbol = trade_data.get("symbol", "")
             agent_id = trade_data.get("agent_id", "")
-            
+
             if trade_type == "SELL":
                 # Validate SELL has parent BUY
                 validation_result = await self.validate_sell_before_buy(agent_id, symbol, trade_data)
-                
+
                 if not validation_result["valid"]:
                     log_structured(
                         "warning",
@@ -350,18 +351,18 @@ class TradeLifecycleEnforcer:
                         symbol=symbol,
                         reason=validation_result["reason"],
                     )
-                    
+
                     return {
                         "rejected": True,
                         "reason": validation_result["reason"],
                         "validation": validation_result,
                     }
-            
+
             return {
                 "rejected": False,
                 "reason": "Trade validation passed",
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -370,7 +371,7 @@ class TradeLifecycleEnforcer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "rejected": True,
                 "reason": f"Enforcement error: {str(e)}",

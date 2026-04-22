@@ -12,37 +12,38 @@ P&L RECOMPUTATION:
 - Mathematical guarantees for consistency
 """
 
-from decimal import Decimal
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from decimal import Decimal
+from typing import Any
 
-from api.observability import log_structured
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from api.core.models.trade_ledger import TradeLedger
+from api.observability import log_structured
 
 
 class PnLRecomputer:
     """Deterministic P&L recomputation from raw trade data."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
-    
-    async def recompute_trade_pnl(self, trade_id: str) -> Dict[str, Any]:
+
+    async def recompute_trade_pnl(self, trade_id: str) -> dict[str, Any]:
         """Recompute P&L for a specific trade from raw data."""
         try:
             # Get the trade
             stmt = select(TradeLedger).where(TradeLedger.trade_id == trade_id)
             result = await self.session.execute(stmt)
             trade = result.scalar_one_or_none()
-            
+
             if not trade:
                 return {
                     "trade_id": trade_id,
                     "error": "Trade not found",
                     "recomputed_pnl": None,
                 }
-            
+
             # Recompute based on trade type
             if trade.trade_type == "SELL" and trade.parent_trade_id:
                 # SELL trade - compute P&L from parent BUY
@@ -52,11 +53,11 @@ class PnLRecomputer:
                 recomputed_pnl = Decimal("0")
             else:
                 recomputed_pnl = Decimal("0")
-            
+
             # Compare with stored P&L
             stored_pnl = trade.pnl_realized or Decimal("0")
             pnl_difference = abs(recomputed_pnl - stored_pnl)
-            
+
             # Log significant differences
             if pnl_difference > Decimal("0.01"):  # 1 cent threshold
                 log_structured(
@@ -67,7 +68,7 @@ class PnLRecomputer:
                     recomputed_pnl=float(recomputed_pnl),
                     difference=float(pnl_difference),
                 )
-            
+
             return {
                 "trade_id": trade_id,
                 "trade_type": trade.trade_type,
@@ -80,7 +81,7 @@ class PnLRecomputer:
                 "calculation_method": "entry_to_exit_price",
                 "source": "deterministic_recomputation",
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -89,25 +90,25 @@ class PnLRecomputer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "trade_id": trade_id,
                 "error": str(e),
                 "recomputed_pnl": None,
             }
-    
+
     async def _compute_sell_pnl(self, sell_trade: TradeLedger) -> Decimal:
         """Compute P&L for SELL trade from parent BUY."""
         if not sell_trade.parent_trade_id:
             return Decimal("0")
-        
+
         # Get parent BUY trade
         parent_stmt = select(TradeLedger).where(
             TradeLedger.trade_id == sell_trade.parent_trade_id
         )
         parent_result = await self.session.execute(parent_stmt)
         parent_trade = parent_result.scalar_one_or_none()
-        
+
         if not parent_trade:
             log_structured(
                 "warning",
@@ -116,10 +117,10 @@ class PnLRecomputer:
                 parent_trade_id=str(sell_trade.parent_trade_id),
             )
             return Decimal("0")
-        
+
         # Compute P&L: (exit_price - entry_price) * quantity
         pnl = (sell_trade.exit_price - parent_trade.entry_price) * parent_trade.quantity
-        
+
         log_structured(
             "debug",
             "pnl_calculated",
@@ -130,26 +131,26 @@ class PnLRecomputer:
             quantity=float(parent_trade.quantity),
             calculated_pnl=float(pnl),
         )
-        
+
         return pnl
-    
-    async def recompute_portfolio_pnl_strict(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+
+    async def recompute_portfolio_pnl_strict(self, agent_id: str | None = None) -> dict[str, Any]:
         """Recompute entire portfolio P&L from raw trade data."""
         try:
             # Get all trade pairs for recomputation
             pairs = await self._get_trade_pairs(agent_id)
-            
+
             total_pnl = Decimal("0")
             trade_details = []
-            
+
             for pair in pairs:
                 buy_trade, sell_trade = pair
-                
+
                 if buy_trade and sell_trade:
                     # Complete pair - compute P&L
                     pnl = (sell_trade.exit_price - buy_trade.entry_price) * buy_trade.quantity
                     total_pnl += pnl
-                    
+
                     trade_details.append({
                         "symbol": buy_trade.symbol,
                         "buy_trade_id": str(buy_trade.trade_id),
@@ -184,16 +185,16 @@ class PnLRecomputer:
                         "calculated_pnl": 0.0,
                         "pair_status": "orphaned",
                     })
-            
+
             # Calculate portfolio metrics
             complete_pairs = [t for t in trade_details if t["pair_status"] == "complete"]
             open_positions = [t for t in trade_details if t["pair_status"] == "open"]
-            
+
             winning_trades = len([t for t in complete_pairs if t["calculated_pnl"] > 0])
             total_completed_trades = len(complete_pairs)
-            
+
             win_rate = (winning_trades / total_completed_trades * 100) if total_completed_trades > 0 else 0
-            
+
             result = {
                 "agent_id": agent_id,
                 "total_pnl": float(total_pnl),
@@ -206,7 +207,7 @@ class PnLRecomputer:
                 "source": "raw_trade_data",
                 "recomputation_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
             log_structured(
                 "info",
                 "portfolio_pnl_recomputed",
@@ -215,9 +216,9 @@ class PnLRecomputer:
                 total_trades=len(trade_details),
                 win_rate=win_rate,
             )
-            
+
             return result
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -226,7 +227,7 @@ class PnLRecomputer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "agent_id": agent_id,
                 "error": str(e),
@@ -234,21 +235,21 @@ class PnLRecomputer:
                 "total_trades": 0,
                 "win_rate": 0.0,
             }
-    
-    async def _get_trade_pairs(self, agent_id: Optional[str] = None) -> List[Tuple[Optional[TradeLedger], Optional[TradeLedger]]]:
+
+    async def _get_trade_pairs(self, agent_id: str | None = None) -> list[tuple[TradeLedger | None, TradeLedger | None]]:
         """Get all trade pairs (BUY + SELL) for recomputation."""
         # Get all trades ordered by creation time
         stmt = select(TradeLedger).where(
             TradeLedger.agent_id == agent_id if agent_id else True
         ).order_by(TradeLedger.created_at)
-        
+
         result = await self.session.execute(stmt)
         all_trades = result.scalars().all()
-        
+
         # Group into pairs
         pairs = []
         unpaired_buys = {}
-        
+
         for trade in all_trades:
             if trade.trade_type == "BUY":
                 # Add to unpaired BUYs
@@ -263,15 +264,15 @@ class PnLRecomputer:
                 else:
                     # Orphaned SELL
                     pairs.append((None, trade))
-        
+
         # Add remaining unpaired BUYs
-        for symbol, buys in unpaired_buys.items():
+        for _symbol, buys in unpaired_buys.items():
             for buy_trade in buys:
                 pairs.append((buy_trade, None))
-        
+
         return pairs
-    
-    async def validate_pnl_consistency(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+
+    async def validate_pnl_consistency(self, agent_id: str | None = None) -> dict[str, Any]:
         """Validate P&L consistency across all trades."""
         try:
             # Get all trades with their P&L
@@ -287,24 +288,24 @@ class PnLRecomputer:
             ).where(
                 TradeLedger.agent_id == agent_id if agent_id else True
             )
-            
+
             result = await self.session.execute(stmt)
             trades = result.scalars().all()
-            
+
             inconsistencies = []
             validated_trades = []
-            
+
             for trade in trades:
                 # Recompute P&L for this trade
                 if trade.trade_type == "SELL" and trade.parent_trade_id:
                     # Find parent trade
                     parent_trade = next((t for t in trades if t.trade_id == trade.parent_trade_id), None)
-                    
+
                     if parent_trade:
                         # Compute expected P&L
                         expected_pnl = (trade.exit_price - parent_trade.entry_price) * parent_trade.quantity
                         actual_pnl = trade.pnl_realized or Decimal("0")
-                        
+
                         if abs(expected_pnl - actual_pnl) > Decimal("0.01"):
                             inconsistencies.append({
                                 "trade_id": str(trade.trade_id),
@@ -321,7 +322,7 @@ class PnLRecomputer:
                                 "pnl_validated": True,
                                 "pnl_value": float(actual_pnl),
                             })
-            
+
             return {
                 "agent_id": agent_id,
                 "total_trades": len(trades),
@@ -331,7 +332,7 @@ class PnLRecomputer:
                 "inconsistencies": inconsistencies,
                 "validation_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -340,7 +341,7 @@ class PnLRecomputer:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "agent_id": agent_id,
                 "error": str(e),

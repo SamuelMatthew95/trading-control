@@ -7,8 +7,8 @@ Create Date: 2026-04-13 15:30:00.000000
 """
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
@@ -68,7 +68,7 @@ def upgrade() -> None:
     op.create_index("idx_trade_ledger_execution_mode", "trade_ledger", ["execution_mode"])
     op.create_index("idx_trade_ledger_trace_id", "trade_ledger", ["trace_id"])
     op.create_index("idx_trade_ledger_schema_version", "trade_ledger", ["schema_version"])
-    
+
     # Foreign key indexes
     op.create_index(op.f("ix_trade_ledger_strategy_id"), "trade_ledger", ["strategy_id"])
     op.create_index(op.f("ix_trade_ledger_agent_id"), "trade_ledger", ["agent_id"])

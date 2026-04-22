@@ -6,7 +6,6 @@ This model pairs BUY and SELL signals to calculate real P&L.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -17,7 +16,6 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
-    Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.mutable import MutableDict
@@ -31,7 +29,7 @@ class TradeLedger(Base):
 
     # Primary identification
     trade_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    
+
     # Trade relationship tracking
     parent_trade_id = Column(
         UUID(as_uuid=True),
@@ -40,7 +38,7 @@ class TradeLedger(Base):
         index=True,
         comment="Links SELL to its corresponding BUY"
     )
-    
+
     # Agent and strategy tracking
     agent_id = Column(String, nullable=False, index=True, comment="Which agent generated this trade")
     strategy_id = Column(
@@ -49,7 +47,7 @@ class TradeLedger(Base):
         nullable=False,
         index=True,
     )
-    
+
     # Trade details
     symbol = Column(String, nullable=False, index=True)
     trade_type = Column(
@@ -58,7 +56,7 @@ class TradeLedger(Base):
         index=True,
         comment="BUY opens position, SELL closes position"
     )
-    
+
     # Pricing and quantity
     quantity = Column(Numeric(18, 8), nullable=False, comment="Number of shares/contracts")
     entry_price = Column(
@@ -71,7 +69,7 @@ class TradeLedger(Base):
         nullable=True,
         comment="Only populated for SELL trades - the closing price"
     )
-    
+
     # P&L calculation (only for closed trades)
     pnl_realized = Column(
         Numeric(18, 8),
@@ -79,7 +77,7 @@ class TradeLedger(Base):
         nullable=False,
         comment="Realized P&L = (exit_price - entry_price) * quantity"
     )
-    
+
     # Trade status and execution mode
     status = Column(
         Enum("OPEN", "CLOSED", "CANCELLED", name="trade_status"),
@@ -88,7 +86,7 @@ class TradeLedger(Base):
         index=True,
         comment="OPEN for BUY, CLOSED when paired with SELL"
     )
-    
+
     execution_mode = Column(
         Enum("MOCK", "LIVE", name="execution_mode"),
         nullable=False,
@@ -96,7 +94,7 @@ class TradeLedger(Base):
         index=True,
         comment="Whether this was a paper trade or real money"
     )
-    
+
     # Confidence and metadata
     confidence_score = Column(
         Numeric(5, 2),
@@ -109,12 +107,12 @@ class TradeLedger(Base):
         server_default=text("'{}'::jsonb"),
         comment="Additional trade context, signals, etc."
     )
-    
+
     # System fields
     schema_version = Column(String, nullable=False, server_default="v3", index=True)
     source = Column(String, nullable=False, index=True, comment="System source identifier")
     trace_id = Column(String, nullable=True, index=True, comment="Trace ID for debugging")
-    
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -138,7 +136,7 @@ class TradeLedger(Base):
         Index("idx_trade_ledger_execution_mode", "execution_mode"),
         Index("idx_trade_ledger_trace_id", "trace_id"),
         Index("idx_trade_ledger_schema_version", "schema_version"),
-        
+
         # Business logic constraints
         CheckConstraint("schema_version = 'v3'", name="check_trade_ledger_schema_v3"),
         CheckConstraint("quantity > 0", name="check_quantity_positive"),
@@ -175,13 +173,13 @@ class TradeLedger(Base):
     @property
     def is_open(self) -> bool:
         return self.status == "OPEN"
-    
+
     @property
     def is_closed(self) -> bool:
         return self.status == "CLOSED"
 
     @property
-    def is_profitable(self) -> Optional[bool]:
+    def is_profitable(self) -> bool | None:
         """Return True if profitable, False if loss, None if not closed."""
         if not self.is_closed or self.pnl_realized is None:
             return None

@@ -13,15 +13,16 @@ REPLAY SYSTEM:
 - State reconstruction capabilities
 """
 
+from datetime import datetime, timezone
 from decimal import Decimal
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
+
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 
-from api.observability import log_structured
 from api.core.models.trade_ledger import TradeLedger
+from api.observability import log_structured
 
 
 class ReplayMode(Enum):
@@ -35,15 +36,15 @@ class ReplayCheckpoint(BaseModel):
     checkpoint_id: str = Field(..., description="Checkpoint identifier")
     mode: ReplayMode = Field(..., description="Replay mode")
     timestamp: datetime = Field(..., description="Checkpoint timestamp")
-    last_processed_id: Optional[str] = Field(None, description="Last processed signal ID")
+    last_processed_id: str | None = Field(None, description="Last processed signal ID")
     total_processed: int = Field(..., description="Total signals processed")
-    system_state: Dict[str, Any] = Field(default_factory=dict, description="System state snapshot")
+    system_state: dict[str, Any] = Field(default_factory=dict, description="System state snapshot")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Checkpoint creation time")
-    
+
     @property
     def is_redis_stream_checkpoint(self) -> bool:
         return self.mode == ReplayMode.REDIS_STREAM
-    
+
     @property
     def is_ledger_rebuild_checkpoint(self) -> bool:
         return self.mode == ReplayMode.LEDGER_REBUILD
@@ -51,17 +52,17 @@ class ReplayCheckpoint(BaseModel):
 
 class ReplayManager:
     """Manages replay and recovery operations."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
-        self._checkpoints: Dict[str, ReplayCheckpoint] = {}
-    
+        self._checkpoints: dict[str, ReplayCheckpoint] = {}
+
     async def create_checkpoint(
         self,
         mode: ReplayMode,
-        last_processed_id: Optional[str] = None,
+        last_processed_id: str | None = None,
         total_processed: int = 0,
-        system_state: Optional[Dict[str, Any]] = None,
+        system_state: dict[str, Any] | None = None,
     ) -> ReplayCheckpoint:
         """Create replay checkpoint."""
         checkpoint = ReplayCheckpoint(
@@ -72,9 +73,9 @@ class ReplayManager:
             total_processed=total_processed,
             system_state=system_state or {},
         )
-        
+
         self._checkpoints[checkpoint.checkpoint_id] = checkpoint
-        
+
         log_structured(
             "info",
             "replay_checkpoint_created",
@@ -82,47 +83,47 @@ class ReplayManager:
             mode=mode.value,
             total_processed=total_processed,
         )
-        
+
         return checkpoint
-    
+
     async def replay_from_redis_stream(
         self,
         stream_name: str,
         consumer_group: str,
-        checkpoint_id: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        checkpoint_id: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
         """Replay events from Redis stream."""
         try:
             # Get checkpoint if provided
             checkpoint = None
             if checkpoint_id and checkpoint_id in self._checkpoints:
                 checkpoint = self._checkpoints[checkpoint_id]
-            
+
             # Connect to Redis
             redis = await self._get_redis_connection()
-            
+
             # Determine starting point
             start_id = checkpoint.last_processed_id if checkpoint else "0"
-            
+
             # Read stream messages
             messages = await redis.xread(
                 {stream_name: start_id},
                 consumer=consumer_group,
                 count=limit or 1000,
             )
-            
+
             processed_events = []
             last_id = start_id
-            
-            for stream, event_messages in messages:
+
+            for _stream, event_messages in messages:
                 for event_id, fields in event_messages:
                     try:
                         # Process event
                         processed_event = await self._process_redis_event(fields)
                         processed_events.append(processed_event)
                         last_id = event_id
-                        
+
                     except Exception as e:
                         log_structured(
                             "error",
@@ -131,7 +132,7 @@ class ReplayManager:
                             error=str(e),
                             exc_info=True,
                         )
-            
+
             # Create new checkpoint
             new_checkpoint = await self.create_checkpoint(
                 mode=ReplayMode.REDIS_STREAM,
@@ -139,7 +140,7 @@ class ReplayManager:
                 total_processed=len(processed_events),
                 system_state={"last_stream_id": last_id},
             )
-            
+
             return {
                 "success": True,
                 "mode": ReplayMode.REDIS_STREAM.value,
@@ -150,7 +151,7 @@ class ReplayManager:
                 "checkpoint_id": new_checkpoint.checkpoint_id,
                 "replay_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -160,26 +161,26 @@ class ReplayManager:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "success": False,
                 "mode": ReplayMode.REDIS_STREAM.value,
                 "error": str(e),
                 "replay_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-    
+
     async def rebuild_from_ledger(
         self,
-        agent_id: Optional[str] = None,
-        symbol: Optional[str] = None,
-        from_timestamp: Optional[datetime] = None,
-        to_timestamp: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        agent_id: str | None = None,
+        symbol: str | None = None,
+        from_timestamp: datetime | None = None,
+        to_timestamp: datetime | None = None,
+    ) -> dict[str, Any]:
         """Rebuild system state from trade ledger."""
         try:
             # Query ledger for rebuild
             stmt = select(TradeLedger).options(selectinload(TradeLedger.parent_trade))
-            
+
             conditions = []
             if agent_id:
                 conditions.append(TradeLedger.agent_id == agent_id)
@@ -189,25 +190,25 @@ class ReplayManager:
                 conditions.append(TradeLedger.created_at >= from_timestamp)
             if to_timestamp:
                 conditions.append(TradeLedger.created_at <= to_timestamp)
-            
+
             if conditions:
                 stmt = stmt.where(and_(*conditions))
-            
+
             stmt = stmt.order_by(TradeLedger.created_at)
-            
+
             result = await self.session.execute(stmt)
             trades = result.scalars().all()
-            
+
             # Rebuild state
             rebuilt_state = await self._rebuild_state_from_trades(trades)
-            
+
             # Create checkpoint
             checkpoint = await self.create_checkpoint(
                 mode=ReplayMode.LEDGER_REBUILD,
                 total_processed=len(trades),
                 system_state=rebuilt_state,
             )
-            
+
             return {
                 "success": True,
                 "mode": ReplayMode.LEDGER_REBUILD.value,
@@ -216,7 +217,7 @@ class ReplayManager:
                 "checkpoint_id": checkpoint.checkpoint_id,
                 "rebuild_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -226,27 +227,27 @@ class ReplayManager:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "success": False,
                 "mode": ReplayMode.LEDGER_REBUILD.value,
                 "error": str(e),
                 "rebuild_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-    
+
     async def incremental_replay(
         self,
         from_checkpoint_id: str,
-        new_events: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        new_events: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Incremental replay from checkpoint."""
         try:
             # Get checkpoint
             if from_checkpoint_id not in self._checkpoints:
                 raise ValueError(f"Checkpoint not found: {from_checkpoint_id}")
-            
+
             checkpoint = self._checkpoints[from_checkpoint_id]
-            
+
             # Process new events
             processed_events = []
             for event_data in new_events:
@@ -261,7 +262,7 @@ class ReplayManager:
                         error=str(e),
                         exc_info=True,
                     )
-            
+
             # Update checkpoint
             updated_checkpoint = await self.create_checkpoint(
                 mode=ReplayMode.INCREMENTAL_REPLAY,
@@ -269,7 +270,7 @@ class ReplayManager:
                 total_processed=checkpoint.total_processed + len(processed_events),
                 system_state=checkpoint.system_state,
             )
-            
+
             return {
                 "success": True,
                 "mode": ReplayMode.INCREMENTAL_REPLAY.value,
@@ -279,7 +280,7 @@ class ReplayManager:
                 "new_checkpoint_id": updated_checkpoint.checkpoint_id,
                 "replay_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            
+
         except Exception as e:
             log_structured(
                 "error",
@@ -288,35 +289,34 @@ class ReplayManager:
                 error=str(e),
                 exc_info=True,
             )
-            
+
             return {
                 "success": False,
                 "mode": ReplayMode.INCREMENTAL_REPLAY.value,
                 "error": str(e),
                 "replay_timestamp": datetime.now(timezone.utc).isoformat(),
             }
-    
-    async def _process_redis_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
+
+    async def _process_redis_event(self, event_data: dict[str, Any]) -> dict[str, Any]:
         """Process single Redis event."""
         try:
             # Extract event type and payload
             event_type = event_data.get("type", "unknown")
             payload = event_data.get("payload", {})
             msg_id = event_data.get("msg_id", "")
-            
+
             # Process based on event type
             if event_type == "TRADE_SIGNAL":
                 return await self._process_trade_signal(payload, msg_id)
-            elif event_type == "MARKET_EVENT":
+            if event_type == "MARKET_EVENT":
                 return await self._process_market_event(payload, msg_id)
-            else:
-                return {
-                    "event_type": event_type,
-                    "msg_id": msg_id,
-                    "status": "skipped",
-                    "reason": "Unsupported event type",
-                }
-                
+            return {
+                "event_type": event_type,
+                "msg_id": msg_id,
+                "status": "skipped",
+                "reason": "Unsupported event type",
+            }
+
         except Exception as e:
             return {
                 "event_type": event_data.get("type", "unknown"),
@@ -324,8 +324,8 @@ class ReplayManager:
                 "status": "error",
                 "error": str(e),
             }
-    
-    async def _process_trade_signal(self, payload: Dict[str, Any], msg_id: str) -> Dict[str, Any]:
+
+    async def _process_trade_signal(self, payload: dict[str, Any], msg_id: str) -> dict[str, Any]:
         """Process trade signal event."""
         # Extract signal data
         signal_id = payload.get("signal_id", "")
@@ -334,7 +334,7 @@ class ReplayManager:
         action = payload.get("action", "")
         price = payload.get("price", 0)
         quantity = payload.get("quantity", 0)
-        
+
         return {
             "event_type": "TRADE_SIGNAL",
             "msg_id": msg_id,
@@ -346,14 +346,14 @@ class ReplayManager:
             "quantity": quantity,
             "status": "processed",
         }
-    
-    async def _process_market_event(self, payload: Dict[str, Any], msg_id: str) -> Dict[str, Any]:
+
+    async def _process_market_event(self, payload: dict[str, Any], msg_id: str) -> dict[str, Any]:
         """Process market event."""
         # Extract market data
         symbol = payload.get("symbol", "")
         price = payload.get("price", 0)
         volume = payload.get("volume", 0)
-        
+
         return {
             "event_type": "MARKET_EVENT",
             "msg_id": msg_id,
@@ -362,14 +362,14 @@ class ReplayManager:
             "volume": volume,
             "status": "processed",
         }
-    
-    async def _rebuild_state_from_trades(self, trades: List[TradeLedger]) -> Dict[str, Any]:
+
+    async def _rebuild_state_from_trades(self, trades: list[TradeLedger]) -> dict[str, Any]:
         """Rebuild system state from trades."""
         # Calculate portfolio state
         open_positions = {}
         closed_trades = []
         total_pnl = Decimal("0")
-        
+
         for trade in trades:
             if trade.status == "OPEN":
                 if trade.symbol not in open_positions:
@@ -390,7 +390,7 @@ class ReplayManager:
                     "closed_at": trade.created_at.isoformat(),
                 })
                 total_pnl += trade.pnl_realized
-        
+
         return {
             "open_positions": open_positions,
             "closed_trades": closed_trades,
@@ -398,40 +398,40 @@ class ReplayManager:
             "total_trades": len(trades),
             "rebuilt_at": datetime.now(timezone.utc).isoformat(),
         }
-    
+
     async def _get_redis_connection(self):
         """Get Redis connection."""
         # Mock implementation - would use actual Redis client
         class MockRedis:
             async def xread(self, streams, consumer=None, count=None):
                 return []
-        
+
         return MockRedis()
-    
-    async def get_checkpoint(self, checkpoint_id: str) -> Optional[ReplayCheckpoint]:
+
+    async def get_checkpoint(self, checkpoint_id: str) -> ReplayCheckpoint | None:
         """Get checkpoint by ID."""
         return self._checkpoints.get(checkpoint_id)
-    
-    async def list_checkpoints(self, mode: Optional[ReplayMode] = None) -> List[ReplayCheckpoint]:
+
+    async def list_checkpoints(self, mode: ReplayMode | None = None) -> list[ReplayCheckpoint]:
         """List all checkpoints."""
         checkpoints = list(self._checkpoints.values())
-        
+
         if mode:
             checkpoints = [cp for cp in checkpoints if cp.mode == mode]
-        
+
         return sorted(checkpoints, key=lambda x: x.timestamp, reverse=True)
-    
+
     async def delete_checkpoint(self, checkpoint_id: str) -> bool:
         """Delete checkpoint."""
         if checkpoint_id in self._checkpoints:
             del self._checkpoints[checkpoint_id]
-            
+
             log_structured(
                 "info",
                 "replay_checkpoint_deleted",
                 checkpoint_id=checkpoint_id,
             )
-            
+
             return True
-        
+
         return False

@@ -8,27 +8,26 @@ DATA CONTRACT:
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_async_session
 from api.observability import log_structured
 from api.services.reconciliation_service import ReconciliationService
 
-
 router = APIRouter(prefix="/api/reconciliation", tags=["reconciliation"])
 
 
 @router.get("/validate")
 async def validate_system_consistency(
-    agent_id: Optional[str] = Query(None, description="Filter by specific agent"),
+    agent_id: str | None = Query(None, description="Filter by specific agent"),
     lookback_hours: int = Query(24, ge=1, le=168, description="Lookback period in hours"),
     session: AsyncSession = Depends(get_async_session),
 ):
     """
     Validate system consistency and detect issues.
-    
+
     Returns detailed reconciliation results including:
     - Duplicate signal detection
     - Invalid lifecycle combinations
@@ -38,10 +37,10 @@ async def validate_system_consistency(
     """
     try:
         service = ReconciliationService(session)
-        
+
         # Run full reconciliation
         result = await service.validate_ledger_consistency()
-        
+
         # Format response
         response = {
             "success": result.status.value != "error",
@@ -59,7 +58,7 @@ async def validate_system_consistency(
                 "validation_type": "full_consistency_check",
             },
         }
-        
+
         log_structured(
             "info",
             "reconciliation_completed",
@@ -67,9 +66,9 @@ async def validate_system_consistency(
             issues_count=len(result.issues),
             agent_id=agent_id,
         )
-        
+
         return response
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -77,18 +76,18 @@ async def validate_system_consistency(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="Reconciliation validation failed")
 
 
 @router.get("/pnl-recompute")
 async def recompute_portfolio_pnl(
-    agent_id: Optional[str] = Query(None, description="Filter by specific agent"),
+    agent_id: str | None = Query(None, description="Filter by specific agent"),
     session: AsyncSession = Depends(get_async_session),
 ):
     """
     Recompute portfolio P&L from ledger as source of truth.
-    
+
     Returns accurate P&L calculations based on:
     - All closed trades in ledger
     - Proper entry/exit price matching
@@ -96,10 +95,10 @@ async def recompute_portfolio_pnl(
     """
     try:
         service = ReconciliationService(session)
-        
+
         # Recalculate P&L from ledger
         pnl_data = await service.recompute_portfolio_pnl(agent_id)
-        
+
         # Format response
         response = {
             "success": True,
@@ -117,7 +116,7 @@ async def recompute_portfolio_pnl(
                 "calculation_type": "portfolio_pnl_recomputation",
             },
         }
-        
+
         log_structured(
             "info",
             "pnl_recomputed",
@@ -125,9 +124,9 @@ async def recompute_portfolio_pnl(
             total_pnl=float(pnl_data["total_pnl"]),
             total_trades=pnl_data["total_trades"],
         )
-        
+
         return response
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -136,7 +135,7 @@ async def recompute_portfolio_pnl(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="P&L recomputation failed")
 
 
@@ -146,31 +145,32 @@ async def reconciliation_health(
 ):
     """
     Health check for reconciliation service.
-    
+
     Returns system consistency status and basic metrics.
     """
     try:
         service = ReconciliationService(session)
-        
+
         # Quick consistency check
         result = await service.validate_ledger_consistency()
-        
+
         # Get basic metrics
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
+
         from api.core.models.trade_ledger import TradeLedger
-        
+
         total_trades_stmt = select(func.count(TradeLedger.trade_id))
         total_trades_result = await session.execute(total_trades_stmt)
         total_trades = total_trades_result.scalar() or 0
-        
+
         open_positions_stmt = select(func.count(TradeLedger.trade_id)).where(
             TradeLedger.status == "OPEN"
         )
         open_positions_result = await session.execute(open_positions_stmt)
         open_positions = open_positions_result.scalar() or 0
-        
+
         health_status = "healthy" if result.status.value == "consistent" else "unhealthy"
-        
+
         response = {
             "success": True,
             "data": {
@@ -186,7 +186,7 @@ async def reconciliation_health(
                 "check_type": "health",
             },
         }
-        
+
         log_structured(
             "info",
             "reconciliation_health",
@@ -194,9 +194,9 @@ async def reconciliation_health(
             total_trades=total_trades,
             open_positions=open_positions,
         )
-        
+
         return response
-        
+
     except Exception as e:
         log_structured(
             "error",
@@ -204,5 +204,5 @@ async def reconciliation_health(
             error=str(e),
             exc_info=True,
         )
-        
+
         raise HTTPException(status_code=500, detail="Health check failed")

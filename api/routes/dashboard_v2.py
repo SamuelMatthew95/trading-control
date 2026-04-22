@@ -63,12 +63,12 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     orders = list(store.orders)
     positions = list(store.positions.values())
     trade_feed = list(store.trade_feed)
-    
+
     # Calculate win rate from completed round-trip trades (SELL orders with P&L) - matches frontend logic
     completed_trades = [trade for trade in trade_feed if trade.get("side") == "sell" and trade.get("pnl") is not None and trade.get("pnl") != 0]
     winning_trades = sum(1 for trade in completed_trades if float(trade.get("pnl", 0)) > 0)
     win_rate = round((winning_trades / len(completed_trades)) * 100, 2) if completed_trades else 0.0
-    
+
     total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
     wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
     losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
@@ -918,7 +918,7 @@ async def get_worker_health() -> dict[str, Any]:
             health_data = {
                 "status": "unhealthy",
                 "trades_evaluated": {
-                    "value": len(store.grade_history),  
+                    "value": len(store.grade_history),
                     "last_updated": store.grade_history[-1].get("timestamp") if store.grade_history else "N/A",
                 },
                 "message": "No price data found in Redis",
@@ -1536,11 +1536,11 @@ def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
     """Return the in-memory trade_feed list shaped to the trade-feed endpoint contract."""
     store = get_runtime_store()
     safe_limit = max(1, min(limit, 200))
-    
+
     # Get trades in chronological order (oldest first) for proper sequencing
     # store.trade_feed is append-only, so we need to slice from the end for most recent
     recent_trades = store.trade_feed[-safe_limit:] if len(store.trade_feed) > safe_limit else store.trade_feed
-    
+
     # Return in chronological order (oldest first) - frontend will reverse for display
     return {
         "trades": recent_trades,
@@ -1585,7 +1585,7 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
             log_structured("error", "trade_feed_db_failed", exc_info=True)
             # This should never happen if DB is marked available, but handle gracefully
             return _in_memory_trade_feed_payload(limit)
-        
+
         def _fmt(row: Any) -> dict[str, Any]:
             pnl = float(row[6]) if row[6] is not None else None
             pnl_pct = float(row[7]) if row[7] is not None else None
@@ -1677,9 +1677,8 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "chronological": True,  # Flag for frontend to handle ordering correctly
         }
-    else:
-        # In-memory mode - use deterministic in-memory path
-        return _in_memory_trade_feed_payload(limit)
+    # In-memory mode - use deterministic in-memory path
+    return _in_memory_trade_feed_payload(limit)
 
 
 def _in_memory_agent_instances_payload() -> dict[str, Any]:
@@ -1687,12 +1686,12 @@ def _in_memory_agent_instances_payload() -> dict[str, Any]:
     store = get_runtime_store()
     now = time.time()
     instances = []
-    
+
     for name, data in store.agents.items():
         if data.get("status") == "ACTIVE":
             last_seen = data.get("last_seen", now)
             uptime_seconds = int(now - last_seen) if last_seen else 0
-            
+
             instances.append({
                 "id": f"in_memory_{name}",
                 "instance_key": f"{name.lower()}_lifecycle",
@@ -1703,7 +1702,7 @@ def _in_memory_agent_instances_payload() -> dict[str, Any]:
                 "event_count": data.get("event_count", 0),
                 "uptime_seconds": uptime_seconds,
             })
-    
+
     return {
         "instances": instances,
         "active_count": len(instances),
@@ -1859,7 +1858,7 @@ async def get_agent_instances() -> dict[str, Any]:
             log_structured("error", "agent_instances_db_failed", exc_info=True)
             # This should never happen if DB is marked available, but handle gracefully
             return _in_memory_agent_instances_payload()
-        
+
         instances = [
             {
                 "id": str(r[0]),
@@ -1883,9 +1882,8 @@ async def get_agent_instances() -> dict[str, Any]:
             "retired_count": len(retired),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-    else:
-        # In-memory mode - use deterministic in-memory path
-        return _in_memory_agent_instances_payload()
+    # In-memory mode - use deterministic in-memory path
+    return _in_memory_agent_instances_payload()
 
 
 # ---------------------------------------------------------------------------
