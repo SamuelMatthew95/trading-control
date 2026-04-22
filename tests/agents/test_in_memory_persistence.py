@@ -285,6 +285,98 @@ async def test_register_agent_instance_memory_mode_returns_uuid():
     assert instance_id.count("-") == 4
 
 
+async def test_register_agent_instance_retries_transient_db_error(monkeypatch):
+    """Regression: a single transient DB failure must not leave the agent
+    running with an unpersisted instance_id. register_agent_instance retries
+    up to 3 times; a flake on attempts 1-2 should still land the row.
+    """
+    from api.services.agents import db_helpers
+
+    set_db_available(True)
+    monkeypatch.setattr("api.services.agents.db_helpers.is_db_available", lambda: True)
+    # Speed up the backoff in the test
+    monkeypatch.setattr(db_helpers, "_REGISTER_BACKOFF_BASE_S", 0.0)
+
+    attempts = {"count": 0}
+
+    class _FlakySession:
+        async def execute(self, *args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise RuntimeError("transient db error")
+            return MagicMock()
+
+        async def commit(self):
+            return None
+
+    class _FlakyFactory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return _FlakySession()
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr(db_helpers, "AsyncSessionFactory", _FlakyFactory())
+
+    instance_id = await db_helpers.register_agent_instance("flaky", "TEST_POOL")
+
+    assert attempts["count"] == 3, "must have retried twice before succeeding"
+    assert len(instance_id) == 36 and instance_id.count("-") == 4
+
+
+async def test_register_agent_instance_gives_up_after_max_attempts(monkeypatch):
+    """If every retry fails, register_agent_instance still returns a UUID
+    (agent keeps running) but must log at ERROR level so ops can see that
+    lifecycle registration is broken and heartbeats will be orphaned.
+    """
+    from api.services.agents import db_helpers
+
+    set_db_available(True)
+    monkeypatch.setattr("api.services.agents.db_helpers.is_db_available", lambda: True)
+    monkeypatch.setattr(db_helpers, "_REGISTER_BACKOFF_BASE_S", 0.0)
+
+    attempts = {"count": 0}
+
+    class _BrokenSession:
+        async def execute(self, *args, **kwargs):
+            attempts["count"] += 1
+            raise RuntimeError("db down")
+
+        async def commit(self):
+            return None
+
+    class _BrokenFactory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return _BrokenSession()
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr(db_helpers, "AsyncSessionFactory", _BrokenFactory())
+
+    error_logs: list[dict] = []
+
+    def _capture(level, event, **kwargs):
+        if level == "error":
+            error_logs.append({"event": event, **kwargs})
+
+    monkeypatch.setattr(db_helpers, "log_structured", _capture)
+
+    instance_id = await db_helpers.register_agent_instance("doomed", "TEST_POOL")
+
+    assert attempts["count"] == db_helpers._REGISTER_MAX_ATTEMPTS
+    assert len(instance_id) == 36  # still returns a UUID so caller keeps running
+    assert any(log["event"] == "agent_instance_register_failed" for log in error_logs), (
+        "final failure must be logged at ERROR level (not warning)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # signal_generator — _begin_run() memory path
 # ---------------------------------------------------------------------------

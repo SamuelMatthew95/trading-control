@@ -8,6 +8,7 @@ DB routing:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid as _uuid
 from datetime import datetime, timezone
@@ -256,38 +257,67 @@ async def get_last_reflection() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+_REGISTER_MAX_ATTEMPTS = 3
+_REGISTER_BACKOFF_BASE_S = 0.2
+
+
 async def register_agent_instance(instance_key: str, pool_name: str) -> str:
     """Insert a new agent_instances row and return its UUID string.
 
     In memory mode: returns a generated UUID without any DB write.
+
+    DB mode: retries the INSERT up to ``_REGISTER_MAX_ATTEMPTS`` times with
+    exponential backoff. Without retries a single transient DB hiccup at
+    startup left the agent running with an ``_instance_id`` that was never
+    persisted — every downstream ``increment_instance_event_count`` then
+    silently matched zero rows and heartbeats lived without a lifecycle
+    record. The final failure is logged at ERROR level so ops notices.
     """
     instance_id = str(_uuid.uuid4())
     if not is_db_available():
         return instance_id
-    try:
-        async with AsyncSessionFactory() as session:
-            await session.execute(
-                text("""
-                    INSERT INTO agent_instances
-                        (id, instance_key, pool_name, status, started_at, schema_version)
-                    VALUES
-                        (:id, :key, :pool, 'active', NOW(), :schema_version)
-                """),
-                {
-                    "id": instance_id,
-                    "key": instance_key,
-                    "pool": pool_name,
-                    "schema_version": DB_SCHEMA_VERSION,
-                },
-            )
-            await session.commit()
-    except Exception:
-        log_structured(
-            "warning",
-            "agent_instance_register_failed",
-            instance_key=instance_key,
-            exc_info=True,
-        )
+
+    last_exc: Exception | None = None
+    for attempt in range(1, _REGISTER_MAX_ATTEMPTS + 1):
+        try:
+            async with AsyncSessionFactory() as session:
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_instances
+                            (id, instance_key, pool_name, status, started_at, schema_version)
+                        VALUES
+                            (:id, :key, :pool, 'active', NOW(), :schema_version)
+                        ON CONFLICT (id) DO NOTHING
+                    """),
+                    {
+                        "id": instance_id,
+                        "key": instance_key,
+                        "pool": pool_name,
+                        "schema_version": DB_SCHEMA_VERSION,
+                    },
+                )
+                await session.commit()
+            return instance_id
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < _REGISTER_MAX_ATTEMPTS:
+                log_structured(
+                    "warning",
+                    "agent_instance_register_retry",
+                    instance_key=instance_key,
+                    attempt=attempt,
+                    exc_info=True,
+                )
+                await asyncio.sleep(_REGISTER_BACKOFF_BASE_S * (2 ** (attempt - 1)))
+
+    log_structured(
+        "error",
+        "agent_instance_register_failed",
+        instance_key=instance_key,
+        pool_name=pool_name,
+        attempts=_REGISTER_MAX_ATTEMPTS,
+        last_error=str(last_exc) if last_exc else "unknown",
+    )
     return instance_id
 
 

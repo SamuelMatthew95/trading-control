@@ -229,6 +229,39 @@ async def test_publishes_trade_performance(engine, mock_bus, mock_redis, mock_br
     assert "trace_id" in payload
 
 
+async def test_trade_performance_payload_satisfies_safe_writer_contract(
+    engine, mock_bus, mock_redis, mock_broker
+):
+    """Regression: the trade_performance payload must carry every field that
+    SafeWriter.write_trade_performance requires, or the row silently fails
+    validation and PnL metrics permanently read zero.
+    See safe_writer.py::write_trade_performance validate_payload + _validate_schema_v3.
+    """
+    mock_redis.set = AsyncMock(return_value=True)
+
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine.process(_make_order("buy"))
+
+    tp_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "trade_performance")
+    payload = tp_call.args[1]
+
+    # validate_payload required keys
+    for required in ("strategy_id", "symbol", "trade_id", "entry_price", "quantity"):
+        assert required in payload, f"trade_performance payload missing {required!r}"
+
+    # _validate_schema_v3 check
+    assert payload.get("schema_version") == "v3", (
+        f"schema_version must be 'v3', got {payload.get('schema_version')!r}"
+    )
+
+    # entry_time is read unconditionally via data[FieldName.ENTRY_TIME]
+    assert "entry_time" in payload, "trade_performance payload missing entry_time"
+    assert payload["entry_time"], "entry_time must be a non-empty ISO timestamp"
+
+
 async def test_kill_switch_raises(engine, mock_redis):
     """When kill_switch:active is '1' in Redis, RuntimeError('KillSwitchActive') is raised."""
     mock_redis.get = AsyncMock(return_value="1")
@@ -463,6 +496,32 @@ async def test_process_in_memory_publishes_streams(
     published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
     assert "executions" in published_streams
     assert "trade_performance" in published_streams
+
+
+async def test_in_memory_trade_performance_payload_satisfies_safe_writer_contract(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """Same contract as test_trade_performance_payload_satisfies_safe_writer_contract
+    but for the in-memory (is_db_available=False) code path. Both paths must
+    emit the fields SafeWriter validates or the pipeline silently drops the
+    row once DB availability returns.
+    """
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_broker.get_position = AsyncMock(return_value={})
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
+    )
+
+    await engine.process(_make_order("buy"))
+
+    tp_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "trade_performance")
+    payload = tp_call.args[1]
+
+    for required in ("strategy_id", "symbol", "trade_id", "entry_price", "quantity"):
+        assert required in payload, f"in-memory trade_performance missing {required!r}"
+    assert payload.get("schema_version") == "v3"
+    assert payload.get("entry_time"), "in-memory payload missing entry_time"
 
 
 async def test_process_in_memory_deduplicates_replayed_messages(
