@@ -99,6 +99,83 @@ def test_dashboard_fallback_snapshot_agent_statuses_use_correct_names():
     assert "signal_generator" not in names
 
 
+def test_dashboard_fallback_snapshot_surfaces_trade_feed_and_agent_logs():
+    """The snapshot must include trade_feed + agent_logs so memory-mode dashboards
+    don't render the Trade Feed / Agent Thought Stream as empty."""
+    store = InMemoryStore()
+    store.upsert_trade_fill(
+        {
+            "id": "tr-1",
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 1.0,
+            "entry_price": 190.0,
+            "execution_trace_id": "tr-1",
+            "status": "filled",
+        }
+    )
+    store.add_agent_log(
+        {
+            "id": "log-1",
+            "agent_name": "REASONING_AGENT",
+            "message": "bullish call",
+            "trace_id": "tr-1",
+        }
+    )
+    store.add_grade({"trace_id": "tr-1", "grade": "A", "score": 90.0})
+    store.add_event({"log_type": LogType.PROPOSAL, "trace_id": "tr-1", "payload": {}})
+
+    snapshot = store.dashboard_fallback_snapshot()
+
+    assert "trade_feed" in snapshot
+    assert len(snapshot["trade_feed"]) == 1
+    assert snapshot["trade_feed"][0]["symbol"] == "AAPL"
+
+    assert "agent_logs" in snapshot
+    assert len(snapshot["agent_logs"]) == 1
+    assert snapshot["agent_logs"][0]["message"] == "bullish call"
+
+    assert "learning_events" in snapshot
+    assert len(snapshot["learning_events"]) == 1
+    assert snapshot["learning_events"][0]["grade"] == "A"
+
+    assert "proposals" in snapshot
+    assert len(snapshot["proposals"]) == 1
+
+
+def test_upsert_trade_fill_dedupes_on_execution_trace_id():
+    """Second upsert with the same execution_trace_id merges non-None fields into the
+    existing row; list length stays at 1."""
+    store = InMemoryStore()
+    store.upsert_trade_fill(
+        {
+            "id": "dup-1",
+            "execution_trace_id": "dup-1",
+            "symbol": "BTC/USD",
+            "side": "buy",
+            "qty": 0.1,
+            "entry_price": 50000.0,
+            "status": "filled",
+        }
+    )
+    store.upsert_trade_fill(
+        {
+            "execution_trace_id": "dup-1",
+            "grade": "B",
+            "grade_score": 0.8,
+            "status": "graded",
+        }
+    )
+
+    assert len(store.trade_feed) == 1
+    row = store.trade_feed[0]
+    assert row["grade"] == "B"
+    assert row["status"] == "graded"
+    # Original fields preserved
+    assert row["qty"] == pytest.approx(0.1)
+    assert row["entry_price"] == pytest.approx(50000.0)
+
+
 # ---------------------------------------------------------------------------
 # db_helpers — memory-mode paths
 # ---------------------------------------------------------------------------
