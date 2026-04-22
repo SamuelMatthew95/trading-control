@@ -498,6 +498,32 @@ async def test_process_in_memory_publishes_streams(
     assert "trade_performance" in published_streams
 
 
+async def test_in_memory_trade_performance_payload_satisfies_safe_writer_contract(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """Same contract as test_trade_performance_payload_satisfies_safe_writer_contract
+    but for the in-memory (is_db_available=False) code path. Both paths must
+    emit the fields SafeWriter validates or the pipeline silently drops the
+    row once DB availability returns.
+    """
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_broker.get_position = AsyncMock(return_value={})
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
+    )
+
+    await engine.process(_make_order("buy"))
+
+    tp_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "trade_performance")
+    payload = tp_call.args[1]
+
+    for required in ("strategy_id", "symbol", "trade_id", "entry_price", "quantity"):
+        assert required in payload, f"in-memory trade_performance missing {required!r}"
+    assert payload.get("schema_version") == "v3"
+    assert payload.get("entry_time"), "in-memory payload missing entry_time"
+
+
 async def test_process_in_memory_deduplicates_replayed_messages(
     engine, mock_bus, mock_redis, mock_broker, monkeypatch
 ):
