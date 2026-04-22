@@ -528,6 +528,23 @@ class ExecutionEngine(BaseStreamConsumer):
                     "trace_id": trace_id,
                 }
             )
+            # Surface on the dashboard trade_feed panel even when DB is down.
+            store.upsert_trade_fill(
+                {
+                    "id": trace_id,
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "entry_price": entry_price,
+                    "exit_price": fill_price,
+                    "pnl": realized_pnl,
+                    "pnl_percent": pnl_percent,
+                    "order_id": order_id,
+                    "execution_trace_id": trace_id,
+                    "status": OrderStatus.FILLED,
+                    "filled_at": filled_at.isoformat(),
+                }
+            )
 
             # Update position in InMemoryStore
             signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)

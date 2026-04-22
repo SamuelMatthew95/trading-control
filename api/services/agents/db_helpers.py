@@ -58,6 +58,31 @@ async def write_agent_log(
                     "payload": payload,
                 }
             )
+        # Also surface on the dashboard Agent Thought Stream — extract the most
+        # meaningful human-readable message field and a confidence if present.
+        message = (
+            payload.get(FieldName.MESSAGE)
+            or payload.get(FieldName.CONTENT)
+            or payload.get(FieldName.REASON)
+            or payload.get(FieldName.PRIMARY_EDGE)
+            or log_type
+        )
+        store.add_agent_log(
+            {
+                "id": f"mem-{len(store.agent_logs) + 1}",
+                "agent_name": payload.get(FieldName.SOURCE)
+                or payload.get(FieldName.AGENT)
+                or payload.get(FieldName.AGENT_NAME)
+                or log_type,
+                "message": message,
+                "log_level": "info",
+                "trace_id": trace_id,
+                "log_type": log_type,
+                "confidence": payload.get(FieldName.CONFIDENCE),
+                "timestamp": payload.get(FieldName.TIMESTAMP)
+                or datetime.now(timezone.utc).isoformat(),
+            }
+        )
         return
 
     try:
@@ -343,7 +368,8 @@ async def upsert_trade_lifecycle(
     dashboard fallback snapshot can show real trade activity.
     """
     if not is_db_available():
-        get_runtime_store().add_order(
+        store = get_runtime_store()
+        store.add_order(
             {
                 "order_id": order_id or execution_trace_id,
                 "symbol": symbol,
@@ -357,6 +383,28 @@ async def upsert_trade_lifecycle(
                 "status": status,
                 "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
                 "trace_id": execution_trace_id,
+            }
+        )
+        store.upsert_trade_fill(
+            {
+                "id": execution_trace_id,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pnl": pnl,
+                "pnl_percent": pnl_percent,
+                "order_id": order_id,
+                "execution_trace_id": execution_trace_id,
+                "signal_trace_id": signal_trace_id,
+                "grade": grade,
+                "grade_score": grade_score,
+                "grade_label": grade_label,
+                "status": status,
+                "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
+                "graded_at": graded_at,
+                "reflected_at": reflected_at,
             }
         )
         return

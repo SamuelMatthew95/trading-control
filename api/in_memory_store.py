@@ -16,6 +16,7 @@ from api.constants import (
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
     FieldName,
+    LogType,
 )
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
@@ -41,8 +42,10 @@ class InMemoryStore:
     event_history: list[dict[str, Any]] = field(default_factory=list)
     vector_memory: list[dict[str, Any]] = field(default_factory=list)
     agent_runs: list[dict[str, Any]] = field(default_factory=list)
+    agent_logs: list[dict[str, Any]] = field(default_factory=list)
     orders: list[dict[str, Any]] = field(default_factory=list)
     positions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    trade_feed: list[dict[str, Any]] = field(default_factory=list)
     last_health: str = "unknown"
 
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
@@ -121,12 +124,59 @@ class InMemoryStore:
         existing = self.positions.get(symbol, {})
         self.positions[symbol] = {**existing, **position}
 
+    def add_agent_log(self, log_payload: dict[str, Any]) -> dict[str, Any]:
+        """Append one row to the in-memory agent_logs list.
+
+        Surfaces reasoning / grade / reflection messages on the dashboard's
+        Agent Thought Stream when Postgres is unavailable.
+        """
+        payload = dict(log_payload)
+        payload.setdefault("timestamp", time.time())
+        self.agent_logs.append(payload)
+        if len(self.agent_logs) > 500:
+            self.agent_logs = self.agent_logs[-500:]
+        return payload
+
+    def upsert_trade_fill(self, trade: dict[str, Any]) -> dict[str, Any]:
+        """Upsert one row into the in-memory trade_feed list.
+
+        Keyed on execution_trace_id so grade/reflection updates merge into the
+        existing row instead of creating duplicates.
+        """
+        payload = dict(trade)
+        payload.setdefault("created_at", time.time())
+        key = payload.get("execution_trace_id") or payload.get(FieldName.ORDER_ID)
+        if key:
+            for i, existing in enumerate(self.trade_feed):
+                if (
+                    existing.get("execution_trace_id") == key
+                    or existing.get(FieldName.ORDER_ID) == key
+                ):
+                    merged = {**existing, **{k: v for k, v in payload.items() if v is not None}}
+                    self.trade_feed[i] = merged
+                    return merged
+        self.trade_feed.append(payload)
+        if len(self.trade_feed) > 500:
+            self.trade_feed = self.trade_feed[-500:]
+        return payload
+
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
         now = time.time()
         return {
             "orders": list(reversed(self.orders[-50:])),
-            "positions": [p for p in self.positions.values() if float(p.get(FieldName.QTY, 0)) > 0],
-            "agent_logs": [],
+            "positions": [
+                p for p in self.positions.values() if float(p.get(FieldName.QTY, 0) or 0) > 0
+            ],
+            "agent_logs": list(reversed(self.agent_logs[-50:])),
+            "learning_events": list(reversed(self.grade_history[-20:])),
+            "proposals": [
+                e
+                for e in reversed(self.event_history[-100:])
+                if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL
+            ][:20],
+            "trade_feed": list(reversed(self.trade_feed[-50:])),
+            "signals": [],
+            "risk_alerts": [],
             "prices": {},
             "ic_weights": {},
             "agent_statuses": [
