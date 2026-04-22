@@ -1516,6 +1516,19 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
+    """Return the in-memory trade_feed list shaped to the trade-feed endpoint contract."""
+    store = get_runtime_store()
+    safe_limit = max(1, min(limit, 200))
+    trades = list(reversed(store.trade_feed))[:safe_limit]
+    return {
+        "trades": trades,
+        "count": len(trades),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
+
+
 @router.get("/trade-feed")
 async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
     """Return the most recent trades with full lifecycle state.
@@ -1524,6 +1537,8 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
     whether a reflection has been written.  The frontend displays these as a
     clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
     """
+    if not is_db_available():
+        return _in_memory_trade_feed_payload(limit)
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -1617,6 +1632,14 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                         }
                     )
 
+        # DB returned zero rows — fall back to in-memory trade_feed so memory-
+        # mode fills (paper trades that never reached trade_lifecycle because
+        # the DB was down when they filled) still surface on the dashboard.
+        if not trades:
+            fallback = _in_memory_trade_feed_payload(limit)
+            if fallback["count"] > 0:
+                return fallback
+
         return {
             "trades": trades,
             "count": len(trades),
@@ -1624,12 +1647,7 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "trade_feed_failed", exc_info=True)
-        return {
-            "trades": [],
-            "count": 0,
-            "error": "trade_feed_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        return _in_memory_trade_feed_payload(limit)
 
 
 # ---------------------------------------------------------------------------
