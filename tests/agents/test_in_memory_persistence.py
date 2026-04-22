@@ -293,9 +293,7 @@ async def test_register_agent_instance_retries_transient_db_error(monkeypatch):
     from api.services.agents import db_helpers
 
     set_db_available(True)
-    monkeypatch.setattr(
-        "api.services.agents.db_helpers.is_db_available", lambda: True
-    )
+    monkeypatch.setattr("api.services.agents.db_helpers.is_db_available", lambda: True)
     # Speed up the backoff in the test
     monkeypatch.setattr(db_helpers, "_REGISTER_BACKOFF_BASE_S", 0.0)
 
@@ -337,9 +335,7 @@ async def test_register_agent_instance_gives_up_after_max_attempts(monkeypatch):
     from api.services.agents import db_helpers
 
     set_db_available(True)
-    monkeypatch.setattr(
-        "api.services.agents.db_helpers.is_db_available", lambda: True
-    )
+    monkeypatch.setattr("api.services.agents.db_helpers.is_db_available", lambda: True)
     monkeypatch.setattr(db_helpers, "_REGISTER_BACKOFF_BASE_S", 0.0)
 
     attempts = {"count": 0}
