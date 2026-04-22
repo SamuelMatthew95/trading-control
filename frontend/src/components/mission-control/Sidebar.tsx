@@ -1,12 +1,19 @@
-import Link from 'next/link';
-import { LayoutGrid, BarChart3, Bot, Zap, Settings2, Power } from 'lucide-react';
+import Link from "next/link";
+import {
+  LayoutGrid,
+  BarChart3,
+  Bot,
+  Zap,
+  Settings2,
+  Power,
+} from "lucide-react";
 
 const navigation = [
-  { name: 'Overview', href: '/dashboard', icon: LayoutGrid },
-  { name: 'Trading', href: '/dashboard/trading', icon: BarChart3 },
-  { name: 'Agents', href: '/dashboard/agents', icon: Bot },
-  { name: 'Learning', href: '/dashboard/learning', icon: Zap },
-  { name: 'System', href: '/dashboard/system', icon: Settings2 },
+  { name: "Overview", href: "/dashboard", icon: LayoutGrid },
+  { name: "Trading", href: "/dashboard/trading", icon: BarChart3 },
+  { name: "Agents", href: "/dashboard/agents", icon: Bot },
+  { name: "Learning", href: "/dashboard/learning", icon: Zap },
+  { name: "System", href: "/dashboard/system", icon: Settings2 },
 ];
 
 export function Sidebar() {
@@ -39,14 +46,21 @@ export function Sidebar() {
 
       {/* Kill Switch - Clean Industrial */}
       <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
-        <button 
+        <button
           className="w-full bg-slate-900 text-white dark:bg-red-600 border-2 border-slate-300 dark:border-red-500 hover:bg-slate-800 dark:hover:bg-red-700 px-4 py-4 transition-all rounded-lg"
-          onClick={() => { if (process.env.NODE_ENV !== 'production') console.warn('TERMINATE ALL') }}
+          onClick={() => {
+            if (process.env.NODE_ENV !== "production")
+              console.warn("TERMINATE ALL");
+          }}
         >
           <div className="flex items-center justify-between">
             <div className="text-left">
-              <p className="text-[9px] font-bold text-slate-300 dark:text-slate-200 uppercase tracking-tighter">Emergency</p>
-              <p className="text-[12px] font-black text-white uppercase leading-none">Kill Switch</p>
+              <p className="text-[9px] font-bold text-slate-300 dark:text-slate-200 uppercase tracking-tighter">
+                Emergency
+              </p>
+              <p className="text-[12px] font-black text-white uppercase leading-none">
+                Kill Switch
+              </p>
             </div>
             <Power className="w-5 h-5 text-white" />
           </div>

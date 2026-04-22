@@ -375,7 +375,7 @@ async def test_pnl_zero_for_opening_trade(engine, mock_bus, mock_redis, mock_bro
     )
     assert tp_call is not None
     payload = tp_call.args[1]
-    assert payload["pnl"] == pytest.approx(0.0)
+    assert payload["pnl"] is None  # Opening trades return None for unrealized P&L
 
 
 async def test_compute_realized_pnl_long_close(engine):
@@ -396,7 +396,7 @@ async def test_compute_realized_pnl_opening_is_zero(engine):
     """_compute_realized_pnl returns 0.0 when opening a new position."""
     prior = {}  # no prior position
     pnl = engine._compute_realized_pnl(prior, "buy", 1.0, 50000.0)
-    assert pnl == 0.0
+    assert pnl is None  # Opening trades return None for unrealized P&L
 
 
 # ---------------------------------------------------------------------------

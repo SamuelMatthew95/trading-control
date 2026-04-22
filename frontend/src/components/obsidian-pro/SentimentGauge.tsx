@@ -1,75 +1,75 @@
-'use client'
+"use client";
 
-import { motion } from 'framer-motion'
-import { cn } from '@/lib/utils'
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface SentimentGaugeProps {
-  value: number // 0-100
-  size?: 'sm' | 'md' | 'lg'
-  showLabel?: boolean
-  className?: string
+  value: number; // 0-100
+  size?: "sm" | "md" | "lg";
+  showLabel?: boolean;
+  className?: string;
 }
 
-export function SentimentGauge({ 
-  value, 
-  size = 'md', 
+export function SentimentGauge({
+  value,
+  size = "md",
   showLabel = true,
-  className 
+  className,
 }: SentimentGaugeProps) {
   const getSentimentConfig = (val: number) => {
     if (val < 33) {
       return {
-        label: 'FEAR',
-        gradient: 'from-rose-400 to-red-500',
-        ringColor: 'border-rose-200',
-        glowColor: 'bg-rose-100',
+        label: "FEAR",
+        gradient: "from-rose-400 to-red-500",
+        ringColor: "border-rose-200",
+        glowColor: "bg-rose-100",
         lightMode: {
-          gradient: 'from-rose-300 to-red-400',
-          ringColor: 'border-rose-200',
-          glowColor: 'bg-rose-50'
-        }
-      }
+          gradient: "from-rose-300 to-red-400",
+          ringColor: "border-rose-200",
+          glowColor: "bg-rose-50",
+        },
+      };
     }
     if (val < 67) {
       return {
-        label: 'NEUTRAL',
-        gradient: 'from-amber-400 to-yellow-500',
-        ringColor: 'border-amber-200',
-        glowColor: 'bg-amber-100',
+        label: "NEUTRAL",
+        gradient: "from-amber-400 to-yellow-500",
+        ringColor: "border-amber-200",
+        glowColor: "bg-amber-100",
         lightMode: {
-          gradient: 'from-amber-300 to-yellow-400',
-          ringColor: 'border-amber-200',
-          glowColor: 'bg-amber-50'
-        }
-      }
+          gradient: "from-amber-300 to-yellow-400",
+          ringColor: "border-amber-200",
+          glowColor: "bg-amber-50",
+        },
+      };
     }
     return {
-      label: 'GREED',
-      gradient: 'from-emerald-400 to-green-500',
-      ringColor: 'border-emerald-200',
-      glowColor: 'bg-emerald-100',
+      label: "GREED",
+      gradient: "from-emerald-400 to-green-500",
+      ringColor: "border-emerald-200",
+      glowColor: "bg-emerald-100",
       lightMode: {
-        gradient: 'from-emerald-300 to-green-400',
-        ringColor: 'border-emerald-200',
-        glowColor: 'bg-emerald-50'
-      }
-    }
-  }
+        gradient: "from-emerald-300 to-green-400",
+        ringColor: "border-emerald-200",
+        glowColor: "bg-emerald-50",
+      },
+    };
+  };
 
-  const config = getSentimentConfig(value)
-  const _angle = (value / 100) * 180 - 90
-  void _angle
+  const config = getSentimentConfig(value);
+  const _angle = (value / 100) * 180 - 90;
+  void _angle;
 
   const sizeStyles = {
     sm: { width: 80, height: 40, strokeWidth: 6 },
     md: { width: 120, height: 60, strokeWidth: 8 },
-    lg: { width: 160, height: 80, strokeWidth: 10 }
-  }
+    lg: { width: 160, height: 80, strokeWidth: 10 },
+  };
 
-  const { width, height, strokeWidth } = sizeStyles[size]
+  const { width, height, strokeWidth } = sizeStyles[size];
 
   return (
-    <div className={cn('flex flex-col items-center', className)}>
+    <div className={cn("flex flex-col items-center", className)}>
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -79,8 +79,8 @@ export function SentimentGauge({
         {/* Solid border instead of blur for clean appearance */}
         <div
           className={cn(
-            'absolute inset-0 rounded-full border-2',
-            config.ringColor
+            "absolute inset-0 rounded-full border-2",
+            config.ringColor,
           )}
         />
 
@@ -93,7 +93,7 @@ export function SentimentGauge({
         >
           {/* Background arc */}
           <path
-            d={`M ${strokeWidth} ${height/2} A ${width/2 - strokeWidth} ${width/2 - strokeWidth} 0 0 1 ${width - strokeWidth} ${height/2}`}
+            d={`M ${strokeWidth} ${height / 2} A ${width / 2 - strokeWidth} ${width / 2 - strokeWidth} 0 0 1 ${width - strokeWidth} ${height / 2}`}
             fill="none"
             stroke="hsl(var(--border))"
             strokeWidth={strokeWidth}
@@ -102,7 +102,7 @@ export function SentimentGauge({
 
           {/* Colored arc */}
           <motion.path
-            d={`M ${strokeWidth} ${height/2} A ${width/2 - strokeWidth} ${width/2 - strokeWidth} 0 0 1 ${width - strokeWidth} ${height/2}`}
+            d={`M ${strokeWidth} ${height / 2} A ${width / 2 - strokeWidth} ${width / 2 - strokeWidth} 0 0 1 ${width - strokeWidth} ${height / 2}`}
             fill="none"
             stroke="hsl(var(--neutral))"
             strokeWidth={strokeWidth}
@@ -114,9 +114,33 @@ export function SentimentGauge({
 
           {/* Gradient definition */}
           <defs>
-            <linearGradient id={`gradient-${value}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor={config.gradient.includes('rose') ? '#f43f5e' : config.gradient.includes('gray') ? '#6b7280' : '#10b981'} />
-              <stop offset="100%" stopColor={config.gradient.includes('orange') ? '#f97316' : config.gradient.includes('gray') ? '#4b5563' : '#22c55e'} />
+            <linearGradient
+              id={`gradient-${value}`}
+              x1="0%"
+              y1="0%"
+              x2="100%"
+              y2="0%"
+            >
+              <stop
+                offset="0%"
+                stopColor={
+                  config.gradient.includes("rose")
+                    ? "#f43f5e"
+                    : config.gradient.includes("gray")
+                      ? "#6b7280"
+                      : "#10b981"
+                }
+              />
+              <stop
+                offset="100%"
+                stopColor={
+                  config.gradient.includes("orange")
+                    ? "#f97316"
+                    : config.gradient.includes("gray")
+                      ? "#4b5563"
+                      : "#22c55e"
+                }
+              />
             </linearGradient>
           </defs>
 
@@ -125,15 +149,15 @@ export function SentimentGauge({
             cx={width / 2}
             cy={height / 2}
             r={strokeWidth / 2}
-            className={cn('fill-white', config.glowColor)}
+            className={cn("fill-white", config.glowColor)}
             animate={{
               scale: [1, 1.2, 1],
-              opacity: [0.8, 1, 0.8]
+              opacity: [0.8, 1, 0.8],
             }}
             transition={{
               duration: 2,
               repeat: Infinity,
-              ease: "easeInOut"
+              ease: "easeInOut",
             }}
           />
         </svg>
@@ -161,16 +185,20 @@ export function SentimentGauge({
           animate={{ opacity: 1, y: 0 }}
           className="mt-3"
         >
-          <span className={cn(
-            'text-xs font-semibold uppercase tracking-[0.2em]',
-            config.gradient.includes('rose') ? 'text-rose-400' :
-            config.gradient.includes('gray') ? 'text-gray-400' :
-            'text-emerald-400'
-          )}>
+          <span
+            className={cn(
+              "text-xs font-semibold uppercase tracking-[0.2em]",
+              config.gradient.includes("rose")
+                ? "text-rose-400"
+                : config.gradient.includes("gray")
+                  ? "text-gray-400"
+                  : "text-emerald-400",
+            )}
+          >
             {config.label}
           </span>
         </motion.div>
       )}
     </div>
-  )
+  );
 }

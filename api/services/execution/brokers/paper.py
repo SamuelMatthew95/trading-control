@@ -32,11 +32,19 @@ class PaperBroker:
     async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         await self.redis.setnx(REDIS_KEY_PAPER_CASH, DEFAULT_PAPER_CASH)
         normalized_side = side.lower()
+        
+        # Fetch live market price for more realistic execution
+        live_price = await self._get_live_price(symbol)
+        if live_price > 0:
+            market_price = live_price
+        else:
+            market_price = price  # Fallback to input price if live fetch fails
+        
         # Slippage is a fraction of price (0.01%–0.05%), not an absolute amount.
         # Without this, BTC at $60,000 gets $0.0003 slippage — effectively zero.
         slippage_pct = random.uniform(0.0001, 0.0005)
         direction = 1 if normalized_side in {OrderSide.BUY, PositionSide.LONG} else -1
-        fill_price = round(price * (1 + direction * slippage_pct), 8)
+        fill_price = round(market_price * (1 + direction * slippage_pct), 8)
         notional = qty * fill_price
         cash = await self.get_cash()
         if direction > 0:
@@ -91,3 +99,19 @@ class PaperBroker:
     async def get_order_status(self, broker_order_id: str) -> dict[str, Any] | None:
         raw = await self.redis.get(REDIS_KEY_PAPER_ORDER.format(broker_order_id=broker_order_id))
         return json.loads(raw) if raw else None
+
+    async def _get_live_price(self, symbol: str) -> float:
+        """Fetch live market price from Redis cache.
+        
+        Returns 0.0 if price is not available or invalid.
+        """
+        try:
+            from api.constants import REDIS_KEY_PRICES
+            
+            price_raw = await self.redis.get(REDIS_KEY_PRICES.format(symbol=symbol))
+            if price_raw:
+                price_data = json.loads(price_raw)
+                return float(price_data.get(FieldName.PRICE, 0.0))
+            return 0.0
+        except Exception:
+            return 0.0

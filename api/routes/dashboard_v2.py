@@ -6,6 +6,7 @@ Provides real-time dashboard data without NaN issues.
 
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -61,6 +62,13 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     store = get_runtime_store()
     orders = list(store.orders)
     positions = list(store.positions.values())
+    trade_feed = list(store.trade_feed)
+    
+    # Calculate win rate from completed round-trip trades (SELL orders with P&L) - matches frontend logic
+    completed_trades = [trade for trade in trade_feed if trade.get("side") == "sell" and trade.get("pnl") is not None and trade.get("pnl") != 0]
+    winning_trades = sum(1 for trade in completed_trades if float(trade.get("pnl", 0)) > 0)
+    win_rate = round((winning_trades / len(completed_trades)) * 100, 2) if completed_trades else 0.0
+    
     total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
     wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
     losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
@@ -70,7 +78,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
         "total_pnl": round(total_pnl, 2),
         "winning_trades": wins,
         "losing_trades": losses,
-        "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
+        "win_rate": win_rate / 100,  # Convert to decimal for frontend consistency
         "active_positions": sum(
             1
             for p in positions
@@ -95,16 +103,20 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
 
     This is the primary endpoint for the UI dashboard.
     Returns sanitized data with no NaN values.
-    Uses in-memory store directly when the database is unavailable.
+    Uses deterministic code path based on known database state.
     """
-    if not is_db_available():
-        return get_runtime_store().dashboard_fallback_snapshot()
-    try:
-        async with AsyncSessionFactory() as session:
-            aggregator = MetricsAggregator(session)
-            return await aggregator.get_dashboard_snapshot()
-    except Exception:
-        log_structured("warning", "dashboard_snapshot_db_failed", exc_info=True)
+    if is_db_available():
+        # Database mode - use PostgreSQL
+        try:
+            async with AsyncSessionFactory() as session:
+                aggregator = MetricsAggregator(session)
+                return await aggregator.get_dashboard_snapshot()
+        except Exception:
+            log_structured("error", "dashboard_snapshot_db_failed", exc_info=True)
+            # This should never happen if DB is marked available, but handle gracefully
+            return get_runtime_store().dashboard_fallback_snapshot()
+    else:
+        # In-memory mode - use deterministic in-memory path
         return get_runtime_store().dashboard_fallback_snapshot()
 
 
@@ -905,6 +917,10 @@ async def get_worker_health() -> dict[str, Any]:
         if not timestamps:
             health_data = {
                 "status": "unhealthy",
+                "trades_evaluated": {
+                    "value": len(store.grade_history),  
+                    "last_updated": store.grade_history[-1].get("timestamp") if store.grade_history else "N/A",
+                },
                 "message": "No price data found in Redis",
                 "last_update": None,
                 "heartbeat_status": heartbeat_status,
@@ -1520,12 +1536,18 @@ def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
     """Return the in-memory trade_feed list shaped to the trade-feed endpoint contract."""
     store = get_runtime_store()
     safe_limit = max(1, min(limit, 200))
-    trades = list(reversed(store.trade_feed))[:safe_limit]
+    
+    # Get trades in chronological order (oldest first) for proper sequencing
+    # store.trade_feed is append-only, so we need to slice from the end for most recent
+    recent_trades = store.trade_feed[-safe_limit:] if len(store.trade_feed) > safe_limit else store.trade_feed
+    
+    # Return in chronological order (oldest first) - frontend will reverse for display
     return {
-        "trades": trades,
-        "count": len(trades),
+        "trades": recent_trades,
+        "count": len(recent_trades),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "in_memory",
+        "chronological": True,  # Flag for frontend to handle ordering correctly
     }
 
 
@@ -1537,27 +1559,33 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
     whether a reflection has been written.  The frontend displays these as a
     clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
     """
-    if not is_db_available():
-        return _in_memory_trade_feed_payload(limit)
-    try:
-        async with AsyncSessionFactory() as session:
-            result = await session.execute(
-                text("""
-                    SELECT
-                        id, symbol, side, qty, entry_price, exit_price,
-                        pnl, pnl_percent, order_id,
-                        execution_trace_id, signal_trace_id,
-                        grade, grade_score, grade_label,
-                        status, filled_at, graded_at, reflected_at,
-                        created_at
-                    FROM trade_lifecycle
-                    ORDER BY created_at DESC
-                    LIMIT :limit
-                """),
-                {"limit": min(limit, 200)},
-            )
-            rows = result.all()
-
+    if is_db_available():
+        # Database mode - use PostgreSQL
+        try:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT
+                            id, symbol, side, qty, entry_price, exit_price,
+                            pnl, pnl_percent, order_id,
+                            execution_trace_id, signal_trace_id,
+                            grade, grade_score, grade_label,
+                            status, filled_at, graded_at, reflected_at,
+                            created_at,
+                            -- Extract session_id from trace_id or use created_at date as session boundary
+                            DATE(created_at AT TIME ZONE 'UTC') as session_date
+                        FROM trade_lifecycle
+                        ORDER BY created_at ASC, filled_at ASC
+                        LIMIT :limit
+                    """),
+                    {"limit": min(limit, 200)},
+                )
+                rows = result.all()
+        except Exception:
+            log_structured("error", "trade_feed_db_failed", exc_info=True)
+            # This should never happen if DB is marked available, but handle gracefully
+            return _in_memory_trade_feed_payload(limit)
+        
         def _fmt(row: Any) -> dict[str, Any]:
             pnl = float(row[6]) if row[6] is not None else None
             pnl_pct = float(row[7]) if row[7] is not None else None
@@ -1581,6 +1609,7 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                 "graded_at": row[16].isoformat() if row[16] else None,
                 "reflected_at": row[17].isoformat() if row[17] else None,
                 "created_at": row[18].isoformat() if row[18] else None,
+                "session_date": str(row[19]) if len(row) > 19 else None,
             }
 
         trades = [_fmt(r) for r in rows]
@@ -1640,14 +1669,48 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
             if fallback["count"] > 0:
                 return fallback
 
+        # Return trades in chronological order (oldest first) for proper sequencing
+        # Frontend will display them in reverse order to show newest at top
         return {
             "trades": trades,
             "count": len(trades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "chronological": True,  # Flag for frontend to handle ordering correctly
         }
-    except Exception:
-        log_structured("error", "trade_feed_failed", exc_info=True)
+    else:
+        # In-memory mode - use deterministic in-memory path
         return _in_memory_trade_feed_payload(limit)
+
+
+def _in_memory_agent_instances_payload() -> dict[str, Any]:
+    """Return agent instances from in-memory store."""
+    store = get_runtime_store()
+    now = time.time()
+    instances = []
+    
+    for name, data in store.agents.items():
+        if data.get("status") == "ACTIVE":
+            last_seen = data.get("last_seen", now)
+            uptime_seconds = int(now - last_seen) if last_seen else 0
+            
+            instances.append({
+                "id": f"in_memory_{name}",
+                "instance_key": f"{name.lower()}_lifecycle",
+                "pool_name": name,
+                "status": "active",
+                "started_at": datetime.fromtimestamp(last_seen, timezone.utc).isoformat() if last_seen else None,
+                "retired_at": None,
+                "event_count": data.get("event_count", 0),
+                "uptime_seconds": uptime_seconds,
+            })
+    
+    return {
+        "instances": instances,
+        "active_count": len(instances),
+        "retired_count": 0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1774,23 +1837,29 @@ async def get_agent_instances() -> dict[str, Any]:
     Active instances show how long they have been running and how many events
     they have processed.  Retired instances are kept for audit.
     """
-    try:
-        async with AsyncSessionFactory() as session:
-            result = await session.execute(
-                text("""
-                    SELECT
-                        id, instance_key, pool_name, status,
-                        started_at, retired_at, event_count, metadata,
-                        EXTRACT(EPOCH FROM (
-                            COALESCE(retired_at, NOW()) - started_at
-                        ))::int AS uptime_seconds
-                    FROM agent_instances
-                    ORDER BY started_at DESC
-                    LIMIT 100
-                """)
-            )
-            rows = result.all()
-
+    if is_db_available():
+        # Database mode - use PostgreSQL
+        try:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text("""
+                        SELECT
+                            id, instance_key, pool_name, status,
+                            started_at, retired_at, event_count, metadata,
+                            EXTRACT(EPOCH FROM (
+                                COALESCE(retired_at, NOW()) - started_at
+                            ))::int AS uptime_seconds
+                        FROM agent_instances
+                        ORDER BY started_at DESC
+                        LIMIT 100
+                    """)
+                )
+                rows = result.all()
+        except Exception:
+            log_structured("error", "agent_instances_db_failed", exc_info=True)
+            # This should never happen if DB is marked available, but handle gracefully
+            return _in_memory_agent_instances_payload()
+        
         instances = [
             {
                 "id": str(r[0]),
@@ -1814,15 +1883,9 @@ async def get_agent_instances() -> dict[str, Any]:
             "retired_count": len(retired),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-    except Exception:
-        log_structured("error", "agent_instances_failed", exc_info=True)
-        return {
-            "instances": [],
-            "active_count": 0,
-            "retired_count": 0,
-            "error": "agent_instances_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+    else:
+        # In-memory mode - use deterministic in-memory path
+        return _in_memory_agent_instances_payload()
 
 
 # ---------------------------------------------------------------------------

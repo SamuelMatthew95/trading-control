@@ -44,6 +44,7 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_FACTOR_IC_HISTORY,
     STREAM_GITHUB_PRS,
+    STREAM_LEARNING_EVENTS,
     STREAM_MARKET_TICKS,
     STREAM_NOTIFICATIONS,
     STREAM_PROPOSALS,
@@ -117,6 +118,8 @@ class GradeAgent(MultiStreamAgent):
         self._pnl_buffer: deque[float] = deque(maxlen=100)
         self._confidence_buffer: deque[float] = deque(maxlen=100)
         self._consecutive_low_grades = 0
+        
+        log_structured("info", "grade_agent_subscribed", streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_PERFORMANCE:
@@ -186,6 +189,19 @@ class GradeAgent(MultiStreamAgent):
         await write_grade_to_db(trace_id, payload[FieldName.SCORE_PCT], payload[FieldName.METRICS])
         await self._take_grade_action(grade, payload)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
+        
+        # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
+        await self.bus.publish(
+            STREAM_LEARNING_EVENTS,
+            {
+                "type": "learning_metric",
+                "agent": AGENT_GRADE,
+                "metric_type": "trades_evaluated",
+                "count": self._fills,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "trace_id": trace_id,
+            },
+        )
 
         # Write heartbeat with last grade score for dashboard display
         try:
@@ -438,8 +454,11 @@ class ICUpdater(MultiStreamAgent):
         self.redis = redis_client
         self._fills = 0
         self._score_pnl_buffer: deque[tuple[float, float]] = deque(maxlen=200)
+        
+        log_structured("info", "ic_updater_subscribed", streams=[STREAM_TRADE_PERFORMANCE])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        log_structured("info", "ic_updater_received_event", stream=stream, redis_id=redis_id, trace_id=data.get(FieldName.TRACE_ID))
         self._fills += 1
         pnl = float(data.get(FieldName.PNL) or 0.0)
         composite_score = await self._fetch_composite_score(data.get(FieldName.TRACE_ID))
@@ -450,6 +469,19 @@ class ICUpdater(MultiStreamAgent):
             return
 
         await self._recompute_and_publish()
+        
+        # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
+        await self.bus.publish(
+            STREAM_LEARNING_EVENTS,
+            {
+                "type": "learning_metric",
+                "agent": AGENT_IC_UPDATER,
+                "metric_type": "ic_values_updated",
+                "count": self._fills,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "trace_id": f"ic_update_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}",
+            },
+        )
 
     async def _fetch_composite_score(self, trace_id: str | None) -> float:
         """Look up the composite_score from agent_runs for this trace_id."""
@@ -584,8 +616,11 @@ class ReflectionAgent(MultiStreamAgent):
         self._recent_fills: deque[dict[str, Any]] = deque(maxlen=50)
         self._recent_grades: deque[dict[str, Any]] = deque(maxlen=20)
         self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
+        
+        log_structured("info", "reflection_agent_subscribed", streams=[STREAM_TRADE_PERFORMANCE, STREAM_AGENT_GRADES, STREAM_FACTOR_IC_HISTORY])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        log_structured("info", "reflection_agent_received_event", stream=stream, redis_id=redis_id, trace_id=data.get(FieldName.TRACE_ID))
         if stream == STREAM_TRADE_PERFORMANCE:
             self._fills += 1
             self._recent_fills.append(
@@ -624,6 +659,19 @@ class ReflectionAgent(MultiStreamAgent):
             return
 
         await self._run_reflection()
+        
+        # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
+        await self.bus.publish(
+            STREAM_LEARNING_EVENTS,
+            {
+                "type": "learning_metric",
+                "agent": AGENT_REFLECTION,
+                "metric_type": "reflections_completed",
+                "count": self._fills,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "trace_id": f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}",
+            },
+        )
 
     async def _run_reflection(self) -> None:
         trace_id = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
@@ -811,6 +859,8 @@ class StrategyProposer(MultiStreamAgent):
             consumer="strategy-proposer",
             agent_state=agent_state,
         )
+        
+        log_structured("info", "strategy_proposer_subscribed", streams=[STREAM_REFLECTION_OUTPUTS])
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         hypotheses: list[dict[str, Any]] = data.get("hypotheses") or []
@@ -882,6 +932,19 @@ class StrategyProposer(MultiStreamAgent):
             total_hypotheses=len(hypotheses),
             strong_hypotheses=len(strong),
             reflection_trace_id=data.get(FieldName.TRACE_ID),
+        )
+        
+        # Publish learning metrics to STREAM_LEARNING_EVENTS for dashboard counters
+        await self.bus.publish(
+            STREAM_LEARNING_EVENTS,
+            {
+                "type": "learning_metric",
+                "agent": AGENT_STRATEGY_PROPOSER,
+                "metric_type": "strategies_tested",
+                "count": len(strong),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "trace_id": data.get(FieldName.TRACE_ID, f"strategy_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"),
+            },
         )
 
         # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import type { AgentInstance } from '@/stores/useCodexStore'
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { render, screen } from "@testing-library/react";
+import type { AgentInstance } from "@/stores/useCodexStore";
 
 const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
   const store: Record<string, unknown> = {
@@ -35,75 +35,81 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     addProposal: vi.fn(),
     fetchPrices: vi.fn().mockResolvedValue(undefined),
     hydrateDashboard: vi.fn(),
-  }
-  const hook = Object.assign(() => store, { getState: () => store })
-  return { mockStore: store, mockUseCodexStore: hook }
-})
+  };
+  const hook = Object.assign(() => store, { getState: () => store });
+  return { mockStore: store, mockUseCodexStore: hook };
+});
 
-vi.mock('@/stores/useCodexStore', () => ({
+vi.mock("@/stores/useCodexStore", () => ({
   useCodexStore: mockUseCodexStore,
-}))
+}));
 
 beforeAll(() => {
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({}),
-  }) as unknown as typeof fetch
-})
+  }) as unknown as typeof fetch;
+});
 
-import { DashboardView } from '@/app/dashboard/DashboardView'
+import { DashboardView } from "@/app/dashboard/DashboardView";
 
-const makeInstance = (overrides: Partial<AgentInstance> = {}): AgentInstance => ({
-  id: 'inst-1',
-  instance_key: 'signal_agent_pool_0',
-  pool_name: 'signal_pool',
-  status: 'active',
+const makeInstance = (
+  overrides: Partial<AgentInstance> = {},
+): AgentInstance => ({
+  id: "inst-1",
+  instance_key: "signal_agent_pool_0",
+  pool_name: "signal_pool",
+  status: "active",
   started_at: new Date().toISOString(),
   retired_at: null,
   event_count: 42,
   uptime_seconds: 4980,
   ...overrides,
-})
+});
 
-describe('AgentInstances panel', () => {
+describe("AgentInstances panel", () => {
   beforeEach(() => {
-    mockStore.agentInstances = []
-    mockStore.tradeFeed = []
-    mockStore.performanceSummary = null
-    mockStore.orders = []
-    mockStore.positions = []
-    mockStore.agentLogs = []
-    mockStore.prices = {}
-    mockStore.learningEvents = []
-    mockStore.systemMetrics = []
-    mockStore.dashboardData = null
-    mockStore.proposals = []
-  })
+    mockStore.agentInstances = [];
+    mockStore.tradeFeed = [];
+    mockStore.performanceSummary = null;
+    mockStore.orders = [];
+    mockStore.positions = [];
+    mockStore.agentLogs = [];
+    mockStore.prices = {};
+    mockStore.learningEvents = [];
+    mockStore.systemMetrics = [];
+    mockStore.dashboardData = null;
+    mockStore.proposals = [];
+  });
 
-  it('renders empty state when agentInstances is empty', () => {
-    render(<DashboardView section="agents" />)
-    expect(screen.getByText(/no instances registered yet/i)).toBeInTheDocument()
-  })
+  it("renders empty state when agentInstances is empty", () => {
+    render(<DashboardView section="agents" />);
+    expect(
+      screen.getByText(/no instances registered yet/i),
+    ).toBeInTheDocument();
+  });
 
-  it('shows green dot and event count for an active instance', () => {
-    mockStore.agentInstances = [makeInstance()]
-    render(<DashboardView section="agents" />)
-    expect(screen.getByText('signal_agent_pool_0')).toBeInTheDocument()
-    expect(screen.getAllByText('42').length).toBeGreaterThan(0)
+  it("shows green dot and event count for an active instance", () => {
+    mockStore.agentInstances = [makeInstance()];
+    render(<DashboardView section="agents" />);
+    expect(screen.getByText("signal_agent_pool_0")).toBeInTheDocument();
+    expect(screen.getAllByText("42").length).toBeGreaterThan(0);
     // active status labels appear in both status matrix + instance row
-    expect(screen.getAllByText('active').length).toBeGreaterThan(0)
-  })
+    expect(screen.getAllByText("active").length).toBeGreaterThan(0);
+  });
 
-  it('shows retired status for a retired instance', () => {
-    mockStore.agentInstances = [makeInstance({ status: 'retired', retired_at: new Date().toISOString() })]
-    render(<DashboardView section="agents" />)
-    expect(screen.getByText('retired')).toBeInTheDocument()
-  })
+  it("shows retired status for a retired instance", () => {
+    mockStore.agentInstances = [
+      makeInstance({ status: "retired", retired_at: new Date().toISOString() }),
+    ];
+    render(<DashboardView section="agents" />);
+    expect(screen.getByText("retired")).toBeInTheDocument();
+  });
 
-  it('formats uptime as hours and minutes style', () => {
+  it("formats uptime as hours and minutes style", () => {
     // 4980 seconds = 1h 23m
-    mockStore.agentInstances = [makeInstance({ uptime_seconds: 4980 })]
-    render(<DashboardView section="agents" />)
-    expect(screen.getByText('1h 23m')).toBeInTheDocument()
-  })
-})
+    mockStore.agentInstances = [makeInstance({ uptime_seconds: 4980 })];
+    render(<DashboardView section="agents" />);
+    expect(screen.getByText("1h 23m")).toBeInTheDocument();
+  });
+});

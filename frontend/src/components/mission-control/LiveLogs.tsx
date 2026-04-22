@@ -1,53 +1,53 @@
-import { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Terminal, Download, Trash2, Pause, Play } from 'lucide-react';
+import { useState, useEffect, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Terminal, Download, Trash2, Pause, Play } from "lucide-react";
 
 interface LogEntry {
   id: string;
   timestamp: string;
-  level: 'info' | 'warning' | 'error' | 'success';
+  level: "info" | "warning" | "error" | "success";
   message: string;
   source?: string;
 }
 
 const mockLogs: LogEntry[] = [
   {
-    id: '1',
+    id: "1",
     timestamp: new Date().toISOString(),
-    level: 'info',
-    message: 'Interacting with Agent...',
-    source: 'trading-engine'
+    level: "info",
+    message: "Interacting with Agent...",
+    source: "trading-engine",
   },
   {
-    id: '2',
+    id: "2",
     timestamp: new Date(Date.now() - 1000).toISOString(),
-    level: 'success',
-    message: 'Executing Trade: BUY AAPL @ 175.23',
-    source: 'order-executor'
+    level: "success",
+    message: "Executing Trade: BUY AAPL @ 175.23",
+    source: "order-executor",
   },
   {
-    id: '3',
+    id: "3",
     timestamp: new Date(Date.now() - 2000).toISOString(),
-    level: 'warning',
-    message: 'High latency detected: 125ms',
-    source: 'monitor'
+    level: "warning",
+    message: "High latency detected: 125ms",
+    source: "monitor",
   },
   {
-    id: '4',
+    id: "4",
     timestamp: new Date(Date.now() - 3000).toISOString(),
-    level: 'info',
-    message: 'Scoring feedback job completed successfully',
-    source: 'feedback-processor'
+    level: "info",
+    message: "Scoring feedback job completed successfully",
+    source: "feedback-processor",
   },
   {
-    id: '5',
+    id: "5",
     timestamp: new Date(Date.now() - 4000).toISOString(),
-    level: 'error',
-    message: 'Database connection timeout',
-    source: 'database'
-  }
+    level: "error",
+    message: "Database connection timeout",
+    source: "database",
+  },
 ];
 
 export function LiveLogs() {
@@ -59,51 +59,77 @@ export function LiveLogs() {
   useEffect(() => {
     if (isPaused) return;
 
-    const interval = setInterval(() => {
-      const newLog: LogEntry = {
-        id: Date.now().toString(),
-        timestamp: new Date().toISOString(),
-        level: ['info', 'success', 'warning', 'error'][Math.floor(Math.random() * 4)] as LogEntry['level'],
-        message: [
-          'Interacting with Agent...',
-          'Executing Trade: ' + (Math.random() > 0.5 ? 'BUY' : 'SELL') + ' ' + ['AAPL', 'GOOGL', 'MSFT', 'TSLA'][Math.floor(Math.random() * 4)] + ' @ ' + (Math.random() * 200 + 100).toFixed(2),
-          'Scoring feedback job completed',
-          'Health check passed',
-          'Cache cleared successfully',
-          'Market data updated'
-        ][Math.floor(Math.random() * 6)],
-        source: ['trading-engine', 'order-executor', 'monitor', 'feedback-processor', 'database'][Math.floor(Math.random() * 5)]
-      };
+    const interval = setInterval(
+      () => {
+        const newLog: LogEntry = {
+          id: Date.now().toString(),
+          timestamp: new Date().toISOString(),
+          level: ["info", "success", "warning", "error"][
+            Math.floor(Math.random() * 4)
+          ] as LogEntry["level"],
+          message: [
+            "Interacting with Agent...",
+            "Executing Trade: " +
+              (Math.random() > 0.5 ? "BUY" : "SELL") +
+              " " +
+              ["AAPL", "GOOGL", "MSFT", "TSLA"][Math.floor(Math.random() * 4)] +
+              " @ " +
+              (Math.random() * 200 + 100).toFixed(2),
+            "Scoring feedback job completed",
+            "Health check passed",
+            "Cache cleared successfully",
+            "Market data updated",
+          ][Math.floor(Math.random() * 6)],
+          source: [
+            "trading-engine",
+            "order-executor",
+            "monitor",
+            "feedback-processor",
+            "database",
+          ][Math.floor(Math.random() * 5)],
+        };
 
-      setLogs(prev => [...prev.slice(-49), newLog]);
-    }, Math.random() * 3000 + 2000); // Random interval between 2-5 seconds
+        setLogs((prev) => [...prev.slice(-49), newLog]);
+      },
+      Math.random() * 3000 + 2000,
+    ); // Random interval between 2-5 seconds
 
     return () => clearInterval(interval);
   }, [isPaused]);
 
   useEffect(() => {
     if (autoScroll) {
-      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [logs, autoScroll]);
 
-  const getLevelColor = (level: LogEntry['level']) => {
+  const getLevelColor = (level: LogEntry["level"]) => {
     switch (level) {
-      case 'info': return 'text-info';
-      case 'success': return 'text-success';
-      case 'warning': return 'text-warning';
-      case 'error': return 'text-destructive';
-      default: return 'text-muted-foreground';
+      case "info":
+        return "text-info";
+      case "success":
+        return "text-success";
+      case "warning":
+        return "text-warning";
+      case "error":
+        return "text-destructive";
+      default:
+        return "text-muted-foreground";
     }
   };
 
-  const getLevelBadge = (level: LogEntry['level']) => {
+  const getLevelBadge = (level: LogEntry["level"]) => {
     switch (level) {
-      case 'info': return 'bg-info/10 text-info border border-info/20';
-      case 'success': return 'bg-success/10 text-success border border-success/20';
-      case 'warning': return 'bg-warning/10 text-warning border border-warning/20';
-      case 'error': return 'bg-destructive/10 text-destructive border border-destructive/20';
-      default: return 'bg-muted/10 text-muted-foreground border border-muted/20';
+      case "info":
+        return "bg-info/10 text-info border border-info/20";
+      case "success":
+        return "bg-success/10 text-success border border-success/20";
+      case "warning":
+        return "bg-warning/10 text-warning border border-warning/20";
+      case "error":
+        return "bg-destructive/10 text-destructive border border-destructive/20";
+      default:
+        return "bg-muted/10 text-muted-foreground border border-muted/20";
     }
   };
 
@@ -112,15 +138,18 @@ export function LiveLogs() {
   };
 
   const downloadLogs = () => {
-    const logText = logs.map(log => 
-      `[${log.timestamp}] ${log.level.toUpperCase()} [${log.source || 'system'}] ${log.message}`
-    ).join('\n');
-    
-    const blob = new Blob([logText], { type: 'text/plain' });
+    const logText = logs
+      .map(
+        (log) =>
+          `[${log.timestamp}] ${log.level.toUpperCase()} [${log.source || "system"}] ${log.message}`,
+      )
+      .join("\n");
+
+    const blob = new Blob([logText], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `trading-logs-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `trading-logs-${new Date().toISOString().split("T")[0]}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -139,8 +168,12 @@ export function LiveLogs() {
             onClick={() => setIsPaused(!isPaused)}
             className="border-border text-muted-foreground hover:text-foreground"
           >
-            {isPaused ? <Play className="h-4 w-4 mr-1" /> : <Pause className="h-4 w-4 mr-1" />}
-            {isPaused ? 'Resume' : 'Pause'}
+            {isPaused ? (
+              <Play className="h-4 w-4 mr-1" />
+            ) : (
+              <Pause className="h-4 w-4 mr-1" />
+            )}
+            {isPaused ? "Resume" : "Pause"}
           </Button>
           <Button
             variant="outline"
@@ -171,16 +204,16 @@ export function LiveLogs() {
           ) : (
             <div className="divide-y divide-border/20">
               {logs.map((log, index) => (
-                <div 
-                  key={log.id} 
+                <div
+                  key={log.id}
                   className={`flex items-start gap-3 py-3 px-4 ${
-                    index % 2 === 1 ? 'bg-muted/5' : ''
+                    index % 2 === 1 ? "bg-muted/5" : ""
                   }`}
                 >
                   <span className="text-muted-foreground text-xs font-mono shrink-0 w-16">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <Badge 
+                  <Badge
                     className={`text-xs font-mono uppercase w-[72px] justify-center ${getLevelBadge(log.level)}`}
                   >
                     {log.level}
@@ -190,7 +223,9 @@ export function LiveLogs() {
                       [{log.source}]
                     </span>
                   )}
-                  <span className={`flex-1 text-sm font-sans ${getLevelColor(log.level)}`}>
+                  <span
+                    className={`flex-1 text-sm font-sans ${getLevelColor(log.level)}`}
+                  >
                     {log.message}
                   </span>
                 </div>
@@ -210,7 +245,7 @@ export function LiveLogs() {
               onClick={() => setAutoScroll(!autoScroll)}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
-              Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
+              Auto-scroll: {autoScroll ? "ON" : "OFF"}
             </Button>
           </div>
         )}

@@ -1,219 +1,232 @@
-'use client'
-import { create } from 'zustand'
-import { api } from '@/lib/apiClient'
+"use client";
+import { create } from "zustand";
+import { api } from "@/lib/apiClient";
 
 export interface AgentLog {
-  agent_name: string
-  message?: string
-  timestamp: string
-  confidence?: number
-  id?: string | number
-  agent?: string
-  action?: string
-  symbol?: string
-  [key: string]: unknown
+  agent_name: string;
+  message?: string;
+  timestamp: string;
+  confidence?: number;
+  id?: string | number;
+  agent?: string;
+  action?: string;
+  symbol?: string;
+  [key: string]: unknown;
 }
 
 export interface Order {
-  symbol: string
-  pnl: number
-  side: 'long' | 'short'
-  quantity: number
-  entry_price: number
-  current_price: number
-  timestamp: string
-  pnl_percent?: number
-  order_id?: string | number
-  [key: string]: unknown
+  symbol: string;
+  pnl: number;
+  side: "long" | "short";
+  quantity: number;
+  entry_price: number;
+  current_price: number;
+  timestamp: string;
+  pnl_percent?: number;
+  order_id?: string | number;
+  [key: string]: unknown;
 }
 
 export interface Position {
-  symbol: string
-  side: 'long' | 'short'
-  quantity: number
-  entry_price: number
-  current_price: number
-  pnl: number
-  pnl_percent?: number
-  [key: string]: unknown
+  symbol: string;
+  side: "long" | "short";
+  quantity: number;
+  entry_price: number;
+  current_price: number;
+  pnl: number;
+  pnl_percent?: number;
+  [key: string]: unknown;
 }
 
 export interface SystemMetric {
-  metric_name: string
-  value: number
-  id?: string | number
-  [key: string]: unknown
+  metric_name: string;
+  value: number;
+  id?: string | number;
+  [key: string]: unknown;
 }
 
 export interface LearningEvent {
-  type: string
-  timestamp: string
-  id?: string | number
-  [key: string]: unknown
+  type: string;
+  timestamp: string;
+  id?: string | number;
+  [key: string]: unknown;
 }
 
-export type NotificationSeverity = 'CRITICAL' | 'URGENT' | 'WARNING' | 'INFO'
+export type NotificationSeverity = "CRITICAL" | "URGENT" | "WARNING" | "INFO";
 
 export interface Notification {
-  id: string
-  severity: NotificationSeverity
-  message: string
-  notification_type: string
-  stream_source?: string
-  trace_id?: string
-  state?: 'open' | 'resolved'
-  timestamp: string
-  acknowledged: boolean
+  id: string;
+  severity: NotificationSeverity;
+  message: string;
+  notification_type: string;
+  stream_source?: string;
+  trace_id?: string;
+  state?: "open" | "resolved";
+  timestamp: string;
+  acknowledged: boolean;
 }
 
-export type ProposalStatus = 'pending' | 'approved' | 'rejected'
-export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment' | 'new_agent' | 'challenger_result'
+export type ProposalStatus = "pending" | "approved" | "rejected";
+export type ProposalType =
+  | "parameter_change"
+  | "code_change"
+  | "regime_adjustment"
+  | "new_agent"
+  | "challenger_result";
 
 export interface Proposal {
-  id: string
-  proposal_type: ProposalType
-  content: string
-  requires_approval: boolean
-  reflection_trace_id?: string
-  confidence?: number
-  timestamp: string
-  status: ProposalStatus
+  id: string;
+  proposal_type: ProposalType;
+  content: string;
+  requires_approval: boolean;
+  reflection_trace_id?: string;
+  confidence?: number;
+  timestamp: string;
+  status: ProposalStatus;
   // Our branch fields (from events table / WS proposals stream)
-  symbol?: string | null
-  action?: string | null
-  grade_score?: number | null
-  bias?: string | null
-  buys?: number | null
-  sells?: number | null
-  strategy_name?: string | null
-  trace_id?: string | null
-  created_at?: string | null
-  source?: string | null
+  symbol?: string | null;
+  action?: string | null;
+  grade_score?: number | null;
+  bias?: string | null;
+  buys?: number | null;
+  sells?: number | null;
+  strategy_name?: string | null;
+  trace_id?: string | null;
+  created_at?: string | null;
+  source?: string | null;
 }
 
 export interface PriceData {
-  price: number
-  change: number
-  changePercent?: number
-  previousPrice?: number
-  updatedAt?: string
-  [key: string]: unknown
+  price: number;
+  change: number;
+  changePercent?: number;
+  previousPrice?: number;
+  updatedAt?: string;
+  [key: string]: unknown;
 }
 
 export interface StreamStat {
-  count: number
-  lastMessageTimestamp: string | null
+  count: number;
+  lastMessageTimestamp: string | null;
 }
 
 export interface AgentStatus {
-  name: string
-  status: string
-  event_count: number
-  last_event: string
-  last_seen: number
-  seconds_ago: number
-  last_grade_score?: number
+  name: string;
+  status: string;
+  event_count: number;
+  last_event: string;
+  last_seen: number;
+  seconds_ago: number;
+  last_grade_score?: number;
 }
 
 export interface TradeFeedItem {
-  id: string
-  symbol: string
-  side: 'buy' | 'sell'
-  qty: number | null
-  entry_price: number | null
-  exit_price: number | null
-  pnl: number | null
-  pnl_percent: number | null
-  order_id: string | null
-  execution_trace_id: string | null
-  signal_trace_id: string | null
-  grade: string | null
-  grade_score: number | null
-  grade_label: string | null
-  status: string
-  filled_at: string | null
-  graded_at: string | null
-  reflected_at: string | null
-  created_at: string | null
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  qty: number | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  pnl: number | null;
+  pnl_percent: number | null;
+  order_id: string | null;
+  execution_trace_id: string | null;
+  signal_trace_id: string | null;
+  grade: string | null;
+  grade_score: number | null;
+  grade_label: string | null;
+  status: string;
+  filled_at: string | null;
+  graded_at: string | null;
+  reflected_at: string | null;
+  created_at: string | null;
 }
 
 export interface AgentInstance {
-  id: string
-  instance_key: string
-  pool_name: string
-  status: 'active' | 'retired'
-  started_at: string | null
-  retired_at: string | null
-  event_count: number
-  uptime_seconds: number
+  id: string;
+  instance_key: string;
+  pool_name: string;
+  status: "active" | "retired";
+  started_at: string | null;
+  retired_at: string | null;
+  event_count: number;
+  uptime_seconds: number;
 }
 
 export interface PerformanceSummary {
-  total_pnl: number
-  total_trades: number
-  win_rate: number
-  avg_win: number
-  avg_loss: number
-  best_trade: number
-  worst_trade: number
+  total_pnl: number;
+  total_trades: number;
+  win_rate: number;
+  avg_win: number;
+  avg_loss: number;
+  best_trade: number;
+  worst_trade: number;
 }
 
 export interface DailyPnl {
-  day: string
-  pnl: number
-  trade_count: number
-  wins: number
-  losses: number
-  avg_pnl: number
+  day: string;
+  pnl: number;
+  trade_count: number;
+  wins: number;
+  losses: number;
+  avg_pnl: number;
 }
 
 export interface RecentEvent {
-  stream: string
-  msgId: string
-  timestamp: string
+  stream: string;
+  msgId: string;
+  timestamp: string;
 }
 
 type DashboardData = {
-  system_metrics?: SystemMetric[]
-  orders?: Order[]
-  agent_logs?: AgentLog[]
-  learning_events?: LearningEvent[]
-  risk_alerts?: Array<Record<string, unknown>>
-  signals?: Array<Record<string, unknown>>
-  positions?: Position[]
-  prices?: Record<string, PriceData>
-  proposals?: Array<Record<string, unknown>>
-  trade_feed?: TradeFeedItem[]
-  ic_weights?: Record<string, number>
-  agent_statuses?: Array<Record<string, unknown>>
-  timestamp: string
-}
+  system_metrics?: SystemMetric[];
+  orders?: Order[];
+  agent_logs?: AgentLog[];
+  learning_events?: LearningEvent[];
+  risk_alerts?: Array<Record<string, unknown>>;
+  signals?: Array<Record<string, unknown>>;
+  positions?: Position[];
+  prices?: Record<string, PriceData>;
+  proposals?: Array<Record<string, unknown>>;
+  trade_feed?: TradeFeedItem[];
+  ic_weights?: Record<string, number>;
+  agent_statuses?: Array<Record<string, unknown>>;
+  timestamp: string;
+};
 
-type PriceRecord = Record<string, PriceData>
+type PriceRecord = Record<string, PriceData>;
 
 function normalizeStoredNotification(input: unknown): Notification | null {
-  if (!input || typeof input !== 'object') return null
-  const raw = input as Record<string, unknown>
-  const severity = String(raw.severity || 'INFO').toUpperCase()
+  if (!input || typeof input !== "object") return null;
+  const raw = input as Record<string, unknown>;
+  const severity = String(raw.severity || "INFO").toUpperCase();
   const normalizedSeverity: NotificationSeverity =
-    severity === 'CRITICAL' || severity === 'URGENT' || severity === 'WARNING' || severity === 'INFO'
+    severity === "CRITICAL" ||
+    severity === "URGENT" ||
+    severity === "WARNING" ||
+    severity === "INFO"
       ? severity
-      : 'INFO'
+      : "INFO";
 
-  const message = String(raw.message || '').trim()
-  if (!message) return null
+  const message = String(raw.message || "").trim();
+  if (!message) return null;
 
   return {
-    id: String(raw.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    id: String(
+      raw.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    ),
     severity: normalizedSeverity,
     message,
-    notification_type: String(raw.notification_type || 'system'),
+    notification_type: String(raw.notification_type || "system"),
     stream_source: raw.stream_source ? String(raw.stream_source) : undefined,
     trace_id: raw.trace_id ? String(raw.trace_id) : undefined,
-    state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
+    state:
+      String(raw.state || "open").toLowerCase() === "resolved"
+        ? "resolved"
+        : "open",
     timestamp: String(raw.timestamp || new Date().toISOString()),
     acknowledged: Boolean(raw.acknowledged),
-  }
+  };
 }
 
 // Type for price data from API
@@ -226,103 +239,112 @@ interface CachedPriceData {
 }
 
 type CodexState = {
-  prices: PriceRecord
-  orders: Order[]
-  positions: Position[]
-  signals: Array<Record<string, unknown>>
-  agentLogs: AgentLog[]
-  riskAlerts: Array<Record<string, unknown>>
-  notifications: Notification[]
-  proposals: Proposal[]
-  tradeFeed: TradeFeedItem[]
-  agentInstances: AgentInstance[]
-  performanceSummary: PerformanceSummary | null
-  dailyPnl: DailyPnl[]
-  learningEvents: LearningEvent[]
-  systemMetrics: SystemMetric[]
-  dashboardData: DashboardData | null
-  isLoading: boolean
-  regime: string
-  killSwitchActive: boolean
-  wsConnected: boolean
-  marketTickCount: number
-  lastMarketSymbol: string | null
-  wsMessageCount: number
-  wsLastMessageTimestamp: string | null
-  streamStats: Record<string, StreamStat>
-  recentEvents: RecentEvent[]
-  agentStatuses: AgentStatus[]
-  pipelineMetrics: Record<string, number>
-  setAgentStatuses: (agents: AgentStatus[]) => void
-  setPipelineMetrics: (metrics: Record<string, number>) => void
-  setTradeFeed: (trades: TradeFeedItem[]) => void
-  addTradeFeedItem: (trade: TradeFeedItem) => void
-  setAgentInstances: (instances: AgentInstance[]) => void
-  setPerformanceSummary: (summary: PerformanceSummary) => void
-  setDailyPnl: (pnl: DailyPnl[]) => void
-  updatePrice: (symbol: string, price: number, change: number) => void
-  updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void
-  addSignal: (signal: Record<string, unknown>) => void
-  addOrder: (order: Order) => void
-  updateOrder: (order: Order) => void
-  addAgentLog: (log: AgentLog) => void
-  addRiskAlert: (alert: Record<string, unknown>) => void
-  addNotification: (notification: Omit<Notification, 'id' | 'acknowledged'>) => void
-  acknowledgeNotification: (id: string) => void
-  addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
-  updateProposalStatus: (id: string, status: ProposalStatus) => void
-  addLearningEvent: (event: LearningEvent) => void
-  addSystemMetric: (metric: SystemMetric) => void
-  setDashboardData: (data: DashboardData | null) => void
-  setLoading: (loading: boolean) => void
-  setRegime: (regime: string) => void
-  setKillSwitch: (active: boolean) => void
-  setWsConnected: (connected: boolean) => void
-  trackWsMessage: (event: { stream?: string | null; msgId?: string | null; timestamp?: string | null }) => void
-  trackMarketTick: (symbol?: string | null) => void
-  hydrateDashboard: (data: DashboardData) => void
-  bulkUpdate: (updates: Partial<CodexState>) => void
-  fetchPrices: () => Promise<void>
-}
+  prices: PriceRecord;
+  orders: Order[];
+  positions: Position[];
+  signals: Array<Record<string, unknown>>;
+  agentLogs: AgentLog[];
+  riskAlerts: Array<Record<string, unknown>>;
+  notifications: Notification[];
+  proposals: Proposal[];
+  tradeFeed: TradeFeedItem[];
+  agentInstances: AgentInstance[];
+  performanceSummary: PerformanceSummary | null;
+  dailyPnl: DailyPnl[];
+  learningEvents: LearningEvent[];
+  systemMetrics: SystemMetric[];
+  dashboardData: DashboardData | null;
+  isLoading: boolean;
+  regime: string;
+  killSwitchActive: boolean;
+  wsConnected: boolean;
+  marketTickCount: number;
+  lastMarketSymbol: string | null;
+  wsMessageCount: number;
+  wsLastMessageTimestamp: string | null;
+  streamStats: Record<string, StreamStat>;
+  recentEvents: RecentEvent[];
+  agentStatuses: AgentStatus[];
+  pipelineMetrics: Record<string, number>;
+  setAgentStatuses: (agents: AgentStatus[]) => void;
+  setPipelineMetrics: (metrics: Record<string, number>) => void;
+  setTradeFeed: (trades: TradeFeedItem[]) => void;
+  addTradeFeedItem: (trade: TradeFeedItem) => void;
+  setAgentInstances: (instances: AgentInstance[]) => void;
+  setPerformanceSummary: (summary: PerformanceSummary) => void;
+  setDailyPnl: (pnl: DailyPnl[]) => void;
+  updatePrice: (symbol: string, price: number, change: number) => void;
+  updatePriceFromCache: (symbol: string, priceData: CachedPriceData) => void;
+  addSignal: (signal: Record<string, unknown>) => void;
+  addOrder: (order: Order) => void;
+  updateOrder: (order: Order) => void;
+  addAgentLog: (log: AgentLog) => void;
+  addRiskAlert: (alert: Record<string, unknown>) => void;
+  addNotification: (
+    notification: Omit<Notification, "id" | "acknowledged">,
+  ) => void;
+  acknowledgeNotification: (id: string) => void;
+  addProposal: (proposal: Omit<Proposal, "id" | "status">) => void;
+  updateProposalStatus: (id: string, status: ProposalStatus) => void;
+  addLearningEvent: (event: LearningEvent) => void;
+  addSystemMetric: (metric: SystemMetric) => void;
+  setDashboardData: (data: DashboardData | null) => void;
+  setLoading: (loading: boolean) => void;
+  setRegime: (regime: string) => void;
+  setKillSwitch: (active: boolean) => void;
+  setWsConnected: (connected: boolean) => void;
+  trackWsMessage: (event: {
+    stream?: string | null;
+    msgId?: string | null;
+    timestamp?: string | null;
+  }) => void;
+  trackMarketTick: (symbol?: string | null) => void;
+  hydrateDashboard: (data: DashboardData) => void;
+  bulkUpdate: (updates: Partial<CodexState>) => void;
+  fetchPrices: () => Promise<void>;
+};
 
 const _loadFromStorage = <T>(key: string, limit: number): T[] => {
-  if (typeof window === 'undefined') return []
+  if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(key)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as T[]).slice(0, limit) : []
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]).slice(0, limit) : [];
   } catch {
-    return []
+    return [];
   }
-}
+};
 
 const _saveToStorage = (key: string, data: unknown[]): void => {
-  if (typeof window === 'undefined') return
+  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(key, JSON.stringify(data))
+    window.localStorage.setItem(key, JSON.stringify(data));
   } catch {
     // quota exceeded or SSR — silently ignore
   }
-}
+};
 
 export const useCodexStore = create<CodexState>((set) => ({
   prices: {},
-  orders: _loadFromStorage<Order>('codex.orders', 100),
-  positions: _loadFromStorage<Position>('codex.positions', 50),
+  orders: _loadFromStorage<Order>("codex.orders", 100),
+  positions: _loadFromStorage<Position>("codex.positions", 50),
   signals: [],
   agentLogs: [],
   riskAlerts: [],
   notifications: (() => {
-    if (typeof window === 'undefined') return []
+    if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem('codex.notifications')
-      if (!raw) return []
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return []
-      return parsed.map(normalizeStoredNotification).filter((item): item is Notification => item !== null).slice(0, 200)
+      const raw = window.localStorage.getItem("codex.notifications");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map(normalizeStoredNotification)
+        .filter((item): item is Notification => item !== null)
+        .slice(0, 200);
     } catch {
-      return []
+      return [];
     }
   })(),
   proposals: [],
@@ -334,7 +356,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   systemMetrics: [],
   dashboardData: null,
   isLoading: true,
-  regime: 'neutral',
+  regime: "neutral",
   killSwitchActive: false,
   wsConnected: false,
   marketTickCount: 0,
@@ -356,126 +378,164 @@ export const useCodexStore = create<CodexState>((set) => ({
   setAgentStatuses: (agentStatuses) => set({ agentStatuses }),
   setPipelineMetrics: (pipelineMetrics) => set({ pipelineMetrics }),
   setTradeFeed: (tradeFeed) => set({ tradeFeed }),
-  addTradeFeedItem: (trade) => set((state) => ({
-    tradeFeed: [trade, ...state.tradeFeed].slice(0, 200),
-  })),
+  addTradeFeedItem: (trade) =>
+    set((state) => ({
+      tradeFeed: [trade, ...state.tradeFeed].slice(0, 200),
+    })),
   setAgentInstances: (agentInstances) => set({ agentInstances }),
   setPerformanceSummary: (performanceSummary) => set({ performanceSummary }),
   setDailyPnl: (dailyPnl) => set({ dailyPnl }),
 
-  updatePrice: (symbol, price, change) => set((state) => ({
-    prices: {
-      ...state.prices,
-      [symbol]: {
-        price,
-        change,
-        previousPrice: state.prices[symbol]?.price ?? price - change,
-        updatedAt: new Date().toISOString(),
+  updatePrice: (symbol, price, change) =>
+    set((state) => ({
+      prices: {
+        ...state.prices,
+        [symbol]: {
+          price,
+          change,
+          previousPrice: state.prices[symbol]?.price ?? price - change,
+          updatedAt: new Date().toISOString(),
+        },
       },
-    }
-  })),
-  updatePriceFromCache: (symbol, priceData) => set((state) => ({
-    prices: {
-      ...state.prices,
-      [symbol]: {
-        price: Number(priceData.price),
-        change: 0, // Will be calculated based on previous price
-        previousPrice: state.prices[symbol]?.price ?? Number(priceData.price),
-        updatedAt: priceData.timestamp || new Date().toISOString(),
+    })),
+  updatePriceFromCache: (symbol, priceData) =>
+    set((state) => ({
+      prices: {
+        ...state.prices,
+        [symbol]: {
+          price: Number(priceData.price),
+          change: 0, // Will be calculated based on previous price
+          previousPrice: state.prices[symbol]?.price ?? Number(priceData.price),
+          updatedAt: priceData.timestamp || new Date().toISOString(),
+        },
       },
-    }
-  })),
+    })),
   fetchPrices: async () => {
     try {
-      const response = await fetch(api("/dashboard/prices"))
-      if (!response.ok) throw new Error('Failed to fetch prices')
-      
-      const data = await response.json()
-      const prices: Record<string, CachedPriceData | null> = data.prices || {}
-      
+      const response = await fetch(api("/dashboard/prices"));
+      if (!response.ok) throw new Error("Failed to fetch prices");
+
+      const data = await response.json();
+      const prices: Record<string, CachedPriceData | null> = data.prices || {};
+
       set((state) => {
-        const updatedPrices = { ...state.prices }
+        const updatedPrices = { ...state.prices };
         for (const [symbol, priceData] of Object.entries(prices)) {
-          if (priceData && typeof priceData === 'object') {
-            const price = Number(priceData.price)
-            const previousPrice = state.prices[symbol]?.price ?? price
-            const change = price - previousPrice
-            
+          if (priceData && typeof priceData === "object") {
+            const price = Number(priceData.price);
+            const previousPrice = state.prices[symbol]?.price ?? price;
+            const change = price - previousPrice;
+
             updatedPrices[symbol] = {
               price,
               change,
               previousPrice,
               updatedAt: priceData.timestamp || new Date().toISOString(),
-            }
+            };
           }
         }
-        return { prices: updatedPrices }
-      })
+        return { prices: updatedPrices };
+      });
     } catch (error) {
-      console.error('Error fetching prices:', error)
+      console.error("Error fetching prices:", error);
     }
   },
-  addSignal: (signal) => set((state) => ({
-    signals: [signal, ...state.signals].slice(0, 50)
-  })),
-  addOrder: (order) => set((state) => {
-    const next = [order, ...state.orders].slice(0, 100)
-    _saveToStorage('codex.orders', next)
-    return { orders: next }
-  }),
-  updateOrder: (order) => set((state) => {
-    const next = state.orders.some((e) => e.order_id === order.order_id)
-      ? state.orders.map((e) => e.order_id === order.order_id ? { ...e, ...order } : e)
-      : [order, ...state.orders].slice(0, 100)
-    _saveToStorage('codex.orders', next)
-    return { orders: next }
-  }),
-  addAgentLog: (log) => set((state) => ({
-    agentLogs: [log, ...state.agentLogs].slice(0, 100)
-  })),
-  addRiskAlert: (alert) => set((state) => ({
-    riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
-  })),
-  addNotification: (notification) => set((state) => {
-    const duplicateExists = state.notifications.some((n) =>
-      n.message === notification.message &&
-      n.notification_type === notification.notification_type &&
-      n.severity === notification.severity &&
-      Math.abs(new Date(n.timestamp).getTime() - new Date(notification.timestamp).getTime()) < 10_000
-    )
-    if (duplicateExists) return { notifications: state.notifications }
+  addSignal: (signal) =>
+    set((state) => ({
+      signals: [signal, ...state.signals].slice(0, 50),
+    })),
+  addOrder: (order) =>
+    set((state) => {
+      const next = [order, ...state.orders].slice(0, 100);
+      _saveToStorage("codex.orders", next);
+      return { orders: next };
+    }),
+  updateOrder: (order) =>
+    set((state) => {
+      const next = state.orders.some((e) => e.order_id === order.order_id)
+        ? state.orders.map((e) =>
+            e.order_id === order.order_id ? { ...e, ...order } : e,
+          )
+        : [order, ...state.orders].slice(0, 100);
+      _saveToStorage("codex.orders", next);
+      return { orders: next };
+    }),
+  addAgentLog: (log) =>
+    set((state) => ({
+      agentLogs: [log, ...state.agentLogs].slice(0, 100),
+    })),
+  addRiskAlert: (alert) =>
+    set((state) => ({
+      riskAlerts: [alert, ...state.riskAlerts].slice(0, 50),
+    })),
+  addNotification: (notification) =>
+    set((state) => {
+      const duplicateExists = state.notifications.some(
+        (n) =>
+          n.message === notification.message &&
+          n.notification_type === notification.notification_type &&
+          n.severity === notification.severity &&
+          Math.abs(
+            new Date(n.timestamp).getTime() -
+              new Date(notification.timestamp).getTime(),
+          ) < 10_000,
+      );
+      if (duplicateExists) return { notifications: state.notifications };
 
-    const next = [
-      { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
-      ...state.notifications,
-    ].slice(0, 200)
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('codex.notifications', JSON.stringify(next))
-    }
-    return { notifications: next }
-  }),
-  acknowledgeNotification: (id) => set((state) => {
-    const next = state.notifications.map((n) => n.id === id ? { ...n, acknowledged: true } : n)
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('codex.notifications', JSON.stringify(next))
-    }
-    return { notifications: next }
-  }),
-  addProposal: (proposal) => set((state) => ({
-    proposals: [
-      { ...proposal, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' as ProposalStatus },
-      ...state.proposals,
-    ].slice(0, 50)
-  })),
-  updateProposalStatus: (id, status) => set((state) => ({
-    proposals: state.proposals.map((p) => p.id === id ? { ...p, status } : p)
-  })),
-  addLearningEvent: (event) => set((state) => ({
-    learningEvents: [event, ...state.learningEvents].slice(0, 50)
-  })),
-  addSystemMetric: (metric) => set((state) => ({
-    systemMetrics: [metric, ...state.systemMetrics].slice(0, 100)
-  })),
+      const next = [
+        {
+          ...notification,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          acknowledged: false,
+        },
+        ...state.notifications,
+      ].slice(0, 200);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "codex.notifications",
+          JSON.stringify(next),
+        );
+      }
+      return { notifications: next };
+    }),
+  acknowledgeNotification: (id) =>
+    set((state) => {
+      const next = state.notifications.map((n) =>
+        n.id === id ? { ...n, acknowledged: true } : n,
+      );
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "codex.notifications",
+          JSON.stringify(next),
+        );
+      }
+      return { notifications: next };
+    }),
+  addProposal: (proposal) =>
+    set((state) => ({
+      proposals: [
+        {
+          ...proposal,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          status: "pending" as ProposalStatus,
+        },
+        ...state.proposals,
+      ].slice(0, 50),
+    })),
+  updateProposalStatus: (id, status) =>
+    set((state) => ({
+      proposals: state.proposals.map((p) =>
+        p.id === id ? { ...p, status } : p,
+      ),
+    })),
+  addLearningEvent: (event) =>
+    set((state) => ({
+      learningEvents: [event, ...state.learningEvents].slice(0, 50),
+    })),
+  addSystemMetric: (metric) =>
+    set((state) => ({
+      systemMetrics: [metric, ...state.systemMetrics].slice(0, 100),
+    })),
   setDashboardData: (data) => set({ dashboardData: data }),
   setLoading: (isLoading) => set({ isLoading }),
   setRegime: (regime) => set({ regime }),
@@ -483,14 +543,17 @@ export const useCodexStore = create<CodexState>((set) => ({
   setWsConnected: (wsConnected) => set({ wsConnected }),
   trackWsMessage: ({ stream, msgId, timestamp }) =>
     set((state) => {
-      const resolvedStream = stream || 'system'
-      const resolvedTimestamp = timestamp || new Date().toISOString()
-      const existing = state.streamStats[resolvedStream] ?? { count: 0, lastMessageTimestamp: null }
+      const resolvedStream = stream || "system";
+      const resolvedTimestamp = timestamp || new Date().toISOString();
+      const existing = state.streamStats[resolvedStream] ?? {
+        count: 0,
+        lastMessageTimestamp: null,
+      };
       const event: RecentEvent = {
         stream: resolvedStream,
-        msgId: msgId || 'n/a',
+        msgId: msgId || "n/a",
         timestamp: resolvedTimestamp,
-      }
+      };
       return {
         wsMessageCount: state.wsMessageCount + 1,
         wsLastMessageTimestamp: resolvedTimestamp,
@@ -502,7 +565,7 @@ export const useCodexStore = create<CodexState>((set) => ({
           },
         },
         recentEvents: [event, ...state.recentEvents].slice(0, 20),
-      }
+      };
     }),
   trackMarketTick: (symbol) =>
     set((state) => ({
@@ -514,107 +577,127 @@ export const useCodexStore = create<CodexState>((set) => ({
     set((currentState) => {
       const updates: Partial<CodexState> = {
         dashboardData: data,
-        isLoading: false
-      }
+        isLoading: false,
+      };
 
       if (data.system_metrics) {
         updates.systemMetrics = [
           ...data.system_metrics,
-          ...currentState.systemMetrics
-        ].slice(0, 100)
+          ...currentState.systemMetrics,
+        ].slice(0, 100);
       }
 
       if (data.orders) {
         updates.orders = [
           ...data.orders,
-          ...currentState.orders.filter((order) =>
-            !data.orders?.some((newOrder) => newOrder.order_id === order.order_id)
-          )
-        ].slice(0, 100)
-        _saveToStorage('codex.orders', updates.orders)
+          ...currentState.orders.filter(
+            (order) =>
+              !data.orders?.some(
+                (newOrder) => newOrder.order_id === order.order_id,
+              ),
+          ),
+        ].slice(0, 100);
+        _saveToStorage("codex.orders", updates.orders);
       }
 
       if (data.agent_logs) {
         updates.agentLogs = [
           ...data.agent_logs,
-          ...currentState.agentLogs.filter((log) =>
-            !data.agent_logs?.some((newLog) => newLog.id === log.id)
-          )
-        ].slice(0, 100)
+          ...currentState.agentLogs.filter(
+            (log) => !data.agent_logs?.some((newLog) => newLog.id === log.id),
+          ),
+        ].slice(0, 100);
       }
 
       if (data.learning_events) {
         updates.learningEvents = [
           ...data.learning_events,
-          ...currentState.learningEvents.filter((event) =>
-            !data.learning_events?.some((newEvent) => newEvent.id === event.id)
-          )
-        ].slice(0, 50)
+          ...currentState.learningEvents.filter(
+            (event) =>
+              !data.learning_events?.some(
+                (newEvent) => newEvent.id === event.id,
+              ),
+          ),
+        ].slice(0, 50);
       }
 
       if (data.risk_alerts) {
         updates.riskAlerts = [
           ...data.risk_alerts,
-          ...currentState.riskAlerts.filter((alert) =>
-            !data.risk_alerts?.some((newAlert) => newAlert.id === alert.id)
-          )
-        ].slice(0, 50)
+          ...currentState.riskAlerts.filter(
+            (alert) =>
+              !data.risk_alerts?.some((newAlert) => newAlert.id === alert.id),
+          ),
+        ].slice(0, 50);
       }
 
       if (data.signals) {
         updates.signals = [
           ...data.signals,
-          ...currentState.signals.filter((signal) =>
-            !data.signals?.some((newSignal) => newSignal.id === signal.id)
-          )
-        ].slice(0, 50)
+          ...currentState.signals.filter(
+            (signal) =>
+              !data.signals?.some((newSignal) => newSignal.id === signal.id),
+          ),
+        ].slice(0, 50);
       }
 
       if (data.positions) {
-        updates.positions = data.positions
-        _saveToStorage('codex.positions', data.positions)
+        updates.positions = data.positions;
+        _saveToStorage("codex.positions", data.positions);
       }
 
       if (data.prices) {
-        updates.prices = { ...currentState.prices, ...data.prices }
+        updates.prices = { ...currentState.prices, ...data.prices };
       }
 
       if (data.proposals && Array.isArray(data.proposals)) {
-        const existingIds = new Set(currentState.proposals.map((p) => p.id))
+        const existingIds = new Set(currentState.proposals.map((p) => p.id));
         const newProposals = (data.proposals as Array<Record<string, unknown>>)
           .filter((p) => !existingIds.has(p.id as string))
           .map((p) => ({
             id: (p.id as string) ?? String(Date.now()),
-            proposal_type: (p.proposal_type as ProposalType) ?? 'parameter_change' as ProposalType,
-            content: String(p.content ?? ''),
+            proposal_type:
+              (p.proposal_type as ProposalType) ??
+              ("parameter_change" as ProposalType),
+            content: String(p.content ?? ""),
             requires_approval: p.requires_approval !== false,
-            confidence: typeof p.confidence === 'number' ? p.confidence : undefined,
+            confidence:
+              typeof p.confidence === "number" ? p.confidence : undefined,
             reflection_trace_id: p.reflection_trace_id as string | undefined,
             timestamp: (p.timestamp as string) ?? new Date().toISOString(),
-            status: (p.status as ProposalStatus) ?? 'pending' as ProposalStatus,
-          }))
+            status:
+              (p.status as ProposalStatus) ?? ("pending" as ProposalStatus),
+          }));
         if (newProposals.length > 0) {
-          updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 100)
+          updates.proposals = [
+            ...newProposals,
+            ...currentState.proposals,
+          ].slice(0, 100);
         }
       }
 
       if (data.trade_feed && Array.isArray(data.trade_feed)) {
-        const existingTfIds = new Set(currentState.tradeFeed.map((t) => t.id))
-        const newTrades = data.trade_feed.filter((t) => t?.id != null && !existingTfIds.has(t.id))
+        const existingTfIds = new Set(currentState.tradeFeed.map((t) => t.id));
+        const newTrades = data.trade_feed.filter(
+          (t) => t?.id != null && !existingTfIds.has(t.id),
+        );
         if (newTrades.length > 0) {
-          updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
+          updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(
+            0,
+            200,
+          );
         }
       }
 
       if (data.agent_statuses && Array.isArray(data.agent_statuses)) {
-        updates.agentStatuses = data.agent_statuses as unknown as AgentStatus[]
+        updates.agentStatuses = data.agent_statuses as unknown as AgentStatus[];
       }
 
-      return updates
-    })
+      return updates;
+    });
   },
 
   bulkUpdate: (updates: Partial<CodexState>) => {
-    set(updates)
-  }
-}))
+    set(updates);
+  },
+}));

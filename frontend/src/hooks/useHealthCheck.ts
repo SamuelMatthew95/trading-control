@@ -1,12 +1,12 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
-import { HealthResponse, BotControlResponse } from '@/types/health';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
+import { HealthResponse, BotControlResponse } from "@/types/health";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export const useHealthCheck = () => {
   return useQuery<HealthResponse>({
-    queryKey: ['health'],
+    queryKey: ["health"],
     queryFn: async () => {
       const response = await axios.get(`${API_BASE}/api/health`);
       return response.data;
@@ -27,7 +27,7 @@ export const useBotControl = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['health'] });
+      queryClient.invalidateQueries({ queryKey: ["health"] });
     },
   });
 
@@ -37,7 +37,7 @@ export const useBotControl = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['health'] });
+      queryClient.invalidateQueries({ queryKey: ["health"] });
     },
   });
 

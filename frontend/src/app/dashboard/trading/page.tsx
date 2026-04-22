@@ -1,5 +1,5 @@
-import { DashboardView } from '../DashboardView'
+import { DashboardView } from "../DashboardView";
 
 export default function TradingPage() {
-  return <DashboardView section="trading" />
+  return <DashboardView section="trading" />;
 }

@@ -1,6 +1,6 @@
 /**
  * Production-grade API client layer
- * 
+ *
  * This provides a single source of truth for all API calls
  * and prevents double-prefix issues and contract mismatches.
  */
@@ -22,7 +22,7 @@ const guardDoublePrefix = (url: string): void => {
 
 /**
  * Build API URLs with consistent prefix handling
- * 
+ *
  * @param path - API path (should start with /)
  * @returns Full API URL
  */
@@ -31,7 +31,7 @@ export const api = (path: string): string => {
     console.warn("🚨 API path should start with /:", path);
     path = `/${path}`;
   }
-  
+
   const url = `${API_BASE}${path}`;
   guardDoublePrefix(url);
   return url;
@@ -42,10 +42,10 @@ export const api = (path: string): string => {
  */
 export const apiFetch = async <T = unknown>(
   path: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<T> => {
   const url = api(path);
-  
+
   const response = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
@@ -55,7 +55,9 @@ export const apiFetch = async <T = unknown>(
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `API request failed: ${response.status} ${response.statusText}`,
+    );
   }
 
   return response.json();
@@ -72,20 +74,20 @@ export const API_ENDPOINTS = {
   DASHBOARD_AGENT_INSTANCES: "/dashboard/agent-instances",
   DASHBOARD_PERFORMANCE_TRENDS: "/dashboard/performance-trends",
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
-  
+
   // Learning
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
   LEARNING_GRADES: "/dashboard/learning/grades",
   LEARNING_IC_WEIGHTS: "/dashboard/learning/ic-weights",
   LEARNING_REFLECTIONS: "/dashboard/learning/reflections",
-  
+
   // System
   SYSTEM_HEALTH: "/dashboard/system-health",
   SYSTEM_METRICS: "/dashboard/system-metrics",
-  
+
   // Agents
   AGENTS_STATUS: "/dashboard/agents/status",
-  
+
   // Events
   EVENTS_RECENT: "/dashboard/events/recent",
   EVENTS_HISTORY: "/dashboard/history/events",

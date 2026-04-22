@@ -140,8 +140,9 @@ class LogType(StrEnum):
     REASONING_SUMMARY = "reasoning_summary"
     GRADE = "grade"
     REFLECTION = "reflection"
-    PROPOSAL = "proposal"
     SIGNAL_GENERATED = "signal_generated"
+    IC_UPDATE = "ic_update"
+    PROPOSAL = "proposal"
 
 
 class AgentLogType(StrEnum):

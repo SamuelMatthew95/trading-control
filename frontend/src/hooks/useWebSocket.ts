@@ -1,7 +1,7 @@
-'use client'
+"use client";
 
-import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket'
+import { useGlobalWebSocket } from "@/hooks/useGlobalWebSocket";
 
 export function useWebSocket() {
-  return useGlobalWebSocket()
+  return useGlobalWebSocket();
 }

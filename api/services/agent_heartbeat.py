@@ -73,6 +73,7 @@ async def write_heartbeat(
     try:
         async with AsyncSessionFactory() as session:
             async with session.begin():
+                # Update heartbeat record
                 await session.execute(
                     text("""
                         INSERT INTO agent_heartbeats
@@ -89,6 +90,28 @@ async def write_heartbeat(
                         "status": AgentStatus.ACTIVE,
                         "last_event": last_event,
                         "count": event_count,
+                    },
+                )
+                
+                # Create or update agent_instances lifecycle record
+                # Use a deterministic instance_key based on agent name
+                instance_key = f"{agent_name.lower()}_lifecycle"
+                
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_instances
+                            (instance_key, pool_name, status, started_at, event_count, metadata)
+                        VALUES (:instance_key, :pool_name, 'active', NOW(), :count, :metadata)
+                        ON CONFLICT (instance_key) DO UPDATE SET
+                            status      = 'active',
+                            event_count = EXCLUDED.event_count + :count,
+                            retired_at  = NULL
+                    """),
+                    {
+                        "instance_key": instance_key,
+                        "pool_name": agent_name,
+                        "count": event_count,
+                        "metadata": json.dumps({"source": "heartbeat", "last_event": last_event})
                     },
                 )
     except Exception:

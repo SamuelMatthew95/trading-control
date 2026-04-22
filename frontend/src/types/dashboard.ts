@@ -1,4 +1,4 @@
-export type AgentState = 'running' | 'idle' | 'failed';
+export type AgentState = "running" | "idle" | "failed";
 
 export interface AgentView {
   name: string;

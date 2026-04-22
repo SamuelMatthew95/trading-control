@@ -1,5 +1,5 @@
-import { DashboardView } from '../DashboardView'
+import { DashboardView } from "../DashboardView";
 
 export default function AgentsPage() {
-  return <DashboardView section="agents" />
+  return <DashboardView section="agents" />;
 }

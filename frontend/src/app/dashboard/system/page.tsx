@@ -1,5 +1,5 @@
-import { DashboardView } from '../DashboardView'
+import { DashboardView } from "../DashboardView";
 
 export default function SystemPage() {
-  return <DashboardView section="system" />
+  return <DashboardView section="system" />;
 }

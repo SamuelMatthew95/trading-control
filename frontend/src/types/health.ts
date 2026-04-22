@@ -5,7 +5,7 @@ export interface HealthResponse {
 }
 
 export interface HealthData {
-  status: 'healthy' | 'unhealthy';
+  status: "healthy" | "unhealthy";
   database_connected: boolean;
   feedback_jobs_pending: number;
   feedback_jobs_failed: number;
@@ -25,7 +25,7 @@ export interface TelemetryData {
 export interface BotControlResponse {
   success: boolean;
   data: {
-    status: 'started' | 'stopped';
+    status: "started" | "stopped";
     message: string;
   };
   error: string | null;

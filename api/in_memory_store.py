@@ -160,6 +160,15 @@ class InMemoryStore:
             self.trade_feed = self.trade_feed[-500:]
         return payload
 
+    def get_learning_counters(self) -> dict[str, Any]:
+        """Get learning metrics counters from in-memory store."""
+        return {
+            "trades_evaluated": len(self.grade_history),
+            "reflections_completed": len([e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.REFLECTION]),
+            "ic_values_updated": len([e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.IC_UPDATE]),
+            "strategies_tested": len([e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL]),
+        }
+
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
         now = time.time()
         return {
@@ -174,7 +183,7 @@ class InMemoryStore:
                 for e in reversed(self.event_history[-100:])
                 if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL
             ][:20],
-            "trade_feed": list(reversed(self.trade_feed[-50:])),
+            "trade_feed": self.trade_feed[-50:] if len(self.trade_feed) > 50 else self.trade_feed,
             "signals": [],
             "risk_alerts": [],
             "prices": {},

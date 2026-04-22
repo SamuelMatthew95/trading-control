@@ -1,20 +1,20 @@
-'use client'
+"use client";
 
-import { motion } from 'framer-motion'
-import { cn } from '@/lib/utils'
-import { LucideIcon } from 'lucide-react'
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
+import { LucideIcon } from "lucide-react";
 
 interface ProTradingCardProps {
-  title: string
-  value: string | number
-  icon?: LucideIcon
-  trend?: 'up' | 'down' | 'neutral'
-  trendValue?: string
-  size?: 'sm' | 'md' | 'lg' | 'xl'
-  className?: string
-  children?: React.ReactNode
-  sparkle?: boolean
-  glow?: boolean
+  title: string;
+  value: string | number;
+  icon?: LucideIcon;
+  trend?: "up" | "down" | "neutral";
+  trendValue?: string;
+  size?: "sm" | "md" | "lg" | "xl";
+  className?: string;
+  children?: React.ReactNode;
+  sparkle?: boolean;
+  glow?: boolean;
 }
 
 export function ProTradingCard({
@@ -23,45 +23,47 @@ export function ProTradingCard({
   icon: Icon,
   trend,
   trendValue,
-  size = 'md',
+  size = "md",
   className,
   children,
   sparkle = false,
-  glow = false
+  glow = false,
 }: ProTradingCardProps) {
   const sizeStyles = {
-    sm: 'p-4',
-    md: 'p-6',
-    lg: 'p-8',
-    xl: 'p-10'
-  }
+    sm: "p-4",
+    md: "p-6",
+    lg: "p-8",
+    xl: "p-10",
+  };
 
   const valueSizes = {
-    sm: 'text-lg font-semibold',
-    md: 'text-xl font-bold',
-    lg: 'text-2xl font-bold',
-    xl: 'text-3xl font-bold'
-  }
+    sm: "text-lg font-semibold",
+    md: "text-xl font-bold",
+    lg: "text-2xl font-bold",
+    xl: "text-3xl font-bold",
+  };
 
   const trendColors = {
-    up: 'text-emerald-400',
-    down: 'text-rose-400',
-    neutral: 'text-slate-400'
-  }
+    up: "text-emerald-400",
+    down: "text-rose-400",
+    neutral: "text-slate-400",
+  };
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ 
+      whileHover={{
         y: -2,
-        boxShadow: glow ? '0 20px 40px rgb(0 0 0 / 0.3)' : '0 12px 24px rgb(0 0 0 / 0.2)'
+        boxShadow: glow
+          ? "0 20px 40px rgb(0 0 0 / 0.3)"
+          : "0 12px 24px rgb(0 0 0 / 0.2)",
       }}
       className={cn(
-        'glass-card relative overflow-hidden',
+        "glass-card relative overflow-hidden",
         sizeStyles[size],
-        glow && '',
-        className
+        glow && "",
+        className,
       )}
     >
       {/* Sparkle effect */}
@@ -79,9 +81,7 @@ export function ProTradingCard({
           <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
             {title}
           </h3>
-          {Icon && (
-            <Icon className="h-4 w-4 text-slate-500" />
-          )}
+          {Icon && <Icon className="h-4 w-4 text-slate-500" />}
         </div>
 
         {/* Main Value */}
@@ -91,21 +91,18 @@ export function ProTradingCard({
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className={cn(
-              'font-mono tabular-nums text-slate-200',
-              valueSizes[size]
+              "font-mono tabular-nums text-slate-200",
+              valueSizes[size],
             )}
           >
             {value}
           </motion.div>
-          
+
           {trend && trendValue && (
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              className={cn(
-                'text-sm font-medium',
-                trendColors[trend]
-              )}
+              className={cn("text-sm font-medium", trendColors[trend])}
             >
               {trendValue}
             </motion.div>
@@ -121,11 +118,12 @@ export function ProTradingCard({
         <motion.div
           className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
           style={{
-            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%)',
-            filter: 'blur(20px)'
+            background:
+              "linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%)",
+            filter: "blur(20px)",
           }}
         />
       )}
     </motion.div>
-  )
+  );
 }

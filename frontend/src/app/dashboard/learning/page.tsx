@@ -1,5 +1,5 @@
-import { DashboardView } from '../DashboardView'
+import { DashboardView } from "../DashboardView";
 
 export default function LearningPage() {
-  return <DashboardView section="learning" />
+  return <DashboardView section="learning" />;
 }
