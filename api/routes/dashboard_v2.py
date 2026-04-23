@@ -68,9 +68,9 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     completed_trades = [
         trade
         for trade in trade_feed
-        if trade.get("side") == "sell" and trade.get("pnl") is not None and trade.get("pnl") != 0
+        if trade.get(FieldName.SIDE) == "sell" and trade.get(FieldName.PNL) is not None and trade.get(FieldName.PNL) != 0
     ]
-    winning_trades = sum(1 for trade in completed_trades if float(trade.get("pnl", 0)) > 0)
+    winning_trades = sum(1 for trade in completed_trades if float(trade.get(FieldName.PNL, 0)) > 0)
     win_rate = round((winning_trades / len(completed_trades)) * 100, 2) if completed_trades else 0.0
 
     total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
@@ -924,7 +924,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "unhealthy",
                 "trades_evaluated": {
                     "value": len(store.grade_history),
-                    "last_updated": store.grade_history[-1].get("timestamp")
+                    "last_updated": store.grade_history[-1].get(FieldName.TIMESTAMP)
                     if store.grade_history
                     else "N/A",
                 },
@@ -1554,7 +1554,7 @@ def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
     sorted_trades = sorted(
         recent_trades,
         key=lambda trade: (
-            trade.get("created_at") or trade.get("timestamp") or trade.get("filled_at") or 0
+            trade.get(FieldName.CREATED_AT) or trade.get(FieldName.TIMESTAMP) or trade.get(FieldName.FILLED_AT) or 0
         ),
     )
 
@@ -1704,8 +1704,8 @@ def _in_memory_agent_instances_payload() -> dict[str, Any]:
     instances = []
 
     for name, data in store.agents.items():
-        if data.get("status") == "ACTIVE":
-            last_seen = data.get("last_seen", now)
+        if data.get(FieldName.STATUS) == "ACTIVE":
+            last_seen = data.get(FieldName.LAST_SEEN, now)
             uptime_seconds = int(now - last_seen) if last_seen else 0
 
             instances.append(
@@ -1718,7 +1718,7 @@ def _in_memory_agent_instances_payload() -> dict[str, Any]:
                     if last_seen
                     else None,
                     "retired_at": None,
-                    "event_count": data.get("event_count", 0),
+                    "event_count": data.get(FieldName.EVENT_COUNT, 0),
                     "uptime_seconds": uptime_seconds,
                 }
             )
@@ -1877,7 +1877,9 @@ async def get_agent_instances() -> dict[str, Any]:
         except Exception:
             log_structured("error", "agent_instances_db_failed", exc_info=True)
             # This should never happen if DB is marked available, but handle gracefully
-            return _in_memory_agent_instances_payload()
+            fallback = _in_memory_agent_instances_payload()
+            fallback["error"] = "agent_instances_unavailable"
+            return fallback
 
         instances = [
             {

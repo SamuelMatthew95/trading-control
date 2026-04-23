@@ -225,7 +225,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 "confidence": float(summary.get(FieldName.CONFIDENCE) or 0.0)
                 * 100,  # Convert to percentage
                 "reasoning": summary.get(
-                    "reasoning", summary.get("message", "No reasoning provided")
+                    "reasoning", summary.get(FieldName.MESSAGE, "No reasoning provided")
                 ),
                 "source": SOURCE_REASONING,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
