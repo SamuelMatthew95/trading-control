@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from contextlib import suppress
 from typing import Any
 
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -174,9 +173,9 @@ class BaseStreamConsumer(ABC):
         # Main loop with responsive shutdown
         while self._running and not self._shutdown_event.is_set():
             try:
-                # Use shorter blocking time for responsive shutdown
+                # Use non-blocking consume for responsive shutdown
                 messages = await self.bus.consume(
-                    self.stream, self.group, self.consumer, count=10, block_ms=100
+                    self.stream, self.group, self.consumer, count=10, block_ms=0
                 )
 
                 # Reset backoff on successful consume

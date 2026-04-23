@@ -117,6 +117,7 @@ async def test_consumer_crash_makes_task_end_with_exception(fake_redis):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(10)
 async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
     """A consumer stopped via stop() must NOT be marked as crashed."""
     bus = EventBus(fake_redis)
@@ -126,7 +127,7 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
     consumer = _OkConsumer(bus, dlq, "signals", DEFAULT_GROUP, "test_ok")
     await consumer.start()
     await asyncio.sleep(0.05)
-    await consumer.stop()
+    await asyncio.wait_for(consumer.stop(), timeout=5.0)
 
     # After a clean stop the task is gone (set to None by stop())
     assert consumer._task is None
