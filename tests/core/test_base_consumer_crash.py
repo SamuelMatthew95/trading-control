@@ -216,14 +216,14 @@ def test_multi_stream_agent_name_property():
     assert agent.name == "grade-agent"
 
 
-def test_agent_supervisor_iterates_mixed_agent_list():
+@pytest.mark.asyncio
+async def test_agent_supervisor_iterates_mixed_agent_list():
     """AgentSupervisor._check_health() must not raise when the agents list contains
     both BaseStreamConsumer and MultiStreamAgent instances.
 
     Before the fix, the first MultiStreamAgent (GradeAgent, 4th in the list)
     caused AttributeError on .has_crashed, aborting the entire health check.
     """
-    import asyncio
     from unittest.mock import MagicMock
 
     from api.services.agent_supervisor import AgentSupervisor
@@ -243,15 +243,12 @@ def test_agent_supervisor_iterates_mixed_agent_list():
     supervisor = AgentSupervisor(bus_mock, [fake_bsc_1, fake_bsc_2, multi_agent])
 
     # _check_health() must not raise
-    async def _run():
-        await supervisor._check_health()
-
-    asyncio.get_event_loop().run_until_complete(_run())
+    await supervisor._check_health()
 
 
-def test_agent_supervisor_restart_is_rate_limited():
+@pytest.mark.asyncio
+async def test_agent_supervisor_restart_is_rate_limited():
     """Supervisor should suppress restarts after max attempts within time window."""
-    import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
     from api.constants import SUPERVISOR_MAX_RESTARTS_PER_WINDOW
@@ -268,10 +265,7 @@ def test_agent_supervisor_restart_is_rate_limited():
     bus_mock.publish = AsyncMock()
     supervisor = AgentSupervisor(bus_mock, [agent])
 
-    async def _run_checks() -> None:
-        for _ in range(SUPERVISOR_MAX_RESTARTS_PER_WINDOW + 1):
-            await supervisor._check_health()
-
-    asyncio.get_event_loop().run_until_complete(_run_checks())
+    for _ in range(SUPERVISOR_MAX_RESTARTS_PER_WINDOW + 1):
+        await supervisor._check_health()
 
     assert agent.start.await_count == SUPERVISOR_MAX_RESTARTS_PER_WINDOW

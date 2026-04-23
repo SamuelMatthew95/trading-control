@@ -465,7 +465,9 @@ class TestConsumerShutdownFixes:
             mock_cancel.assert_called_once()
 
             # Should have logged timeout warning
-            mock_log.assert_any_call("warning", "Consumer task timeout, cancelling", stream="test")
+            mock_log.assert_any_call(
+                "warning", "Consumer task timeout during stop", stream="test"
+            )
 
     @pytest.mark.asyncio
     async def test_safe_reclaim_stale_timeout(self, consumer):

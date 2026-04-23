@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
@@ -161,13 +160,14 @@ async def test_performance_trends_falls_back_when_query_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_instances_falls_back_when_query_fails(monkeypatch):
+    _enable_db(monkeypatch)
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_agent_instances()
 
     assert payload["instances"] == []
     assert payload["active_count"] == 0
     assert payload["retired_count"] == 0
-    assert payload[str(FieldName.ERROR)] == "agent_instances_unavailable"
+    assert payload[FieldName.ERROR] == "agent_instances_unavailable"
 
 
 def test_system_metrics_alias_route_exists():

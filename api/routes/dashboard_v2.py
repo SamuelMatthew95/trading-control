@@ -1883,7 +1883,7 @@ async def get_agent_instances() -> dict[str, Any]:
             log_structured("error", "agent_instances_db_failed", exc_info=True)
             # This should never happen if DB is marked available, but handle gracefully
             fallback = _in_memory_agent_instances_payload()
-            fallback["error"] = "agent_instances_unavailable"
+            fallback[FieldName.ERROR] = "agent_instances_unavailable"
             return fallback
 
         instances = [
