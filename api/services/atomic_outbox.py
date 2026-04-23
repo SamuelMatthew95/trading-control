@@ -12,11 +12,14 @@ OUTBOX PATTERN:
 - Prevents UI lying when WebSocket fails
 """
 
+import json
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, select
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.models.trade_ledger import TradeLedger
@@ -25,6 +28,7 @@ from api.observability import log_structured
 
 class OutboxEvent(BaseModel):
     """Outbox event for reliable delivery."""
+
     event_id: str = Field(..., description="Unique event identifier")
     trade_id: str = Field(..., description="Associated trade ID")
     signal_id: str = Field(..., description="Source signal ID")
@@ -157,7 +161,7 @@ class AtomicOutboxManager:
                 exc_info=True,
             )
 
-            raise Exception(f"Atomic trade creation failed: {str(e)}")
+            raise Exception(f"Atomic trade creation failed: {str(e)}") from e
 
     async def publish_pending_events(self, broadcaster) -> list[dict[str, Any]]:
         """
@@ -168,9 +172,11 @@ class AtomicOutboxManager:
         """
         try:
             # Get all pending events
-            stmt = select(self._outbox_table).where(
-                self._outbox_table.c.published_at.is_(None)
-            ).order_by(self._outbox_table.c.created_at)
+            stmt = (
+                select(self._outbox_table)
+                .where(self._outbox_table.c.published_at.is_(None))
+                .order_by(self._outbox_table.c.created_at)
+            )
 
             result = await self.session.execute(stmt)
             pending_events = result.fetchall()
@@ -202,22 +208,26 @@ class AtomicOutboxManager:
                     # Mark as published
                     await self._mark_event_published(outbox_event.event_id)
 
-                    published_events.append({
-                        "event_id": outbox_event.event_id,
-                        "trade_id": outbox_event.trade_id,
-                        "status": "published",
-                    })
+                    published_events.append(
+                        {
+                            "event_id": outbox_event.event_id,
+                            "trade_id": outbox_event.trade_id,
+                            "status": "published",
+                        }
+                    )
 
                 except Exception as e:
                     # Mark as failed or increment retry count
                     await self._mark_event_failed(event_data.event_id, str(e))
 
-                    failed_events.append({
-                        "event_id": event_data.event_id,
-                        "trade_id": event_data.trade_id,
-                        "status": "failed",
-                        "error": str(e),
-                    })
+                    failed_events.append(
+                        {
+                            "event_id": event_data.event_id,
+                            "trade_id": event_data.trade_id,
+                            "status": "failed",
+                            "error": str(e),
+                        }
+                    )
 
             log_structured(
                 "info",
@@ -240,14 +250,16 @@ class AtomicOutboxManager:
                 exc_info=True,
             )
 
-            raise Exception(f"Outbox publish failed: {str(e)}")
+            raise Exception(f"Outbox publish failed: {str(e)}") from e
 
     async def _mark_event_published(self, event_id: str) -> None:
         """Mark event as published."""
-        stmt = self._outbox_table.update().where(
-            self._outbox_table.c.event_id == event_id
-        ).values(
-            published_at=datetime.now(timezone.utc),
+        stmt = (
+            self._outbox_table.update()
+            .where(self._outbox_table.c.event_id == event_id)
+            .values(
+                published_at=datetime.now(timezone.utc),
+            )
         )
 
         await self.session.execute(stmt)
@@ -256,9 +268,7 @@ class AtomicOutboxManager:
     async def _mark_event_failed(self, event_id: str, error_message: str) -> None:
         """Mark event as failed or increment retry count."""
         # Get current event
-        stmt = select(self._outbox_table).where(
-            self._outbox_table.c.event_id == event_id
-        )
+        stmt = select(self._outbox_table).where(self._outbox_table.c.event_id == event_id)
         result = await self.session.execute(stmt)
         event_data = result.fetchone()
 
@@ -269,18 +279,22 @@ class AtomicOutboxManager:
 
         if new_retry_count >= event_data.max_retries:
             # Mark as permanently failed
-            stmt = self._outbox_table.update().where(
-                self._outbox_table.c.event_id == event_id
-            ).values(
-                retry_count=new_retry_count,
-                error_message=error_message,
+            stmt = (
+                self._outbox_table.update()
+                .where(self._outbox_table.c.event_id == event_id)
+                .values(
+                    retry_count=new_retry_count,
+                    error_message=error_message,
+                )
             )
         else:
             # Increment retry count for later retry
-            stmt = self._outbox_table.update().where(
-                self._outbox_table.c.event_id == event_id
-            ).values(
-                retry_count=new_retry_count,
+            stmt = (
+                self._outbox_table.update()
+                .where(self._outbox_table.c.event_id == event_id)
+                .values(
+                    retry_count=new_retry_count,
+                )
             )
 
         await self.session.execute(stmt)
@@ -309,7 +323,7 @@ class AtomicOutboxManager:
             failed_stmt = select(func.count(self._outbox_table.c.event_id)).where(
                 and_(
                     self._outbox_table.c.retry_count >= self._outbox_table.c.max_retries,
-                    self._outbox_table.c.error_message.isnot(None)
+                    self._outbox_table.c.error_message.isnot(None),
                 )
             )
             failed_result = await self.session.execute(failed_stmt)
@@ -341,25 +355,26 @@ class AtomicOutboxManager:
         from sqlalchemy import Column, DateTime, Integer, Numeric, String, Table, Text
 
         return Table(
-            'atomic_outbox',
+            "atomic_outbox",
             self._metadata,
-            Column('event_id', String, primary_key=True),
-            Column('trade_id', String, nullable=False),
-            Column('signal_id', String, nullable=False),
-            Column('symbol', String, nullable=False),
-            Column('action', String, nullable=False),
-            Column('price', Numeric, nullable=False),
-            Column('quantity', Numeric, nullable=False),
-            Column('status', String, nullable=False),
-            Column('payload', Text, nullable=False),
-            Column('created_at', DateTime, nullable=False),
-            Column('published_at', DateTime, nullable=True),
-            Column('retry_count', Integer, default=0),
-            Column('max_retries', Integer, default=3),
-            Column('error_message', Text, nullable=True),
+            Column("event_id", String, primary_key=True),
+            Column("trade_id", String, nullable=False),
+            Column("signal_id", String, nullable=False),
+            Column("symbol", String, nullable=False),
+            Column("action", String, nullable=False),
+            Column("price", Numeric, nullable=False),
+            Column("quantity", Numeric, nullable=False),
+            Column("status", String, nullable=False),
+            Column("payload", Text, nullable=False),
+            Column("created_at", DateTime, nullable=False),
+            Column("published_at", DateTime, nullable=True),
+            Column("retry_count", Integer, default=0),
+            Column("max_retries", Integer, default=3),
+            Column("error_message", Text, nullable=True),
         )
 
     def _get_metadata(self):
         """Get SQLAlchemy metadata."""
         from sqlalchemy import MetaData
+
         return MetaData()

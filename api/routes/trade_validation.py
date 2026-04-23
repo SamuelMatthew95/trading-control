@@ -73,7 +73,7 @@ async def validate_trade_creation(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Trade validation failed")
+        raise HTTPException(status_code=500, detail="Trade validation failed") from e
 
 
 @router.put("/validate/{trade_id}")
@@ -131,7 +131,7 @@ async def validate_trade_update(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Trade update validation failed")
+        raise HTTPException(status_code=500, detail="Trade update validation failed") from e
 
 
 @router.get("/validate/relationships/{trade_id}")
@@ -189,7 +189,7 @@ async def validate_trade_relationships(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Trade relationships validation failed")
+        raise HTTPException(status_code=500, detail="Trade relationships validation failed") from e
 
 
 @router.get("/validate/consistency/{agent_id}")
@@ -248,7 +248,7 @@ async def validate_agent_consistency(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Agent consistency validation failed")
+        raise HTTPException(status_code=500, detail="Agent consistency validation failed") from e
 
 
 @router.get("/health")
@@ -295,4 +295,4 @@ async def validation_service_health(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Health check failed")
+        raise HTTPException(status_code=500, detail="Health check failed") from e

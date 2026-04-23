@@ -42,12 +42,13 @@ class TradeAction(Enum):
 
 class AnalysisPhase(BaseModel):
     """Analyst agent output phase."""
+
     bias: BiasType = Field(..., description="Market bias direction")
     confidence: float = Field(..., ge=0, le=100, description="Confidence score 0-100")
     reasoning: str = Field(..., max_length=500, description="Analysis reasoning")
     indicators: dict[str, float] = Field(default_factory=dict, description="Technical indicators")
 
-    @validator('confidence')
+    @validator("confidence")
     def validate_confidence(self, v):
         if not 0 <= v <= 100:
             raise ValueError("Confidence must be 0-100")
@@ -56,13 +57,16 @@ class AnalysisPhase(BaseModel):
 
 class RiskPhase(BaseModel):
     """Risk agent output phase."""
+
     score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
     decision: RiskDecision = Field(..., description="Risk decision")
     max_position_size: Decimal | None = Field(None, gt=0, description="Max position size")
-    adjusted_confidence: float | None = Field(None, ge=0, le=100, description="Risk-adjusted confidence")
+    adjusted_confidence: float | None = Field(
+        None, ge=0, le=100, description="Risk-adjusted confidence"
+    )
     reasoning: str = Field(..., max_length=500, description="Risk reasoning")
 
-    @validator('score')
+    @validator("score")
     def validate_score(self, v):
         if not 0 <= v <= 100:
             raise ValueError("Risk score must be 0-100")
@@ -71,19 +75,20 @@ class RiskPhase(BaseModel):
 
 class ExecutionPhase(BaseModel):
     """Executor agent output phase."""
+
     action: TradeAction = Field(..., description="Final trade action")
     price: Decimal = Field(..., gt=0, description="Execution price")
     quantity: Decimal = Field(..., gt=0, description="Trade quantity")
     position_id: str | None = Field(None, description="Target position ID for closing")
     execution_reason: str = Field(..., max_length=500, description="Execution reasoning")
 
-    @validator('price')
+    @validator("price")
     def validate_price(self, v):
         if v <= 0:
             raise ValueError("Price must be positive")
         return v
 
-    @validator('quantity')
+    @validator("quantity")
     def validate_quantity(self, v):
         if v <= 0:
             raise ValueError("Quantity must be positive")
@@ -108,13 +113,13 @@ class TradeDecision(BaseModel):
     processing_duration_ms: int | None = Field(None, ge=0, description="Processing duration")
     final_status: str = Field(..., description="Final decision status")
 
-    @validator('symbol')
+    @validator("symbol")
     def validate_symbol(self, v):
         if not v or not v.isalpha():
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    @validator('agent_chain')
+    @validator("agent_chain")
     def validate_agent_chain(self, v):
         if len(v) < 3:
             raise ValueError("Agent chain must include analyst, risk, executor")
@@ -215,7 +220,9 @@ class CanonicalDecisionStore:
 
     def get_pending_decisions(self) -> list[TradeDecision]:
         """Get decisions pending execution."""
-        return [decision for decision in self._decisions.values() if decision.final_status == "pending"]
+        return [
+            decision for decision in self._decisions.values() if decision.final_status == "pending"
+        ]
 
     def mark_executed(self, signal_id: str, execution_id: str) -> None:
         """Mark decision as executed."""

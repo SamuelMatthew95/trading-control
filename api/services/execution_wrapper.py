@@ -23,6 +23,7 @@ from api.services.trade_ledger_service import TradeLedgerService
 
 class ExecutionMode:
     """Constants for execution modes."""
+
     MOCK = "MOCK"
     LIVE = "LIVE"
 
@@ -146,9 +147,11 @@ class ExecutionWrapper:
         self.mock_exchange = MockExchange()
 
         # Only initialize live exchange if configured and in production
-        if (settings.BROKER_MODE == "live" and
-            settings.ALPACA_API_KEY and
-            settings.ALPACA_SECRET_KEY):
+        if (
+            settings.BROKER_MODE == "live"
+            and settings.ALPACA_API_KEY
+            and settings.ALPACA_SECRET_KEY
+        ):
             self.live_exchange = LiveExchange(
                 api_key=settings.ALPACA_API_KEY,
                 secret_key=settings.ALPACA_SECRET_KEY,
@@ -247,8 +250,12 @@ class ExecutionWrapper:
             trade_type=trade_type,
             execution_mode=execution_result.execution_mode,
             success=execution_result.success,
-            filled_price=float(execution_result.filled_price) if execution_result.filled_price else None,
-            filled_quantity=float(execution_result.filled_quantity) if execution_result.filled_quantity else None,
+            filled_price=float(execution_result.filled_price)
+            if execution_result.filled_price
+            else None,
+            filled_quantity=float(execution_result.filled_quantity)
+            if execution_result.filled_quantity
+            else None,
             trade_ledger_id=str(trade_ledger_entry.trade_id) if trade_ledger_entry else None,
             error_message=execution_result.error_message,
             trace_id=trace_id,
@@ -276,7 +283,6 @@ class ExecutionWrapper:
             order_type="market" if price is None else "limit",
             price=price,
         )
-
 
     async def _execute_live_trade(
         self,
@@ -326,9 +332,7 @@ class ExecutionWrapper:
             "broker_mode": settings.BROKER_MODE,
             "mock_exchange_available": True,
             "live_exchange_available": self.live_exchange is not None,
-            "alpaca_configured": bool(
-                settings.ALPACA_API_KEY and settings.ALPACA_SECRET_KEY
-            ),
+            "alpaca_configured": bool(settings.ALPACA_API_KEY and settings.ALPACA_SECRET_KEY),
             "alpaca_paper_trading": settings.ALPACA_PAPER,
             "alpaca_base_url": settings.ALPACA_BASE_URL,
         }

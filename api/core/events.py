@@ -24,6 +24,7 @@ class SignalAction(Enum):
 @dataclass(frozen=True)
 class SignalEvent:
     """Canonical trading signal - source of truth."""
+
     signal_id: str
     agent_id: str
     symbol: str
@@ -51,6 +52,7 @@ class SignalEvent:
 @dataclass
 class TradeExecutionEvent:
     """Result of trade execution - derived from SignalEvent."""
+
     signal_id: str
     trade_id: str
     agent_id: str
@@ -84,6 +86,7 @@ class TradeExecutionEvent:
 @dataclass(frozen=True)
 class PositionState:
     """Current position state - derived from trades."""
+
     symbol: str
     quantity: Decimal
     avg_cost: Decimal

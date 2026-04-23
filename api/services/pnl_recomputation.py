@@ -103,9 +103,7 @@ class PnLRecomputer:
             return Decimal("0")
 
         # Get parent BUY trade
-        parent_stmt = select(TradeLedger).where(
-            TradeLedger.trade_id == sell_trade.parent_trade_id
-        )
+        parent_stmt = select(TradeLedger).where(TradeLedger.trade_id == sell_trade.parent_trade_id)
         parent_result = await self.session.execute(parent_stmt)
         parent_trade = parent_result.scalar_one_or_none()
 
@@ -151,40 +149,46 @@ class PnLRecomputer:
                     pnl = (sell_trade.exit_price - buy_trade.entry_price) * buy_trade.quantity
                     total_pnl += pnl
 
-                    trade_details.append({
-                        "symbol": buy_trade.symbol,
-                        "buy_trade_id": str(buy_trade.trade_id),
-                        "sell_trade_id": str(sell_trade.trade_id),
-                        "entry_price": float(buy_trade.entry_price),
-                        "exit_price": float(sell_trade.exit_price),
-                        "quantity": float(buy_trade.quantity),
-                        "calculated_pnl": float(pnl),
-                        "pair_status": "complete",
-                    })
+                    trade_details.append(
+                        {
+                            "symbol": buy_trade.symbol,
+                            "buy_trade_id": str(buy_trade.trade_id),
+                            "sell_trade_id": str(sell_trade.trade_id),
+                            "entry_price": float(buy_trade.entry_price),
+                            "exit_price": float(sell_trade.exit_price),
+                            "quantity": float(buy_trade.quantity),
+                            "calculated_pnl": float(pnl),
+                            "pair_status": "complete",
+                        }
+                    )
                 elif buy_trade and not sell_trade:
                     # Open BUY trade
-                    trade_details.append({
-                        "symbol": buy_trade.symbol,
-                        "buy_trade_id": str(buy_trade.trade_id),
-                        "sell_trade_id": None,
-                        "entry_price": float(buy_trade.entry_price),
-                        "exit_price": None,
-                        "quantity": float(buy_trade.quantity),
-                        "calculated_pnl": 0.0,
-                        "pair_status": "open",
-                    })
+                    trade_details.append(
+                        {
+                            "symbol": buy_trade.symbol,
+                            "buy_trade_id": str(buy_trade.trade_id),
+                            "sell_trade_id": None,
+                            "entry_price": float(buy_trade.entry_price),
+                            "exit_price": None,
+                            "quantity": float(buy_trade.quantity),
+                            "calculated_pnl": 0.0,
+                            "pair_status": "open",
+                        }
+                    )
                 else:
                     # Unpaired SELL trade
-                    trade_details.append({
-                        "symbol": sell_trade.symbol,
-                        "buy_trade_id": None,
-                        "sell_trade_id": str(sell_trade.trade_id),
-                        "entry_price": None,
-                        "exit_price": float(sell_trade.exit_price),
-                        "quantity": float(sell_trade.quantity),
-                        "calculated_pnl": 0.0,
-                        "pair_status": "orphaned",
-                    })
+                    trade_details.append(
+                        {
+                            "symbol": sell_trade.symbol,
+                            "buy_trade_id": None,
+                            "sell_trade_id": str(sell_trade.trade_id),
+                            "entry_price": None,
+                            "exit_price": float(sell_trade.exit_price),
+                            "quantity": float(sell_trade.quantity),
+                            "calculated_pnl": 0.0,
+                            "pair_status": "orphaned",
+                        }
+                    )
 
             # Calculate portfolio metrics
             complete_pairs = [t for t in trade_details if t["pair_status"] == "complete"]
@@ -193,7 +197,9 @@ class PnLRecomputer:
             winning_trades = len([t for t in complete_pairs if t["calculated_pnl"] > 0])
             total_completed_trades = len(complete_pairs)
 
-            win_rate = (winning_trades / total_completed_trades * 100) if total_completed_trades > 0 else 0
+            win_rate = (
+                (winning_trades / total_completed_trades * 100) if total_completed_trades > 0 else 0
+            )
 
             result = {
                 "agent_id": agent_id,
@@ -236,12 +242,16 @@ class PnLRecomputer:
                 "win_rate": 0.0,
             }
 
-    async def _get_trade_pairs(self, agent_id: str | None = None) -> list[tuple[TradeLedger | None, TradeLedger | None]]:
+    async def _get_trade_pairs(
+        self, agent_id: str | None = None
+    ) -> list[tuple[TradeLedger | None, TradeLedger | None]]:
         """Get all trade pairs (BUY + SELL) for recomputation."""
         # Get all trades ordered by creation time
-        stmt = select(TradeLedger).where(
-            TradeLedger.agent_id == agent_id if agent_id else True
-        ).order_by(TradeLedger.created_at)
+        stmt = (
+            select(TradeLedger)
+            .where(TradeLedger.agent_id == agent_id if agent_id else True)
+            .order_by(TradeLedger.created_at)
+        )
 
         result = await self.session.execute(stmt)
         all_trades = result.scalars().all()
@@ -285,9 +295,7 @@ class PnLRecomputer:
                 TradeLedger.quantity,
                 TradeLedger.pnl_realized,
                 TradeLedger.parent_trade_id,
-            ).where(
-                TradeLedger.agent_id == agent_id if agent_id else True
-            )
+            ).where(TradeLedger.agent_id == agent_id if agent_id else True)
 
             result = await self.session.execute(stmt)
             trades = result.scalars().all()
@@ -299,29 +307,37 @@ class PnLRecomputer:
                 # Recompute P&L for this trade
                 if trade.trade_type == "SELL" and trade.parent_trade_id:
                     # Find parent trade
-                    parent_trade = next((t for t in trades if t.trade_id == trade.parent_trade_id), None)
+                    parent_trade = next(
+                        (t for t in trades if t.trade_id == trade.parent_trade_id), None
+                    )
 
                     if parent_trade:
                         # Compute expected P&L
-                        expected_pnl = (trade.exit_price - parent_trade.entry_price) * parent_trade.quantity
+                        expected_pnl = (
+                            trade.exit_price - parent_trade.entry_price
+                        ) * parent_trade.quantity
                         actual_pnl = trade.pnl_realized or Decimal("0")
 
                         if abs(expected_pnl - actual_pnl) > Decimal("0.01"):
-                            inconsistencies.append({
-                                "trade_id": str(trade.trade_id),
-                                "symbol": trade.symbol,
-                                "issue": "pnl_mismatch",
-                                "expected_pnl": float(expected_pnl),
-                                "actual_pnl": float(actual_pnl),
-                                "difference": float(abs(expected_pnl - actual_pnl)),
-                            })
+                            inconsistencies.append(
+                                {
+                                    "trade_id": str(trade.trade_id),
+                                    "symbol": trade.symbol,
+                                    "issue": "pnl_mismatch",
+                                    "expected_pnl": float(expected_pnl),
+                                    "actual_pnl": float(actual_pnl),
+                                    "difference": float(abs(expected_pnl - actual_pnl)),
+                                }
+                            )
                         else:
-                            validated_trades.append({
-                                "trade_id": str(trade.trade_id),
-                                "symbol": trade.symbol,
-                                "pnl_validated": True,
-                                "pnl_value": float(actual_pnl),
-                            })
+                            validated_trades.append(
+                                {
+                                    "trade_id": str(trade.trade_id),
+                                    "symbol": trade.symbol,
+                                    "pnl_validated": True,
+                                    "pnl_value": float(actual_pnl),
+                                }
+                            )
 
             return {
                 "agent_id": agent_id,

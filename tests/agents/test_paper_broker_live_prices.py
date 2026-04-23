@@ -1,22 +1,17 @@
 """Tests for PaperBroker live price fetching functionality."""
 
 import json
+from unittest.mock import AsyncMock
+
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
-import time
 
 from api.constants import (
-    STREAM_MARKET_TICKS,
-    STREAM_TRADE_PERFORMANCE,
-    STREAM_AGENT_LOGS,
-    FieldName,
-    REDIS_KEY_PAPER_POSITION,
     REDIS_KEY_PAPER_CASH,
+    REDIS_KEY_PAPER_POSITION,
     REDIS_KEY_PRICES,
+    FieldName,
 )
 from api.services.execution.brokers.paper import PaperBroker
-from api.services.events import EventBus
 
 
 @pytest.mark.asyncio
@@ -240,12 +235,13 @@ async def test_paperbroker_position_updated_with_live_price():
     expected_position_key = REDIS_KEY_PAPER_POSITION.format(symbol="TSLA")
     mock_redis.set.assert_any_call(
         expected_position_key,
-        pytest.helpers.anything  # JSON string with updated position
+        pytest.helpers.anything,  # JSON string with updated position
     )
 
     # Check that the position call includes the live price-based fill price
-    position_calls = [call for call in mock_redis.set.call_args_list
-                      if expected_position_key in str(call)]
+    position_calls = [
+        call for call in mock_redis.set.call_args_list if expected_position_key in str(call)
+    ]
     assert len(position_calls) > 0
 
     # Extract and verify the position data
@@ -271,7 +267,7 @@ async def test_paperbroker_cash_updated_with_live_price():
     }
     mock_redis.get.side_effect = [
         json.dumps(live_price_data),  # Live price fetch
-        "10000.0",                   # Current cash
+        "10000.0",  # Current cash
     ]
 
     # Mock Redis operations
@@ -282,8 +278,7 @@ async def test_paperbroker_cash_updated_with_live_price():
 
     # Verify cash was updated
     cash_key = REDIS_KEY_PAPER_CASH
-    cash_calls = [call for call in mock_redis.set.call_args_list
-                  if cash_key in str(call)]
+    cash_calls = [call for call in mock_redis.set.call_args_list if cash_key in str(call)]
     assert len(cash_calls) > 0
 
     # Cash should be reduced by (fill_price * quantity)

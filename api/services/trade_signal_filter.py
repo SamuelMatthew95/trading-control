@@ -16,6 +16,7 @@ from api.observability import log_structured
 
 class SignalType(Enum):
     """Enum for signal types that are allowed to pass through."""
+
     TRADE_SIGNAL = "TRADE_SIGNAL"
     AGENT_LOG = "agent_log"
     INFO = "info"
@@ -104,7 +105,9 @@ class TradeSignalFilter:
             trade_keywords = {"buy", "sell", "trade", "order", "position", "enter", "exit"}
             if any(keyword in text_content for keyword in trade_keywords):
                 # Only consider it a trade signal if it has clear intent
-                if any(word in text_content for word in ["signal", "recommend", "execute", "place"]):
+                if any(
+                    word in text_content for word in ["signal", "recommend", "execute", "place"]
+                ):
                     return True
 
         return False

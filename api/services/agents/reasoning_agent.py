@@ -222,8 +222,11 @@ class ReasoningAgent(BaseStreamConsumer):
                 "type": "agent_log",
                 "msg_id": str(uuid.uuid4()),
                 "agent_name": AGENT_REASONING,
-                "confidence": float(summary.get(FieldName.CONFIDENCE) or 0.0) * 100,  # Convert to percentage
-                "reasoning": summary.get("reasoning", summary.get("message", "No reasoning provided")),
+                "confidence": float(summary.get(FieldName.CONFIDENCE) or 0.0)
+                * 100,  # Convert to percentage
+                "reasoning": summary.get(
+                    "reasoning", summary.get("message", "No reasoning provided")
+                ),
                 "source": SOURCE_REASONING,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trace_id": trace_id,

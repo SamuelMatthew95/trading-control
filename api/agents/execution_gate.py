@@ -40,6 +40,7 @@ class RiskLevel(Enum):
 @dataclass
 class GateResult:
     """Result of execution gate validation."""
+
     decision: GateDecision
     reason: str | None = None
     modified_signal: dict[str, Any] | None = None
@@ -56,9 +57,7 @@ class ExecutionGate:
         self._recent_decisions = []
 
     async def evaluate_signal(
-        self,
-        signal: SignalEvent,
-        agent_permissions: AgentPermissions
+        self, signal: SignalEvent, agent_permissions: AgentPermissions
     ) -> GateResult:
         """Evaluate signal against execution gate rules."""
 
@@ -98,7 +97,9 @@ class ExecutionGate:
                 risk_level=RiskLevel.CRITICAL,
             )
 
-    def _evaluate_analyst_signal(self, signal: SignalEvent, permissions: AgentPermissions) -> GateResult:
+    def _evaluate_analyst_signal(
+        self, signal: SignalEvent, permissions: AgentPermissions
+    ) -> GateResult:
         """Evaluate analyst agent signal - can only analyze, not trade."""
         if signal.action not in ["HOLD", "ANALYZE"]:
             return GateResult(
@@ -122,7 +123,9 @@ class ExecutionGate:
             risk_level=RiskLevel.LOW,
         )
 
-    def _evaluate_risk_signal(self, signal: SignalEvent, permissions: AgentPermissions) -> GateResult:
+    def _evaluate_risk_signal(
+        self, signal: SignalEvent, permissions: AgentPermissions
+    ) -> GateResult:
         """Evaluate risk agent signal - can block or modify."""
 
         # Check if risk agent is allowed to trade this symbol
@@ -165,7 +168,9 @@ class ExecutionGate:
             risk_level=RiskLevel.LOW,
         )
 
-    def _evaluate_executor_signal(self, signal: SignalEvent, permissions: AgentPermissions) -> GateResult:
+    def _evaluate_executor_signal(
+        self, signal: SignalEvent, permissions: AgentPermissions
+    ) -> GateResult:
         """Evaluate executor agent signal - only role that can execute trades."""
         if signal.action not in ["BUY", "SELL"]:
             return GateResult(
@@ -206,7 +211,9 @@ class ExecutionGate:
             risk_level=RiskLevel.LOW,
         )
 
-    async def apply_gate_modifications(self, signal: SignalEvent, gate_result: GateResult) -> SignalEvent:
+    async def apply_gate_modifications(
+        self, signal: SignalEvent, gate_result: GateResult
+    ) -> SignalEvent:
         """Apply gate modifications to signal."""
         if gate_result.modified_signal:
             return SignalEvent(

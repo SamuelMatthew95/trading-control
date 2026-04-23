@@ -13,7 +13,7 @@ def test_basic_functionality():
     print("Testing basic functionality...")
 
     # Test 1: Trade signal filter
-    filter = get_trade_signal_filter()
+    signal_filter = get_trade_signal_filter()
 
     trade_event = {
         "type": "TRADE_SIGNAL",
@@ -21,7 +21,7 @@ def test_basic_functionality():
         "msg_id": str(uuid.uuid4()),
     }
 
-    result = filter.filter_event(trade_event)
+    result = signal_filter.filter_event(trade_event)
     assert result["action"] == "process"
     print("✓ Trade signal filter works")
 

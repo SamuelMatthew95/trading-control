@@ -1,20 +1,18 @@
 """Tests for learning agents subscription and event reception."""
 
-import pytest
-import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
 import time
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from api.constants import (
-    AGENT_SIGNAL,
-    STREAM_AGENT_LOGS,
-    STREAM_TRADE_PERFORMANCE,
-    STREAM_FACTOR_IC_HISTORY,
-    STREAM_EXECUTIONS,
-    STREAM_REFLECTION_OUTPUTS,
     STREAM_AGENT_GRADES,
-    LogType,
+    STREAM_EXECUTIONS,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_TRADE_PERFORMANCE,
     FieldName,
+    LogType,
 )
 from api.services.agents.pipeline_agents import (
     GradeAgent,
@@ -22,7 +20,6 @@ from api.services.agents.pipeline_agents import (
     ReflectionAgent,
     StrategyProposer,
 )
-from api.services.events import EventBus
 
 
 @pytest.mark.asyncio
@@ -32,12 +29,13 @@ async def test_grade_agent_subscription_logging():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         GradeAgent(mock_bus, mock_dlq)
 
         # Verify subscription logging was called
-        mock_log.assert_called_with("info", "grade_agent_subscribed",
-                                   streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE])
+        mock_log.assert_called_with(
+            "info", "grade_agent_subscribed", streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE]
+        )
 
 
 @pytest.mark.asyncio
@@ -48,12 +46,13 @@ async def test_ic_updater_subscription_logging():
     mock_dlq = AsyncMock()
     mock_redis = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         ICUpdater(mock_bus, mock_dlq, mock_redis)
 
         # Verify subscription logging was called
-        mock_log.assert_called_with("info", "ic_updater_subscribed",
-                                   streams=[STREAM_TRADE_PERFORMANCE])
+        mock_log.assert_called_with(
+            "info", "ic_updater_subscribed", streams=[STREAM_TRADE_PERFORMANCE]
+        )
 
 
 @pytest.mark.asyncio
@@ -63,12 +62,15 @@ async def test_reflection_agent_subscription_logging():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         ReflectionAgent(mock_bus, mock_dlq)
 
         # Verify subscription logging was called
-        mock_log.assert_called_with("info", "reflection_agent_subscribed",
-                                   streams=[STREAM_TRADE_PERFORMANCE, STREAM_AGENT_GRADES, STREAM_FACTOR_IC_HISTORY])
+        mock_log.assert_called_with(
+            "info",
+            "reflection_agent_subscribed",
+            streams=[STREAM_TRADE_PERFORMANCE, STREAM_AGENT_GRADES, STREAM_FACTOR_IC_HISTORY],
+        )
 
 
 @pytest.mark.asyncio
@@ -78,12 +80,13 @@ async def test_strategy_proposer_subscription_logging():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         StrategyProposer(mock_bus, mock_dlq)
 
         # Verify subscription logging was called
-        mock_log.assert_called_with("info", "strategy_proposer_subscribed",
-                                   streams=[STREAM_REFLECTION_OUTPUTS])
+        mock_log.assert_called_with(
+            "info", "strategy_proposer_subscribed", streams=[STREAM_REFLECTION_OUTPUTS]
+        )
 
 
 @pytest.mark.asyncio
@@ -93,7 +96,7 @@ async def test_grade_agent_event_reception_logging():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         grade_agent = GradeAgent(mock_bus, mock_dlq)
 
         # Mock trade performance event
@@ -106,10 +109,13 @@ async def test_grade_agent_event_reception_logging():
         await grade_agent.process(STREAM_TRADE_PERFORMANCE, "redis-id-123", trade_event)
 
         # Verify event reception logging was called
-        mock_log.assert_any_call("info", "grade_agent_received_event",
-                                stream=STREAM_TRADE_PERFORMANCE,
-                                redis_id="redis-id-123",
-                                trace_id="trace-trade-123")
+        mock_log.assert_any_call(
+            "info",
+            "grade_agent_received_event",
+            stream=STREAM_TRADE_PERFORMANCE,
+            redis_id="redis-id-123",
+            trace_id="trace-trade-123",
+        )
 
 
 @pytest.mark.asyncio
@@ -120,7 +126,7 @@ async def test_ic_updater_event_reception_logging():
     mock_dlq = AsyncMock()
     mock_redis = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         ic_updater = ICUpdater(mock_bus, mock_dlq, mock_redis)
 
         # Mock trade performance event
@@ -133,10 +139,13 @@ async def test_ic_updater_event_reception_logging():
         await ic_updater.process(STREAM_TRADE_PERFORMANCE, "redis-id-456", trade_event)
 
         # Verify event reception logging was called
-        mock_log.assert_called_with("info", "ic_updater_received_event",
-                                   stream=STREAM_TRADE_PERFORMANCE,
-                                   redis_id="redis-id-456",
-                                   trace_id="trace-trade-456")
+        mock_log.assert_called_with(
+            "info",
+            "ic_updater_received_event",
+            stream=STREAM_TRADE_PERFORMANCE,
+            redis_id="redis-id-456",
+            trace_id="trace-trade-456",
+        )
 
 
 @pytest.mark.asyncio
@@ -146,7 +155,7 @@ async def test_reflection_agent_event_reception_logging():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         reflection_agent = ReflectionAgent(mock_bus, mock_dlq)
 
         # Mock trade performance event
@@ -159,10 +168,13 @@ async def test_reflection_agent_event_reception_logging():
         await reflection_agent.process(STREAM_TRADE_PERFORMANCE, "redis-id-789", trade_event)
 
         # Verify event reception logging was called
-        mock_log.assert_called_with("info", "reflection_agent_received_event",
-                                   stream=STREAM_TRADE_PERFORMANCE,
-                                   redis_id="redis-id-789",
-                                   trace_id="trace-trade-789")
+        mock_log.assert_called_with(
+            "info",
+            "reflection_agent_received_event",
+            stream=STREAM_TRADE_PERFORMANCE,
+            redis_id="redis-id-789",
+            trace_id="trace-trade-789",
+        )
 
 
 @pytest.mark.asyncio
@@ -172,34 +184,46 @@ async def test_learning_agents_multiple_event_types():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         reflection_agent = ReflectionAgent(mock_bus, mock_dlq)
 
         # Test different event types
         events = [
-            (STREAM_TRADE_PERFORMANCE, {
-                FieldName.PNL: 5.0,
-                FieldName.TRACE_ID: "trace-trade-1",
-                "symbol": "TSLA",
-            }),
-            (STREAM_AGENT_GRADES, {
-                FieldName.GRADE: "A",
-                FieldName.SCORE: 85.0,
-                FieldName.TRACE_ID: "trace-grade-1",
-            }),
-            (STREAM_FACTOR_IC_HISTORY, {
-                "factor_name": "momentum",
-                "ic_score": 0.15,
-                FieldName.TRACE_ID: "trace-ic-1",
-            }),
+            (
+                STREAM_TRADE_PERFORMANCE,
+                {
+                    FieldName.PNL: 5.0,
+                    FieldName.TRACE_ID: "trace-trade-1",
+                    "symbol": "TSLA",
+                },
+            ),
+            (
+                STREAM_AGENT_GRADES,
+                {
+                    FieldName.GRADE: "A",
+                    FieldName.SCORE: 85.0,
+                    FieldName.TRACE_ID: "trace-grade-1",
+                },
+            ),
+            (
+                STREAM_FACTOR_IC_HISTORY,
+                {
+                    "factor_name": "momentum",
+                    "ic_score": 0.15,
+                    FieldName.TRACE_ID: "trace-ic-1",
+                },
+            ),
         ]
 
         for stream, event_data in events:
             await reflection_agent.process(stream, f"redis-id-{stream}", event_data)
 
         # Verify all events were logged
-        event_log_calls = [call for call in mock_log.call_args_list
-                         if "reflection_agent_received_event" in str(call)]
+        event_log_calls = [
+            call
+            for call in mock_log.call_args_list
+            if "reflection_agent_received_event" in str(call)
+        ]
         assert len(event_log_calls) == 3
 
         # Verify correct streams were logged
@@ -225,11 +249,12 @@ async def test_grade_agent_processes_trade_performance_events():
         {FieldName.PNL: 3.5, FieldName.TRACE_ID: "trace-3"},
     ]
 
-    with patch.object(grade_agent, '_compute_and_publish_grade') as mock_grade:
-        with patch('api.services.agents.pipeline_agents.settings', GRADE_EVERY_N_FILLS="3"):
-
+    with patch.object(grade_agent, "_compute_and_publish_grade") as mock_grade:
+        with patch("api.services.agents.pipeline_agents.settings", GRADE_EVERY_N_FILLS="3"):
             for event in trade_events:
-                await grade_agent.process(STREAM_TRADE_PERFORMANCE, f"redis-id-{event[FieldName.TRACE_ID]}", event)
+                await grade_agent.process(
+                    STREAM_TRADE_PERFORMANCE, f"redis-id-{event[FieldName.TRACE_ID]}", event
+                )
 
             # Verify grade computation was triggered after 3 fills
             mock_grade.assert_called_once()
@@ -257,12 +282,13 @@ async def test_ic_updater_processes_trade_performance_events():
         {FieldName.PNL: -1.0, FieldName.TRACE_ID: "trace-2"},
     ]
 
-    with patch.object(ic_updater, '_fetch_composite_score', return_value=0.75):
-        with patch.object(ic_updater, '_recompute_and_publish') as mock_recompute:
-            with patch('api.services.agents.pipeline_agents.settings', IC_UPDATE_EVERY_N_FILLS="2"):
-
+    with patch.object(ic_updater, "_fetch_composite_score", return_value=0.75):
+        with patch.object(ic_updater, "_recompute_and_publish") as mock_recompute:
+            with patch("api.services.agents.pipeline_agents.settings", IC_UPDATE_EVERY_N_FILLS="2"):
                 for event in trade_events:
-                    await ic_updater.process(STREAM_TRADE_PERFORMANCE, f"redis-id-{event[FieldName.TRACE_ID]}", event)
+                    await ic_updater.process(
+                        STREAM_TRADE_PERFORMANCE, f"redis-id-{event[FieldName.TRACE_ID]}", event
+                    )
 
                 # Verify IC recomputation was triggered after 2 fills
                 mock_recompute.assert_called_once()
@@ -309,11 +335,12 @@ async def test_reflection_agent_accumulates_trade_data():
         },
     ]
 
-    with patch.object(reflection_agent, '_run_reflection') as mock_reflection:
-        with patch('api.services.agents.pipeline_agents.settings', REFLECT_EVERY_N_FILLS="2"):
-
+    with patch.object(reflection_agent, "_run_reflection") as mock_reflection:
+        with patch("api.services.agents.pipeline_agents.settings", REFLECT_EVERY_N_FILLS="2"):
             for event in trade_events:
-                await reflection_agent.process(STREAM_TRADE_PERFORMANCE, f"redis-id-{event[FieldName.TRACE_ID]}", event)
+                await reflection_agent.process(
+                    STREAM_TRADE_PERFORMANCE, f"redis-id-{event[FieldName.TRACE_ID]}", event
+                )
 
             # Verify reflection was triggered after 2 fills
             mock_reflection.assert_called_once()
@@ -331,7 +358,7 @@ async def test_learning_agents_handle_missing_trace_id():
     mock_bus = AsyncMock()
     mock_dlq = AsyncMock()
 
-    with patch('api.services.agents.pipeline_agents.log_structured') as mock_log:
+    with patch("api.services.agents.pipeline_agents.log_structured") as mock_log:
         grade_agent = GradeAgent(mock_bus, mock_dlq)
 
         # Event without trace ID
@@ -344,10 +371,13 @@ async def test_learning_agents_handle_missing_trace_id():
         await grade_agent.process(STREAM_TRADE_PERFORMANCE, "redis-id-123", event_no_trace)
 
         # Verify event was still processed and logged
-        mock_log.assert_any_call("info", "grade_agent_received_event",
-                                stream=STREAM_TRADE_PERFORMANCE,
-                                redis_id="redis-id-123",
-                                trace_id=None)
+        mock_log.assert_any_call(
+            "info",
+            "grade_agent_received_event",
+            stream=STREAM_TRADE_PERFORMANCE,
+            redis_id="redis-id-123",
+            trace_id=None,
+        )
 
 
 @pytest.mark.asyncio

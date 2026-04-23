@@ -31,6 +31,7 @@ class TimeSource(Enum):
 
 class EventOrder(BaseModel):
     """Event order with timing information."""
+
     signal_id: str = Field(..., description="Signal identifier")
     sequence_number: int = Field(..., ge=0, description="Event sequence number")
     timestamp: datetime = Field(..., description="Event timestamp")
@@ -48,10 +49,13 @@ class EventOrder(BaseModel):
 
 class TimeConsistencyWindow(BaseModel):
     """Time consistency window for validation."""
+
     window_start: datetime = Field(..., description="Window start time")
     window_end: datetime = Field(..., description="Window end time")
     max_latency_ms: int = Field(..., ge=0, description="Maximum allowed latency")
-    out_of_order_events: list[dict[str, Any]] = Field(default_factory=list, description="Out of order events")
+    out_of_order_events: list[dict[str, Any]] = Field(
+        default_factory=list, description="Out of order events"
+    )
 
     @property
     def duration_ms(self) -> int:
@@ -145,38 +149,44 @@ class TimeConsistencyManager:
         for i, event in enumerate(sorted_events):
             expected_sequence = i
             if event.sequence_number != expected_sequence:
-                issues.append({
-                    "type": "sequence_gap",
-                    "signal_id": event.signal_id,
-                    "expected_sequence": expected_sequence,
-                    "actual_sequence": event.sequence_number,
-                    "timestamp": event.timestamp.isoformat(),
-                })
+                issues.append(
+                    {
+                        "type": "sequence_gap",
+                        "signal_id": event.signal_id,
+                        "expected_sequence": expected_sequence,
+                        "actual_sequence": event.sequence_number,
+                        "timestamp": event.timestamp.isoformat(),
+                    }
+                )
 
         # Check for out-of-order timestamps
         for i in range(1, len(sorted_events)):
             current_event = sorted_events[i]
-            previous_event = sorted_events[i-1]
+            previous_event = sorted_events[i - 1]
 
             if current_event.timestamp < previous_event.timestamp:
-                issues.append({
-                    "type": "timestamp_out_of_order",
-                    "signal_id": current_event.signal_id,
-                    "current_timestamp": current_event.timestamp.isoformat(),
-                    "previous_timestamp": previous_event.timestamp.isoformat(),
-                    "previous_signal_id": previous_event.signal_id,
-                })
+                issues.append(
+                    {
+                        "type": "timestamp_out_of_order",
+                        "signal_id": current_event.signal_id,
+                        "current_timestamp": current_event.timestamp.isoformat(),
+                        "previous_timestamp": previous_event.timestamp.isoformat(),
+                        "previous_signal_id": previous_event.signal_id,
+                    }
+                )
 
         # Check processing latency
         for event in sorted_events:
             if event.processing_latency_ms and event.processing_latency_ms > self._max_latency_ms:
-                issues.append({
-                    "type": "excessive_latency",
-                    "signal_id": event.signal_id,
-                    "processing_latency_ms": event.processing_latency_ms,
-                    "max_allowed_ms": self._max_latency_ms,
-                    "timestamp": event.timestamp.isoformat(),
-                })
+                issues.append(
+                    {
+                        "type": "excessive_latency",
+                        "signal_id": event.signal_id,
+                        "processing_latency_ms": event.processing_latency_ms,
+                        "max_allowed_ms": self._max_latency_ms,
+                        "timestamp": event.timestamp.isoformat(),
+                    }
+                )
 
         is_valid = len(issues) == 0
 
@@ -205,7 +215,7 @@ class TimeConsistencyManager:
         window = TimeConsistencyWindow(
             window_start=window_start,
             window_end=window_end,
-            max_latency_ms=max_latency or self._max_latency_ms,
+            max_latency_ms=max_latency_ms or self._max_latency_ms,
         )
 
         self._time_windows[f"{window_start.isoformat()}_{window_end.isoformat()}"] = window
@@ -221,41 +231,47 @@ class TimeConsistencyManager:
 
         return window
 
-    def validate_time_consistency(self, window: TimeConsistencyWindow, events: list[EventOrder]) -> dict[str, Any]:
+    def validate_time_consistency(
+        self, window: TimeConsistencyWindow, events: list[EventOrder]
+    ) -> dict[str, Any]:
         """Validate time consistency within a window."""
         # Filter events within window
         window_events = [
-            event for event in events
-            if window.window_start <= event.timestamp <= window.window_end
+            event for event in events if window.window_start <= event.timestamp <= window.window_end
         ]
 
         issues = []
 
         # Check for events outside window
         out_of_window_events = [
-            event for event in events
+            event
+            for event in events
             if not (window.window_start <= event.timestamp <= window.window_end)
         ]
 
         for event in out_of_window_events:
-            issues.append({
-                "type": "event_outside_window",
-                "signal_id": event.signal_id,
-                "event_timestamp": event.timestamp.isoformat(),
-                "window_start": window.window_start.isoformat(),
-                "window_end": window.window_end.isoformat(),
-            })
+            issues.append(
+                {
+                    "type": "event_outside_window",
+                    "signal_id": event.signal_id,
+                    "event_timestamp": event.timestamp.isoformat(),
+                    "window_start": window.window_start.isoformat(),
+                    "window_end": window.window_end.isoformat(),
+                }
+            )
 
         # Check for excessive processing latency
         for event in window_events:
             if event.processing_latency_ms and event.processing_latency_ms > window.max_latency_ms:
-                issues.append({
-                    "type": "excessive_latency_in_window",
-                    "signal_id": event.signal_id,
-                    "processing_latency_ms": event.processing_latency_ms,
-                    "max_allowed_ms": window.max_latency_ms,
-                    "timestamp": event.timestamp.isoformat(),
-                })
+                issues.append(
+                    {
+                        "type": "excessive_latency_in_window",
+                        "signal_id": event.signal_id,
+                        "processing_latency_ms": event.processing_latency_ms,
+                        "max_allowed_ms": window.max_latency_ms,
+                        "timestamp": event.timestamp.isoformat(),
+                    }
+                )
 
         # Update window with out-of-order events
         out_of_order_events = [
@@ -303,16 +319,20 @@ class TimeConsistencyManager:
 
         # Calculate statistics
         processing_latencies = [
-            event.processing_latency_ms for event in events
+            event.processing_latency_ms
+            for event in events
             if event.processing_latency_ms is not None
         ]
 
-        time_span = (max(event.timestamp for event in events) -
-                    min(event.timestamp for event in events)).total_seconds()
+        time_span = (
+            max(event.timestamp for event in events) - min(event.timestamp for event in events)
+        ).total_seconds()
 
         stats = {
             "total_events": len(events),
-            "avg_processing_latency_ms": sum(processing_latencies) / len(processing_latencies) if processing_latencies else 0,
+            "avg_processing_latency_ms": sum(processing_latencies) / len(processing_latencies)
+            if processing_latencies
+            else 0,
             "max_processing_latency_ms": max(processing_latencies) if processing_latencies else 0,
             "min_processing_latency_ms": min(processing_latencies) if processing_latencies else 0,
             "time_span_seconds": time_span,
@@ -349,7 +369,9 @@ class TimeConsistencyManager:
                     (event.timestamp - datetime(1970, 1, 1, tzinfo=timezone.utc)).total_seconds()
                     for event in source_event_list
                 ) / len(source_event_list)
-                source_averages[source] = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=avg_timestamp)
+                source_averages[source] = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
+                    seconds=avg_timestamp
+                )
 
         # Detect skew
         skews = []
@@ -358,17 +380,21 @@ class TimeConsistencyManager:
             for i in range(len(sources)):
                 for j in range(i + 1, len(sources)):
                     source1, source2 = sources[i], sources[j]
-                    time_diff = abs((source_averages[source1] - source_averages[source2]).total_seconds())
+                    time_diff = abs(
+                        (source_averages[source1] - source_averages[source2]).total_seconds()
+                    )
 
                     if time_diff > (self._clock_skew_tolerance_ms / 1000):
-                        skews.append({
-                            "source1": source1.value,
-                            "source2": source2.value,
-                            "time_diff_seconds": time_diff,
-                            "tolerance_seconds": self._clock_skew_tolerance_ms / 1000,
-                            "source1_avg": source_averages[source1].isoformat(),
-                            "source2_avg": source_averages[source2].isoformat(),
-                        })
+                        skews.append(
+                            {
+                                "source1": source1.value,
+                                "source2": source2.value,
+                                "time_diff_seconds": time_diff,
+                                "tolerance_seconds": self._clock_skew_tolerance_ms / 1000,
+                                "source1_avg": source_averages[source1].isoformat(),
+                                "source2_avg": source_averages[source2].isoformat(),
+                            }
+                        )
 
         is_consistent = len(skews) == 0
 
@@ -385,8 +411,7 @@ class TimeConsistencyManager:
             "skews": skews,
             "sources_analyzed": len(source_averages),
             "source_averages": {
-                source.value: avg.isoformat()
-                for source, avg in source_averages.items()
+                source.value: avg.isoformat() for source, avg in source_averages.items()
             },
             "tolerance_seconds": self._clock_skew_tolerance_ms / 1000,
             "detection_timestamp": datetime.now(timezone.utc).isoformat(),

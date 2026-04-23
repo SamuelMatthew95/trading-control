@@ -120,6 +120,7 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
     """
     # Convert score to grade letter
     from api.services.agents.scoring import score_to_grade
+
     grade = score_to_grade(score_pct)
 
     if not is_db_available():

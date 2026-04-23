@@ -23,11 +23,13 @@ from api.core.events import SignalAction
 
 class ValidationError(Exception):
     """Schema validation error."""
+
     pass
 
 
 class SignalSchema(BaseModel):
     """Canonical signal schema for validation."""
+
     signal_id: str = Field(..., description="Unique signal identifier for idempotency")
     agent_id: str = Field(..., description="Agent identifier")
     symbol: str = Field(..., min_length=1, max_length=10, description="Trading symbol")
@@ -37,14 +39,14 @@ class SignalSchema(BaseModel):
     timestamp: datetime = Field(..., description="Signal timestamp")
     metadata: dict[str, Any] | None = Field(default_factory=dict, description="Optional metadata")
 
-    @validator('symbol')
+    @validator("symbol")
     def validate_symbol(self, v):
         """Validate trading symbol format."""
         if not v or not v.isalpha() or len(v) > 10:
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    @validator('action')
+    @validator("action")
     def validate_action(self, v):
         """Validate trading action."""
         if v not in [SignalAction.BUY, SignalAction.SELL, SignalAction.HOLD]:
@@ -63,7 +65,7 @@ class AgentOutputValidator:
         try:
             return SignalSchema(**signal_data)
         except Exception as e:
-            raise ValidationError(f"Signal validation failed: {str(e)}")
+            raise ValidationError(f"Signal validation failed: {str(e)}") from e
 
     def enforce_signal_contract(self, signal_data: dict[str, Any]) -> dict[str, Any]:
         """Enforce signal contract and return normalized data."""

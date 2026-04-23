@@ -65,7 +65,11 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     trade_feed = list(store.trade_feed)
 
     # Calculate win rate from completed round-trip trades (SELL orders with P&L) - matches frontend logic
-    completed_trades = [trade for trade in trade_feed if trade.get("side") == "sell" and trade.get("pnl") is not None and trade.get("pnl") != 0]
+    completed_trades = [
+        trade
+        for trade in trade_feed
+        if trade.get("side") == "sell" and trade.get("pnl") is not None and trade.get("pnl") != 0
+    ]
     winning_trades = sum(1 for trade in completed_trades if float(trade.get("pnl", 0)) > 0)
     win_rate = round((winning_trades / len(completed_trades)) * 100, 2) if completed_trades else 0.0
 
@@ -915,11 +919,14 @@ async def get_worker_health() -> dict[str, Any]:
                 heartbeat_status = "invalid"
 
         if not timestamps:
+            store = get_runtime_store()
             health_data = {
                 "status": "unhealthy",
                 "trades_evaluated": {
                     "value": len(store.grade_history),
-                    "last_updated": store.grade_history[-1].get("timestamp") if store.grade_history else "N/A",
+                    "last_updated": store.grade_history[-1].get("timestamp")
+                    if store.grade_history
+                    else "N/A",
                 },
                 "message": "No price data found in Redis",
                 "last_update": None,
@@ -1537,14 +1544,23 @@ def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
     store = get_runtime_store()
     safe_limit = max(1, min(limit, 200))
 
-    # Get trades in chronological order (oldest first) for proper sequencing
-    # store.trade_feed is append-only, so we need to slice from the end for most recent
-    recent_trades = store.trade_feed[-safe_limit:] if len(store.trade_feed) > safe_limit else store.trade_feed
+    # Get most recent trades from the end (store.trade_feed is append-only)
+    recent_trades = (
+        store.trade_feed[-safe_limit:] if len(store.trade_feed) > safe_limit else store.trade_feed
+    )
 
-    # Return in chronological order (oldest first) - frontend will reverse for display
+    # Sort by created_at timestamp to ensure chronological order (oldest first)
+    # Use created_at field if available, otherwise fall back to any timestamp field
+    sorted_trades = sorted(
+        recent_trades,
+        key=lambda trade: (
+            trade.get("created_at") or trade.get("timestamp") or trade.get("filled_at") or 0
+        ),
+    )
+
     return {
-        "trades": recent_trades,
-        "count": len(recent_trades),
+        "trades": sorted_trades,
+        "count": len(sorted_trades),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "in_memory",
         "chronological": True,  # Flag for frontend to handle ordering correctly
@@ -1609,7 +1625,7 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                 "graded_at": row[16].isoformat() if row[16] else None,
                 "reflected_at": row[17].isoformat() if row[17] else None,
                 "created_at": row[18].isoformat() if row[18] else None,
-                "session_date": str(row[19]) if len(row) > 19 else None,
+                "session_date": row[19].strftime("%Y-%m-%d") if len(row) > 19 and row[19] else None,
             }
 
         trades = [_fmt(r) for r in rows]
@@ -1692,16 +1708,20 @@ def _in_memory_agent_instances_payload() -> dict[str, Any]:
             last_seen = data.get("last_seen", now)
             uptime_seconds = int(now - last_seen) if last_seen else 0
 
-            instances.append({
-                "id": f"in_memory_{name}",
-                "instance_key": f"{name.lower()}_lifecycle",
-                "pool_name": name,
-                "status": "active",
-                "started_at": datetime.fromtimestamp(last_seen, timezone.utc).isoformat() if last_seen else None,
-                "retired_at": None,
-                "event_count": data.get("event_count", 0),
-                "uptime_seconds": uptime_seconds,
-            })
+            instances.append(
+                {
+                    "id": f"in_memory_{name}",
+                    "instance_key": f"{name.lower()}_lifecycle",
+                    "pool_name": name,
+                    "status": "active",
+                    "started_at": datetime.fromtimestamp(last_seen, timezone.utc).isoformat()
+                    if last_seen
+                    else None,
+                    "retired_at": None,
+                    "event_count": data.get("event_count", 0),
+                    "uptime_seconds": uptime_seconds,
+                }
+            )
 
     return {
         "instances": instances,

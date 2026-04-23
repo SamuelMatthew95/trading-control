@@ -258,24 +258,21 @@ class TradeLedgerService:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
         # Get all closed trades for this agent in the lookback period
-        stmt = (
-            select(
-                func.count(TradeLedger.trade_id).label("total_trades"),
-                func.sum(
-                    func.case(
-                        (TradeLedger.pnl_realized > 0, 1),
-                        else_=0,
-                    )
-                ).label("winning_trades"),
-                func.sum(TradeLedger.pnl_realized).label("total_pnl"),
-                func.avg(TradeLedger.pnl_realized).label("avg_pnl"),
-            )
-            .where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.status == "CLOSED",
-                    TradeLedger.created_at >= cutoff_date,
+        stmt = select(
+            func.count(TradeLedger.trade_id).label("total_trades"),
+            func.sum(
+                func.case(
+                    (TradeLedger.pnl_realized > 0, 1),
+                    else_=0,
                 )
+            ).label("winning_trades"),
+            func.sum(TradeLedger.pnl_realized).label("total_pnl"),
+            func.avg(TradeLedger.pnl_realized).label("avg_pnl"),
+        ).where(
+            and_(
+                TradeLedger.agent_id == agent_id,
+                TradeLedger.status == "CLOSED",
+                TradeLedger.created_at >= cutoff_date,
             )
         )
 
@@ -327,13 +324,10 @@ class TradeLedgerService:
         """Get portfolio summary for dashboard stats."""
 
         # Get open positions count
-        open_positions_stmt = (
-            select(func.count(TradeLedger.trade_id))
-            .where(
-                and_(
-                    TradeLedger.trade_type == "BUY",
-                    TradeLedger.status == "OPEN",
-                )
+        open_positions_stmt = select(func.count(TradeLedger.trade_id)).where(
+            and_(
+                TradeLedger.trade_type == "BUY",
+                TradeLedger.status == "OPEN",
             )
         )
         if agent_id:
@@ -346,15 +340,15 @@ class TradeLedgerService:
 
         # Get today's P&L
         from datetime import date
-        today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
 
-        daily_pnl_stmt = (
-            select(func.sum(TradeLedger.pnl_realized))
-            .where(
-                and_(
-                    TradeLedger.status == "CLOSED",
-                    TradeLedger.closed_at >= today_start,
-                )
+        today_start = datetime.combine(date.today(), datetime.min.time()).replace(
+            tzinfo=timezone.utc
+        )
+
+        daily_pnl_stmt = select(func.sum(TradeLedger.pnl_realized)).where(
+            and_(
+                TradeLedger.status == "CLOSED",
+                TradeLedger.closed_at >= today_start,
             )
         )
         if agent_id:
@@ -366,9 +360,8 @@ class TradeLedgerService:
         daily_pnl = daily_pnl_result.scalar() or Decimal("0")
 
         # Get total P&L
-        total_pnl_stmt = (
-            select(func.sum(TradeLedger.pnl_realized))
-            .where(TradeLedger.status == "CLOSED")
+        total_pnl_stmt = select(func.sum(TradeLedger.pnl_realized)).where(
+            TradeLedger.status == "CLOSED"
         )
         if agent_id:
             total_pnl_stmt = total_pnl_stmt.where(TradeLedger.agent_id == agent_id)
@@ -379,18 +372,15 @@ class TradeLedgerService:
         total_pnl = total_pnl_result.scalar() or Decimal("0")
 
         # Calculate win rate
-        win_rate_stmt = (
-            select(
-                func.count(TradeLedger.trade_id).label("total"),
-                func.sum(
-                    func.case(
-                        (TradeLedger.pnl_realized > 0, 1),
-                        else_=0,
-                    )
-                ).label("wins"),
-            )
-            .where(TradeLedger.status == "CLOSED")
-        )
+        win_rate_stmt = select(
+            func.count(TradeLedger.trade_id).label("total"),
+            func.sum(
+                func.case(
+                    (TradeLedger.pnl_realized > 0, 1),
+                    else_=0,
+                )
+            ).label("wins"),
+        ).where(TradeLedger.status == "CLOSED")
         if agent_id:
             win_rate_stmt = win_rate_stmt.where(TradeLedger.agent_id == agent_id)
         if strategy_id:

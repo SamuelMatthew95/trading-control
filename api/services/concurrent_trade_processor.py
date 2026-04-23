@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import update
+from sqlalchemy import text, update
 
 from api.core.events import SignalAction, SignalEvent, TradeExecutionEvent
 from api.core.models.trade_ledger import TradeLedger
@@ -65,10 +65,13 @@ class ConcurrentTradeProcessor:
             FOR UPDATE SKIP LOCKED
         """)
 
-        await self.session.execute(lock_query, {
-            "agent_id": signal.agent_id,
-            "symbol": signal.symbol,
-        })
+        await self.session.execute(
+            lock_query,
+            {
+                "agent_id": signal.agent_id,
+                "symbol": signal.symbol,
+            },
+        )
 
         # Create BUY trade
         trade = TradeLedger(
@@ -117,10 +120,13 @@ class ConcurrentTradeProcessor:
             LIMIT 1
         """)
 
-        result = await self.session.execute(lock_query, {
-            "agent_id": signal.agent_id,
-            "symbol": signal.symbol,
-        })
+        result = await self.session.execute(
+            lock_query,
+            {
+                "agent_id": signal.agent_id,
+                "symbol": signal.symbol,
+            },
+        )
         parent_row = result.first()
 
         if not parent_row:
@@ -130,12 +136,14 @@ class ConcurrentTradeProcessor:
         pnl = (signal.price - parent_row.entry_price) * parent_row.quantity
 
         # Close parent trade
-        close_query = update(TradeLedger).where(
-            TradeLedger.trade_id == parent_row.trade_id
-        ).values(
-            status="CLOSED",
-            pnl_realized=pnl,
-            updated_at=datetime.now(timezone.utc),
+        close_query = (
+            update(TradeLedger)
+            .where(TradeLedger.trade_id == parent_row.trade_id)
+            .values(
+                status="CLOSED",
+                pnl_realized=pnl,
+                updated_at=datetime.now(timezone.utc),
+            )
         )
 
         await self.session.execute(close_query)

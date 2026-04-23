@@ -40,6 +40,7 @@ class AgentPermission(Enum):
 
 class AgentOutput(BaseModel):
     """Strict agent output contract."""
+
     signal_id: str = Field(..., description="Unique signal identifier for idempotency")
     agent_id: str = Field(..., description="Agent identifier")
     role: AgentRole = Field(..., description="Agent role")
@@ -50,21 +51,21 @@ class AgentOutput(BaseModel):
     timestamp: datetime = Field(..., description="Signal timestamp")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata")
 
-    @validator('symbol')
+    @validator("symbol")
     def validate_symbol(self, v):
         """Validate trading symbol format."""
         if not v or not v.isalpha():
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    @validator('action')
+    @validator("action")
     def validate_action(self, v):
         """Validate trading action."""
         if v not in ["BUY", "SELL", "HOLD"]:
             raise ValueError(f"Invalid action: {v}")
         return v
 
-    @validator('confidence')
+    @validator("confidence")
     def validate_confidence(self, v):
         """Validate confidence range."""
         if v is not None and (v < 0 or v > 100):
@@ -74,6 +75,7 @@ class AgentOutput(BaseModel):
 
 class AgentPermissions(BaseModel):
     """Agent permission configuration."""
+
     agent_id: str
     role: AgentRole
     permissions: list[AgentPermission]
@@ -117,7 +119,7 @@ class AgentOutputValidator:
                 agent_id=agent_id,
                 error=str(e),
             )
-            raise ValueError(f"Agent output validation failed: {str(e)}")
+            raise ValueError(f"Agent output validation failed: {str(e)}") from e
 
     def _validate_analyst_output(self, output: AgentOutput) -> AgentOutput:
         """Validate analyst output - can only analyze, cannot trade."""
@@ -131,7 +133,9 @@ class AgentOutputValidator:
 
         return output
 
-    def _validate_risk_output(self, output: AgentOutput, permissions: AgentPermissions) -> AgentOutput:
+    def _validate_risk_output(
+        self, output: AgentOutput, permissions: AgentPermissions
+    ) -> AgentOutput:
         """Validate risk agent output - can block or modify, cannot execute directly."""
         if output.action == "BUY" or output.action == "SELL":
             raise ValueError("Risk agents cannot directly execute trades - only BLOCK or MODIFY")
@@ -142,7 +146,9 @@ class AgentOutputValidator:
 
         return output
 
-    def _validate_executor_output(self, output: AgentOutput, permissions: AgentPermissions) -> AgentOutput:
+    def _validate_executor_output(
+        self, output: AgentOutput, permissions: AgentPermissions
+    ) -> AgentOutput:
         """Validate executor output - only role that can execute trades."""
         if output.action not in ["BUY", "SELL"]:
             raise ValueError("Executor agents can only output BUY or SELL actions")
@@ -151,7 +157,9 @@ class AgentOutputValidator:
         if permissions.max_position_size and output.metadata.get("quantity"):
             quantity = Decimal(str(output.metadata.get("quantity", "1")))
             if quantity > permissions.max_position_size:
-                raise ValueError(f"Position size {quantity} exceeds limit {permissions.max_position_size}")
+                raise ValueError(
+                    f"Position size {quantity} exceeds limit {permissions.max_position_size}"
+                )
 
         # Check symbol permissions
         if permissions.allowed_symbols and output.symbol not in permissions.allowed_symbols:
@@ -173,8 +181,7 @@ class AgentMemoryDiscipline:
         from api.core.models.trade_ledger import TradeLedger
 
         stmt = select(TradeLedger).where(
-            TradeLedger.agent_id == agent_id,
-            TradeLedger.status == "OPEN"
+            TradeLedger.agent_id == agent_id, TradeLedger.status == "OPEN"
         )
 
         result = await self.session.execute(stmt)
@@ -199,8 +206,7 @@ class AgentMemoryDiscipline:
         from api.core.models.trade_ledger import TradeLedger
 
         stmt = select(TradeLedger).where(
-            TradeLedger.agent_id == agent_id,
-            TradeLedger.trace_id == signal_id
+            TradeLedger.agent_id == agent_id, TradeLedger.trace_id == signal_id
         )
 
         result = await self.session.execute(stmt)

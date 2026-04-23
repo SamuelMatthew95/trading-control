@@ -21,6 +21,7 @@ from api.core.models.trade_ledger import TradeLedger
 @dataclass
 class PortfolioMetrics:
     """Portfolio performance metrics."""
+
     total_pnl: Decimal
     daily_pnl: Decimal
     win_rate: float
@@ -38,6 +39,7 @@ class PortfolioMetrics:
 @dataclass
 class AgentPerformance:
     """Individual agent performance metrics."""
+
     agent_id: str
     grade: str
     total_trades: int
@@ -85,8 +87,7 @@ class PerformanceAnalytics:
 
         datetime.now(timezone.utc) - timedelta(days=lookback_days)
         today_start = datetime.combine(
-            datetime.now(timezone.utc).date(),
-            datetime.min.time()
+            datetime.now(timezone.utc).date(), datetime.min.time()
         ).replace(tzinfo=timezone.utc)
 
         # Base query filters
@@ -97,69 +98,57 @@ class PerformanceAnalytics:
             base_filters.append(TradeLedger.strategy_id == strategy_id)
 
         # Total P&L (all time)
-        total_pnl_query = (
-            select(func.sum(TradeLedger.pnl_realized))
-            .where(and_(*base_filters))
-        )
+        total_pnl_query = select(func.sum(TradeLedger.pnl_realized)).where(and_(*base_filters))
         total_pnl_result = await self.session.execute(total_pnl_query)
         total_pnl = total_pnl_result.scalar() or Decimal("0")
 
         # Daily P&L (today only)
-        daily_pnl_query = (
-            select(func.sum(TradeLedger.pnl_realized))
-            .where(
-                and_(
-                    *base_filters,
-                    TradeLedger.closed_at >= today_start
-                )
-            )
+        daily_pnl_query = select(func.sum(TradeLedger.pnl_realized)).where(
+            and_(*base_filters, TradeLedger.closed_at >= today_start)
         )
         daily_pnl_result = await self.session.execute(daily_pnl_query)
         daily_pnl = daily_pnl_result.scalar() or Decimal("0")
 
         # Trade statistics
-        trade_stats_query = (
-            select(
-                func.count(TradeLedger.trade_id).label("total_trades"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized > 0, 1),
-                        else_=0,
-                    )
-                ).label("winning_trades"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized < 0, 1),
-                        else_=0,
-                    )
-                ).label("losing_trades"),
-                func.avg(
-                    case(
-                        (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
-                        else_=None,
-                    )
-                ).label("avg_win"),
-                func.avg(
-                    case(
-                        (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
-                        else_=None,
-                    )
-                ).label("avg_loss"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
-                        else_=0,
-                    )
-                ).label("total_wins"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
-                        else_=0,
-                    )
-                ).label("total_losses"),
-            )
-            .where(and_(*base_filters))
-        )
+        trade_stats_query = select(
+            func.count(TradeLedger.trade_id).label("total_trades"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized > 0, 1),
+                    else_=0,
+                )
+            ).label("winning_trades"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized < 0, 1),
+                    else_=0,
+                )
+            ).label("losing_trades"),
+            func.avg(
+                case(
+                    (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
+                    else_=None,
+                )
+            ).label("avg_win"),
+            func.avg(
+                case(
+                    (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
+                    else_=None,
+                )
+            ).label("avg_loss"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
+                    else_=0,
+                )
+            ).label("total_wins"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
+                    else_=0,
+                )
+            ).label("total_losses"),
+        ).where(and_(*base_filters))
 
         trade_stats_result = await self.session.execute(trade_stats_query)
         stats = trade_stats_result.first()
@@ -174,17 +163,14 @@ class PerformanceAnalytics:
 
         # Calculate derived metrics
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        profit_factor = (total_wins / total_losses) if total_losses > 0 else float('inf')
+        profit_factor = (total_wins / total_losses) if total_losses > 0 else float("inf")
 
         # Open positions
-        open_positions_query = (
-            select(func.count(TradeLedger.trade_id))
-            .where(
-                and_(
-                    TradeLedger.status == "OPEN",
-                    *([TradeLedger.agent_id == agent_id] if agent_id else []),
-                    *([TradeLedger.strategy_id == strategy_id] if strategy_id else []),
-                )
+        open_positions_query = select(func.count(TradeLedger.trade_id)).where(
+            and_(
+                TradeLedger.status == "OPEN",
+                *([TradeLedger.agent_id == agent_id] if agent_id else []),
+                *([TradeLedger.strategy_id == strategy_id] if strategy_id else []),
             )
         )
         open_positions_result = await self.session.execute(open_positions_query)
@@ -234,50 +220,47 @@ class PerformanceAnalytics:
             TradeLedger.closed_at >= cutoff_date,
         ]
 
-        trade_stats_query = (
-            select(
-                func.count(TradeLedger.trade_id).label("total_trades"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized > 0, 1),
-                        else_=0,
-                    )
-                ).label("winning_trades"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized < 0, 1),
-                        else_=0,
-                    )
-                ).label("losing_trades"),
-                func.sum(TradeLedger.pnl_realized).label("total_pnl"),
-                func.avg(TradeLedger.pnl_realized).label("avg_pnl"),
-                func.avg(
-                    case(
-                        (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
-                        else_=None,
-                    )
-                ).label("avg_win"),
-                func.avg(
-                    case(
-                        (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
-                        else_=None,
-                    )
-                ).label("avg_loss"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
-                        else_=0,
-                    )
-                ).label("total_wins"),
-                func.sum(
-                    case(
-                        (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
-                        else_=0,
-                    )
-                ).label("total_losses"),
-            )
-            .where(and_(*base_filters))
-        )
+        trade_stats_query = select(
+            func.count(TradeLedger.trade_id).label("total_trades"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized > 0, 1),
+                    else_=0,
+                )
+            ).label("winning_trades"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized < 0, 1),
+                    else_=0,
+                )
+            ).label("losing_trades"),
+            func.sum(TradeLedger.pnl_realized).label("total_pnl"),
+            func.avg(TradeLedger.pnl_realized).label("avg_pnl"),
+            func.avg(
+                case(
+                    (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
+                    else_=None,
+                )
+            ).label("avg_win"),
+            func.avg(
+                case(
+                    (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
+                    else_=None,
+                )
+            ).label("avg_loss"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized > 0, TradeLedger.pnl_realized),
+                    else_=0,
+                )
+            ).label("total_wins"),
+            func.sum(
+                case(
+                    (TradeLedger.pnl_realized < 0, TradeLedger.pnl_realized),
+                    else_=0,
+                )
+            ).label("total_losses"),
+        ).where(and_(*base_filters))
 
         trade_stats_result = await self.session.execute(trade_stats_query)
         stats = trade_stats_result.first()
@@ -294,7 +277,7 @@ class PerformanceAnalytics:
 
         # Calculate derived metrics
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        profit_factor = (total_wins / total_losses) if total_losses > 0 else float('inf')
+        profit_factor = (total_wins / total_losses) if total_losses > 0 else float("inf")
 
         # Get recent trades for performance trend
         recent_trades_query = (
@@ -368,11 +351,7 @@ class PerformanceAnalytics:
         """
 
         # Get all unique agent IDs
-        agents_query = (
-            select(TradeLedger.agent_id)
-            .where(TradeLedger.status == "CLOSED")
-            .distinct()
-        )
+        agents_query = select(TradeLedger.agent_id).where(TradeLedger.status == "CLOSED").distinct()
         agents_result = await self.session.execute(agents_query)
         agent_ids = [row[0] for row in agents_result.fetchall()]
 
@@ -470,7 +449,7 @@ class PerformanceAnalytics:
         pnls = [trade["pnl"] for trade in recent_performance]
         avg_pnl = sum(pnls) / len(pnls)
         variance = sum((pnl - avg_pnl) ** 2 for pnl in pnls) / len(pnls)
-        std_dev = variance ** 0.5
+        std_dev = variance**0.5
 
         # Consistency score combines win rate and low variance
         consistency = (recent_win_rate / 100) * 0.6 + (1 - min(std_dev / 1000, 1)) * 0.4
@@ -508,11 +487,11 @@ class PerformanceAnalytics:
 
         # Calculate weighted score
         final_score = (
-            win_rate_score * win_rate_weight +
-            pnl_score * pnl_weight +
-            profit_factor_score * profit_factor_weight +
-            risk_score_normalized * risk_weight +
-            consistency_score * consistency_weight
+            win_rate_score * win_rate_weight
+            + pnl_score * pnl_weight
+            + profit_factor_score * profit_factor_weight
+            + risk_score_normalized * risk_weight
+            + consistency_score * consistency_weight
         )
 
         # Determine grade based on final score

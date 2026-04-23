@@ -15,7 +15,7 @@ VALIDATION:
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.models.trade_ledger import TradeLedger
@@ -96,7 +96,9 @@ class TradeValidationService:
             self.validator.validation_errors.append(error_msg)
             raise ValueError(error_msg)
 
-    async def validate_trade_update(self, trade_id: str, update_data: dict[str, Any]) -> dict[str, Any]:
+    async def validate_trade_update(
+        self, trade_id: str, update_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Validate trade update with strict requirements."""
         try:
             # Get existing trade

@@ -51,7 +51,7 @@ async def get_portfolio_summary(
                 "win_rate": summary["win_rate"],
                 "open_positions": summary["open_positions"],
                 "total_trades": summary["total_trades"],
-            }
+            },
         }
     except Exception as e:
         log_structured(
@@ -60,7 +60,7 @@ async def get_portfolio_summary(
             error=str(e),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch portfolio summary")
+        raise HTTPException(status_code=500, detail="Failed to fetch portfolio summary") from e
 
 
 @router.get("/recent")
@@ -97,22 +97,28 @@ async def get_recent_trades(
                 "status": trade.status,
                 "quantity": float(trade.quantity),
                 "execution_mode": trade.execution_mode,
-                "confidence_score": float(trade.confidence_score) if trade.confidence_score else None,
+                "confidence_score": float(trade.confidence_score)
+                if trade.confidence_score
+                else None,
                 "agent_id": trade.agent_id,
             }
 
             if trade.trade_type == "BUY":
-                trade_data.update({
-                    "price": float(trade.entry_price),
-                    "display_text": f"🟢 BUY {trade.symbol} @ ${trade.entry_price:.2f}",
-                })
+                trade_data.update(
+                    {
+                        "price": float(trade.entry_price),
+                        "display_text": f"🟢 BUY {trade.symbol} @ ${trade.entry_price:.2f}",
+                    }
+                )
             elif trade.trade_type == "SELL":
-                trade_data.update({
-                    "entry_price": float(trade.entry_price),
-                    "exit_price": float(trade.exit_price),
-                    "pnl_realized": float(trade.pnl_realized),
-                    "display_text": f"🔴 SELL {trade.symbol} @ ${trade.exit_price:.2f} | P&L: ${trade.pnl_realized:+.2f}",
-                })
+                trade_data.update(
+                    {
+                        "entry_price": float(trade.entry_price),
+                        "exit_price": float(trade.exit_price),
+                        "pnl_realized": float(trade.pnl_realized),
+                        "display_text": f"🔴 SELL {trade.symbol} @ ${trade.exit_price:.2f} | P&L: ${trade.pnl_realized:+.2f}",
+                    }
+                )
 
             formatted_trades.append(trade_data)
 
@@ -128,7 +134,7 @@ async def get_recent_trades(
             error=str(e),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch recent trades")
+        raise HTTPException(status_code=500, detail="Failed to fetch recent trades") from e
 
 
 @router.get("/positions")
@@ -152,17 +158,21 @@ async def get_open_positions(
 
         formatted_positions = []
         for position in positions:
-            formatted_positions.append({
-                "trade_id": str(position.trade_id),
-                "symbol": position.symbol,
-                "quantity": float(position.quantity),
-                "entry_price": float(position.entry_price),
-                "confidence_score": float(position.confidence_score) if position.confidence_score else None,
-                "execution_mode": position.execution_mode,
-                "agent_id": position.agent_id,
-                "created_at": position.created_at.isoformat(),
-                "display_text": f"{position.symbol}: {position.quantity} @ ${position.entry_price:.2f}",
-            })
+            formatted_positions.append(
+                {
+                    "trade_id": str(position.trade_id),
+                    "symbol": position.symbol,
+                    "quantity": float(position.quantity),
+                    "entry_price": float(position.entry_price),
+                    "confidence_score": float(position.confidence_score)
+                    if position.confidence_score
+                    else None,
+                    "execution_mode": position.execution_mode,
+                    "agent_id": position.agent_id,
+                    "created_at": position.created_at.isoformat(),
+                    "display_text": f"{position.symbol}: {position.quantity} @ ${position.entry_price:.2f}",
+                }
+            )
 
         return {
             "success": True,
@@ -176,7 +186,7 @@ async def get_open_positions(
             error=str(e),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch open positions")
+        raise HTTPException(status_code=500, detail="Failed to fetch open positions") from e
 
 
 @router.get("/agents/performance")
@@ -200,18 +210,20 @@ async def get_agents_performance(
 
         formatted_agents = []
         for agent in agents:
-            formatted_agents.append({
-                "agent_id": agent.agent_id,
-                "grade": agent.grade,
-                "total_trades": agent.total_trades,
-                "win_rate": agent.win_rate,
-                "total_pnl": float(agent.total_pnl),
-                "avg_pnl": float(agent.avg_pnl),
-                "profit_factor": agent.profit_factor,
-                "risk_score": agent.risk_score,
-                "consistency_score": agent.consistency_score,
-                "recent_performance": agent.recent_performance,
-            })
+            formatted_agents.append(
+                {
+                    "agent_id": agent.agent_id,
+                    "grade": agent.grade,
+                    "total_trades": agent.total_trades,
+                    "win_rate": agent.win_rate,
+                    "total_pnl": float(agent.total_pnl),
+                    "avg_pnl": float(agent.avg_pnl),
+                    "profit_factor": agent.profit_factor,
+                    "risk_score": agent.risk_score,
+                    "consistency_score": agent.consistency_score,
+                    "recent_performance": agent.recent_performance,
+                }
+            )
 
         return {
             "success": True,
@@ -225,7 +237,7 @@ async def get_agents_performance(
             error=str(e),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch agent performance")
+        raise HTTPException(status_code=500, detail="Failed to fetch agent performance") from e
 
 
 @router.get("/agents/{agent_id}/performance")
@@ -264,7 +276,7 @@ async def get_agent_performance(
                 "risk_score": performance.risk_score,
                 "consistency_score": performance.consistency_score,
                 "recent_performance": performance.recent_performance,
-            }
+            },
         }
 
     except Exception as e:
@@ -275,7 +287,7 @@ async def get_agent_performance(
             error=str(e),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch agent performance")
+        raise HTTPException(status_code=500, detail="Failed to fetch agent performance") from e
 
 
 @router.get("/portfolio/metrics")
@@ -314,7 +326,7 @@ async def get_portfolio_metrics(
                 "profit_factor": metrics.profit_factor,
                 "sharpe_ratio": metrics.sharpe_ratio,
                 "max_drawdown": float(metrics.max_drawdown) if metrics.max_drawdown else None,
-            }
+            },
         }
 
     except Exception as e:
@@ -324,4 +336,4 @@ async def get_portfolio_metrics(
             error=str(e),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch portfolio metrics")
+        raise HTTPException(status_code=500, detail="Failed to fetch portfolio metrics") from e

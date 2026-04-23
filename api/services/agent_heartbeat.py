@@ -111,7 +111,7 @@ async def write_heartbeat(
                         "instance_key": instance_key,
                         "pool_name": agent_name,
                         "count": event_count,
-                        "metadata": json.dumps({"source": "heartbeat", "last_event": last_event})
+                        "metadata": json.dumps({"source": "heartbeat", "last_event": last_event}),
                     },
                 )
     except Exception:

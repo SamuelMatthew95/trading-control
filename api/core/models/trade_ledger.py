@@ -28,7 +28,9 @@ class TradeLedger(Base):
     __tablename__ = "trade_ledger"
 
     # Primary identification
-    trade_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    trade_id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
 
     # Trade relationship tracking
     parent_trade_id = Column(
@@ -36,11 +38,13 @@ class TradeLedger(Base):
         ForeignKey("trade_ledger.trade_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="Links SELL to its corresponding BUY"
+        comment="Links SELL to its corresponding BUY",
     )
 
     # Agent and strategy tracking
-    agent_id = Column(String, nullable=False, index=True, comment="Which agent generated this trade")
+    agent_id = Column(
+        String, nullable=False, index=True, comment="Which agent generated this trade"
+    )
     strategy_id = Column(
         UUID(as_uuid=True),
         ForeignKey("strategies.id", ondelete="CASCADE"),
@@ -54,7 +58,7 @@ class TradeLedger(Base):
         Enum("BUY", "SELL", name="trade_type"),
         nullable=False,
         index=True,
-        comment="BUY opens position, SELL closes position"
+        comment="BUY opens position, SELL closes position",
     )
 
     # Pricing and quantity
@@ -62,12 +66,10 @@ class TradeLedger(Base):
     entry_price = Column(
         Numeric(18, 8),
         nullable=True,
-        comment="Price at which trade was executed (filled for BUY, filled for SELL)"
+        comment="Price at which trade was executed (filled for BUY, filled for SELL)",
     )
     exit_price = Column(
-        Numeric(18, 8),
-        nullable=True,
-        comment="Only populated for SELL trades - the closing price"
+        Numeric(18, 8), nullable=True, comment="Only populated for SELL trades - the closing price"
     )
 
     # P&L calculation (only for closed trades)
@@ -75,7 +77,7 @@ class TradeLedger(Base):
         Numeric(18, 8),
         server_default="0",
         nullable=False,
-        comment="Realized P&L = (exit_price - entry_price) * quantity"
+        comment="Realized P&L = (exit_price - entry_price) * quantity",
     )
 
     # Trade status and execution mode
@@ -84,7 +86,7 @@ class TradeLedger(Base):
         nullable=False,
         default="OPEN",
         index=True,
-        comment="OPEN for BUY, CLOSED when paired with SELL"
+        comment="OPEN for BUY, CLOSED when paired with SELL",
     )
 
     execution_mode = Column(
@@ -92,20 +94,18 @@ class TradeLedger(Base):
         nullable=False,
         default="MOCK",
         index=True,
-        comment="Whether this was a paper trade or real money"
+        comment="Whether this was a paper trade or real money",
     )
 
     # Confidence and metadata
     confidence_score = Column(
-        Numeric(5, 2),
-        nullable=True,
-        comment="Agent's confidence in this trade (0-100)"
+        Numeric(5, 2), nullable=True, comment="Agent's confidence in this trade (0-100)"
     )
     trade_metadata = Column(
         MutableDict.as_mutable(JSONB),
         nullable=False,
         server_default=text("'{}'::jsonb"),
-        comment="Additional trade context, signals, etc."
+        comment="Additional trade context, signals, etc.",
     )
 
     # System fields
@@ -122,9 +122,7 @@ class TradeLedger(Base):
         nullable=False,
     )
     closed_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="When the trade was closed (SELL filled)"
+        DateTime(timezone=True), nullable=True, comment="When the trade was closed (SELL filled)"
     )
 
     __table_args__ = (
@@ -136,20 +134,21 @@ class TradeLedger(Base):
         Index("idx_trade_ledger_execution_mode", "execution_mode"),
         Index("idx_trade_ledger_trace_id", "trace_id"),
         Index("idx_trade_ledger_schema_version", "schema_version"),
-
         # Business logic constraints
         CheckConstraint("schema_version = 'v3'", name="check_trade_ledger_schema_v3"),
         CheckConstraint("quantity > 0", name="check_quantity_positive"),
-        CheckConstraint("confidence_score >= 0 AND confidence_score <= 100", name="check_confidence_range"),
+        CheckConstraint(
+            "confidence_score >= 0 AND confidence_score <= 100", name="check_confidence_range"
+        ),
         CheckConstraint(
             "(trade_type = 'BUY' AND status IN ('OPEN', 'CANCELLED')) OR "
             "(trade_type = 'SELL' AND status IN ('CLOSED', 'CANCELLED'))",
-            name="check_trade_type_status_consistency"
+            name="check_trade_type_status_consistency",
         ),
         CheckConstraint(
             "(trade_type = 'BUY' AND entry_price IS NOT NULL AND exit_price IS NULL) OR "
             "(trade_type = 'SELL' AND entry_price IS NOT NULL AND exit_price IS NOT NULL)",
-            name="check_price_logic"
+            name="check_price_logic",
         ),
     )
 

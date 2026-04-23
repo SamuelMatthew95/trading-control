@@ -219,23 +219,27 @@ class DBConstraintsManager:
             await self.session.execute(text(agent_index_sql))
             await self.session.commit()
 
-            indexes.append({
-                "name": "agent_performance_idx",
-                "type": "INDEX",
-                "description": "Agent performance queries",
-                "status": "created",
-            })
+            indexes.append(
+                {
+                    "name": "agent_performance_idx",
+                    "type": "INDEX",
+                    "description": "Agent performance queries",
+                    "status": "created",
+                }
+            )
 
         except Exception as e:
             await self.session.rollback()
 
-            indexes.append({
-                "name": "agent_performance_idx",
-                "type": "INDEX",
-                "description": "Agent performance queries",
-                "status": "failed",
-                "error": str(e),
-            })
+            indexes.append(
+                {
+                    "name": "agent_performance_idx",
+                    "type": "INDEX",
+                    "description": "Agent performance queries",
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
         # Index 2: Symbol queries
         symbol_index_sql = """
@@ -247,23 +251,27 @@ class DBConstraintsManager:
             await self.session.execute(text(symbol_index_sql))
             await self.session.commit()
 
-            indexes.append({
-                "name": "symbol_queries_idx",
-                "type": "INDEX",
-                "description": "Symbol-based queries",
-                "status": "created",
-            })
+            indexes.append(
+                {
+                    "name": "symbol_queries_idx",
+                    "type": "INDEX",
+                    "description": "Symbol-based queries",
+                    "status": "created",
+                }
+            )
 
         except Exception as e:
             await self.session.rollback()
 
-            indexes.append({
-                "name": "symbol_queries_idx",
-                "type": "INDEX",
-                "description": "Symbol-based queries",
-                "status": "failed",
-                "error": str(e),
-            })
+            indexes.append(
+                {
+                    "name": "symbol_queries_idx",
+                    "type": "INDEX",
+                    "description": "Symbol-based queries",
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
         # Index 3: Signal ID lookup
         signal_id_index_sql = """
@@ -275,23 +283,27 @@ class DBConstraintsManager:
             await self.session.execute(text(signal_id_index_sql))
             await self.session.commit()
 
-            indexes.append({
-                "name": "signal_id_lookup_idx",
-                "type": "INDEX",
-                "description": "Signal ID lookup",
-                "status": "created",
-            })
+            indexes.append(
+                {
+                    "name": "signal_id_lookup_idx",
+                    "type": "INDEX",
+                    "description": "Signal ID lookup",
+                    "status": "created",
+                }
+            )
 
         except Exception as e:
             await self.session.rollback()
 
-            indexes.append({
-                "name": "signal_id_lookup_idx",
-                "type": "INDEX",
-                "description": "Signal ID lookup",
-                "status": "failed",
-                "error": str(e),
-            })
+            indexes.append(
+                {
+                    "name": "signal_id_lookup_idx",
+                    "type": "INDEX",
+                    "description": "Signal ID lookup",
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
         return indexes
 
@@ -442,11 +454,13 @@ class DBConstraintsManager:
             result = await self.session.execute(text(check_sql))
             count = result.scalar() or 0
 
-            results.append({
-                "name": index_name,
-                "type": "INDEX",
-                "status": "active" if count > 0 else "missing",
-                "description": f"Performance index: {index_name}",
-            })
+            results.append(
+                {
+                    "name": index_name,
+                    "type": "INDEX",
+                    "status": "active" if count > 0 else "missing",
+                    "description": f"Performance index: {index_name}",
+                }
+            )
 
         return results

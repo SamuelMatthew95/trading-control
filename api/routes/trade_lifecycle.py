@@ -79,7 +79,7 @@ async def enforce_sell_before_buy(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="SELL before BUY enforcement failed")
+        raise HTTPException(status_code=500, detail="SELL before BUY enforcement failed") from e
 
 
 @router.post("/enforce/buy-sequence")
@@ -136,7 +136,7 @@ async def enforce_buy_sequence(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="BUY sequence enforcement failed")
+        raise HTTPException(status_code=500, detail="BUY sequence enforcement failed") from e
 
 
 @router.get("/violations/{agent_id}")
@@ -165,7 +165,9 @@ async def get_lifecycle_violations(
             "orphaned_sells": len(orphaned_sells),
             "sequence_violations": len(sequence_violations),
             "position_issues": len(position_issues),
-            "total_violations": len(orphaned_sells) + len(sequence_violations) + len(position_issues),
+            "total_violations": len(orphaned_sells)
+            + len(sequence_violations)
+            + len(position_issues),
             "agent_id": agent_id,
             "check_timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -197,7 +199,7 @@ async def get_lifecycle_violations(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Lifecycle violations check failed")
+        raise HTTPException(status_code=500, detail="Lifecycle violations check failed") from e
 
 
 @router.get("/health")
@@ -246,4 +248,4 @@ async def lifecycle_enforcement_health(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Lifecycle enforcement health check failed")
+        raise HTTPException(status_code=500, detail="Lifecycle enforcement health check failed") from e

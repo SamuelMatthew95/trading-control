@@ -36,6 +36,7 @@ class PositionStatus(Enum):
 
 class Position(BaseModel):
     """Canonical position model."""
+
     position_id: str = Field(..., description="Unique position identifier")
     symbol: str = Field(..., min_length=1, max_length=10, description="Trading symbol")
     agent_id: str = Field(..., description="Agent identifier")
@@ -57,15 +58,15 @@ class Position(BaseModel):
     closing_method: PositionClosingMethod = Field(..., description="Position closing method")
     parent_trades: list[str] = Field(default_factory=list, description="Parent trade IDs")
 
-    @validator('symbol')
+    @validator("symbol")
     def validate_symbol(self, v):
         if not v or not v.isalpha():
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    @validator('current_quantity')
+    @validator("current_quantity")
     def validate_current_quantity(self, v, values):
-        if 'original_quantity' in values and v > values['original_quantity']:
+        if "original_quantity" in values and v > values["original_quantity"]:
             raise ValueError("Current quantity cannot exceed original quantity")
         return v
 
@@ -174,7 +175,9 @@ class PositionManager:
         closing_quantity = quantity or position.current_quantity
 
         if closing_quantity > position.current_quantity:
-            raise ValueError(f"Closing quantity {closing_quantity} exceeds remaining {position.current_quantity}")
+            raise ValueError(
+                f"Closing quantity {closing_quantity} exceeds remaining {position.current_quantity}"
+            )
 
         # Update position
         position.current_quantity -= closing_quantity
@@ -195,15 +198,17 @@ class PositionManager:
             status=position.status.value,
         )
 
-        return [{
-            "position_id": position_id,
-            "symbol": position.symbol,
-            "agent_id": position.agent_id,
-            "closing_quantity": float(closing_quantity),
-            "remaining_quantity": float(position.current_quantity),
-            "exit_price": float(exit_price) if exit_price else None,
-            "status": position.status.value,
-        }]
+        return [
+            {
+                "position_id": position_id,
+                "symbol": position.symbol,
+                "agent_id": position.agent_id,
+                "closing_quantity": float(closing_quantity),
+                "remaining_quantity": float(position.current_quantity),
+                "exit_price": float(exit_price) if exit_price else None,
+                "status": position.status.value,
+            }
+        ]
 
     def _close_fifo(
         self,
@@ -214,10 +219,11 @@ class PositionManager:
     ) -> list[dict[str, Any]]:
         """Close positions using FIFO method."""
         open_positions = [
-            pos for pos in self._positions.values()
-            if pos.symbol == symbol and
-               pos.agent_id == agent_id and
-               (pos.is_open or pos.is_partially_closed)
+            pos
+            for pos in self._positions.values()
+            if pos.symbol == symbol
+            and pos.agent_id == agent_id
+            and (pos.is_open or pos.is_partially_closed)
         ]
 
         # Sort by opened_at (oldest first)
@@ -245,16 +251,18 @@ class PositionManager:
             else:
                 position.status = PositionStatus.PARTIALLY_CLOSED
 
-            results.append({
-                "position_id": position.position_id,
-                "symbol": position.symbol,
-                "agent_id": position.agent_id,
-                "closing_quantity": float(close_amount),
-                "remaining_quantity": float(position.current_quantity),
-                "exit_price": float(exit_price) if exit_price else None,
-                "status": position.status.value,
-                "fifo_order": position.opened_at.isoformat(),
-            })
+            results.append(
+                {
+                    "position_id": position.position_id,
+                    "symbol": position.symbol,
+                    "agent_id": position.agent_id,
+                    "closing_quantity": float(close_amount),
+                    "remaining_quantity": float(position.current_quantity),
+                    "exit_price": float(exit_price) if exit_price else None,
+                    "status": position.status.value,
+                    "fifo_order": position.opened_at.isoformat(),
+                }
+            )
 
         log_structured(
             "info",
@@ -276,10 +284,11 @@ class PositionManager:
     ) -> list[dict[str, Any]]:
         """Close positions using LIFO method."""
         open_positions = [
-            pos for pos in self._positions.values()
-            if pos.symbol == symbol and
-               pos.agent_id == agent_id and
-               (pos.is_open or pos.is_partially_closed)
+            pos
+            for pos in self._positions.values()
+            if pos.symbol == symbol
+            and pos.agent_id == agent_id
+            and (pos.is_open or pos.is_partially_closed)
         ]
 
         # Sort by opened_at (newest first)
@@ -307,16 +316,18 @@ class PositionManager:
             else:
                 position.status = PositionStatus.PARTIALLY_CLOSED
 
-            results.append({
-                "position_id": position.position_id,
-                "symbol": position.symbol,
-                "agent_id": position.agent_id,
-                "closing_quantity": float(close_amount),
-                "remaining_quantity": float(position.current_quantity),
-                "exit_price": float(exit_price) if exit_price else None,
-                "status": position.status.value,
-                "lifo_order": position.opened_at.isoformat(),
-            })
+            results.append(
+                {
+                    "position_id": position.position_id,
+                    "symbol": position.symbol,
+                    "agent_id": position.agent_id,
+                    "closing_quantity": float(close_amount),
+                    "remaining_quantity": float(position.current_quantity),
+                    "exit_price": float(exit_price) if exit_price else None,
+                    "status": position.status.value,
+                    "lifo_order": position.opened_at.isoformat(),
+                }
+            )
 
         log_structured(
             "info",
@@ -329,17 +340,21 @@ class PositionManager:
 
         return results
 
-    def get_open_positions(self, symbol: str | None = None, agent_id: str | None = None) -> list[Position]:
+    def get_open_positions(
+        self, symbol: str | None = None, agent_id: str | None = None
+    ) -> list[Position]:
         """Get open positions."""
         return [
-            pos for pos in self._positions.values()
-            if (pos.is_open or pos.is_partially_closed) and
-               (symbol is None or pos.symbol == symbol) and
-               (agent_id is None or pos.agent_id == agent_id)
+            pos
+            for pos in self._positions.values()
+            if (pos.is_open or pos.is_partially_closed)
+            and (symbol is None or pos.symbol == symbol)
+            and (agent_id is None or pos.agent_id == agent_id)
         ]
 
-
-    def get_position_summary(self, symbol: str | None = None, agent_id: str | None = None) -> dict[str, Any]:
+    def get_position_summary(
+        self, symbol: str | None = None, agent_id: str | None = None
+    ) -> dict[str, Any]:
         """Get position summary."""
         open_positions = self.get_open_positions(symbol, agent_id)
 

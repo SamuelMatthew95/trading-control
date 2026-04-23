@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -32,10 +32,7 @@ class TradeLifecycleEnforcer:
         self.session = session
 
     async def validate_sell_before_buy(
-        self,
-        agent_id: str,
-        symbol: str,
-        sell_signal_data: dict[str, Any]
+        self, agent_id: str, symbol: str, sell_signal_data: dict[str, Any]
     ) -> dict[str, Any]:
         """
         Validate that SELL trade has corresponding BUY parent.
@@ -48,14 +45,18 @@ class TradeLifecycleEnforcer:
         """
         try:
             # Check if there's an existing OPEN BUY trade for this agent/symbol
-            stmt = select(TradeLedger).where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.symbol == symbol,
-                    TradeLedger.trade_type == "BUY",
-                    TradeLedger.status == "OPEN"
+            stmt = (
+                select(TradeLedger)
+                .where(
+                    and_(
+                        TradeLedger.agent_id == agent_id,
+                        TradeLedger.symbol == symbol,
+                        TradeLedger.trade_type == "BUY",
+                        TradeLedger.status == "OPEN",
+                    )
                 )
-            ).order_by(TradeLedger.created_at.desc())
+                .order_by(TradeLedger.created_at.desc())
+            )
 
             result = await self.session.execute(stmt)
             parent_buy_trades = result.scalars().all()
@@ -116,10 +117,7 @@ class TradeLifecycleEnforcer:
             }
 
     async def validate_buy_sequence(
-        self,
-        agent_id: str,
-        symbol: str,
-        buy_signal_data: dict[str, Any]
+        self, agent_id: str, symbol: str, buy_signal_data: dict[str, Any]
     ) -> dict[str, Any]:
         """
         Validate BUY trade sequence rules.
@@ -136,7 +134,7 @@ class TradeLifecycleEnforcer:
                     TradeLedger.agent_id == agent_id,
                     TradeLedger.symbol == symbol,
                     TradeLedger.trade_type == "BUY",
-                    TradeLedger.status == "OPEN"
+                    TradeLedger.status == "OPEN",
                 )
             )
 
@@ -159,14 +157,12 @@ class TradeLifecycleEnforcer:
             buy_quantity = Decimal(str(buy_signal_data.get("quantity", "1")))
 
             # Get current exposure for this symbol
-            exposure_stmt = select(
-                func.sum(TradeLedger.quantity)
-            ).where(
+            exposure_stmt = select(func.sum(TradeLedger.quantity)).where(
                 and_(
                     TradeLedger.agent_id == agent_id,
                     TradeLedger.symbol == symbol,
                     TradeLedger.trade_type == "BUY",
-                    TradeLedger.status == "OPEN"
+                    TradeLedger.status == "OPEN",
                 )
             )
 
@@ -215,38 +211,44 @@ class TradeLifecycleEnforcer:
             }
 
     async def get_position_summary(
-        self,
-        agent_id: str,
-        symbol: str | None = None
+        self, agent_id: str, symbol: str | None = None
     ) -> dict[str, Any]:
         """Get position summary for validation."""
         try:
             # Get all OPEN trades
-            stmt = select(TradeLedger).where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.status == "OPEN",
-                    or_(
-                        TradeLedger.symbol == symbol if symbol else True,
-                        TradeLedger.symbol.isnot(None) if not symbol else False
+            stmt = (
+                select(TradeLedger)
+                .where(
+                    and_(
+                        TradeLedger.agent_id == agent_id,
+                        TradeLedger.status == "OPEN",
+                        or_(
+                            TradeLedger.symbol == symbol if symbol else True,
+                            TradeLedger.symbol.isnot(None) if not symbol else False,
+                        ),
                     )
                 )
-            ).options(selectinload(TradeLedger.parent_trade))
+                .options(selectinload(TradeLedger.parent_trade))
+            )
 
             result = await self.session.execute(stmt)
             open_trades = result.scalars().all()
 
             positions = []
             for trade in open_trades:
-                positions.append({
-                    "trade_id": str(trade.trade_id),
-                    "symbol": trade.symbol,
-                    "quantity": float(trade.quantity),
-                    "entry_price": float(trade.entry_price),
-                    "created_at": trade.created_at.isoformat(),
-                    "has_parent": trade.parent_trade_id is not None,
-                    "parent_trade_id": str(trade.parent_trade_id) if trade.parent_trade_id else None,
-                })
+                positions.append(
+                    {
+                        "trade_id": str(trade.trade_id),
+                        "symbol": trade.symbol,
+                        "quantity": float(trade.quantity),
+                        "entry_price": float(trade.entry_price),
+                        "created_at": trade.created_at.isoformat(),
+                        "has_parent": trade.parent_trade_id is not None,
+                        "parent_trade_id": str(trade.parent_trade_id)
+                        if trade.parent_trade_id
+                        else None,
+                    }
+                )
 
             return {
                 "agent_id": agent_id,
@@ -282,11 +284,9 @@ class TradeLifecycleEnforcer:
                     or_(
                         TradeLedger.parent_trade_id.is_(None),
                         ~TradeLedger.parent_trade_id.in_(
-                            select(TradeLedger.trade_id).where(
-                                TradeLedger.trade_type == "BUY"
-                            )
-                        )
-                    )
+                            select(TradeLedger.trade_id).where(TradeLedger.trade_type == "BUY")
+                        ),
+                    ),
                 )
             )
 
@@ -295,17 +295,21 @@ class TradeLifecycleEnforcer:
 
             orphaned_list = []
             for sell in orphaned_sells:
-                orphaned_list.append({
-                    "trade_id": str(sell.trade_id),
-                    "symbol": sell.symbol,
-                    "agent_id": sell.agent_id,
-                    "quantity": float(sell.quantity),
-                    "entry_price": float(sell.entry_price),
-                    "exit_price": float(sell.exit_price),
-                    "parent_trade_id": str(sell.parent_trade_id) if sell.parent_trade_id else None,
-                    "orphan_reason": "No corresponding BUY parent found",
-                    "created_at": sell.created_at.isoformat(),
-                })
+                orphaned_list.append(
+                    {
+                        "trade_id": str(sell.trade_id),
+                        "symbol": sell.symbol,
+                        "agent_id": sell.agent_id,
+                        "quantity": float(sell.quantity),
+                        "entry_price": float(sell.entry_price),
+                        "exit_price": float(sell.exit_price),
+                        "parent_trade_id": str(sell.parent_trade_id)
+                        if sell.parent_trade_id
+                        else None,
+                        "orphan_reason": "No corresponding BUY parent found",
+                        "created_at": sell.created_at.isoformat(),
+                    }
+                )
 
             log_structured(
                 "warning",
@@ -325,10 +329,7 @@ class TradeLifecycleEnforcer:
 
             return []
 
-    async def enforce_sell_before_buy_rule(
-        self,
-        trade_data: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def enforce_sell_before_buy_rule(self, trade_data: dict[str, Any]) -> dict[str, Any]:
         """
         Enforce SELL before BUY rule for all trades.
 
@@ -341,7 +342,9 @@ class TradeLifecycleEnforcer:
 
             if trade_type == "SELL":
                 # Validate SELL has parent BUY
-                validation_result = await self.validate_sell_before_buy(agent_id, symbol, trade_data)
+                validation_result = await self.validate_sell_before_buy(
+                    agent_id, symbol, trade_data
+                )
 
                 if not validation_result["valid"]:
                     log_structured(

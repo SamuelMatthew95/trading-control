@@ -14,6 +14,7 @@ RELIABILITY:
 
 import asyncio
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -32,6 +33,7 @@ class OutboxEventStatus(Enum):
 @dataclass
 class OutboxEvent:
     """Event awaiting reliable delivery to WebSocket."""
+
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     payload: dict[str, Any]
     topic: str = "trades"
@@ -117,9 +119,11 @@ class EventOutbox:
             # Get all pending events
             from sqlalchemy import select
 
-            stmt = select(self._outbox_table).where(
-                self._outbox_table.c.status == OutboxEventStatus.PENDING.value
-            ).order_by(self._outbox_table.c.created_at)
+            stmt = (
+                select(self._outbox_table)
+                .where(self._outbox_table.c.status == OutboxEventStatus.PENDING.value)
+                .order_by(self._outbox_table.c.created_at)
+            )
 
             result = await self.session.execute(stmt)
             pending_events = result.scalars().all()
@@ -172,11 +176,13 @@ class EventOutbox:
         """Mark event as successfully published."""
         from sqlalchemy import update
 
-        stmt = update(self._outbox_table).where(
-            self._outbox_table.c.event_id == event.event_id
-        ).values(
-            status=OutboxEventStatus.PUBLISHED.value,
-            published_at=datetime.utcnow(),
+        stmt = (
+            update(self._outbox_table)
+            .where(self._outbox_table.c.event_id == event.event_id)
+            .values(
+                status=OutboxEventStatus.PUBLISHED.value,
+                published_at=datetime.utcnow(),
+            )
         )
 
         await self.session.execute(stmt)
@@ -194,12 +200,14 @@ class EventOutbox:
             # Retry later
             status = OutboxEventStatus.PENDING.value
 
-        stmt = update(self._outbox_table).where(
-            self._outbox_table.c.event_id == event.event_id
-        ).values(
-            status=status,
-            retry_count=new_retry_count,
-            error_message=error_message,
+        stmt = (
+            update(self._outbox_table)
+            .where(self._outbox_table.c.event_id == event.event_id)
+            .values(
+                status=status,
+                retry_count=new_retry_count,
+                error_message=error_message,
+            )
         )
 
         await self.session.execute(stmt)
@@ -211,21 +219,22 @@ class EventOutbox:
 
         # Define outbox table if not exists
         return Table(
-            'event_outbox',
+            "event_outbox",
             self._metadata,
-            Column('event_id', String, primary_key=True),
-            Column('payload', Text, nullable=False),
-            Column('topic', String, nullable=False),
-            Column('status', String, nullable=False),
-            Column('retry_count', Integer, default=0),
-            Column('max_retries', Integer, default=3),
-            Column('created_at', DateTime, nullable=False),
-            Column('published_at', DateTime, nullable=True),
-            Column('error_message', Text, nullable=True),
+            Column("event_id", String, primary_key=True),
+            Column("payload", Text, nullable=False),
+            Column("topic", String, nullable=False),
+            Column("status", String, nullable=False),
+            Column("retry_count", Integer, default=0),
+            Column("max_retries", Integer, default=3),
+            Column("created_at", DateTime, nullable=False),
+            Column("published_at", DateTime, nullable=True),
+            Column("error_message", Text, nullable=True),
         )
 
     @property
     def _metadata(self):
         """Get SQLAlchemy metadata."""
         from sqlalchemy import MetaData
+
         return MetaData()

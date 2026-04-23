@@ -74,7 +74,7 @@ async def recompute_trade_pnl(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="P&L recomputation failed")
+        raise HTTPException(status_code=500, detail="P&L recomputation failed") from e
 
 
 @router.get("/portfolio/{agent_id}")
@@ -128,7 +128,7 @@ async def recompute_portfolio_pnl(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Portfolio P&L recomputation failed")
+        raise HTTPException(status_code=500, detail="Portfolio P&L recomputation failed") from e
 
 
 @router.get("/validate/consistency")
@@ -181,7 +181,7 @@ async def validate_pnl_consistency(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="P&L consistency validation failed")
+        raise HTTPException(status_code=500, detail="P&L consistency validation failed") from e
 
 
 @router.get("/health")
@@ -241,4 +241,4 @@ async def pnl_recomputation_health(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Health check failed")
+        raise HTTPException(status_code=500, detail="Health check failed") from e

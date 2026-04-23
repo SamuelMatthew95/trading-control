@@ -30,6 +30,7 @@ class RiskPermission(Enum):
 
 class HardRiskDecision(BaseModel):
     """Hard risk decision - mandatory enforcement."""
+
     signal_id: str = Field(..., description="Signal identifier")
     agent_id: str = Field(..., description="Risk agent ID")
     symbol: str = Field(..., description="Trading symbol")
@@ -38,27 +39,35 @@ class HardRiskDecision(BaseModel):
     risk_score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
 
     # Hard enforcement fields
-    final_permission: RiskPermission = Field(..., description="Final permission - cannot be overridden")
-    max_position_size: Decimal | None = Field(None, gt=0, description="Max position size - enforced")
-    adjusted_confidence: float | None = Field(None, ge=0, le=100, description="Risk-adjusted confidence")
+    final_permission: RiskPermission = Field(
+        ..., description="Final permission - cannot be overridden"
+    )
+    max_position_size: Decimal | None = Field(
+        None, gt=0, description="Max position size - enforced"
+    )
+    adjusted_confidence: float | None = Field(
+        None, ge=0, le=100, description="Risk-adjusted confidence"
+    )
 
     # Metadata
     reasoning: str = Field(..., max_length=500, description="Risk reasoning")
-    enforced_at: datetime = Field(default_factory=datetime.utcnow, description="Enforcement timestamp")
+    enforced_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Enforcement timestamp"
+    )
 
-    @validator('risk_score')
+    @validator("risk_score")
     def validate_risk_score(self, v):
         if not 0 <= v <= 100:
             raise ValueError("Risk score must be 0-100")
         return v
 
-    @validator('max_position_size')
+    @validator("max_position_size")
     def validate_max_position_size(self, v):
         if v is not None and v <= 0:
             raise ValueError("Max position size must be positive")
         return v
 
-    @validator('adjusted_confidence')
+    @validator("adjusted_confidence")
     def validate_adjusted_confidence(self, v):
         if v is not None and not 0 <= v <= 100:
             raise ValueError("Adjusted confidence must be 0-100")
@@ -107,9 +116,7 @@ class HardRiskEnforcer:
         }
 
     async def assess_and_enforce(
-        self,
-        analyst_output: dict[str, Any],
-        execution_intent: dict[str, Any]
+        self, analyst_output: dict[str, Any], execution_intent: dict[str, Any]
     ) -> HardRiskDecision:
         """
         Assess risk and enforce hard constraints.
@@ -123,23 +130,22 @@ class HardRiskEnforcer:
             original_confidence = analyst_output.get("confidence", 0)
 
             # Calculate risk factors
-            agent_performance = await self._get_agent_performance(analyst_output.get("agent_id", ""))
+            agent_performance = await self._get_agent_performance(
+                analyst_output.get("agent_id", "")
+            )
             market_volatility = await self._get_market_volatility(symbol)
-            current_exposure = await self._get_current_exposure(symbol, analyst_output.get("agent_id", ""))
+            current_exposure = await self._get_current_exposure(
+                symbol, analyst_output.get("agent_id", "")
+            )
 
             # Calculate risk score
             risk_score = self._calculate_risk_score(
-                agent_performance,
-                market_volatility,
-                current_exposure,
-                original_confidence
+                agent_performance, market_volatility, current_exposure, original_confidence
             )
 
             # Apply hard rules
             final_permission, max_position_size, adjusted_confidence = self._apply_hard_rules(
-                risk_score,
-                execution_intent,
-                current_exposure
+                risk_score, execution_intent, current_exposure
             )
 
             # Create hard decision
@@ -195,7 +201,7 @@ class HardRiskEnforcer:
         agent_performance: dict[str, Any],
         market_volatility: float,
         current_exposure: Decimal,
-        original_confidence: float
+        original_confidence: float,
     ) -> float:
         """Calculate comprehensive risk score."""
         # Agent performance factor (0-40 points)
@@ -214,10 +220,7 @@ class HardRiskEnforcer:
         return min(total_risk, 100)
 
     def _apply_hard_rules(
-        self,
-        risk_score: float,
-        execution_intent: dict[str, Any],
-        current_exposure: Decimal
+        self, risk_score: float, execution_intent: dict[str, Any], current_exposure: Decimal
     ) -> tuple[RiskPermission, Decimal | None, float | None]:
         """Apply hard risk rules."""
         rules = self._risk_rules
@@ -245,10 +248,7 @@ class HardRiskEnforcer:
         return RiskPermission.ALLOW, max_position, adjusted_confidence
 
     def _generate_reasoning(
-        self,
-        risk_score: float,
-        final_permission: RiskPermission,
-        max_position_size: Decimal | None
+        self, risk_score: float, final_permission: RiskPermission, max_position_size: Decimal | None
     ) -> str:
         """Generate reasoning for risk decision."""
         if final_permission == RiskPermission.DENY:
@@ -284,13 +284,13 @@ class HardRiskEnforcer:
             "risk_decision_stored",
             signal_id=decision.signal_id,
             final_permission=decision.final_permission.value,
-            max_position_size=float(decision.max_position_size) if decision.max_position_size else None,
+            max_position_size=float(decision.max_position_size)
+            if decision.max_position_size
+            else None,
         )
 
     async def validate_executor_compliance(
-        self,
-        execution_intent: dict[str, Any],
-        risk_decision: HardRiskDecision
+        self, execution_intent: dict[str, Any], risk_decision: HardRiskDecision
     ) -> dict[str, Any]:
         """
         Validate executor compliance with risk decision.
@@ -309,7 +309,10 @@ class HardRiskEnforcer:
 
             # Check position size compliance
             requested_quantity = Decimal(str(execution_intent.get("quantity", "1")))
-            if risk_decision.max_position_size and requested_quantity > risk_decision.max_position_size:
+            if (
+                risk_decision.max_position_size
+                and requested_quantity > risk_decision.max_position_size
+            ):
                 return {
                     "compliant": False,
                     "violation": "executor_exceeded_position_limit",

@@ -101,35 +101,61 @@ class ExecutionEngine(BaseStreamConsumer):
 
             # Implement position sizing based on confidence and volatility
             try:
-                confidence = float(data.get(FieldName.CONFIDENCE) or data.get(FieldName.COMPOSITE_SCORE) or 0.5)
-                volatility_factor = abs(float(data.get(FieldName.PCT, 0))) / 100.0  # Convert percentage to decimal
+                confidence = float(
+                    data.get(FieldName.CONFIDENCE) or data.get(FieldName.COMPOSITE_SCORE) or 0.5
+                )
+                volatility_factor = (
+                    abs(float(data.get(FieldName.PCT, 0))) / 100.0
+                )  # Convert percentage to decimal
 
                 # Validate inputs
                 if not (0.0 <= confidence <= 1.0):
-                    log_structured("warning", "position_sizing_invalid_confidence", confidence=confidence, symbol=symbol)
+                    log_structured(
+                        "warning",
+                        "position_sizing_invalid_confidence",
+                        confidence=confidence,
+                        symbol=symbol,
+                    )
                     qty_multiplier = 1.0  # Default to minimum
                 elif not (0.0 <= volatility_factor <= 1.0):
-                    log_structured("warning", "position_sizing_invalid_volatility", volatility_factor=volatility_factor, symbol=symbol)
+                    log_structured(
+                        "warning",
+                        "position_sizing_invalid_volatility",
+                        volatility_factor=volatility_factor,
+                        symbol=symbol,
+                    )
                     qty_multiplier = 1.0  # Default to minimum
                 else:
                     # Position sizing logic: vary qty between 1-3 based on confidence and volatility
                     if confidence > 0.7 and volatility_factor < 0.02:
                         qty_multiplier = 3.0  # High confidence, low volatility -> larger position
                     elif confidence > 0.5 and volatility_factor < 0.03:
-                        qty_multiplier = 2.0  # Medium confidence, moderate volatility -> medium position
+                        qty_multiplier = (
+                            2.0  # Medium confidence, moderate volatility -> medium position
+                        )
                     else:
-                        qty_multiplier = 1.0  # Low confidence or high volatility -> minimum position
+                        qty_multiplier = (
+                            1.0  # Low confidence or high volatility -> minimum position
+                        )
 
                 qty = round(base_qty * qty_multiplier, 2)
                 qty = max(1.0, qty)  # Ensure minimum quantity of 1
 
                 # Final validation
                 if not (0.1 <= qty <= 1000.0):  # Reasonable bounds
-                    log_structured("warning", "position_sizing_out_of_bounds", qty=qty, symbol=symbol)
+                    log_structured(
+                        "warning", "position_sizing_out_of_bounds", qty=qty, symbol=symbol
+                    )
                     qty = max(1.0, min(1000.0, qty))  # Clamp to reasonable range
 
             except (ValueError, TypeError) as e:
-                log_structured("error", "position_sizing_calculation_failed", error=str(e), symbol=symbol, exc_info=True)
+                log_structured(
+                    "error",
+                    "position_sizing_calculation_failed",
+                    error=str(e),
+                    symbol=symbol,
+                    exc_info=True,
+                )
                 qty = max(1.0, base_qty)  # Fallback to base quantity with minimum
 
             log_structured(
@@ -492,15 +518,27 @@ class ExecutionEngine(BaseStreamConsumer):
 
             # Implement position sizing based on confidence and volatility (same as DB path)
             try:
-                confidence = float(data.get(FieldName.CONFIDENCE) or data.get(FieldName.COMPOSITE_SCORE) or 0.5)
+                confidence = float(
+                    data.get(FieldName.CONFIDENCE) or data.get(FieldName.COMPOSITE_SCORE) or 0.5
+                )
                 volatility_factor = abs(float(data.get(FieldName.PCT, 0))) / 100.0
 
                 # Validate inputs
                 if not (0.0 <= confidence <= 1.0):
-                    log_structured("warning", "position_sizing_invalid_confidence", confidence=confidence, symbol=symbol)
+                    log_structured(
+                        "warning",
+                        "position_sizing_invalid_confidence",
+                        confidence=confidence,
+                        symbol=symbol,
+                    )
                     qty_multiplier = 1.0  # Default to minimum
                 elif not (0.0 <= volatility_factor <= 1.0):
-                    log_structured("warning", "position_sizing_invalid_volatility", volatility_factor=volatility_factor, symbol=symbol)
+                    log_structured(
+                        "warning",
+                        "position_sizing_invalid_volatility",
+                        volatility_factor=volatility_factor,
+                        symbol=symbol,
+                    )
                     qty_multiplier = 1.0  # Default to minimum
                 else:
                     # Position sizing logic: vary qty between 1-3 based on confidence and volatility
@@ -516,11 +554,19 @@ class ExecutionEngine(BaseStreamConsumer):
 
                 # Final validation
                 if not (0.1 <= qty <= 1000.0):  # Reasonable bounds
-                    log_structured("warning", "position_sizing_out_of_bounds", qty=qty, symbol=symbol)
+                    log_structured(
+                        "warning", "position_sizing_out_of_bounds", qty=qty, symbol=symbol
+                    )
                     qty = max(1.0, min(1000.0, qty))  # Clamp to reasonable range
 
             except (ValueError, TypeError) as e:
-                log_structured("error", "position_sizing_calculation_failed", error=str(e), symbol=symbol, exc_info=True)
+                log_structured(
+                    "error",
+                    "position_sizing_calculation_failed",
+                    error=str(e),
+                    symbol=symbol,
+                    exc_info=True,
+                )
                 qty = max(1.0, base_qty)  # Fallback to base quantity with minimum
 
             log_structured(
@@ -528,9 +574,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 "position_sizing_applied_memory",
                 symbol=symbol,
                 base_qty=base_qty,
-                confidence=confidence if 'confidence' in locals() else 0.5,
-                volatility_factor=volatility_factor if 'volatility_factor' in locals() else 0.0,
-                qty_multiplier=qty_multiplier if 'qty_multiplier' in locals() else 1.0,
+                confidence=confidence if "confidence" in locals() else 0.5,
+                volatility_factor=volatility_factor if "volatility_factor" in locals() else 0.0,
+                qty_multiplier=qty_multiplier if "qty_multiplier" in locals() else 1.0,
                 final_qty=qty,
             )
         except (TypeError, ValueError):

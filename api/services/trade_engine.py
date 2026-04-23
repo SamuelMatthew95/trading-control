@@ -11,6 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from sqlalchemy import and_, func
+
 from api.core.events import SignalAction, SignalEvent, TradeExecutionEvent
 from api.core.models.trade_ledger import TradeLedger
 
@@ -44,7 +46,9 @@ class TradeEngine:
         execution.status = "IGNORED"
         return execution
 
-    async def _handle_buy_signal(self, signal: SignalEvent, execution: TradeExecutionEvent) -> TradeExecutionEvent:
+    async def _handle_buy_signal(
+        self, signal: SignalEvent, execution: TradeExecutionEvent
+    ) -> TradeExecutionEvent:
         """Handle BUY signal - open new position."""
         # Create BUY trade
         trade = TradeLedger(
@@ -71,20 +75,26 @@ class TradeEngine:
 
         return execution
 
-    async def _handle_sell_signal(self, signal: SignalEvent, execution: TradeExecutionEvent) -> TradeExecutionEvent:
+    async def _handle_sell_signal(
+        self, signal: SignalEvent, execution: TradeExecutionEvent
+    ) -> TradeExecutionEvent:
         """Handle SELL signal - close most recent OPEN position."""
         # Find most recent OPEN BUY trade for this symbol
         from sqlalchemy import and_, select
 
         from api.core.models.trade_ledger import TradeLedger
 
-        stmt = select(TradeLedger).where(
-            and_(
-                TradeLedger.symbol == signal.symbol,
-                TradeLedger.trade_type == "BUY",
-                TradeLedger.status == "OPEN"
+        stmt = (
+            select(TradeLedger)
+            .where(
+                and_(
+                    TradeLedger.symbol == signal.symbol,
+                    TradeLedger.trade_type == "BUY",
+                    TradeLedger.status == "OPEN",
+                )
             )
-        ).order_by(TradeLedger.created_at.desc())
+            .order_by(TradeLedger.created_at.desc())
+        )
 
         result = await self.session.execute(stmt)
         parent_trade = result.scalar_one_or_none()
@@ -149,7 +159,7 @@ class TradeEngine:
 
     async def get_portfolio_summary(self) -> dict:
         """Get portfolio summary statistics."""
-        from sqlalchemy import func, select
+        from sqlalchemy import select
 
         from api.core.models.trade_ledger import TradeLedger
 
@@ -161,35 +171,24 @@ class TradeEngine:
         total_pnl = pnl_result.scalar()
 
         # Open positions count
-        open_stmt = select(func.count(TradeLedger.trade_id)).where(
-            TradeLedger.status == "OPEN"
-        )
+        open_stmt = select(func.count(TradeLedger.trade_id)).where(TradeLedger.status == "OPEN")
         open_result = await self.session.execute(open_stmt)
         open_positions = open_result.scalar()
 
         # Daily P&L (simplified - today only)
         today = datetime.now(timezone.utc).date()
         daily_stmt = select(func.coalesce(func.sum(TradeLedger.pnl_realized), 0)).where(
-            and_(
-                TradeLedger.status == "CLOSED",
-                func.date(TradeLedger.created_at) == today
-            )
+            and_(TradeLedger.status == "CLOSED", func.date(TradeLedger.created_at) == today)
         )
         daily_result = await self.session.execute(daily_stmt)
         daily_pnl = daily_result.scalar()
 
         # Win rate
         winning_stmt = select(func.count(TradeLedger.trade_id)).where(
-            and_(
-                TradeLedger.status == "CLOSED",
-                TradeLedger.pnl_realized > 0
-            )
+            and_(TradeLedger.status == "CLOSED", TradeLedger.pnl_realized > 0)
         )
         losing_stmt = select(func.count(TradeLedger.trade_id)).where(
-            and_(
-                TradeLedger.status == "CLOSED",
-                TradeLedger.pnl_realized < 0
-            )
+            and_(TradeLedger.status == "CLOSED", TradeLedger.pnl_realized < 0)
         )
 
         winning_result = await self.session.execute(winning_stmt)

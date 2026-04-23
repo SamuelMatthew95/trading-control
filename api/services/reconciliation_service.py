@@ -40,6 +40,7 @@ class ReconciliationIssue(Enum):
 @dataclass
 class ReconciliationResult:
     """Result of reconciliation validation."""
+
     status: ReconciliationStatus
     issues: list[ReconciliationIssue]
     summary: dict[str, Any]
@@ -83,7 +84,9 @@ class ReconciliationService:
                 issues.append(ReconciliationIssue.MISSING_PARENT)
                 summary["missing_parents"] = len(missing_parents)
 
-            status = ReconciliationStatus.INCONSISTENT if issues else ReconciliationStatus.CONSISTENT
+            status = (
+                ReconciliationStatus.INCONSISTENT if issues else ReconciliationStatus.CONSISTENT
+            )
 
             result = ReconciliationResult(
                 status=status,
@@ -212,21 +215,22 @@ class ReconciliationService:
         from api.core.models.trade_ledger import TradeLedger
 
         # Find signal_ids that appear more than once
-        stmt = select(
-            TradeLedger.trace_id,
-            func.count(TradeLedger.trade_id).label('count')
-        ).group_by(TradeLedger.trace_id).having(
-            func.count(TradeLedger.trade_id) > 1
+        stmt = (
+            select(TradeLedger.trace_id, func.count(TradeLedger.trade_id).label("count"))
+            .group_by(TradeLedger.trace_id)
+            .having(func.count(TradeLedger.trade_id) > 1)
         )
 
         result = await self.session.execute(stmt)
         duplicates = []
 
         for row in result:
-            duplicates.append({
-                "signal_id": row.trace_id,
-                "count": row.count,
-            })
+            duplicates.append(
+                {
+                    "signal_id": row.trace_id,
+                    "count": row.count,
+                }
+            )
 
         return duplicates
 
@@ -248,12 +252,14 @@ class ReconciliationService:
         invalid_trades = []
 
         for trade in result.scalars():
-            invalid_trades.append({
-                "trade_id": str(trade.trade_id),
-                "trade_type": trade.trade_type,
-                "status": trade.status,
-                "issue": "BUY trade should not have parent and be closed with P&L",
-            })
+            invalid_trades.append(
+                {
+                    "trade_id": str(trade.trade_id),
+                    "trade_type": trade.trade_type,
+                    "status": trade.status,
+                    "issue": "BUY trade should not have parent and be closed with P&L",
+                }
+            )
 
         return invalid_trades
 
@@ -272,11 +278,13 @@ class ReconciliationService:
         orphaned_trades = []
 
         for trade in result.scalars():
-            orphaned_trades.append({
-                "trade_id": str(trade.trade_id),
-                "symbol": trade.symbol,
-                "issue": "SELL trade without parent BUY trade",
-            })
+            orphaned_trades.append(
+                {
+                    "trade_id": str(trade.trade_id),
+                    "symbol": trade.symbol,
+                    "issue": "SELL trade without parent BUY trade",
+                }
+            )
 
         return orphaned_trades
 
@@ -297,11 +305,13 @@ class ReconciliationService:
         missing_parents = []
 
         for trade in result.scalars():
-            missing_parents.append({
-                "trade_id": str(trade.trade_id),
-                "parent_trade_id": str(trade.parent_trade_id),
-                "issue": "References non-existent parent trade",
-            })
+            missing_parents.append(
+                {
+                    "trade_id": str(trade.trade_id),
+                    "parent_trade_id": str(trade.parent_trade_id),
+                    "issue": "References non-existent parent trade",
+                }
+            )
 
         return missing_parents
 

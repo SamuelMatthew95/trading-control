@@ -30,9 +30,7 @@ class ConfidenceNormalizer:
         self.session = session
 
     async def normalize_agent_confidence(
-        self,
-        agent_id: str,
-        signal_confidence: float | None
+        self, agent_id: str, signal_confidence: float | None
     ) -> float:
         """Normalize confidence score based on agent performance."""
         try:
@@ -163,22 +161,28 @@ class ConfidenceNormalizer:
         """Validate confidence is within acceptable range."""
         return 0.0 <= confidence <= 1.0
 
-    async def detect_confidence_anomalies(self, agent_id: str, hours: int = 24) -> list[dict[str, Any]]:
+    async def detect_confidence_anomalies(
+        self, agent_id: str, hours: int = 24
+    ) -> list[dict[str, Any]]:
         """Detect anomalous confidence patterns."""
         try:
             # Get recent confidence scores
             cutoff_date = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-            stmt = select(
-                TradeLedger.confidence_score,
-                TradeLedger.created_at,
-            ).where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.confidence_score.isnot(None),
-                    TradeLedger.created_at >= cutoff_date,
+            stmt = (
+                select(
+                    TradeLedger.confidence_score,
+                    TradeLedger.created_at,
                 )
-            ).order_by(TradeLedger.created_at.desc())
+                .where(
+                    and_(
+                        TradeLedger.agent_id == agent_id,
+                        TradeLedger.confidence_score.isnot(None),
+                        TradeLedger.created_at >= cutoff_date,
+                    )
+                )
+                .order_by(TradeLedger.created_at.desc())
+            )
 
             result = await self.session.execute(stmt)
             recent_scores = result.scalars().all()
@@ -193,13 +197,20 @@ class ConfidenceNormalizer:
             # Detect anomalies (>2 std dev from mean)
             anomalies = []
             for i, score in enumerate(scores):
-                if abs(score - avg_score) > 2 * (sum((s - avg_score) ** 2 for s in scores) / len(scores)) ** 0.5:
-                    anomalies.append({
-                        "timestamp": recent_scores[i].created_at.isoformat(),
-                        "confidence_score": score,
-                        "deviation_from_mean": score - avg_score,
-                        "anomaly_type": "high_confidence" if score > avg_score else "low_confidence",
-                    })
+                if (
+                    abs(score - avg_score)
+                    > 2 * (sum((s - avg_score) ** 2 for s in scores) / len(scores)) ** 0.5
+                ):
+                    anomalies.append(
+                        {
+                            "timestamp": recent_scores[i].created_at.isoformat(),
+                            "confidence_score": score,
+                            "deviation_from_mean": score - avg_score,
+                            "anomaly_type": "high_confidence"
+                            if score > avg_score
+                            else "low_confidence",
+                        }
+                    )
 
             log_structured(
                 "info",

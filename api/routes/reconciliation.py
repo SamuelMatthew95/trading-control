@@ -77,7 +77,7 @@ async def validate_system_consistency(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Reconciliation validation failed")
+        raise HTTPException(status_code=500, detail="Reconciliation validation failed") from e
 
 
 @router.get("/pnl-recompute")
@@ -136,7 +136,7 @@ async def recompute_portfolio_pnl(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="P&L recomputation failed")
+        raise HTTPException(status_code=500, detail="P&L recomputation failed") from e
 
 
 @router.get("/health")
@@ -205,4 +205,4 @@ async def reconciliation_health(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Health check failed")
+        raise HTTPException(status_code=500, detail="Health check failed") from e

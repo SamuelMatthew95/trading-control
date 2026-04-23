@@ -121,15 +121,16 @@ class AgentIdempotencyTracker:
         from sqlalchemy import Column, DateTime, String, Table
 
         return Table(
-            'agent_processed_signals',
+            "agent_processed_signals",
             self._metadata,
-            Column('agent_id', String, primary_key=True),
-            Column('signal_id', String, primary_key=True),
-            Column('processed_at', DateTime, nullable=False),
+            Column("agent_id", String, primary_key=True),
+            Column("signal_id", String, primary_key=True),
+            Column("processed_at", DateTime, nullable=False),
         )
 
     @property
     def _metadata(self):
         """Get SQLAlchemy metadata."""
         from sqlalchemy import MetaData
+
         return MetaData()

@@ -23,6 +23,7 @@ from api.observability import log_structured
 
 class StrictSignalSchema(BaseModel):
     """Strict signal schema - no extra fields allowed."""
+
     signal_id: str = Field(..., description="Signal identifier for idempotency")
     agent_id: str = Field(..., description="Agent identifier")
     symbol: str = Field(..., min_length=1, max_length=10, description="Trading symbol")
@@ -36,13 +37,13 @@ class StrictSignalSchema(BaseModel):
         str_strip_whitespace = True
         validate_assignment = True
 
-    @validator('symbol')
+    @validator("symbol")
     def validate_symbol(self, v):
         if not v or not v.isalpha():
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    @validator('action')
+    @validator("action")
     def validate_action(self, v):
         if v not in ["BUY", "SELL", "HOLD"]:
             raise ValueError(f"Invalid action: {v}")
@@ -51,6 +52,7 @@ class StrictSignalSchema(BaseModel):
 
 class StrictAnalysisSchema(BaseModel):
     """Strict analysis schema - no drift allowed."""
+
     signal_id: str = Field(..., description="Signal identifier")
     agent_id: str = Field(..., description="Analyst agent ID")
     bias: str = Field(..., regex="^(BULLISH|BEARISH|NEUTRAL)$", description="Market bias")
@@ -67,12 +69,15 @@ class StrictAnalysisSchema(BaseModel):
 
 class StrictRiskSchema(BaseModel):
     """Strict risk schema - no drift allowed."""
+
     signal_id: str = Field(..., description="Signal identifier")
     agent_id: str = Field(..., description="Risk agent ID")
     risk_score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
     decision: str = Field(..., regex="^(ALLOW|DENY|MODIFY)$", description="Risk decision")
     max_position_size: Decimal | None = Field(None, gt=0, description="Max position size")
-    adjusted_confidence: float | None = Field(None, ge=0, le=100, description="Risk-adjusted confidence")
+    adjusted_confidence: float | None = Field(
+        None, ge=0, le=100, description="Risk-adjusted confidence"
+    )
     reasoning: str = Field(..., max_length=500, description="Risk reasoning")
     timestamp: datetime = Field(..., description="Risk assessment timestamp")
 
@@ -84,6 +89,7 @@ class StrictRiskSchema(BaseModel):
 
 class StrictExecutionSchema(BaseModel):
     """Strict execution schema - no drift allowed."""
+
     signal_id: str = Field(..., description="Signal identifier")
     agent_id: str = Field(..., description="Executor agent ID")
     action: str = Field(..., regex="^(BUY|SELL|HOLD)$", description="Final trade action")
@@ -133,12 +139,14 @@ class StrictSchemaValidator:
 
         except ValidationError as e:
             self.rejected_count += 1
-            self.validation_errors.append({
-                "type": "signal_validation",
-                "error": str(e),
-                "data": data,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self.validation_errors.append(
+                {
+                    "type": "signal_validation",
+                    "error": str(e),
+                    "data": data,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
             log_structured(
                 "warning",
@@ -182,12 +190,14 @@ class StrictSchemaValidator:
 
         except ValidationError as e:
             self.rejected_count += 1
-            self.validation_errors.append({
-                "type": "analysis_validation",
-                "error": str(e),
-                "data": data,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self.validation_errors.append(
+                {
+                    "type": "analysis_validation",
+                    "error": str(e),
+                    "data": data,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
             log_structured(
                 "warning",
@@ -231,12 +241,14 @@ class StrictSchemaValidator:
 
         except ValidationError as e:
             self.rejected_count += 1
-            self.validation_errors.append({
-                "type": "risk_validation",
-                "error": str(e),
-                "data": data,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self.validation_errors.append(
+                {
+                    "type": "risk_validation",
+                    "error": str(e),
+                    "data": data,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
             log_structured(
                 "warning",
@@ -280,12 +292,14 @@ class StrictSchemaValidator:
 
         except ValidationError as e:
             self.rejected_count += 1
-            self.validation_errors.append({
-                "type": "execution_validation",
-                "error": str(e),
-                "data": data,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self.validation_errors.append(
+                {
+                    "type": "execution_validation",
+                    "error": str(e),
+                    "data": data,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
             log_structured(
                 "warning",
@@ -331,7 +345,9 @@ class StrictSchemaValidator:
             "total_validations": total_validations,
             "accepted_count": self.accepted_count,
             "rejected_count": self.rejected_count,
-            "acceptance_rate": (self.accepted_count / total_validations * 100) if total_validations > 0 else 0,
+            "acceptance_rate": (self.accepted_count / total_validations * 100)
+            if total_validations > 0
+            else 0,
             "recent_errors": self.validation_errors[-10:],  # Last 10 errors
             "validation_timestamp": datetime.now(timezone.utc).isoformat(),
         }

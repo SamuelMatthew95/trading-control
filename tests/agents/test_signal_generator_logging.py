@@ -1,22 +1,18 @@
 """Tests for signal generation logging and symbol diversity."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
-import time
 
 from api.constants import (
     AGENT_SIGNAL,
-    STREAM_AGENT_LOGS,
-    STREAM_SIGNALS,
     FieldName,
     MarketDirection,
     SignalStrength,
     SignalType,
-    LogType,
 )
 from api.services.signal_generator import SignalGenerator
-from api.services.events import EventBus
+
 
 @pytest.mark.asyncio
 async def test_signal_generator_symbol_logging():

@@ -164,9 +164,15 @@ class InMemoryStore:
         """Get learning metrics counters from in-memory store."""
         return {
             "trades_evaluated": len(self.grade_history),
-            "reflections_completed": len([e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.REFLECTION]),
-            "ic_values_updated": len([e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.IC_UPDATE]),
-            "strategies_tested": len([e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL]),
+            "reflections_completed": len(
+                [e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.REFLECTION]
+            ),
+            "ic_values_updated": len(
+                [e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.IC_UPDATE]
+            ),
+            "strategies_tested": len(
+                [e for e in self.event_history if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL]
+            ),
         }
 
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:

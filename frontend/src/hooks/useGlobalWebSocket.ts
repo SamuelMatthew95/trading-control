@@ -522,8 +522,7 @@ class WebSocketManager {
   }
 
   // --- Normalization ---
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _normalizeDashboardData(data: any): any {
+  private _normalizeDashboardData(data: WebSocketData): WebSocketData {
     if (!data || typeof data !== "object") return data;
 
     const normalized = { ...data };
@@ -536,8 +535,7 @@ class WebSocketManager {
     ) {
       // Convert orders object to array format expected by store
       // Extract actual order arrays from the object
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ordersArray: any[] = [];
+      const ordersArray: WebSocketData[] = [];
 
       // Look for common order array keys
       const orderKeys = [
@@ -555,16 +553,13 @@ class WebSocketManager {
 
       // If no arrays found, convert object values to array
       if (ordersArray.length === 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const objectValues = Object.values(normalized.orders) as any[];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const objectValues = Object.values(normalized.orders) as unknown[];
         ordersArray.push(
           ...objectValues.filter(
-            (item: any) =>
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (item: unknown) =>
               typeof item === "object" &&
               item !== null &&
-              !(item as any).timestamp, // exclude metadata
+              !(item as Record<string, unknown>).timestamp, // exclude metadata
           ),
         );
       }
@@ -587,11 +582,9 @@ class WebSocketManager {
       if (normalized[field] && !Array.isArray(normalized[field])) {
         if (typeof normalized[field] === "object") {
           // Convert object to array of values
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const objectValues = Object.values(normalized[field]) as any[];
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const objectValues = Object.values(normalized[field]) as Record<string, unknown>[];
           normalized[field] = objectValues.filter(
-            (item: any) => typeof item === "object" && item !== null,
+            (item: Record<string, unknown>) => typeof item === "object" && item !== null,
           );
         } else {
           // Set to empty array if not convertible
@@ -605,8 +598,7 @@ class WebSocketManager {
     return normalized;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _normalizeAgentEvent(raw: any): any | null {
+  private _normalizeAgentEvent(raw: WebSocketData): WebSocketData | null {
     if (!raw || typeof raw !== "object") return null;
     const inferredAgentName =
       raw.agent_name ||
@@ -626,6 +618,7 @@ class WebSocketManager {
       ...(raw.stream && { stream: raw.stream }),
       ...(raw.message_id && { message_id: raw.message_id }),
       ...(raw.data && { data: raw.data }),
+      ...raw,
     };
   }
 
@@ -646,8 +639,8 @@ class WebSocketManager {
     }
     return null;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _normalizeSystemMetric(raw: any): any | null {
+
+  private _normalizeSystemMetric(raw: WebSocketData): WebSocketData | null {
     if (!raw || typeof raw !== "object") return null;
     return {
       metric_name: raw.metric_name || raw.name || "unknown",
@@ -656,11 +649,12 @@ class WebSocketManager {
       labels: raw.labels || {},
       ...(raw.unit && { unit: raw.unit }),
       ...(raw.tags && { tags: raw.tags }),
+      ...raw,
     };
   }
+
   private _normalizeEventType(val: string): string {
-    if (!val || typeof val !== "string") return "unknown";
-    const map: Record<string, string> = {
+    const map = {
       buy: "signal",
       sell: "signal",
       purchase: "signal",

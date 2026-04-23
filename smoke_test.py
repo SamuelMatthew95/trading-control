@@ -18,7 +18,7 @@ async def smoke_test():
 
     # Test 1: Trade signal filter
     print("Testing trade signal filter...")
-    filter = get_trade_signal_filter()
+    signal_filter = get_trade_signal_filter()
 
     trade_event = {
         "type": "TRADE_SIGNAL",
@@ -26,7 +26,7 @@ async def smoke_test():
         "msg_id": str(uuid.uuid4()),
     }
 
-    result = filter.filter_event(trade_event)
+    result = signal_filter.filter_event(trade_event)
     assert result["action"] == "process"
     print("✓ Trade signal filter works")
 

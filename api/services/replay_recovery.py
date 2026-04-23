@@ -15,8 +15,11 @@ REPLAY SYSTEM:
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from enum import Enum
 from typing import Any
+from uuid import uuid4
 
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -33,13 +36,16 @@ class ReplayMode(Enum):
 
 class ReplayCheckpoint(BaseModel):
     """Replay checkpoint for recovery."""
+
     checkpoint_id: str = Field(..., description="Checkpoint identifier")
     mode: ReplayMode = Field(..., description="Replay mode")
     timestamp: datetime = Field(..., description="Checkpoint timestamp")
     last_processed_id: str | None = Field(None, description="Last processed signal ID")
     total_processed: int = Field(..., description="Total signals processed")
     system_state: dict[str, Any] = Field(default_factory=dict, description="System state snapshot")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Checkpoint creation time")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Checkpoint creation time"
+    )
 
     @property
     def is_redis_stream_checkpoint(self) -> bool:
@@ -66,7 +72,7 @@ class ReplayManager:
     ) -> ReplayCheckpoint:
         """Create replay checkpoint."""
         checkpoint = ReplayCheckpoint(
-            checkpoint_id=str(uuid.uuid4()),
+            checkpoint_id=str(uuid4()),
             mode=mode,
             timestamp=datetime.now(timezone.utc),
             last_processed_id=last_processed_id,
@@ -374,21 +380,25 @@ class ReplayManager:
             if trade.status == "OPEN":
                 if trade.symbol not in open_positions:
                     open_positions[trade.symbol] = []
-                open_positions[trade.symbol].append({
-                    "trade_id": str(trade.trade_id),
-                    "agent_id": trade.agent_id,
-                    "quantity": float(trade.quantity),
-                    "entry_price": float(trade.entry_price),
-                    "opened_at": trade.created_at.isoformat(),
-                })
+                open_positions[trade.symbol].append(
+                    {
+                        "trade_id": str(trade.trade_id),
+                        "agent_id": trade.agent_id,
+                        "quantity": float(trade.quantity),
+                        "entry_price": float(trade.entry_price),
+                        "opened_at": trade.created_at.isoformat(),
+                    }
+                )
             elif trade.status == "CLOSED" and trade.pnl_realized:
-                closed_trades.append({
-                    "trade_id": str(trade.trade_id),
-                    "symbol": trade.symbol,
-                    "agent_id": trade.agent_id,
-                    "pnl": float(trade.pnl_realized),
-                    "closed_at": trade.created_at.isoformat(),
-                })
+                closed_trades.append(
+                    {
+                        "trade_id": str(trade.trade_id),
+                        "symbol": trade.symbol,
+                        "agent_id": trade.agent_id,
+                        "pnl": float(trade.pnl_realized),
+                        "closed_at": trade.created_at.isoformat(),
+                    }
+                )
                 total_pnl += trade.pnl_realized
 
         return {
@@ -401,6 +411,7 @@ class ReplayManager:
 
     async def _get_redis_connection(self):
         """Get Redis connection."""
+
         # Mock implementation - would use actual Redis client
         class MockRedis:
             async def xread(self, streams, consumer=None, count=None):

@@ -1,11 +1,10 @@
 """Tests for in-memory store learning counters functionality."""
 
 import time
-import pytest
 
 from api.constants import (
-    LogType,
     FieldName,
+    LogType,
 )
 from api.in_memory_store import InMemoryStore
 
@@ -248,38 +247,52 @@ def test_learning_counters_consistency_with_actual_data():
     store = InMemoryStore()
 
     # Add various events
-    store.add_grade({
-        FieldName.TRACE_ID: "grade-1",
-        FieldName.GRADE_TYPE: "accuracy",
-        FieldName.SCORE: 85.0,
-        FieldName.TIMESTAMP: time.time(),
-    })
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "grade-1",
+            FieldName.GRADE_TYPE: "accuracy",
+            FieldName.SCORE: 85.0,
+            FieldName.TIMESTAMP: time.time(),
+        }
+    )
 
-    store.add_event({
-        FieldName.LOG_TYPE: LogType.REFLECTION,
-        FieldName.TRACE_ID: "reflection-1",
-        FieldName.TIMESTAMP: time.time(),
-    })
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: LogType.REFLECTION,
+            FieldName.TRACE_ID: "reflection-1",
+            FieldName.TIMESTAMP: time.time(),
+        }
+    )
 
-    store.add_event({
-        FieldName.LOG_TYPE: "ic_update",
-        FieldName.TRACE_ID: "ic-1",
-        FieldName.TIMESTAMP: time.time(),
-    })
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: "ic_update",
+            FieldName.TRACE_ID: "ic-1",
+            FieldName.TIMESTAMP: time.time(),
+        }
+    )
 
-    store.add_event({
-        FieldName.LOG_TYPE: "proposal",
-        FieldName.TRACE_ID: "proposal-1",
-        FieldName.TIMESTAMP: time.time(),
-    })
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: "proposal",
+            FieldName.TRACE_ID: "proposal-1",
+            FieldName.TIMESTAMP: time.time(),
+        }
+    )
 
     counters = store.get_learning_counters()
 
     # Verify counters match actual data counts
     assert counters["trades_evaluated"] == len(store.grade_history)
-    assert counters["reflections_completed"] == len([e for e in store.event_history if e.get(FieldName.LOG_TYPE) == LogType.REFLECTION])
-    assert counters["ic_values_updated"] == len([e for e in store.event_history if "ic_update" in str(e.get(FieldName.LOG_TYPE, ""))])
-    assert counters["strategies_tested"] == len([e for e in store.event_history if "proposal" in str(e.get(FieldName.LOG_TYPE, ""))])
+    assert counters["reflections_completed"] == len(
+        [e for e in store.event_history if e.get(FieldName.LOG_TYPE) == LogType.REFLECTION]
+    )
+    assert counters["ic_values_updated"] == len(
+        [e for e in store.event_history if "ic_update" in str(e.get(FieldName.LOG_TYPE, ""))]
+    )
+    assert counters["strategies_tested"] == len(
+        [e for e in store.event_history if "proposal" in str(e.get(FieldName.LOG_TYPE, ""))]
+    )
 
 
 def test_learning_counters_after_data_clearing():
@@ -288,18 +301,22 @@ def test_learning_counters_after_data_clearing():
     store = InMemoryStore()
 
     # Add initial data
-    store.add_grade({
-        FieldName.TRACE_ID: "grade-1",
-        FieldName.GRADE_TYPE: "accuracy",
-        FieldName.SCORE: 85.0,
-        FieldName.TIMESTAMP: time.time(),
-    })
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "grade-1",
+            FieldName.GRADE_TYPE: "accuracy",
+            FieldName.SCORE: 85.0,
+            FieldName.TIMESTAMP: time.time(),
+        }
+    )
 
-    store.add_event({
-        FieldName.LOG_TYPE: LogType.REFLECTION,
-        FieldName.TRACE_ID: "reflection-1",
-        FieldName.TIMESTAMP: time.time(),
-    })
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: LogType.REFLECTION,
+            FieldName.TRACE_ID: "reflection-1",
+            FieldName.TIMESTAMP: time.time(),
+        }
+    )
 
     # Verify initial counters
     counters = store.get_learning_counters()
@@ -331,36 +348,44 @@ def test_learning_counters_large_dataset():
 
     # Add grades
     for i in range(num_grades):
-        store.add_grade({
-            FieldName.TRACE_ID: f"grade-{i}",
-            FieldName.GRADE_TYPE: "accuracy",
-            FieldName.SCORE: 80.0 + i % 20,
-            FieldName.TIMESTAMP: time.time() + i,
-        })
+        store.add_grade(
+            {
+                FieldName.TRACE_ID: f"grade-{i}",
+                FieldName.GRADE_TYPE: "accuracy",
+                FieldName.SCORE: 80.0 + i % 20,
+                FieldName.TIMESTAMP: time.time() + i,
+            }
+        )
 
     # Add reflection events
     for i in range(num_reflections):
-        store.add_event({
-            FieldName.LOG_TYPE: LogType.REFLECTION,
-            FieldName.TRACE_ID: f"reflection-{i}",
-            FieldName.TIMESTAMP: time.time() + i,
-        })
+        store.add_event(
+            {
+                FieldName.LOG_TYPE: LogType.REFLECTION,
+                FieldName.TRACE_ID: f"reflection-{i}",
+                FieldName.TIMESTAMP: time.time() + i,
+            }
+        )
 
     # Add IC update events
     for i in range(num_ic_updates):
-        store.add_event({
-            FieldName.LOG_TYPE: "ic_update",
-            FieldName.TRACE_ID: f"ic-{i}",
-            FieldName.TIMESTAMP: time.time() + i,
-        })
+        store.add_event(
+            {
+                FieldName.LOG_TYPE: "ic_update",
+                FieldName.TRACE_ID: f"ic-{i}",
+                FieldName.TIMESTAMP: time.time() + i,
+            }
+        )
 
     # Add proposal events
     for i in range(num_proposals):
-        store.add_event({
-            FieldName.LOG_TYPE: "proposal",
-            FieldName.TRACE_ID: f"proposal-{i}",
-            FieldName.TIMESTAMP: time.time() + i,
-        })
+        store.add_event(
+            {
+                FieldName.LOG_TYPE: "proposal",
+                FieldName.TRACE_ID: f"proposal-{i}",
+                FieldName.TIMESTAMP: time.time() + i,
+            }
+        )
 
     counters = store.get_learning_counters()
 
@@ -381,7 +406,12 @@ def test_learning_counters_return_type():
     assert isinstance(counters, dict)
 
     # Verify all expected keys are present
-    expected_keys = ["trades_evaluated", "reflections_completed", "ic_values_updated", "strategies_tested"]
+    expected_keys = [
+        "trades_evaluated",
+        "reflections_completed",
+        "ic_values_updated",
+        "strategies_tested",
+    ]
     for key in expected_keys:
         assert key in counters
 

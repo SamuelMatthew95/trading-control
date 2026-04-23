@@ -32,12 +32,11 @@ class AgentMemoryDiscipline:
     async def get_current_positions(self, agent_id: str) -> dict[str, Any]:
         """Get agent's current positions from DB only."""
         try:
-            stmt = select(TradeLedger).where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.status == "OPEN"
-                )
-            ).order_by(TradeLedger.created_at.desc())
+            stmt = (
+                select(TradeLedger)
+                .where(and_(TradeLedger.agent_id == agent_id, TradeLedger.status == "OPEN"))
+                .order_by(TradeLedger.created_at.desc())
+            )
 
             result = await self.session.execute(stmt)
             positions = result.scalars().all()
@@ -82,26 +81,31 @@ class AgentMemoryDiscipline:
     async def get_trade_history(self, agent_id: str, limit: int = 50) -> dict[str, Any]:
         """Get agent's trade history from DB only."""
         try:
-            stmt = select(TradeLedger).where(
-                TradeLedger.agent_id == agent_id
-            ).order_by(TradeLedger.created_at.desc()).limit(limit)
+            stmt = (
+                select(TradeLedger)
+                .where(TradeLedger.agent_id == agent_id)
+                .order_by(TradeLedger.created_at.desc())
+                .limit(limit)
+            )
 
             result = await self.session.execute(stmt)
             trades = result.scalars().all()
 
             trade_data = []
             for trade in trades:
-                trade_data.append({
-                    "trade_id": str(trade.trade_id),
-                    "symbol": trade.symbol,
-                    "action": trade.trade_type,
-                    "quantity": float(trade.quantity),
-                    "entry_price": float(trade.entry_price) if trade.entry_price else None,
-                    "exit_price": float(trade.exit_price) if trade.exit_price else None,
-                    "pnl_realized": float(trade.pnl_realized) if trade.pnl_realized else None,
-                    "status": trade.status,
-                    "created_at": trade.created_at.isoformat(),
-                })
+                trade_data.append(
+                    {
+                        "trade_id": str(trade.trade_id),
+                        "symbol": trade.symbol,
+                        "action": trade.trade_type,
+                        "quantity": float(trade.quantity),
+                        "entry_price": float(trade.entry_price) if trade.entry_price else None,
+                        "exit_price": float(trade.exit_price) if trade.exit_price else None,
+                        "pnl_realized": float(trade.pnl_realized) if trade.pnl_realized else None,
+                        "status": trade.status,
+                        "created_at": trade.created_at.isoformat(),
+                    }
+                )
 
             log_structured(
                 "info",
@@ -139,13 +143,8 @@ class AgentMemoryDiscipline:
             stmt = select(
                 func.sum(TradeLedger.quantity),
                 func.sum(TradeLedger.pnl_realized),
-                func.count(TradeLedger.trade_id)
-            ).where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.status == "OPEN"
-                )
-            )
+                func.count(TradeLedger.trade_id),
+            ).where(and_(TradeLedger.agent_id == agent_id, TradeLedger.status == "OPEN"))
 
             result = await self.session.execute(stmt)
             exposure_data = result.first()
@@ -200,10 +199,7 @@ class AgentMemoryDiscipline:
         """Check if signal_id was already processed by this agent."""
         try:
             stmt = select(TradeLedger).where(
-                and_(
-                    TradeLedger.agent_id == agent_id,
-                    TradeLedger.trace_id == signal_id
-                )
+                and_(TradeLedger.agent_id == agent_id, TradeLedger.trace_id == signal_id)
             )
 
             result = await self.session.execute(stmt)
