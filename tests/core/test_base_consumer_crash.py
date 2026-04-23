@@ -125,6 +125,13 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
     dlq = _make_dlq(fake_redis)
 
     consumer = _OkConsumer(bus, dlq, "signals", DEFAULT_GROUP, "test_ok")
+    
+    # Mock consume to return immediately to prevent blocking
+    original_consume = bus.consume
+    async def _mock_consume(*args, **kwargs):
+        return []
+    bus.consume = _mock_consume  # type: ignore[method-assign]
+    
     await consumer.start()
     await asyncio.sleep(0.05)
     await asyncio.wait_for(consumer.stop(), timeout=5.0)
@@ -132,6 +139,8 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
     # After a clean stop the task is gone (set to None by stop())
     assert consumer._task is None
     assert not consumer.has_crashed, "Graceful stop must not set has_crashed"
+    
+    bus.consume = original_consume  # type: ignore[method-assign]
 
 
 @pytest.mark.asyncio
