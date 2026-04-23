@@ -54,7 +54,7 @@ import { DashboardView } from "@/app/dashboard/DashboardView";
 
 const makeTrade = (overrides: Partial<TradeFeedItem> = {}): TradeFeedItem => ({
   id: "trade-1",
-  symbol: "BTC/USD",
+  symbol: "TSLA",
   side: "buy",
   qty: 0.1,
   entry_price: 43000,
@@ -101,7 +101,7 @@ describe("TradeFeed panel", () => {
     // Check that the side badge is present
     expect(screen.getByText("BUY")).toBeInTheDocument();
     // Symbol should be present in the document
-    expect(document.textContent).toContain("BTC/USD");
+    expect(screen.getByText("TSLA")).toBeInTheDocument();
   });
 
   it("shows positive P&L with green styling", () => {
