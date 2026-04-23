@@ -68,7 +68,9 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     completed_trades = [
         trade
         for trade in trade_feed
-        if trade.get(FieldName.SIDE) == "sell" and trade.get(FieldName.PNL) is not None and trade.get(FieldName.PNL) != 0
+        if trade.get(FieldName.SIDE) == "sell"
+        and trade.get(FieldName.PNL) is not None
+        and trade.get(FieldName.PNL) != 0
     ]
     winning_trades = sum(1 for trade in completed_trades if float(trade.get(FieldName.PNL, 0)) > 0)
     win_rate = round((winning_trades / len(completed_trades)) * 100, 2) if completed_trades else 0.0
@@ -1554,7 +1556,10 @@ def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
     sorted_trades = sorted(
         recent_trades,
         key=lambda trade: (
-            trade.get(FieldName.CREATED_AT) or trade.get(FieldName.TIMESTAMP) or trade.get(FieldName.FILLED_AT) or 0
+            trade.get(FieldName.CREATED_AT)
+            or trade.get(FieldName.TIMESTAMP)
+            or trade.get(FieldName.FILLED_AT)
+            or 0
         ),
     )
 
@@ -1878,7 +1883,7 @@ async def get_agent_instances() -> dict[str, Any]:
             log_structured("error", "agent_instances_db_failed", exc_info=True)
             # This should never happen if DB is marked available, but handle gracefully
             fallback = _in_memory_agent_instances_payload()
-            fallback[FieldName.ERROR] = "agent_instances_unavailable"
+            fallback["error"] = "agent_instances_unavailable"
             return fallback
 
         instances = [
