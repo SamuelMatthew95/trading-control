@@ -98,7 +98,7 @@ describe("TradeFeed panel", () => {
   it("renders symbol and side badge when store has items", () => {
     mockStore.tradeFeed = [makeTrade()];
     render(<DashboardView section="trading" />);
-    expect(screen.getByText("BTC/USD")).toBeInTheDocument();
+    expect(screen.getAllByText("BTC/USD")).toHaveLength(1);
     expect(screen.getByText("BUY")).toBeInTheDocument();
   });
 
