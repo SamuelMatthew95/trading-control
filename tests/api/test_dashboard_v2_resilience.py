@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
@@ -166,7 +167,7 @@ async def test_agent_instances_falls_back_when_query_fails(monkeypatch):
     assert payload["instances"] == []
     assert payload["active_count"] == 0
     assert payload["retired_count"] == 0
-    assert payload["error"] == "agent_instances_unavailable"
+    assert payload[str(FieldName.ERROR)] == "agent_instances_unavailable"
 
 
 def test_system_metrics_alias_route_exists():

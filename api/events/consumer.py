@@ -90,15 +90,10 @@ class BaseStreamConsumer(ABC):
         if self._task is None:
             return
 
-        # Wait for task completion with shorter timeout
+        # Cancel the task immediately for responsive shutdown
+        self._task.cancel()
         try:
-            await asyncio.wait_for(self._task, timeout=2.0)
-        except asyncio.TimeoutError:
-            log_structured("warning", "Consumer task timeout, cancelling", stream=self.stream)
-            # Cancel the task
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
+            await self._task
         except asyncio.CancelledError:
             # Expected when task is cancelled
             pass
