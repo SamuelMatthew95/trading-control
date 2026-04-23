@@ -3,39 +3,8 @@ import { useEffect, useRef } from "react";
 import { useCodexStore, type AgentStatus } from "@/stores/useCodexStore";
 
 // --- Types ---
-type WebSocketData = {
-  type?: string;
-  schema_version?: string;
-  timestamp?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  payload?: any;
-  stream?: string;
-  event_type?: string;
-  message_id?: string;
-  msg_id?: string;
-  symbol?: string;
-  price?: string | number;
-  side?: string;
-  confidence?: string | number;
-  agent_name?: string;
-  agent?: string;
-  source_agent?: string;
-  action?: string;
-  latency_ms?: number;
-  primary_edge?: string;
-  metric_name?: string;
-  name?: string;
-  value?: number | string;
-  labels?: Record<string, string>;
-  unit?: string;
-  tags?: Record<string, string>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  orders?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type WebSocketData = any;
 
 export enum ConnectionState {
   DISCONNECTED = "disconnected",
