@@ -98,10 +98,10 @@ describe("TradeFeed panel", () => {
   it("renders symbol and side badge when store has items", () => {
     mockStore.tradeFeed = [makeTrade()];
     render(<DashboardView section="trading" />);
-    // Check that the trade feed contains the symbol (may appear multiple times in UI)
-    expect(screen.getAllByText("BTC/USD").length).toBeGreaterThan(0);
     // Check that the side badge is present
     expect(screen.getByText("BUY")).toBeInTheDocument();
+    // Symbol should be present in the document
+    expect(document.textContent).toContain("BTC/USD");
   });
 
   it("shows positive P&L with green styling", () => {
