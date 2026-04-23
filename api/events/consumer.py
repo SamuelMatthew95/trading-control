@@ -93,7 +93,9 @@ class BaseStreamConsumer(ABC):
         # Cancel the task immediately for responsive shutdown
         self._task.cancel()
         try:
-            await self._task
+            await asyncio.wait_for(self._task, timeout=2.0)
+        except asyncio.TimeoutError:
+            log_structured("warning", "Consumer task timeout during stop", stream=self.stream)
         except asyncio.CancelledError:
             # Expected when task is cancelled
             pass
