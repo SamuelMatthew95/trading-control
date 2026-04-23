@@ -248,4 +248,6 @@ async def lifecycle_enforcement_health(
             exc_info=True,
         )
 
-        raise HTTPException(status_code=500, detail="Lifecycle enforcement health check failed") from e
+        raise HTTPException(
+            status_code=500, detail="Lifecycle enforcement health check failed"
+        ) from e
