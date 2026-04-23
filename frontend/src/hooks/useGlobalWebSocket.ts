@@ -21,6 +21,8 @@ type WebSocketMessage = {
   confidence?: string | number;
 };
 
+type WebSocketData = any;
+
 export enum ConnectionState {
   DISCONNECTED = "disconnected",
   CONNECTING = "connecting",
@@ -246,7 +248,7 @@ class WebSocketManager {
       }, this.RETRY_RESET_DELAY);
     };
     this._socket.onmessage = (event) => {
-      let msg: WebSocketMessage | null = null;
+      let msg: any | null = null;
       try {
         msg = JSON.parse(event.data);
       } catch {}
@@ -522,7 +524,7 @@ class WebSocketManager {
   }
 
   // --- Normalization ---
-  private _normalizeDashboardData(data: WebSocketData): WebSocketData {
+  private _normalizeDashboardData(data: any): any {
     if (!data || typeof data !== "object") return data;
 
     const normalized = { ...data };
