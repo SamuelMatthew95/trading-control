@@ -173,9 +173,9 @@ class BaseStreamConsumer(ABC):
         # Main loop with responsive shutdown
         while self._running and not self._shutdown_event.is_set():
             try:
-                # Use non-blocking consume for responsive shutdown
+                # Use shorter blocking time for responsive shutdown
                 messages = await self.bus.consume(
-                    self.stream, self.group, self.consumer, count=10, block_ms=0
+                    self.stream, self.group, self.consumer, count=10, block_ms=100
                 )
 
                 # Reset backoff on successful consume
