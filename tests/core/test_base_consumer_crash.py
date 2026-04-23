@@ -132,7 +132,13 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
         return []
     bus.consume = _mock_consume  # type: ignore[method-assign]
     
-    await consumer.start()
+    # Mock reclaim to return immediately to prevent blocking
+    original_reclaim = bus.reclaim_stale
+    async def _mock_reclaim(*args, **kwargs):
+        return []
+    bus.reclaim_stale = _mock_reclaim  # type: ignore[method-assign]
+    
+    await asyncio.wait_for(consumer.start(), timeout=5.0)
     await asyncio.sleep(0.05)
     await asyncio.wait_for(consumer.stop(), timeout=5.0)
 
@@ -141,6 +147,7 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
     assert not consumer.has_crashed, "Graceful stop must not set has_crashed"
     
     bus.consume = original_consume  # type: ignore[method-assign]
+    bus.reclaim_stale = original_reclaim  # type: ignore[method-assign]
 
 
 @pytest.mark.asyncio
