@@ -85,7 +85,7 @@ const formatAgeFromMs = (ageMs: number | null): string => {
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
-const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-900'
+const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system'
 
@@ -945,7 +945,7 @@ export function DashboardView({ section }: { section: Section }) {
       const agentKey = canonicalAgentKey(inst.pool_name)
       const existing = normalizedByName.get(agentKey)
       const startedDate = parseTimestamp(inst.started_at)
-      const mappedStatus = inst.status === 'active' ? 'Live' : 'Error'
+      const mappedStatus = inst.status === 'active' ? 'Live' : 'Idle'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       normalizedByName.set(agentKey, {
         name: existing?.name ?? inst.pool_name,
