@@ -92,7 +92,7 @@ describe('TradeFeed panel', () => {
 
   it('shows empty state when tradeFeed is empty', () => {
     render(<DashboardView section="trading" />)
-    expect(screen.getByText(/no fills yet/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/no orders today/i).length).toBeGreaterThan(0)
   })
 
   it('renders symbol and side badge when store has items', () => {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Settings2, Menu, Power, BarChart3, Activity } from 'lucide-react'
+import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Settings2, Menu, BarChart3, Activity } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const NAV = [
@@ -91,7 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       >
         <div className="flex h-12 items-center gap-2 border-b border-slate-200 px-4 dark:border-slate-800">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-slate-100">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-slate-900">
             <BarChart3 className="h-4 w-4" />
           </div>
           <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-slate-100">Trading Console</p>
@@ -107,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={cn(
                   'flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-400'
+                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
                     : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                 )}
               >
@@ -128,7 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {sidebarOpen && <button className="fixed inset-0 z-30 bg-slate-950/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar" />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="h-12 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 sticky top-0 z-50">
+        <header className="h-12 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 sticky top-0 z-50">
           <div className="flex h-full items-center px-4">
             <div className="flex flex-1 items-center gap-2">
               <button
@@ -156,25 +157,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-1 justify-end">
               <div className="flex items-center gap-3">
                 <ThemeToggle />
-
-                <div className="flex items-center gap-1.5">
-                  <div className={cn('w-2 h-2 rounded-full', wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500')} />
-                  <span className={cn('text-xs font-semibold uppercase tracking-wider font-sans hidden sm:inline', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>
-                    {wsConnected ? 'Live' : 'Offline'}
-                  </span>
-                </div>
+                <span className={cn('text-[11px] font-mono uppercase tracking-[0.04em] text-slate-500', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>
+                  {wsConnected ? 'Live' : 'Stale'}
+                </span>
+                <div className="h-5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <button
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider font-sans transition-colors min-h-[44px]',
-                        killSwitchActive ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200'
-                      )}
-                    >
-                      <Power className="w-3.5 h-3.5" />
-                      {killSwitchActive ? 'Halt' : 'Active'}
-                    </button>
+                    <Button variant={killSwitchActive ? 'destructive' : 'outline'} shortcut={killSwitchActive ? 'ESC' : '⏎'}>
+                      {killSwitchActive ? 'Kill Switch On' : 'Kill Switch Off'}
+                    </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <AlertDialogHeader>
@@ -186,13 +178,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel className="font-mono text-[11px] uppercase tracking-[0.04em]">Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        className="bg-rose-600 text-slate-100 hover:bg-rose-700 disabled:opacity-50"
+                        className="h-7 rounded-[4px] border border-slate-200 bg-slate-100 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-950 hover:bg-slate-200 disabled:opacity-50"
                         disabled={killSwitchPending}
                         onClick={() => handleKillSwitch(!killSwitchActive)}
                       >
-                        {killSwitchPending ? 'Working…' : 'Confirm'}
+                        {killSwitchPending ? 'Working…' : killSwitchActive ? 'Deactivate ⏎' : 'Activate ⏎'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
