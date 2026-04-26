@@ -1687,7 +1687,18 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
                   <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-slate-500/10 text-slate-500' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
+                    <span
+                      className={cn(
+                        'rounded px-2 py-0.5 text-xs font-semibold',
+                        event.stream === 'market_ticks'
+                          ? 'bg-emerald-500/15 text-emerald-500'
+                          : event.stream === 'signals'
+                            ? 'bg-slate-500/10 text-slate-500'
+                            : event.stream === 'orders'
+                              ? 'bg-amber-500/15 text-amber-500'
+                              : 'bg-slate-500/15 text-slate-400'
+                      )}
+                    >
                       {event.stream}
                     </span>
                     <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
