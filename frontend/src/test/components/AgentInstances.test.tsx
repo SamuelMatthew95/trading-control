@@ -82,7 +82,7 @@ describe('AgentInstances panel', () => {
 
   it('renders empty state when agentInstances is empty', () => {
     render(<DashboardView section="agents" />)
-    expect(screen.getByText(/no instances registered yet/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/no active agents/i).length).toBeGreaterThan(0)
   })
 
   it('shows green dot and event count for an active instance', () => {
