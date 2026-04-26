@@ -125,7 +125,7 @@ class AlpacaBroker:
         filled_qty = float(order.get("filled_qty") or qty)
 
         return {
-            "broker_order_id": broker_order_id,
+            FieldName.BROKER_ORDER_ID: broker_order_id,
             FieldName.SYMBOL: symbol,
             FieldName.SIDE: side.lower(),
             "filled_qty": filled_qty,
@@ -179,7 +179,7 @@ class AlpacaBroker:
                     return None
                 body = await resp.json()
                 return {
-                    "broker_order_id": broker_order_id,
+                    FieldName.BROKER_ORDER_ID: broker_order_id,
                     FieldName.SYMBOL: body.get(FieldName.SYMBOL),
                     FieldName.SIDE: body.get(FieldName.SIDE),
                     "filled_qty": float(body.get("filled_qty") or 0),

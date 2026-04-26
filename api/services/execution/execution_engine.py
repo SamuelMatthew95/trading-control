@@ -31,6 +31,7 @@ from api.constants import (
     SOURCE_EXECUTION,
     STREAM_DECISIONS,
     STREAM_EXECUTIONS,
+    STREAM_TRADE_COMPLETED,
     STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
     FieldName,
@@ -171,6 +172,14 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Snapshot position BEFORE order to compute realized PnL
         prior_position = await self.broker.get_position(symbol)
+        if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+            log_structured(
+                "warning",
+                "execution_sell_rejected_no_open_position",
+                symbol=symbol,
+                trace_id=trace_id,
+            )
+            return
 
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
@@ -243,7 +252,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     ),
                     {
                         "status": broker_result[FieldName.STATUS],
-                        "broker_order_id": broker_result["broker_order_id"],
+                        "broker_order_id": broker_result[FieldName.BROKER_ORDER_ID],
                         "fill_price": fill_price,
                         "qty": qty,
                         "filled_at": filled_at,
@@ -262,12 +271,12 @@ class ExecutionEngine(BaseStreamConsumer):
                     session,
                     event_type="order_placed",
                     payload={
-                        "order_id": order_id,
-                        "strategy_id": strategy_id,
-                        "symbol": symbol,
-                        "side": side,
-                        "qty": qty,
-                        "broker_order_id": broker_result["broker_order_id"],
+                        FieldName.ORDER_ID: order_id,
+                        FieldName.STRATEGY_ID: strategy_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
                         "vwap_plan": vwap_plan,
                     },
                 )
@@ -281,6 +290,8 @@ class ExecutionEngine(BaseStreamConsumer):
         # Compute realized PnL from prior position snapshot
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
         entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
+        is_round_trip_close = self._is_round_trip_close(prior_position, side, qty)
+        pnl_value = realized_pnl if is_round_trip_close else None
 
         # Retrieve the agent's confidence from agent_runs so GradeAgent gets a real value
         confidence = 0.5
@@ -297,21 +308,24 @@ class ExecutionEngine(BaseStreamConsumer):
             pass  # Fall back to 0.5; best-effort only
 
         execution_payload: dict[str, Any] = {
-            "type": "order_filled",
-            "msg_id": str(uuid.uuid4()),
-            "order_id": order_id,
-            "strategy_id": strategy_id,
-            "symbol": symbol,
-            "side": side,
-            "qty": qty,
-            "price": price,
-            "fill_price": fill_price,
-            "confidence": confidence,
-            "filled_at": filled_at.isoformat(),
-            "idempotency_key": idempotency_key,
-            "trace_id": trace_id,
+            FieldName.TYPE: "order_filled",
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.ORDER_ID: order_id,
+            FieldName.STRATEGY_ID: strategy_id,
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: side,
+            FieldName.QTY: qty,
+            FieldName.PRICE: price,
+            FieldName.FILL_PRICE: fill_price,
+            FieldName.PNL: pnl_value,
+            FieldName.CONFIDENCE: confidence,
+            FieldName.FILLED_AT: filled_at.isoformat(),
+            "executed_at": filled_at.isoformat(),
+            FieldName.SESSION_ID: strategy_id,
+            FieldName.IDEMPOTENCY_KEY: idempotency_key,
+            FieldName.TRACE_ID: trace_id,
             "vwap_plan": vwap_plan,
-            "source": SOURCE_EXECUTION,
+            FieldName.SOURCE: SOURCE_EXECUTION,
         }
         await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
 
@@ -340,17 +354,39 @@ class ExecutionEngine(BaseStreamConsumer):
                 FieldName.QUANTITY: qty,
                 FieldName.FILL_PRICE: fill_price,
                 FieldName.ENTRY_PRICE: entry_price,
-                FieldName.EXIT_PRICE: fill_price,
-                FieldName.PNL: realized_pnl,
+                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                FieldName.PNL: pnl_value,
                 FieldName.PNL_PERCENT: pnl_percent,
                 FieldName.TRACE_ID: trace_id,
                 FieldName.FILLED_AT: filled_at_iso,
                 FieldName.ENTRY_TIME: filled_at_iso,
-                FieldName.EXIT_TIME: filled_at_iso,
+                FieldName.EXIT_TIME: filled_at_iso if is_round_trip_close else None,
                 FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                 FieldName.SOURCE: SOURCE_EXECUTION,
+                FieldName.SESSION_ID: strategy_id,
             },
         )
+        if is_round_trip_close:
+            await self.bus.publish(
+                STREAM_TRADE_COMPLETED,
+                {
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.TYPE: "trade_completed",
+                    FieldName.SOURCE: SOURCE_EXECUTION,
+                    FieldName.TRACE_ID: trace_id,
+                    FieldName.SESSION_ID: strategy_id,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.EXIT_PRICE: fill_price,
+                    FieldName.PNL: realized_pnl,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    "executed_at": filled_at_iso,
+                },
+            )
         log_structured(
             "info",
             "order_executed",
@@ -372,12 +408,13 @@ class ExecutionEngine(BaseStreamConsumer):
                 side=side,
                 qty=qty,
                 entry_price=entry_price,
-                exit_price=fill_price,
-                pnl=realized_pnl,
+                exit_price=fill_price if is_round_trip_close else None,
+                pnl=pnl_value,
                 pnl_percent=pnl_percent,
                 order_id=order_id,
                 status=OrderStatus.FILLED,
                 filled_at=filled_at.isoformat(),
+                session_id=strategy_id,
             )
         except Exception:
             log_structured(
@@ -388,20 +425,21 @@ class ExecutionEngine(BaseStreamConsumer):
         await self.bus.publish(
             STREAM_TRADE_LIFECYCLE,
             {
-                "type": "trade_filled",
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "entry_price": entry_price,
-                "exit_price": fill_price,
-                "pnl": realized_pnl,
-                "pnl_percent": pnl_percent,
-                "order_id": order_id,
-                "execution_trace_id": trace_id,
-                "status": OrderStatus.FILLED,
-                "filled_at": filled_at.isoformat(),
-                "timestamp": filled_at.isoformat(),
-                "source": SOURCE_EXECUTION,
+                FieldName.TYPE: "trade_filled",
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                FieldName.PNL: pnl_value,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.ORDER_ID: order_id,
+                FieldName.EXECUTION_TRACE_ID: trace_id,
+                FieldName.STATUS: OrderStatus.FILLED,
+                FieldName.FILLED_AT: filled_at.isoformat(),
+                FieldName.TIMESTAMP: filled_at.isoformat(),
+                FieldName.SESSION_ID: strategy_id,
+                FieldName.SOURCE: SOURCE_EXECUTION,
             },
         )
 
@@ -501,6 +539,14 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_value = str(uuid.uuid4())
 
         prior_position = await self.broker.get_position(symbol)
+        if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+            log_structured(
+                "warning",
+                "execution_sell_rejected_no_open_position_memory",
+                symbol=symbol,
+                trace_id=trace_id,
+            )
+            return
 
         lock_acquired = await self.redis.set(
             lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
@@ -515,6 +561,8 @@ class ExecutionEngine(BaseStreamConsumer):
 
             realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
             entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
+            is_round_trip_close = self._is_round_trip_close(prior_position, side, qty)
+            pnl_value = realized_pnl if is_round_trip_close else None
             pnl_percent = self._compute_pnl_percent(
                 prior_position, side, qty, entry_price, realized_pnl
             )
@@ -522,37 +570,39 @@ class ExecutionEngine(BaseStreamConsumer):
             store = get_runtime_store()
             store.add_order(
                 {
-                    "order_id": order_id,
-                    "strategy_id": strategy_id,
-                    "symbol": symbol,
-                    "side": side,
-                    "qty": qty,
-                    "quantity": qty,
-                    "price": fill_price,
-                    "filled_price": fill_price,
-                    "status": broker_result[FieldName.STATUS],
-                    "broker_order_id": broker_result["broker_order_id"],
-                    "pnl": realized_pnl,
-                    "pnl_percent": pnl_percent,
-                    "filled_at": filled_at.isoformat(),
-                    "trace_id": trace_id,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.STRATEGY_ID: strategy_id,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.QUANTITY: qty,
+                    FieldName.PRICE: fill_price,
+                    FieldName.FILLED_PRICE: fill_price,
+                    FieldName.STATUS: broker_result[FieldName.STATUS],
+                    FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
+                    FieldName.PNL: pnl_value,
+                    FieldName.SESSION_ID: strategy_id,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.FILLED_AT: filled_at.isoformat(),
+                    FieldName.TRACE_ID: trace_id,
                 }
             )
             # Surface on the dashboard trade_feed panel even when DB is down.
             store.upsert_trade_fill(
                 {
                     "id": trace_id,
-                    "symbol": symbol,
-                    "side": side,
-                    "qty": qty,
-                    "entry_price": entry_price,
-                    "exit_price": fill_price,
-                    "pnl": realized_pnl,
-                    "pnl_percent": pnl_percent,
-                    "order_id": order_id,
-                    "execution_trace_id": trace_id,
-                    "status": OrderStatus.FILLED,
-                    "filled_at": filled_at.isoformat(),
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                    FieldName.PNL: pnl_value,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.SESSION_ID: strategy_id,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.EXECUTION_TRACE_ID: trace_id,
+                    FieldName.STATUS: OrderStatus.FILLED,
+                    FieldName.FILLED_AT: filled_at.isoformat(),
                 }
             )
 
@@ -572,39 +622,45 @@ class ExecutionEngine(BaseStreamConsumer):
                 if new_abs_qty < 1e-9
                 else (PositionSide.LONG if new_signed > 0 else PositionSide.SHORT)
             )
-            store.upsert_position(
-                symbol,
-                {
-                    "symbol": symbol,
-                    "side": new_side,
-                    "qty": new_abs_qty,
-                    "quantity": new_abs_qty,
-                    "entry_price": entry_price,
-                    "avg_cost": entry_price,
-                    "current_price": fill_price,
-                    "last_price": fill_price,
-                    "market_value": round(new_abs_qty * fill_price, 8),
-                    "unrealized_pnl": 0.0,
-                    "strategy_id": strategy_id,
-                },
-            )
+            if new_side == PositionSide.FLAT:
+                store.positions.pop(symbol, None)
+            else:
+                store.upsert_position(
+                    symbol,
+                    {
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: new_side,
+                        FieldName.QTY: new_abs_qty,
+                        FieldName.QUANTITY: new_abs_qty,
+                        FieldName.ENTRY_PRICE: entry_price,
+                        FieldName.AVG_COST: entry_price,
+                        "current_price": fill_price,
+                        FieldName.LAST_PRICE: fill_price,
+                        FieldName.MARKET_VALUE: round(new_abs_qty * fill_price, 8),
+                        "unrealized_pnl": 0.0,
+                        FieldName.STRATEGY_ID: strategy_id,
+                    },
+                )
 
             # Publish stream events (same as DB path)
             execution_payload: dict[str, Any] = {
-                "type": "order_filled",
-                "msg_id": str(uuid.uuid4()),
-                "order_id": order_id,
-                "strategy_id": strategy_id,
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "price": price,
-                "fill_price": fill_price,
-                "confidence": signal_confidence,
-                "filled_at": filled_at.isoformat(),
-                "trace_id": trace_id,
+                FieldName.TYPE: "order_filled",
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.ORDER_ID: order_id,
+                FieldName.STRATEGY_ID: strategy_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.PRICE: price,
+                FieldName.FILL_PRICE: fill_price,
+                FieldName.PNL: pnl_value,
+                FieldName.CONFIDENCE: signal_confidence,
+                FieldName.FILLED_AT: filled_at.isoformat(),
+                "executed_at": filled_at.isoformat(),
+                FieldName.SESSION_ID: strategy_id,
+                FieldName.TRACE_ID: trace_id,
                 "vwap_plan": vwap_plan,
-                "source": SOURCE_EXECUTION,
+                FieldName.SOURCE: SOURCE_EXECUTION,
             }
             await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
             # Mirror of the DB-mode payload so the in-memory path also
@@ -626,34 +682,57 @@ class ExecutionEngine(BaseStreamConsumer):
                     FieldName.QUANTITY: qty,
                     FieldName.FILL_PRICE: fill_price,
                     FieldName.ENTRY_PRICE: entry_price,
-                    FieldName.EXIT_PRICE: fill_price,
-                    FieldName.PNL: realized_pnl,
+                    FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                    FieldName.PNL: pnl_value,
                     FieldName.PNL_PERCENT: pnl_percent,
                     FieldName.TRACE_ID: trace_id,
                     FieldName.FILLED_AT: filled_at_iso,
                     FieldName.ENTRY_TIME: filled_at_iso,
-                    FieldName.EXIT_TIME: filled_at_iso,
+                    FieldName.EXIT_TIME: filled_at_iso if is_round_trip_close else None,
                     FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     FieldName.SOURCE: SOURCE_EXECUTION,
+                    FieldName.SESSION_ID: strategy_id,
                 },
             )
+            if is_round_trip_close:
+                await self.bus.publish(
+                    STREAM_TRADE_COMPLETED,
+                    {
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.TYPE: "trade_completed",
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.ORDER_ID: order_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.ENTRY_PRICE: entry_price,
+                        FieldName.EXIT_PRICE: fill_price,
+                        FieldName.PNL: realized_pnl,
+                        FieldName.PNL_PERCENT: pnl_percent,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        "executed_at": filled_at_iso,
+                    },
+                )
             await self.bus.publish(
                 STREAM_TRADE_LIFECYCLE,
                 {
-                    "type": "trade_filled",
-                    "symbol": symbol,
-                    "side": side,
-                    "qty": qty,
-                    "entry_price": entry_price,
-                    "exit_price": fill_price,
-                    "pnl": realized_pnl,
-                    "pnl_percent": pnl_percent,
-                    "order_id": order_id,
-                    "execution_trace_id": trace_id,
-                    "status": OrderStatus.FILLED,
-                    "filled_at": filled_at.isoformat(),
-                    "timestamp": filled_at.isoformat(),
-                    "source": SOURCE_EXECUTION,
+                    FieldName.TYPE: "trade_filled",
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                    FieldName.PNL: pnl_value,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.EXECUTION_TRACE_ID: trace_id,
+                    FieldName.STATUS: OrderStatus.FILLED,
+                    FieldName.FILLED_AT: filled_at.isoformat(),
+                    FieldName.TIMESTAMP: filled_at.isoformat(),
+                    FieldName.SESSION_ID: strategy_id,
+                    FieldName.SOURCE: SOURCE_EXECUTION,
                 },
             )
             log_structured(
@@ -733,6 +812,24 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Opening or adding to a position — no realized PnL yet
         return 0.0
+
+    def _is_round_trip_close(self, prior_position: dict[str, Any], side: str, qty: float) -> bool:
+        prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
+        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+        if prior_qty <= 0:
+            return False
+        if side in (OrderSide.SELL, PositionSide.SHORT) and prior_side == PositionSide.LONG:
+            return True
+        if side in (OrderSide.BUY, PositionSide.LONG) and prior_side == PositionSide.SHORT:
+            return True
+        return False
+
+    def _reject_unmatched_sell(self, side: str, prior_position: dict[str, Any]) -> bool:
+        if side not in (OrderSide.SELL, PositionSide.SHORT):
+            return False
+        prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
+        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+        return not (prior_side == PositionSide.LONG and prior_qty > 0)
 
     def _build_idempotency_key(
         self,

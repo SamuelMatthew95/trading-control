@@ -72,12 +72,20 @@ class MultiStreamAgent:
     async def _register_instance(self) -> None:
         """Register this agent instance in the DB. Non-fatal on error."""
         try:
-            from api.services.agents.db_helpers import register_agent_instance
+            from api.services.agents.db_helpers import (
+                register_agent_instance,
+                write_agent_lifecycle_event,
+            )
 
             pool_name = self._state_name or self.consumer
             self._instance_id = await register_agent_instance(
                 instance_key=self.consumer,
                 pool_name=pool_name,
+            )
+            await write_agent_lifecycle_event(
+                pool_name=pool_name,
+                instance_id=self._instance_id,
+                lifecycle_phase="started",
             )
             log_structured(
                 "info",
@@ -93,9 +101,17 @@ class MultiStreamAgent:
         if self._instance_id is None:
             return
         try:
-            from api.services.agents.db_helpers import retire_agent_instance
+            from api.services.agents.db_helpers import (
+                retire_agent_instance,
+                write_agent_lifecycle_event,
+            )
 
             await retire_agent_instance(self._instance_id)
+            await write_agent_lifecycle_event(
+                pool_name=self._state_name or self.consumer,
+                instance_id=self._instance_id,
+                lifecycle_phase="stopped",
+            )
             log_structured(
                 "info",
                 "agent_instance_retired",
@@ -119,6 +135,13 @@ class MultiStreamAgent:
                 self._state_name,
                 "ready",
                 task=f"subscribed:{','.join(self.streams)}",
+            )
+        for stream in self.streams:
+            log_structured(
+                "info",
+                "agent_stream_subscribed",
+                agent=self.consumer,
+                stream=stream,
             )
         self._task = asyncio.create_task(self._run(), name=f"agent:{self.consumer}")
 
@@ -184,6 +207,20 @@ class MultiStreamAgent:
                             except Exception:  # noqa: BLE001
                                 pass
                     except Exception as exc:  # noqa: BLE001
+                        if self._instance_id:
+                            try:
+                                from api.services.agents.db_helpers import (
+                                    write_agent_lifecycle_event,
+                                )
+
+                                await write_agent_lifecycle_event(
+                                    pool_name=self._state_name or self.consumer,
+                                    instance_id=self._instance_id,
+                                    lifecycle_phase="crashed",
+                                    details={"stream": stream, "redis_id": redis_id},
+                                )
+                            except Exception:
+                                pass
                         log_structured(
                             "error",
                             "pipeline_agent_process_failed",

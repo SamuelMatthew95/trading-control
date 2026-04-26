@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid as _uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -76,10 +77,11 @@ async def write_agent_log(
                 or payload.get(FieldName.AGENT_NAME)
                 or log_type,
                 "message": message,
+                "reasoning": payload.get("reasoning") or message,
                 "log_level": "info",
                 "trace_id": trace_id,
                 "log_type": log_type,
-                "confidence": payload.get(FieldName.CONFIDENCE),
+                "confidence": payload.get("confidence_score") or payload.get(FieldName.CONFIDENCE),
                 "timestamp": payload.get(FieldName.TIMESTAMP)
                 or datetime.now(timezone.utc).isoformat(),
             }
@@ -184,7 +186,7 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
 
     Memory mode: writes to InMemoryStore event_history.
     """
-    trace_id = proposal.get("reflection_trace_id") or proposal.get(FieldName.MSG_ID) or ""
+    trace_id = proposal.get(FieldName.REFLECTION_TRACE_ID) or proposal.get(FieldName.MSG_ID) or ""
     if not is_db_available():
         get_runtime_store().add_event(
             {
@@ -281,22 +283,39 @@ async def register_agent_instance(instance_key: str, pool_name: str) -> str:
     for attempt in range(1, _REGISTER_MAX_ATTEMPTS + 1):
         try:
             async with AsyncSessionFactory() as session:
-                await session.execute(
+                result = await session.execute(
                     text("""
                         INSERT INTO agent_instances
-                            (id, instance_key, pool_name, status, started_at, schema_version)
+                            (id, instance_key, pool_name, status, started_at, schema_version, metadata)
                         VALUES
-                            (:id, :key, :pool, 'active', NOW(), :schema_version)
-                        ON CONFLICT (id) DO NOTHING
+                            (:id, :key, :pool, 'active', NOW(), :schema_version, CAST(:metadata AS JSONB))
+                        ON CONFLICT (instance_key) DO UPDATE SET
+                            status = 'active',
+                            retired_at = NULL,
+                            metadata = COALESCE(agent_instances.metadata, '{}'::jsonb) || EXCLUDED.metadata
+                        RETURNING id
                     """),
                     {
                         "id": instance_id,
                         "key": instance_key,
                         "pool": pool_name,
                         "schema_version": DB_SCHEMA_VERSION,
+                        "metadata": json.dumps(
+                            {
+                                "agent_name": pool_name,
+                                "agent_id": pool_name,
+                                "agent_type": "service",
+                                "session_id": os.getenv("SESSION_ID", "default"),
+                                "environment": os.getenv("ENVIRONMENT", "dev"),
+                            }
+                        ),
                     },
                 )
+                persisted_id = result.scalar()
                 await session.commit()
+            persisted_id_str = str(persisted_id or "")
+            if len(persisted_id_str) == 36 and persisted_id_str.count("-") == 4:
+                return persisted_id_str
             return instance_id
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
@@ -336,6 +355,11 @@ async def retire_agent_instance(instance_id: str) -> None:
                 {"id": instance_id},
             )
             await session.commit()
+            await write_agent_lifecycle_event(
+                pool_name="unknown",
+                instance_id=instance_id,
+                lifecycle_phase="stopped",
+            )
     except Exception:
         log_structured(
             "warning",
@@ -362,6 +386,29 @@ async def increment_instance_event_count(instance_id: str) -> None:
             await session.commit()
     except Exception:
         pass  # Non-critical counter — never raise
+
+
+async def write_agent_lifecycle_event(
+    *,
+    pool_name: str,
+    instance_id: str,
+    lifecycle_phase: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Persist lifecycle transitions in agent_logs as canonical lifecycle rows."""
+    payload = {
+        "agent_name": pool_name,
+        "agent_id": pool_name,
+        "instance_id": instance_id,
+        "lifecycle_event": lifecycle_phase,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "details": details or {},
+    }
+    await write_agent_log(
+        trace_id=f"{pool_name}:{instance_id}:{lifecycle_phase}",
+        log_type="lifecycle",
+        payload=payload,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +438,7 @@ async def upsert_trade_lifecycle(
     filled_at: str | None = None,
     graded_at: str | None = None,
     reflected_at: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Insert or update one row in trade_lifecycle keyed on execution_trace_id.
 
@@ -399,42 +447,47 @@ async def upsert_trade_lifecycle(
     """
     if not is_db_available():
         store = get_runtime_store()
-        store.add_order(
-            {
-                "order_id": order_id or execution_trace_id,
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "quantity": qty,
-                "price": exit_price or entry_price,
-                "filled_price": exit_price or entry_price,
-                "pnl": pnl or 0.0,
-                "pnl_percent": pnl_percent or 0.0,
-                "status": status,
-                "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
-                "trace_id": execution_trace_id,
-            }
-        )
+        normalized_status = str(status or "filled").lower()
+        should_store_order = normalized_status in {"filled", "executed"} and qty is not None
+        if should_store_order:
+            store.add_order(
+                {
+                    FieldName.ORDER_ID: order_id or execution_trace_id,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.QUANTITY: qty,
+                    FieldName.PRICE: exit_price or entry_price,
+                    FieldName.FILLED_PRICE: exit_price or entry_price,
+                    FieldName.PNL: pnl,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.STATUS: normalized_status,
+                    FieldName.FILLED_AT: filled_at or datetime.now(timezone.utc).isoformat(),
+                    FieldName.TRACE_ID: execution_trace_id,
+                    FieldName.SESSION_ID: session_id,
+                }
+            )
         store.upsert_trade_fill(
             {
                 "id": execution_trace_id,
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "entry_price": entry_price,
-                "exit_price": exit_price,
-                "pnl": pnl,
-                "pnl_percent": pnl_percent,
-                "order_id": order_id,
-                "execution_trace_id": execution_trace_id,
-                "signal_trace_id": signal_trace_id,
-                "grade": grade,
-                "grade_score": grade_score,
-                "grade_label": grade_label,
-                "status": status,
-                "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
-                "graded_at": graded_at,
-                "reflected_at": reflected_at,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: exit_price,
+                FieldName.PNL: pnl,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.ORDER_ID: order_id,
+                FieldName.EXECUTION_TRACE_ID: execution_trace_id,
+                FieldName.SIGNAL_TRACE_ID: signal_trace_id,
+                FieldName.GRADE: grade,
+                FieldName.GRADE_SCORE: grade_score,
+                FieldName.GRADE_LABEL: grade_label,
+                FieldName.STATUS: normalized_status,
+                FieldName.FILLED_AT: filled_at or datetime.now(timezone.utc).isoformat(),
+                FieldName.GRADED_AT: graded_at,
+                FieldName.REFLECTED_AT: reflected_at,
+                FieldName.SESSION_ID: session_id,
             }
         )
         return
@@ -485,28 +538,28 @@ async def upsert_trade_lifecycle(
                         updated_at       = NOW()
                 """),
                 {
-                    "symbol": symbol,
-                    "side": side.lower(),
-                    "qty": qty,
-                    "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "pnl": pnl,
-                    "pnl_percent": pnl_percent,
-                    "order_id": order_id,
-                    "signal_trace_id": signal_trace_id,
-                    "decision_trace_id": decision_trace_id,
-                    "execution_trace_id": execution_trace_id,
-                    "grade_trace_id": grade_trace_id,
-                    "reflection_trace_id": reflection_trace_id,
-                    "grade": grade,
-                    "grade_score": grade_score,
-                    "grade_label": grade_label,
-                    "status": status,
-                    "filled_at": filled_at or now_iso,
-                    "graded_at": graded_at,
-                    "reflected_at": reflected_at,
-                    "schema_version": DB_SCHEMA_VERSION,
-                    "source": SOURCE_EXECUTION,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side.lower(),
+                    FieldName.QTY: qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.EXIT_PRICE: exit_price,
+                    FieldName.PNL: pnl,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.SIGNAL_TRACE_ID: signal_trace_id,
+                    FieldName.DECISION_TRACE_ID: decision_trace_id,
+                    FieldName.EXECUTION_TRACE_ID: execution_trace_id,
+                    FieldName.GRADE_TRACE_ID: grade_trace_id,
+                    FieldName.REFLECTION_TRACE_ID: reflection_trace_id,
+                    FieldName.GRADE: grade,
+                    FieldName.GRADE_SCORE: grade_score,
+                    FieldName.GRADE_LABEL: grade_label,
+                    FieldName.STATUS: status,
+                    FieldName.FILLED_AT: filled_at or now_iso,
+                    FieldName.GRADED_AT: graded_at,
+                    FieldName.REFLECTED_AT: reflected_at,
+                    FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                    FieldName.SOURCE: SOURCE_EXECUTION,
                 },
             )
             await session.commit()

@@ -115,6 +115,12 @@ export interface AgentStatus {
   last_grade_score?: number
 }
 
+export interface WsDiagnostics {
+  reconnectAttempts: number
+  messageRate: number
+  lastError: string | null
+}
+
 export interface TradeFeedItem {
   id: string
   symbol: string
@@ -249,6 +255,7 @@ type CodexState = {
   lastMarketSymbol: string | null
   wsMessageCount: number
   wsLastMessageTimestamp: string | null
+  wsDiagnostics: WsDiagnostics
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEvent[]
   agentStatuses: AgentStatus[]
@@ -278,6 +285,7 @@ type CodexState = {
   setRegime: (regime: string) => void
   setKillSwitch: (active: boolean) => void
   setWsConnected: (connected: boolean) => void
+  setWsDiagnostics: (diagnostics: Partial<WsDiagnostics>) => void
   trackWsMessage: (event: { stream?: string | null; msgId?: string | null; timestamp?: string | null }) => void
   trackMarketTick: (symbol?: string | null) => void
   hydrateDashboard: (data: DashboardData) => void
@@ -341,6 +349,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   lastMarketSymbol: null,
   wsMessageCount: 0,
   wsLastMessageTimestamp: null,
+  wsDiagnostics: { reconnectAttempts: 0, messageRate: 0, lastError: null },
   streamStats: {
     market_ticks: { count: 0, lastMessageTimestamp: null },
     signals: { count: 0, lastMessageTimestamp: null },
@@ -474,15 +483,24 @@ export const useCodexStore = create<CodexState>((set) => ({
     learningEvents: [event, ...state.learningEvents].slice(0, 50)
   })),
   addSystemMetric: (metric) => set((state) => ({
-    systemMetrics: [metric, ...state.systemMetrics].slice(0, 100)
+    systemMetrics: [
+      metric,
+      ...state.systemMetrics.filter((existing) => existing.metric_name !== metric.metric_name),
+    ].slice(0, 100)
   })),
   setDashboardData: (data) => set({ dashboardData: data }),
   setLoading: (isLoading) => set({ isLoading }),
   setRegime: (regime) => set({ regime }),
   setKillSwitch: (killSwitchActive) => set({ killSwitchActive }),
   setWsConnected: (wsConnected) => set({ wsConnected }),
+  setWsDiagnostics: (diagnostics) => set((state) => ({
+    wsDiagnostics: { ...state.wsDiagnostics, ...diagnostics }
+  })),
   trackWsMessage: ({ stream, msgId, timestamp }) =>
     set((state) => {
+      if (msgId && state.recentEvents.some((event) => event.msgId === msgId)) {
+        return state
+      }
       const resolvedStream = stream || 'system'
       const resolvedTimestamp = timestamp || new Date().toISOString()
       const existing = state.streamStats[resolvedStream] ?? { count: 0, lastMessageTimestamp: null }
@@ -494,6 +512,14 @@ export const useCodexStore = create<CodexState>((set) => ({
       return {
         wsMessageCount: state.wsMessageCount + 1,
         wsLastMessageTimestamp: resolvedTimestamp,
+        wsDiagnostics: {
+          ...state.wsDiagnostics,
+          messageRate: Number((
+            state.recentEvents.filter(
+              (event) => Date.now() - new Date(event.timestamp).getTime() < 1000
+            ).length + 1
+          ).toFixed(2)),
+        },
         streamStats: {
           ...state.streamStats,
           [resolvedStream]: {

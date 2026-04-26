@@ -630,6 +630,7 @@ export function DashboardView({ section }: { section: Section }) {
     streamStats,
     wsMessageCount,
     wsLastMessageTimestamp,
+    wsDiagnostics,
     recentEvents = [],
     agentStatuses = [],
     acknowledgeNotification,
@@ -655,11 +656,48 @@ export function DashboardView({ section }: { section: Section }) {
     agentInstances: 'pending',
     eventHistory: 'pending',
   })
+  const [showEventDetails, setShowEventDetails] = useState(false)
+  const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
   // get stuck in skeleton mode when the price poller hasn't run yet.
   const pricesLoading = !pricesFetched && Object.keys(prices).length === 0
+  const latestTickTs = streamStats['market_ticks']?.lastMessageTimestamp ?? null
+  const dataLatencyMs = latestTickTs ? Math.max(Date.now() - new Date(latestTickTs).getTime(), 0) : null
+  const throughput = Number(wsDiagnostics?.messageRate ?? 0)
+  const pipelineStatus = !latestTickTs
+    ? 'Stalled'
+    : dataLatencyMs != null && dataLatencyMs < 15_000
+      ? 'Healthy'
+      : 'Degraded'
+  const signalsCount = streamStats['signals']?.count ?? 0
+  const ordersCount = streamStats['orders']?.count ?? 0
+  const pipelineWarning = signalsCount > 0 && ordersCount === 0
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, { count: number; latest: string | null }> = {
+      Signals: { count: 0, latest: null },
+      Decisions: { count: 0, latest: null },
+      'System Metrics': { count: 0, latest: null },
+    }
+    for (const event of recentEvents) {
+      const stream = event.stream.toLowerCase()
+      const key =
+        stream.includes('signal') ? 'Signals' :
+        stream.includes('decision') || stream.includes('order') || stream.includes('execution') ? 'Decisions' :
+        'System Metrics'
+      groups[key].count += 1
+      if (!groups[key].latest || new Date(event.timestamp) > new Date(groups[key].latest as string)) {
+        groups[key].latest = event.timestamp
+      }
+    }
+    return groups
+  }, [recentEvents])
+  const realizedPnl = tradeFeed.reduce((sum, row) => sum + (row.pnl ?? 0), 0)
+  const unrealizedPnl = positions.reduce((sum, row) => sum + (toFiniteNumber((row as Record<string, unknown>).pnl) ?? 0), 0)
+  const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
+  const wins = tradeFeed.filter((row) => (row.pnl ?? 0) > 0).length
+  const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
 
   // ── REST fallback data fetching ──────────────────────────────────────────
   // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
@@ -682,6 +720,7 @@ export function DashboardView({ section }: { section: Section }) {
         }
       } catch (err) {
         console.warn('[Dashboard] /dashboard/state fetch failed:', err)
+        setSystemFeedError('Dashboard API unreachable')
         setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
       }
     }
@@ -1628,6 +1667,40 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'system' && (
         <div className="space-y-4">
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>System Health</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Data latency</p>
+                <p className="text-sm font-mono">{formatAgeFromMs(dataLatencyMs)} ({dataLatencyMs ?? '--'}ms)</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Events/sec throughput</p>
+                <p className="text-sm font-mono">{throughput.toFixed(2)}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Pipeline status</p>
+                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-500' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-500')}>{pipelineStatus}</p>
+              </div>
+            </div>
+          </div>
+
+          {pipelineWarning && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+              Signals generated but no orders placed
+            </div>
+          )}
+          {!latestTickTs && (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
+              No market data received
+            </div>
+          )}
+          {systemFeedError && (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
+              {systemFeedError}
+            </div>
+          )}
+
           {/* ── Connection Diagnostics ── always visible so broken configs are obvious */}
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Connection Diagnostics</p>
@@ -1659,6 +1732,29 @@ export function DashboardView({ section }: { section: Section }) {
                   {Object.keys(prices).length > 0 ? `● ${Object.keys(prices).length} symbols` : pricesFetched ? '● Fetched – poller offline?' : '● Waiting…'}
                 </p>
               </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Reconnect attempts</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsDiagnostics.reconnectAttempts}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Message rate</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsDiagnostics.messageRate.toFixed(2)} /sec</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Last error</p>
+                <p className="text-xs font-mono text-slate-700 dark:text-slate-300">{wsDiagnostics.lastError ?? 'None'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{formatUSD(realizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{formatUSD(unrealizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{formatUSD(realizedPnl + unrealizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Trades</p><p className="text-sm font-mono">{totalTrades}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{pnlWinRate.toFixed(1)}%</p></div>
             </div>
           </div>
 
@@ -1730,12 +1826,35 @@ export function DashboardView({ section }: { section: Section }) {
           </div>
 
           <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Observability</p>
+            {agentStatuses.length === 0 ? (
+              <EmptyState message="No agent status yet" icon={Brain} />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-slate-500"><th className="pb-2">Agent</th><th>Status</th><th>Signals</th><th>Last action</th></tr></thead>
+                  <tbody>
+                    {agentStatuses.map((agent) => (
+                      <tr key={agent.name} className="border-t border-slate-200 dark:border-slate-800">
+                        <td className="py-2 font-semibold">{agent.name}</td>
+                        <td>{agent.status}</td>
+                        <td className="font-mono">{agent.event_count}</td>
+                        <td>{agent.last_event || '--'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Persisted Event History</p>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={cn(mutedClass, 'mb-2')}>Processed counts by stream</p>
                 {persistedCounts.length === 0 ? (
-                  <p className={mutedClass}>No persisted stream counts yet.</p>
+                  <p className={mutedClass}>Persistence not enabled</p>
                 ) : (
                   <div className="space-y-1">
                     {persistedCounts.slice(0, 8).map((row) => (
@@ -1750,7 +1869,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={cn(mutedClass, 'mb-2')}>Latest persisted events</p>
                 {persistedEvents.length === 0 ? (
-                  <p className={mutedClass}>No events persisted yet.</p>
+                  <p className={mutedClass}>Persistence not enabled</p>
                 ) : (
                   <div className="space-y-1">
                     {persistedEvents.slice(0, 8).map((evt) => (
@@ -1766,7 +1885,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
               <p className={cn(mutedClass, 'mb-2')}>Latest persisted agent logs</p>
               {persistedLogs.length === 0 ? (
-                <p className={mutedClass}>No logs persisted yet.</p>
+                <p className={mutedClass}>Persistence not enabled</p>
               ) : (
                 <div className="space-y-1">
                   {persistedLogs.slice(0, 10).map((log) => (

@@ -59,7 +59,7 @@ class PaperBroker:
         )
         broker_order_id = str(uuid.uuid4())
         order_payload = {
-            "broker_order_id": broker_order_id,
+            FieldName.BROKER_ORDER_ID: broker_order_id,
             FieldName.SYMBOL: symbol,
             FieldName.SIDE: normalized_side,
             "filled_qty": qty,

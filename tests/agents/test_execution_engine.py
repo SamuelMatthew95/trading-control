@@ -204,6 +204,7 @@ async def test_publishes_execution_event(engine, mock_bus, mock_redis, mock_brok
     assert payload["symbol"] == "BTC/USD"
     assert payload["side"] == "buy"
     assert "fill_price" in payload
+    assert payload["pnl"] is None
     assert "trace_id" in payload
 
 
@@ -224,9 +225,21 @@ async def test_publishes_trade_performance(engine, mock_bus, mock_redis, mock_br
     payload = tp_call.args[1]
     assert payload["type"] == "trade_performance"
     assert payload["symbol"] == "BTC/USD"
-    assert "pnl" in payload
+    assert payload["pnl"] is None
     assert "fill_price" in payload
     assert "trace_id" in payload
+
+
+async def test_rejects_sell_without_open_position(engine, mock_bus, mock_broker):
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine.process(_make_order("sell"))
+
+    mock_broker.place_order.assert_not_called()
+    published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
+    assert "executions" not in published_streams
 
 
 async def test_trade_performance_payload_satisfies_safe_writer_contract(
@@ -260,6 +273,8 @@ async def test_trade_performance_payload_satisfies_safe_writer_contract(
     # entry_time is read unconditionally via data[FieldName.ENTRY_TIME]
     assert "entry_time" in payload, "trade_performance payload missing entry_time"
     assert payload["entry_time"], "entry_time must be a non-empty ISO timestamp"
+    assert payload.get("exit_price") is None
+    assert payload.get("exit_time") is None
 
 
 async def test_kill_switch_raises(engine, mock_redis):
@@ -353,7 +368,7 @@ async def test_pnl_computed_for_closing_trade(engine, mock_bus, mock_redis, mock
 
 
 async def test_pnl_zero_for_opening_trade(engine, mock_bus, mock_redis, mock_broker):
-    """When no prior position, opening a trade has zero realized PnL."""
+    """When no prior position, opening a trade has no realized PnL yet."""
     mock_broker.get_position = AsyncMock(return_value={})  # flat / no position
     mock_broker.place_order = AsyncMock(
         return_value={
@@ -375,7 +390,7 @@ async def test_pnl_zero_for_opening_trade(engine, mock_bus, mock_redis, mock_bro
     )
     assert tp_call is not None
     payload = tp_call.args[1]
-    assert payload["pnl"] == pytest.approx(0.0)
+    assert payload["pnl"] is None
 
 
 async def test_compute_realized_pnl_long_close(engine):
@@ -522,6 +537,8 @@ async def test_in_memory_trade_performance_payload_satisfies_safe_writer_contrac
         assert required in payload, f"in-memory trade_performance missing {required!r}"
     assert payload.get("schema_version") == "v3"
     assert payload.get("entry_time"), "in-memory payload missing entry_time"
+    assert payload.get("exit_price") is None
+    assert payload.get("exit_time") is None
 
 
 async def test_process_in_memory_deduplicates_replayed_messages(

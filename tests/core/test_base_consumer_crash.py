@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -131,6 +132,27 @@ async def test_consumer_normal_shutdown_is_not_marked_crashed(fake_redis):
     # After a clean stop the task is gone (set to None by stop())
     assert consumer._task is None
     assert not consumer.has_crashed, "Graceful stop must not set has_crashed"
+
+
+@pytest.mark.asyncio
+async def test_consumer_start_writes_instance_and_lifecycle(monkeypatch, fake_redis):
+    bus = EventBus(fake_redis)
+    await bus.create_groups()
+    dlq = _make_dlq(fake_redis)
+    consumer = _OkConsumer(bus, dlq, "signals", DEFAULT_GROUP, "test-ok")
+
+    register = AsyncMock(return_value="instance-123")
+    lifecycle = AsyncMock()
+    retire = AsyncMock()
+    monkeypatch.setattr("api.services.agents.db_helpers.register_agent_instance", register)
+    monkeypatch.setattr("api.services.agents.db_helpers.write_agent_lifecycle_event", lifecycle)
+    monkeypatch.setattr("api.services.agents.db_helpers.retire_agent_instance", retire)
+
+    await consumer.start()
+    await consumer.stop()
+
+    register.assert_awaited_once()
+    assert any(c.kwargs.get("lifecycle_phase") == "started" for c in lifecycle.await_args_list)
 
 
 @pytest.mark.asyncio
