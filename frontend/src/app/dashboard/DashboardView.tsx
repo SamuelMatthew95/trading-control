@@ -93,7 +93,7 @@ type AgentSummary = {
   name: string
   count: number
   lastSeen: Date | null
-  status: 'ACTIVE' | 'IDLE' | 'WAITING' | 'STALE' | 'OFFLINE'
+  status: 'Live' | 'Stale' | 'Error' | 'Idle'
   tier: 'active' | 'challenger' | 'inactive'
   source: 'heartbeat' | 'instance' | 'log' | 'mixed'
 }
@@ -130,12 +130,10 @@ function toFiniteNumber(value: unknown): number | null {
 
 function normalizeAgentStatus(value: string): AgentSummary['status'] {
   const raw = String(value || '').toUpperCase()
-  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'ACTIVE'
-  if (raw === 'IDLE') return 'IDLE'
-  if (raw === 'STALE') return 'STALE'
-  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'OFFLINE'
-  if (raw === 'STARTING' || raw === 'INITIALIZING' || raw === 'PENDING') return 'WAITING'
-  return 'WAITING'
+  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'Live'
+  if (raw === 'STALE') return 'Stale'
+  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'Error'
+  return 'Idle'
 }
 
 function pickHigherPriorityStatus(
@@ -144,11 +142,10 @@ function pickHigherPriorityStatus(
 ): AgentSummary['status'] {
   if (!current) return incoming
   const priority: Record<AgentSummary['status'], number> = {
-    ACTIVE: 0,
-    IDLE: 1,
-    STALE: 2,
-    WAITING: 3,
-    OFFLINE: 4,
+    Live: 0,
+    Stale: 1,
+    Error: 2,
+    Idle: 3,
   }
   return priority[incoming] < priority[current] ? incoming : current
 }
@@ -158,13 +155,10 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
   return toFiniteNumber(match?.value)
 }
 
-function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentType<{ className?: string }> }) {
+function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
   return (
     <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <Icon className="h-5 w-5 text-slate-400" />
-        <p className="text-sm font-sans text-slate-400">{message}</p>
-      </div>
+      <p className="text-sm font-sans text-slate-400">{message}</p>
     </div>
   )
 }
@@ -251,7 +245,7 @@ function NotificationFeed({
         </div>
       </div>
       {notifications.length === 0 ? (
-        <EmptyState message="No notifications yet" icon={Bell} />
+        <EmptyState message="Stream disconnected" />
       ) : (
         <div className="max-h-72 space-y-2 overflow-y-auto">
           {notifications.map((notif) => {
@@ -876,8 +870,8 @@ export function DashboardView({ section }: { section: Section }) {
     const now = Date.now()
     const incomingAgents = Object.entries(grouped).map<AgentSummary>(([name, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'ACTIVE' : 'IDLE'
-      const tier: AgentSummary['tier'] = status === 'ACTIVE' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
+      const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'Live' : 'Idle'
+      const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return { name, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
     })
 
@@ -893,7 +887,7 @@ export function DashboardView({ section }: { section: Section }) {
         count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
         lastSeen: statusDate ?? existing?.lastSeen ?? null,
         status: mergedStatus,
-        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
         source: existing ? 'mixed' : 'heartbeat',
       })
     }
@@ -902,24 +896,23 @@ export function DashboardView({ section }: { section: Section }) {
       const existing = normalizedByName.get(inst.pool_name)
       const startedAt = inst.started_at ? new Date(inst.started_at) : null
       const startedDate = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null
-      const mappedStatus = inst.status === 'active' ? 'ACTIVE' : 'OFFLINE'
+      const mappedStatus = inst.status === 'active' ? 'Live' : 'Error'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       normalizedByName.set(inst.pool_name, {
         name: inst.pool_name,
         count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
         lastSeen: existing?.lastSeen ?? startedDate ?? null,
         status: mergedStatus,
-        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
         source: existing ? 'mixed' : 'instance',
       })
     }
 
     const priority: Record<AgentSummary['status'], number> = {
-      ACTIVE: 0,
-      IDLE: 1,
-      STALE: 2,
-      WAITING: 3,
-      OFFLINE: 4,
+      Live: 0,
+      Stale: 1,
+      Error: 2,
+      Idle: 3,
     }
 
     return Array.from(normalizedByName.values()).sort((a, b) => {
@@ -1070,7 +1063,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <p className={mutedClass}>{sanitizeValue(realAgents.length)}</p>
               </div>
               {realAgents.length === 0 ? (
-                <EmptyState message="No agent data available" icon={Activity} />
+                <EmptyState message="No active agents" />
               ) : (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {realAgents.map((agent) => (
@@ -1081,17 +1074,15 @@ export function DashboardView({ section }: { section: Section }) {
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-2">
-                          <span className={cn('h-2 w-2 rounded-full', 
-                            agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 
-                            agent.status === 'IDLE' ? 'bg-amber-500' :
-                            agent.status === 'STALE' ? 'bg-orange-500' :
-                            agent.status === 'OFFLINE' ? 'bg-rose-500' : 'bg-slate-500'
+                          <span className={cn('h-1.5 w-1.5 rounded-full', 
+                            agent.status === 'Live' ? 'bg-emerald-300' : 
+                            agent.status === 'Stale' ? 'bg-amber-300' :
+                            agent.status === 'Error' ? 'bg-rose-300' : 'bg-slate-400'
                           )} />
                           <span className={cn('text-xs font-sans font-medium',
-                            agent.status === 'ACTIVE' ? 'text-emerald-500' : 
-                            agent.status === 'IDLE' ? 'text-amber-500' :
-                            agent.status === 'STALE' ? 'text-orange-500' :
-                            agent.status === 'OFFLINE' ? 'text-rose-500' : 'text-slate-500'
+                            agent.status === 'Live' ? 'text-emerald-300' : 
+                            agent.status === 'Stale' ? 'text-amber-300' :
+                            agent.status === 'Error' ? 'text-rose-300' : 'text-slate-400'
                           )}>{agent.status}</span>
                         </div>
                       </div>
@@ -1178,7 +1169,7 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={mutedClass}>{tradeFeed.length} fills</p>
             </div>
             {tradeFeed.length === 0 ? (
-              <EmptyState message="No fills yet — paper trades execute continuously" icon={Activity} />
+              <EmptyState message="No orders today" />
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-1">
                 {tradeFeed.slice(0, 50).map((trade) => {
@@ -1246,7 +1237,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             </div>
             {agentLogs.length === 0 ? (
-              <EmptyState message="No agent activity yet" icon={Activity} />
+              <EmptyState message="No active agents" />
             ) : (
               <div className="relative max-h-80 overflow-y-auto">
                 <div className="space-y-2">
@@ -1294,7 +1285,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No open positions" icon={BarChart3} /></td>
+                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No orders today" /></td>
                     </tr>
                   ) : (
                     positions.map((position, index) => {
@@ -1408,7 +1399,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {showNoAgentDataMessage ? (
                     <tr>
-                      <td colSpan={5} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                      <td colSpan={5} className="px-2 py-8"><EmptyState message="No active agents" /></td>
                     </tr>
                   ) : (
                     realAgents.map((agent) => (
@@ -1418,17 +1409,15 @@ export function DashboardView({ section }: { section: Section }) {
                           <span className="inline-flex items-center gap-2">
                             <span className={cn(
                               'h-2 w-2 rounded-full',
-                              agent.status === 'ACTIVE'
-                                ? 'animate-pulse bg-emerald-500'
-                                : agent.status === 'IDLE'
-                                  ? 'bg-amber-500'
-                                  : agent.status === 'STALE'
-                                    ? 'bg-orange-500'
-                                    : agent.status === 'OFFLINE'
-                                      ? 'bg-rose-500'
-                                      : 'bg-slate-500',
+                              agent.status === 'Live'
+                                ? 'bg-emerald-300'
+                                : agent.status === 'Stale'
+                                  ? 'bg-amber-300'
+                                  : agent.status === 'Error'
+                                    ? 'bg-rose-300'
+                                    : 'bg-slate-400',
                             )} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
+                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
@@ -1446,7 +1435,7 @@ export function DashboardView({ section }: { section: Section }) {
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
             {agentInstances.length === 0 ? (
               <div className="space-y-2">
-                <EmptyState message="No instances registered yet" icon={Activity} />
+                <EmptyState message="No active agents" />
                 {agentStatuses.some((agent) => String(agent.status).toUpperCase() === 'ACTIVE') && (
                   <p className="text-xs font-sans text-amber-600 dark:text-amber-400">
                     Agents are reporting ACTIVE heartbeats, but no lifecycle records were returned. Check agent_instances DB writes.
@@ -1666,7 +1655,7 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
             {recentEvents.length === 0 ? (
-              <EmptyState message="No websocket events yet" icon={Activity} />
+              <EmptyState message="Stream disconnected" />
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
