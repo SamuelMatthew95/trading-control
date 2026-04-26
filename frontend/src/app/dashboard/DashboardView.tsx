@@ -169,6 +169,15 @@ function parseTimestamp(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+function parseHeartbeatTimestamp(status: Record<string, unknown>): Date | null {
+  const fromIsoField = parseTimestamp(status.last_seen_at)
+  if (fromIsoField) return fromIsoField
+  const fromEpochField = parseTimestamp(status.last_seen)
+  if (fromEpochField) return fromEpochField
+  // Backward compatibility for older payloads that (incorrectly) used last_event as a timestamp.
+  return parseTimestamp(status.last_event)
+}
+
 function canonicalAgentKey(name: string): string {
   return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
 }
@@ -934,7 +943,7 @@ export function DashboardView({ section }: { section: Section }) {
     for (const status of agentStatuses) {
       const agentKey = canonicalAgentKey(status.name)
       const existing = normalizedByName.get(agentKey)
-      const statusDate = parseTimestamp(status.last_event)
+      const statusDate = parseHeartbeatTimestamp(status as Record<string, unknown>)
       const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
       const eventCount = status.event_count ?? 0
       const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
@@ -1104,7 +1113,7 @@ export function DashboardView({ section }: { section: Section }) {
   const wiringFreshness = useMemo(() => {
     const now = Date.now()
     const latestHeartbeat = agentStatuses
-      .map((row) => new Date(String(row.last_event || '')).getTime())
+      .map((row) => parseHeartbeatTimestamp(row as Record<string, unknown>)?.getTime() ?? Number.NaN)
       .filter((ts) => Number.isFinite(ts))
       .sort((a, b) => b - a)[0]
     const latestInstance = agentInstances
