@@ -50,6 +50,7 @@ from api.constants import (
     STREAM_REFLECTION_OUTPUTS,
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
+    STREAM_TRADE_COMPLETED,
     STREAM_TRADE_PERFORMANCE,
     TAKE_PROFIT_PCT,
     FieldName,
@@ -109,7 +110,7 @@ class GradeAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
+            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED],
             consumer="grade-agent",
             agent_state=agent_state,
         )
@@ -119,7 +120,10 @@ class GradeAgent(MultiStreamAgent):
         self._consecutive_low_grades = 0
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == STREAM_TRADE_PERFORMANCE:
+        if stream == STREAM_TRADE_COMPLETED:
+            self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
+            self._fills += 1
+        elif stream == STREAM_TRADE_PERFORMANCE:
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
         elif stream == STREAM_EXECUTIONS:
@@ -163,9 +167,14 @@ class GradeAgent(MultiStreamAgent):
             FieldName.TYPE: "agent_grade",
             FieldName.SOURCE: SOURCE_GRADE,
             "agent": SOURCE_REASONING,
+            "agent_name": AGENT_GRADE,
             FieldName.TRACE_ID: trace_id,
             "grade": grade,
             FieldName.SCORE: score,
+            "confidence_score": round(score * 100, 2),
+            "reasoning": (
+                f"accuracy={accuracy:.3f}, ic={ic:.3f}, cost_eff={cost_eff:.3f}, latency={latency:.3f}"
+            ),
             "score_pct": round(score * 100, 1),
             FieldName.METRICS: {
                 "accuracy": round(accuracy, 4),
@@ -431,7 +440,7 @@ class ICUpdater(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=[STREAM_TRADE_PERFORMANCE],
+            streams=[STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED],
             consumer="ic-updater",
             agent_state=agent_state,
         )
@@ -576,7 +585,12 @@ class ReflectionAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=[STREAM_TRADE_PERFORMANCE, STREAM_AGENT_GRADES, STREAM_FACTOR_IC_HISTORY],
+            streams=[
+                STREAM_TRADE_PERFORMANCE,
+                STREAM_TRADE_COMPLETED,
+                STREAM_AGENT_GRADES,
+                STREAM_FACTOR_IC_HISTORY,
+            ],
             consumer="reflection-agent",
             agent_state=agent_state,
         )
@@ -586,7 +600,7 @@ class ReflectionAgent(MultiStreamAgent):
         self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == STREAM_TRADE_PERFORMANCE:
+        if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
             self._fills += 1
             self._recent_fills.append(
                 {

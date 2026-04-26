@@ -217,6 +217,10 @@ class WebSocketManager {
       if (this._connTimeout) clearTimeout(this._connTimeout)
       this._connTimeout = null
       this._updateStoreState()
+      useCodexStore.getState().setWsDiagnostics({
+        reconnectAttempts: this._retry,
+        lastError: null,
+      })
       this.dispatch('ws-connected')
       setTimeout(() => {
         if (this._state === ConnectionState.CONNECTED) this._retry = 0
@@ -414,15 +418,24 @@ class WebSocketManager {
         this._retry++
         const delay = this._getRetryDelay(this._retry)
         console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
+        useCodexStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
         this._reconnectTimer = setTimeout(() => this.connect(), delay)
       } else if (this._retry >= this.MAX_RETRIES) {
         console.error('[WS] Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
         this._state = ConnectionState.ERROR
+        useCodexStore.getState().setWsDiagnostics({
+          reconnectAttempts: this._retry,
+          lastError: 'Max reconnect attempts reached',
+        })
         this._updateStoreState()
       }
     }
     this._socket.onerror = (event) => {
       console.error('[WS] Socket error — state was:', this._state, event)
+      useCodexStore.getState().setWsDiagnostics({
+        lastError: 'WebSocket error',
+        reconnectAttempts: this._retry,
+      })
       if (this._state === ConnectionState.CONNECTING) {
         this._state = ConnectionState.ERROR
         this._updateStoreState()
