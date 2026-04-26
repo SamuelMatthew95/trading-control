@@ -1763,7 +1763,6 @@ export function DashboardView({ section }: { section: Section }) {
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
         {contentBySection}
       </main>
-
       <MobileNavigation section={section} />
 
       {activeTraceId && (
