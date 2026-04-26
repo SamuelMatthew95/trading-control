@@ -1770,6 +1770,8 @@ export function DashboardView({ section }: { section: Section }) {
         </div>
       )}
 
+      {section === 'proposals' && <ProposalsSection />}
+
       {section === 'system' && (
         <div className="space-y-4">
           <div className={cardClass}>
