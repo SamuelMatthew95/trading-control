@@ -893,7 +893,6 @@ export function DashboardView({ section }: { section: Section }) {
     if (closedPnls.length === 0) return null
     const total = closedPnls.reduce((sum, pnl) => sum + pnl, 0)
     const wins = closedPnls.filter((pnl) => pnl > 0)
-    const losses = closedPnls.filter((pnl) => pnl < 0)
     return {
       total_pnl: total,
       win_rate: wins.length / closedPnls.length,
