@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026-04-26] — Legacy frontend cleanup
+
+### Removed
+- Deleted the obsolete `frontend/src/legacy-pages` pages-router implementation (`dashboard-legacy`, `performance`, `logs`, `film-room`, and related bootstrap files).
+- Removed unused mission-control UI components and health hooks that were only referenced by the deleted legacy pages.
+- Removed the unused `HealthResponse`/`BotControlResponse` frontend type module and the stale `Header` component test tied to removed UI.
+- Removed the unreferenced `frontend/src/components/obsidian-pro` prototype dashboard component set.
+- Removed duplicate/unused frontend utility modules (`frontend/src/components/theme/ThemeToggle.tsx`, `frontend/src/lib/api.ts`, and `frontend/src/lib/fonts.ts`).
+
+### Changed
+- Simplified `frontend/tsconfig.json` by dropping the now-unneeded `src/legacy-pages/**/*` exclusion.
+- Updated `frontend/vitest.config.ts` coverage includes to replace a deleted legacy `Header` target with a live dashboard runtime component.
+
 ## [2026-03-30] — Complete agent pipeline, price poller rewrite, and dashboard overhaul
 
 ### Added

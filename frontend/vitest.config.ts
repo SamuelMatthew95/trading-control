@@ -13,7 +13,7 @@ export default defineConfig({
       reporter: ['text', 'lcov', 'html'],
       include: [
         'src/app/dashboard/DashboardView.tsx',
-        'src/components/layout/Header.tsx',
+        'src/components/WebSocketProvider.tsx',
         'src/utils/dashboard.ts',
         'src/types/dashboard.ts'
       ],
