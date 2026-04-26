@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
-import { useCodexStore, type ProposalType } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -92,7 +92,7 @@ const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
-type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system'
+type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
 type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
 type AgentSummary = {
@@ -169,7 +169,7 @@ function parseTimestamp(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-function parseHeartbeatTimestamp(status: Record<string, unknown>): Date | null {
+function parseHeartbeatTimestamp(status: AgentStatus): Date | null {
   const fromIsoField = parseTimestamp(status.last_seen_at)
   if (fromIsoField) return fromIsoField
   const fromEpochField = parseTimestamp(status.last_seen)
@@ -943,7 +943,7 @@ export function DashboardView({ section }: { section: Section }) {
     for (const status of agentStatuses) {
       const agentKey = canonicalAgentKey(status.name)
       const existing = normalizedByName.get(agentKey)
-      const statusDate = parseHeartbeatTimestamp(status as Record<string, unknown>)
+      const statusDate = parseHeartbeatTimestamp(status)
       const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
       const eventCount = status.event_count ?? 0
       const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
@@ -1113,7 +1113,7 @@ export function DashboardView({ section }: { section: Section }) {
   const wiringFreshness = useMemo(() => {
     const now = Date.now()
     const latestHeartbeat = agentStatuses
-      .map((row) => parseHeartbeatTimestamp(row as Record<string, unknown>)?.getTime() ?? Number.NaN)
+      .map((row) => parseHeartbeatTimestamp(row)?.getTime() ?? Number.NaN)
       .filter((ts) => Number.isFinite(ts))
       .sort((a, b) => b - a)[0]
     const latestInstance = agentInstances
