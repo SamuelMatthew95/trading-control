@@ -26,6 +26,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
+from api.schema_version import DB_SCHEMA_VERSION
 
 
 async def write_heartbeat(
@@ -46,6 +47,7 @@ async def write_heartbeat(
     """
     payload: dict[str, Any] = {
         FieldName.STATUS: "ACTIVE",
+        FieldName.SOURCE: "heartbeat",
         "last_event": last_event,
         "event_count": event_count,
         "last_seen": int(time.time()),
@@ -105,12 +107,50 @@ async def write_heartbeat(
                     """),
                     {
                         "instance_key": agent_name.lower().replace("_", "-"),
+                        "pool_name": agent_name,
                         "event_count": event_count,
                         "metadata": json.dumps(
                             {
                                 "last_seen_at": payload["last_seen_at"],
                                 FieldName.UPDATED_AT: payload[FieldName.UPDATED_AT],
                                 "heartbeat_count": payload["heartbeat_count"],
+                                FieldName.SOURCE: payload[FieldName.SOURCE],
+                            }
+                        ),
+                    },
+                )
+                # Heartbeats can arrive before (or instead of) explicit startup
+                # registration in degraded environments. If no instance row exists,
+                # create one so dashboard lifecycle views stay consistent.
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_instances
+                            (id, instance_key, pool_name, status, started_at, event_count, schema_version, metadata)
+                        SELECT
+                            gen_random_uuid(),
+                            :instance_key,
+                            :pool_name,
+                            'active',
+                            NOW(),
+                            :event_count,
+                            :schema_version,
+                            CAST(:metadata AS JSONB)
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM agent_instances WHERE instance_key = :instance_key
+                        )
+                    """),
+                    {
+                        "instance_key": agent_name.lower().replace("_", "-"),
+                        "pool_name": agent_name,
+                        "event_count": event_count,
+                        "schema_version": DB_SCHEMA_VERSION,
+                        "metadata": json.dumps(
+                            {
+                                "agent_name": agent_name,
+                                "last_seen_at": payload["last_seen_at"],
+                                FieldName.UPDATED_AT: payload[FieldName.UPDATED_AT],
+                                "heartbeat_count": payload["heartbeat_count"],
+                                FieldName.SOURCE: "heartbeat_upsert",
                             }
                         ),
                     },

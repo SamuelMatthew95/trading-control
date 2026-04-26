@@ -99,6 +99,31 @@ def test_dashboard_fallback_snapshot_agent_statuses_use_correct_names():
     assert "signal_generator" not in names
 
 
+def test_dashboard_fallback_snapshot_agent_statuses_keep_heartbeat_fields():
+    """In-memory snapshot should preserve heartbeat details so dashboard rows show meaningful values."""
+    store = InMemoryStore()
+    store.upsert_agent(
+        AGENT_SIGNAL,
+        {
+            "status": "ACTIVE",
+            "last_seen": 1_700_000_000,
+            "last_seen_at": "2026-01-02T03:04:05Z",
+            "last_event": "processed_signal",
+            "event_count": 42,
+        },
+    )
+
+    snapshot = store.dashboard_fallback_snapshot()
+    row = next(agent for agent in snapshot["agent_statuses"] if agent["name"] == AGENT_SIGNAL)
+
+    assert row["status"] == "ACTIVE"
+    assert row["last_seen"] == 1_700_000_000
+    assert row["last_seen_at"] == "2026-01-02T03:04:05Z"
+    assert row["last_event"] == "processed_signal"
+    assert row["event_count"] == 42
+    assert row["source"] == "in_memory"
+
+
 def test_dashboard_fallback_snapshot_surfaces_trade_feed_and_agent_logs():
     """The snapshot must include trade_feed + agent_logs so memory-mode dashboards
     don't render the Trade Feed / Agent Thought Stream as empty."""
