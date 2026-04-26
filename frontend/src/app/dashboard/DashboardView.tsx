@@ -1,8 +1,7 @@
 'use client'
 
-import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
-import { useCodexStore, type ProposalType } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -57,7 +56,7 @@ const formatUSD = (value?: number | null): string => {
 };
 
 const formatTimeAgo = (date: Date): string => {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -83,20 +82,27 @@ const formatAgeFromMs = (ageMs: number | null): string => {
   return `${hr}h`
 }
 
+const formatWiringAge = (ageMs: number | null): string => {
+  const age = formatAgeFromMs(ageMs)
+  return age === '--' ? 'No recent timestamp' : `last ${age} ago`
+}
+
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
-type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system'
+type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
+type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
 type AgentSummary = {
   name: string
-  count: number
+  realtimeCount: number
+  persistedCount: number
   lastSeen: Date | null
   status: 'Live' | 'Stale' | 'Error' | 'Idle'
   tier: 'active' | 'challenger' | 'inactive'
-  source: 'heartbeat' | 'instance' | 'log' | 'mixed'
+  source: 'realtime' | 'persisted' | 'hybrid'
 }
 
 type PersistedStreamCount = {
@@ -114,6 +120,8 @@ type PersistedHistoryItem = {
 }
 
 function displayAgentName(rawName: string): string {
+  const canonical = canonicalAgentKey(rawName)
+  if (canonical === 'IC_UPDATER') return 'Indicator Cache Updater'
   return rawName
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
@@ -123,6 +131,8 @@ function displayAgentName(rawName: string): string {
 }
 
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
+const AGENT_LIVE_THRESHOLD_MS = 10_000
+const AGENT_STALE_THRESHOLD_MS = 120_000
 
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
@@ -159,16 +169,23 @@ function parseTimestamp(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+function parseHeartbeatTimestamp(status: AgentStatus): Date | null {
+  const fromIsoField = parseTimestamp(status.last_seen_at)
+  if (fromIsoField) return fromIsoField
+  const fromEpochField = parseTimestamp(status.last_seen)
+  if (fromEpochField) return fromEpochField
+  // Backward compatibility for older payloads that (incorrectly) used last_event as a timestamp.
+  return parseTimestamp(status.last_event)
+}
+
 function canonicalAgentKey(name: string): string {
   return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
 }
 
-function normalizeAgentStatus(value: string): AgentSummary['status'] {
-  const raw = String(value || '').toUpperCase()
-  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'Live'
-  if (raw === 'STALE') return 'Stale'
-  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'Error'
-  return 'Idle'
+function formatAgentSource(source: AgentSummary['source']): string {
+  if (source === 'realtime') return 'Realtime'
+  if (source === 'persisted') return 'Persisted'
+  return 'Hybrid'
 }
 
 function pickHigherPriorityStatus(
@@ -380,37 +397,6 @@ function ProposalsFeed({
   )
 }
 
-function MobileNavigation({ section }: { section: Section }) {
-  const links: { key: Section; label: string; href: string }[] = [
-    { key: 'overview', label: 'Overview', href: '/dashboard' },
-    { key: 'trading', label: 'Trading', href: '/dashboard/trading' },
-    { key: 'agents', label: 'Agents', href: '/dashboard/agents' },
-    { key: 'learning', label: 'Learning', href: '/dashboard/learning' },
-    { key: 'system', label: 'System', href: '/dashboard/system' },
-  ]
-
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-100/95 px-2 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
-      <div className="mx-auto grid max-w-7xl grid-cols-5 gap-1">
-        {links.map((link) => (
-          <Link
-            key={link.key}
-            href={link.href}
-            aria-current={section === link.key ? 'page' : undefined}
-            className={cn(
-              'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold transition-colors',
-              section === link.key
-                ? 'bg-slate-900 text-slate-100 dark:bg-slate-100 dark:text-slate-900'
-                : 'text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-            )}
-          >
-            {link.label}
-          </Link>
-        ))}
-      </div>
-    </nav>
-  )
-}
 // ---------------------------------------------------------------------------
 // Trace modal
 // ---------------------------------------------------------------------------
@@ -656,6 +642,11 @@ export function DashboardView({ section }: { section: Section }) {
   const pricesLoading = !pricesFetched && Object.keys(prices).length === 0
   const latestTickTs = streamStats['market_ticks']?.lastMessageTimestamp ?? null
   const dataLatencyMs = latestTickTs ? Math.max(Date.now() - new Date(latestTickTs).getTime(), 0) : null
+  const wsLatencyMs = wsLastMessageTimestamp ? Math.max(Date.now() - new Date(wsLastMessageTimestamp).getTime(), 0) : null
+  const recentEventLatencyMs = recentEvents.length > 0 && recentEvents[0]?.timestamp
+    ? Math.max(Date.now() - new Date(recentEvents[0].timestamp).getTime(), 0)
+    : null
+  const effectiveLatencyMs = dataLatencyMs ?? wsLatencyMs ?? recentEventLatencyMs
   const throughput = Number(wsDiagnostics?.messageRate ?? 0)
   const pipelineStatus = !latestTickTs
     ? 'Stalled'
@@ -664,12 +655,33 @@ export function DashboardView({ section }: { section: Section }) {
       : 'Degraded'
   const signalsCount = streamStats['signals']?.count ?? 0
   const ordersCount = streamStats['orders']?.count ?? 0
+  const executionsCount = streamStats['executions']?.count ?? 0
   const pipelineWarning = signalsCount > 0 && ordersCount === 0
+  const hasMarketData = Boolean(
+    latestTickTs
+    || (streamStats['market_ticks']?.count ?? 0) > 0
+    || recentEvents.some((event) => event.stream === 'market_ticks' || event.stream === 'market_events'),
+  )
+  const isInMemoryMode = String((dashboardData as Record<string, unknown> | null)?.mode ?? '').includes('in_memory')
+  const persistenceEnabled = Boolean(
+    isInMemoryMode || persistedCounts.length > 0 || persistedEvents.length > 0 || persistedLogs.length > 0 || apiHealth.eventHistory === 'ok',
+  )
+  const signalAgentRealtimeCount = agentStatuses.find((agent) => canonicalAgentKey(agent.name) === 'SIGNAL_AGENT')?.event_count ?? 0
+  const reasoningAgentStatus = agentStatuses.find((agent) => canonicalAgentKey(agent.name) === 'REASONING_AGENT')?.status ?? 'unknown'
+  const executionAgentStatus = agentStatuses.find((agent) => canonicalAgentKey(agent.name) === 'EXECUTION_ENGINE')?.status ?? 'unknown'
   const realizedPnl = tradeFeed.reduce((sum, row) => sum + (row.pnl ?? 0), 0)
   const unrealizedPnl = positions.reduce((sum, row) => sum + (toFiniteNumber((row as Record<string, unknown>).pnl) ?? 0), 0)
   const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
   const wins = tradeFeed.filter((row) => (row.pnl ?? 0) > 0).length
   const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
+  const systemStatus = useMemo<SystemStatus>(() => {
+    if (systemFeedError) return 'error'
+    const marketConnected = wsConnected || (dataLatencyMs != null && dataLatencyMs <= 5_000)
+    if (!marketConnected) return 'booting'
+    if (positions.length === 0 && (streamStats.executions?.count ?? 0) === 0) return 'idle'
+    if (positions.length > 0 || orders.length > 0 || tradeFeed.length > 0) return 'trading'
+    return 'idle'
+  }, [dataLatencyMs, orders.length, positions.length, streamStats.executions?.count, systemFeedError, tradeFeed.length, wsConnected])
 
   // ── REST fallback data fetching ──────────────────────────────────────────
   // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
@@ -914,26 +926,39 @@ export function DashboardView({ section }: { section: Section }) {
     const now = Date.now()
     const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = data.lastSeen == null && data.count > 0 ? 'Stale' : ageMs < 5 * 60 * 1000 ? 'Live' : 'Idle'
+      const status: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
-      return { name: data.displayName, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
+      return {
+        name: data.displayName,
+        realtimeCount: data.count,
+        persistedCount: 0,
+        lastSeen: data.lastSeen,
+        status,
+        tier,
+        source: 'realtime',
+      }
     })
 
     const normalizedByName = new Map(incomingAgents.map((agent) => [canonicalAgentKey(agent.name), agent]))
     for (const status of agentStatuses) {
       const agentKey = canonicalAgentKey(status.name)
       const existing = normalizedByName.get(agentKey)
-      const statusDate = parseTimestamp(status.last_event)
-      const isDormant = (status.event_count ?? 0) === 0 && statusDate == null
-      const mappedStatus = isDormant ? 'Idle' : normalizeAgentStatus(status.status)
+      const statusDate = parseHeartbeatTimestamp(status)
+      const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
+      const eventCount = status.event_count ?? 0
+      const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
+      const lastSeen = [existing?.lastSeen, statusDate]
+        .filter((d): d is Date => d instanceof Date)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
       normalizedByName.set(agentKey, {
         name: existing?.name ?? status.name,
-        count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
-        lastSeen: statusDate ?? existing?.lastSeen ?? null,
+        realtimeCount: Math.max(existing?.realtimeCount ?? 0, status.event_count ?? 0),
+        persistedCount: existing?.persistedCount ?? 0,
+        lastSeen,
         status: mergedStatus,
         tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
-        source: existing ? 'mixed' : 'heartbeat',
+        source: existing ? 'hybrid' : 'realtime',
       })
     }
 
@@ -941,15 +966,19 @@ export function DashboardView({ section }: { section: Section }) {
       const agentKey = canonicalAgentKey(inst.pool_name)
       const existing = normalizedByName.get(agentKey)
       const startedDate = parseTimestamp(inst.started_at)
-      const mappedStatus = inst.status === 'active' ? 'Live' : 'Idle'
+      const mappedStatus: AgentSummary['status'] = inst.status === 'active' ? 'Stale' : 'Idle'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
+      const lastSeen = [existing?.lastSeen, startedDate]
+        .filter((d): d is Date => d instanceof Date)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
       normalizedByName.set(agentKey, {
         name: existing?.name ?? inst.pool_name,
-        count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
-        lastSeen: existing?.lastSeen ?? startedDate ?? null,
+        realtimeCount: existing?.realtimeCount ?? 0,
+        persistedCount: Math.max(existing?.persistedCount ?? 0, inst.event_count ?? 0),
+        lastSeen,
         status: mergedStatus,
         tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
-        source: existing ? 'mixed' : 'instance',
+        source: existing ? 'hybrid' : 'persisted',
       })
     }
 
@@ -983,10 +1012,27 @@ export function DashboardView({ section }: { section: Section }) {
   }, [realAgents.length, wsConnected])
 
   const learningSummary = useMemo(() => {
-    const tradesEvaluated = learningEvents.filter((event) => event?.type === 'trade_evaluated').length
-    const reflectionsCompleted = learningEvents.filter((event) => event?.type === 'reflection').length
-    const icValuesUpdated = learningEvents.filter((event) => event?.type === 'ic_update').length
-    const strategiesTested = learningEvents.filter((event) => event?.type === 'strategy_tested').length
+    const streamReflections = streamStats['reflection_outputs']?.count ?? 0
+    const streamEvaluations = streamStats['agent_grades']?.count ?? 0
+    const streamIcUpdates = streamStats['factor_ic_history']?.count ?? 0
+    const tradesEvaluated = Math.max(
+      learningEvents.filter((event) => event?.type === 'trade_evaluated').length,
+      streamEvaluations,
+      gradeHistory.length,
+    )
+    const reflectionsCompleted = Math.max(
+      learningEvents.filter((event) => event?.type === 'reflection').length,
+      streamReflections,
+    )
+    const icValuesUpdated = Math.max(
+      learningEvents.filter((event) => event?.type === 'ic_update').length,
+      streamIcUpdates,
+      Object.keys(icWeights).length > 0 ? 1 : 0,
+    )
+    const strategiesTested = Math.max(
+      learningEvents.filter((event) => event?.type === 'strategy_tested').length,
+      proposals.length,
+    )
 
     const dailyPnlMap = orders.reduce<Record<string, number>>((acc, order) => {
       const timestamp = new Date(String(order?.timestamp || ''))
@@ -1008,12 +1054,66 @@ export function DashboardView({ section }: { section: Section }) {
       bestDay,
       worstDay,
     }
-  }, [learningEvents, orders])
+  }, [gradeHistory.length, icWeights, learningEvents, orders, proposals.length, streamStats])
+
+  const cleanGradeHistory = useMemo(() => {
+    const seen = new Set<string>()
+    return gradeHistory
+      .filter((g) => {
+        const hasGrade = typeof g.grade === 'string' && g.grade.trim() !== '' && g.grade !== '--'
+        const hasScore = typeof g.score_pct === 'number' && Number.isFinite(g.score_pct)
+        const hasTime = Boolean(parseTimestamp(g.timestamp))
+        return (hasGrade || hasScore) && hasTime
+      })
+      .sort((a, b) => {
+        const aTs = parseTimestamp(a.timestamp)?.getTime() ?? 0
+        const bTs = parseTimestamp(b.timestamp)?.getTime() ?? 0
+        return bTs - aTs
+      })
+      .filter((g) => {
+        const key = `${g.timestamp}|${g.grade}|${g.score_pct}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+  }, [gradeHistory])
+
+  const learningPipelineStages = useMemo(() => {
+    const latestTradeTs = tradeFeed
+      .map((t) => parseTimestamp(t.filled_at ?? t.created_at))
+      .filter((ts): ts is Date => ts instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
+    const latestGradeTs = cleanGradeHistory
+      .map((g) => parseTimestamp(g.timestamp))
+      .filter((ts): ts is Date => ts instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
+    const reflectionTs = parseTimestamp(streamStats['reflection_outputs']?.lastMessageTimestamp)
+    const proposalTs = proposals
+      .map((p) => parseTimestamp(p.timestamp))
+      .filter((ts): ts is Date => ts instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
+    const icTs = parseTimestamp(streamStats['factor_ic_history']?.lastMessageTimestamp)
+    const now = Date.now()
+    const asStatus = (count: number, ts: Date | null, requiresInput?: number): 'Active' | 'Idle' | 'Error' => {
+      if (count <= 0 && (requiresInput ?? 0) <= 0) return 'Idle'
+      if (count <= 0 && (requiresInput ?? 0) > 0) return 'Error'
+      if (!ts) return 'Idle'
+      return now - ts.getTime() <= 10 * 60 * 1000 ? 'Active' : 'Idle'
+    }
+
+    return [
+      { key: 'ingestion', label: 'Trade Ingestion', count: tradeFeed.length, lastRun: latestTradeTs, status: asStatus(tradeFeed.length, latestTradeTs) },
+      { key: 'grading', label: 'Evaluation & Grading', count: cleanGradeHistory.length, lastRun: latestGradeTs, status: asStatus(cleanGradeHistory.length, latestGradeTs, tradeFeed.length) },
+      { key: 'reflection', label: 'Reflection', count: learningSummary.reflectionsCompleted, lastRun: reflectionTs, status: asStatus(learningSummary.reflectionsCompleted, reflectionTs, cleanGradeHistory.length) },
+      { key: 'proposals', label: 'Strategy Proposals', count: proposals.length, lastRun: proposalTs, status: asStatus(proposals.length, proposalTs, learningSummary.reflectionsCompleted) },
+      { key: 'ic', label: 'IC Updates', count: learningSummary.icValuesUpdated, lastRun: icTs, status: asStatus(learningSummary.icValuesUpdated, icTs, learningSummary.reflectionsCompleted) },
+    ] as const
+  }, [cleanGradeHistory, learningSummary.icValuesUpdated, learningSummary.reflectionsCompleted, proposals, streamStats, tradeFeed])
 
   const wiringFreshness = useMemo(() => {
     const now = Date.now()
     const latestHeartbeat = agentStatuses
-      .map((row) => new Date(String(row.last_event || '')).getTime())
+      .map((row) => parseHeartbeatTimestamp(row)?.getTime() ?? Number.NaN)
       .filter((ts) => Number.isFinite(ts))
       .sort((a, b) => b - a)[0]
     const latestInstance = agentInstances
@@ -1046,7 +1146,7 @@ export function DashboardView({ section }: { section: Section }) {
               { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
               { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
-              { title: 'Daily Change %', value: summary.dailyChange == null ? 'N/A' : `${sanitizeValue(summary.dailyChange.toFixed(2))}%`, trend: summary.dailyChange == null ? 0 : summary.dailyChange > 0 ? 1 : summary.dailyChange < 0 ? -1 : 0 },
+              { title: 'Daily Change %', value: `${sanitizeValue((summary.dailyChange ?? 0).toFixed(2))}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
             ].map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
@@ -1133,7 +1233,7 @@ export function DashboardView({ section }: { section: Section }) {
                       </div>
                       <div className="mt-2 flex items-center justify-between">
                         <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                          {agent.count} events
+                          {agent.realtimeCount + agent.persistedCount} events
                         </p>
                         <p className={mutedClass}>
                           {agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'Never'}
@@ -1157,8 +1257,10 @@ export function DashboardView({ section }: { section: Section }) {
                   </div>
                 ) : Object.keys(prices).length > 0 ? (
                   <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-sans text-emerald-500">Live</span>
+                    <div className={cn('h-2 w-2 rounded-full', dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'bg-emerald-500' : 'bg-amber-500')} />
+                    <span className={cn('text-xs font-sans', dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'text-emerald-500' : 'text-amber-500')}>
+                      {dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'Live' : 'Stale'}
+                    </span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -1397,15 +1499,15 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <p className={mutedClass}>
                 Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
-                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.heartbeatAgeMs)} ago</span>
+                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
               </p>
               <p className={mutedClass}>
                 Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
-                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.instanceAgeMs)} ago</span>
+                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
               </p>
               <p className={mutedClass}>
                 Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
-                <span className="ml-2 text-[11px]">last {formatAgeFromMs(wiringFreshness.logAgeMs)} ago</span>
+                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
               </p>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1466,8 +1568,10 @@ export function DashboardView({ section }: { section: Section }) {
                             <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
-                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                          rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}
+                        </td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
                       </tr>
                     ))
@@ -1529,6 +1633,33 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'learning' && (
         <div className="space-y-4">
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Learning Pipeline Status</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {learningPipelineStages.map((stage) => (
+                <div key={stage.key} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <p className={mutedClass}>{stage.label}</p>
+                  <p
+                    className={cn(
+                      'mt-1 text-xs font-semibold uppercase tracking-wide',
+                      stage.status === 'Active'
+                        ? 'text-emerald-500'
+                        : stage.status === 'Error'
+                          ? 'text-rose-500'
+                          : 'text-slate-500',
+                    )}
+                  >
+                    {stage.status}
+                  </p>
+                  <p className="mt-1 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{stage.count}</p>
+                  <p className="mt-1 text-[11px] font-mono text-slate-500">
+                    {stage.lastRun ? `last ${formatTimeAgoSafe(stage.lastRun)}` : 'No runs yet'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
             {[
               { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-slate-500' },
@@ -1547,6 +1678,11 @@ export function DashboardView({ section }: { section: Section }) {
           </div>
 
           <ProposalsFeed proposals={proposals} onUpdateStatus={updateProposalStatus} />
+          {proposals.length === 0 && (
+            <div className="rounded-lg border border-slate-200 bg-slate-100/50 p-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+              No strategy proposals yet. Reflection pipeline may be idle, disconnected, or awaiting graded trades.
+            </div>
+          )}
 
           {Object.keys(icWeights).length > 0 && (
             <div className={cardClass}>
@@ -1567,7 +1703,7 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           )}
 
-          {gradeHistory.length > 0 && (
+          {cleanGradeHistory.length > 0 ? (
             <div className={cardClass}>
               <p className={cn(sectionTitleClass, 'mb-3')}>Grade History</p>
               <div className="overflow-x-auto">
@@ -1580,7 +1716,7 @@ export function DashboardView({ section }: { section: Section }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {gradeHistory.map((g, i) => (
+                    {cleanGradeHistory.map((g, i) => (
                       <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
                         <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
@@ -1591,6 +1727,8 @@ export function DashboardView({ section }: { section: Section }) {
                 </table>
               </div>
             </div>
+          ) : (
+            <EmptyState message="No graded learning records yet" />
           )}
 
           <div className={cardClass}>
@@ -1603,7 +1741,9 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
                 <p className={cn('text-sm font-mono tabular-nums', summary.dailyPnlNumeric >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                  {summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--'}
+                  {resolvedPerformanceSummary != null
+                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
+                    : '--'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -1621,9 +1761,25 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           </div>
 
-          <ProposalsSection />
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-2')}>Learning Runtime Notes</p>
+            <p className={mutedClass}>
+              Reflection agent status:{' '}
+              <span className="font-mono text-slate-700 dark:text-slate-200">
+                {realAgents.find((agent) => canonicalAgentKey(agent.name) === 'REFLECTION_AGENT')?.status ?? 'Unknown'}
+              </span>
+            </p>
+            <p className={cn(mutedClass, 'mt-1')}>
+              Last grade timestamp:{' '}
+              <span className="font-mono text-slate-700 dark:text-slate-200">
+                {cleanGradeHistory[0]?.timestamp ? formatTimestamp(cleanGradeHistory[0].timestamp) : 'No grades yet'}
+              </span>
+            </p>
+          </div>
         </div>
       )}
+
+      {section === 'proposals' && <ProposalsSection />}
 
       {section === 'system' && (
         <div className="space-y-4">
@@ -1632,7 +1788,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Data latency</p>
-                <p className="text-sm font-mono">{formatAgeFromMs(dataLatencyMs)} ({dataLatencyMs ?? '--'}ms)</p>
+                <p className="text-sm font-mono">{formatAgeFromMs(effectiveLatencyMs)} ({effectiveLatencyMs ?? '--'}ms)</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Events/sec throughput</p>
@@ -1650,14 +1806,24 @@ export function DashboardView({ section }: { section: Section }) {
               Signals generated but no orders placed
             </div>
           )}
-          {!latestTickTs && (
+          {!hasMarketData && (
             <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
               No market data received
+            </div>
+          )}
+          {hasMarketData && !latestTickTs && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+              Market events are arriving via WebSocket, but market_ticks lag metrics are missing.
             </div>
           )}
           {systemFeedError && (
             <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
               {systemFeedError}
+            </div>
+          )}
+          {!persistenceEnabled && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+              Persistence appears disabled (no persisted events/logs). Agents/Learning views may show incomplete history.
             </div>
           )}
 
@@ -1709,13 +1875,27 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{formatUSD(realizedPnl)}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{formatUSD(unrealizedPnl)}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{formatUSD(realizedPnl + unrealizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? formatUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Trades</p><p className="text-sm font-mono">{totalTrades}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{pnlWinRate.toFixed(1)}%</p></div>
             </div>
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Handoff</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signals (stream)</p><p className="text-sm font-mono">{signalsCount}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Orders</p><p className="text-sm font-mono">{ordersCount}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Executions</p><p className="text-sm font-mono">{executionsCount}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signal Agent (RT)</p><p className="text-sm font-mono">{signalAgentRealtimeCount}</p></div>
+            </div>
+            <p className={cn(mutedClass, 'mt-2')}>
+              Reasoning: <span className="font-mono">{reasoningAgentStatus}</span> → Execution: <span className="font-mono">{executionAgentStatus}</span>
+            </p>
           </div>
 
           <div className={cardClass}>
@@ -1814,7 +1994,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={cn(mutedClass, 'mb-2')}>Processed counts by stream</p>
                 {persistedCounts.length === 0 ? (
-                  <p className={mutedClass}>Persistence not enabled</p>
+                  <p className={mutedClass}>{isInMemoryMode ? 'In-memory mode (no DB persistence)' : 'Persistence not enabled'}</p>
                 ) : (
                   <div className="space-y-1">
                     {persistedCounts.slice(0, 8).map((row) => (
@@ -1829,7 +2009,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={cn(mutedClass, 'mb-2')}>Latest persisted events</p>
                 {persistedEvents.length === 0 ? (
-                  <p className={mutedClass}>Persistence not enabled</p>
+                  <p className={mutedClass}>{isInMemoryMode ? 'In-memory mode (no DB persistence)' : 'Persistence not enabled'}</p>
                 ) : (
                   <div className="space-y-1">
                     {persistedEvents.slice(0, 8).map((evt) => (
@@ -1845,7 +2025,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
               <p className={cn(mutedClass, 'mb-2')}>Latest persisted agent logs</p>
               {persistedLogs.length === 0 ? (
-                <p className={mutedClass}>Persistence not enabled</p>
+                <p className={mutedClass}>{isInMemoryMode ? 'In-memory mode (no DB persistence)' : 'Persistence not enabled'}</p>
               ) : (
                 <div className="space-y-1">
                   {persistedLogs.slice(0, 10).map((log) => (
@@ -1871,9 +2051,22 @@ export function DashboardView({ section }: { section: Section }) {
   return (
     <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+        <div
+          className={cn(
+            'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
+            systemStatus === 'trading'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
+              : systemStatus === 'booting'
+                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
+                : systemStatus === 'error'
+                  ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
+                  : 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+          )}
+        >
+          System Status: {systemStatus}
+        </div>
         {contentBySection}
       </main>
-      <MobileNavigation section={section} />
 
       {activeTraceId && (
         <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />

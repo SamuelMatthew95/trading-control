@@ -34,6 +34,7 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     setPerformanceSummary: vi.fn(),
     addProposal: vi.fn(),
     fetchPrices: vi.fn().mockResolvedValue(undefined),
+    hydrateDashboard: vi.fn(),
   }
   const hook = Object.assign(() => store, { getState: () => store })
   return { mockStore: store, mockUseCodexStore: hook }

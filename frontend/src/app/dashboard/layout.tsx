@@ -34,6 +34,7 @@ const formatUSD = (value?: number | null): string => {
   if (value == null || isNaN(value) || !isFinite(value)) return '$0.00'
   return `$${Math.abs(value).toFixed(2)}`
 }
+type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   useWebSocket()
@@ -48,6 +49,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const unrealized = positions.reduce((sum, position) => sum + (Number(position?.pnl) || 0), 0)
     return realized + unrealized
   }, [orders, positions])
+  const systemStatus = useMemo<SystemStatus>(() => {
+    if (!wsConnected) return 'booting'
+    if (positions.length === 0 && orders.length === 0) return 'idle'
+    if (orders.length > 0) return 'trading'
+    return 'idle'
+  }, [orders.length, positions.length, wsConnected])
 
   // Hydrate the kill-switch state from the server so the UI starts in sync
   // with Redis even if no one has toggled it in this session yet.
@@ -141,24 +148,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-white">Trading Console</span>
             </div>
 
-            <div
-              className={cn(
-                'flex flex-1 justify-center text-xl font-black font-mono tabular-nums',
-                dailyPnl > 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : dailyPnl < 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-slate-500 dark:text-slate-400'
-              )}
-            >
-              {dailyPnl > 0 ? `+${formatUSD(dailyPnl)}` : dailyPnl < 0 ? `-${formatUSD(dailyPnl)}` : formatUSD(dailyPnl)}
-            </div>
-
             <div className="flex flex-1 justify-end">
               <div className="flex items-center gap-3">
+                <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 dark:border-slate-800 dark:bg-slate-900 sm:flex">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                    Total P&L
+                  </span>
+                  <span
+                    className={cn(
+                      'text-xs font-mono font-bold tabular-nums',
+                      dailyPnl > 0
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : dailyPnl < 0
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-slate-500 dark:text-slate-400'
+                    )}
+                  >
+                    {dailyPnl > 0 ? `+${formatUSD(dailyPnl)}` : dailyPnl < 0 ? `-${formatUSD(dailyPnl)}` : formatUSD(dailyPnl)}
+                  </span>
+                </div>
                 <ThemeToggle />
-                <span className={cn('text-[11px] font-mono uppercase tracking-[0.04em] text-slate-500', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>
-                  {wsConnected ? 'Live' : 'Stale'}
+                <span
+                  className={cn(
+                    'text-[11px] font-mono uppercase tracking-[0.04em]',
+                    systemStatus === 'trading'
+                      ? 'text-emerald-500'
+                      : systemStatus === 'booting'
+                        ? 'text-amber-500'
+                        : 'text-slate-500'
+                  )}
+                >
+                  {systemStatus}
                 </span>
                 <div className="h-5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
 

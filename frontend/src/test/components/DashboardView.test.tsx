@@ -62,6 +62,7 @@ beforeAll(() => {
 
 describe('DashboardView — overview', () => {
   beforeEach(() => {
+    mockStore.wsConnected = false
     mockStore.orders = []
     mockStore.positions = []
     mockStore.agentLogs = []
@@ -78,8 +79,9 @@ describe('DashboardView — overview', () => {
 
   it('shows mobile navigation labels', () => {
     render(<DashboardView section="overview" />)
-    expect(screen.getByText(/overview/i)).toBeInTheDocument()
-    expect(screen.getByText(/trading/i)).toBeInTheDocument()
+    // Mobile nav is mocked to null in this suite; assert key overview content instead.
+    expect(screen.getByText(/System Status:/i)).toBeInTheDocument()
+    expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
   })
 
   it('never shows NaN anywhere on screen', () => {
@@ -98,9 +100,24 @@ describe('DashboardView — overview', () => {
     // The ticker symbols appear after loading completes
     expect(screen.getByText(/Live Market Prices/i)).toBeInTheDocument()
   })
+
+  it('marks system as trading when open positions exist without orders/trade feed', () => {
+    mockStore.wsConnected = true
+    mockStore.positions = [{ side: 'long', pnl: 5.25 }]
+    mockStore.orders = []
+    mockStore.tradeFeed = []
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText(/System Status:\s*trading/i)).toBeInTheDocument()
+  })
 })
 
 describe('DashboardView — trading', () => {
+  beforeEach(() => {
+    mockStore.wsConnected = false
+  })
+
   it('renders without crashing when store is empty', () => {
     expect(() => render(<DashboardView section="trading" />)).not.toThrow()
   })
@@ -113,6 +130,7 @@ describe('DashboardView — trading', () => {
 
 describe('DashboardView — agents', () => {
   beforeEach(() => {
+    mockStore.wsConnected = false
     mockStore.agentStatuses = []
   })
 
@@ -135,14 +153,16 @@ describe('DashboardView — agents', () => {
         name: 'SIGNAL_AGENT',
         status: 'running',
         event_count: 42,
-        last_event: new Date().toISOString(),
-        last_seen: 0,
+        last_event: 'processed_signal',
+        last_seen: Math.floor(Date.now() / 1000),
+        last_seen_at: new Date().toISOString(),
+        source: 'heartbeat',
         seconds_ago: 0,
       }
     ]
     render(<DashboardView section="agents" />)
     expect(screen.getByText('Signal Agent')).toBeInTheDocument()
     expect(screen.getByText('Live')).toBeInTheDocument()
-    expect(screen.getByText('heartbeat')).toBeInTheDocument()
+    expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
 })

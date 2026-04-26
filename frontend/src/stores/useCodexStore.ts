@@ -111,6 +111,8 @@ export interface AgentStatus {
   event_count: number
   last_event: string
   last_seen: number
+  last_seen_at?: string
+  source?: string
   seconds_ago: number
   last_grade_score?: number
 }
