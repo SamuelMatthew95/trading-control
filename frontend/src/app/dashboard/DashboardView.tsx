@@ -648,7 +648,6 @@ export function DashboardView({ section }: { section: Section }) {
     agentInstances: 'pending',
     eventHistory: 'pending',
   })
-  const [showEventDetails, setShowEventDetails] = useState(false)
   const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
 
   // Show skeletons only on the very first render before we've attempted a fetch.
@@ -666,25 +665,6 @@ export function DashboardView({ section }: { section: Section }) {
   const signalsCount = streamStats['signals']?.count ?? 0
   const ordersCount = streamStats['orders']?.count ?? 0
   const pipelineWarning = signalsCount > 0 && ordersCount === 0
-  const groupedEvents = useMemo(() => {
-    const groups: Record<string, { count: number; latest: string | null }> = {
-      Signals: { count: 0, latest: null },
-      Decisions: { count: 0, latest: null },
-      'System Metrics': { count: 0, latest: null },
-    }
-    for (const event of recentEvents) {
-      const stream = event.stream.toLowerCase()
-      const key =
-        stream.includes('signal') ? 'Signals' :
-        stream.includes('decision') || stream.includes('order') || stream.includes('execution') ? 'Decisions' :
-        'System Metrics'
-      groups[key].count += 1
-      if (!groups[key].latest || new Date(event.timestamp) > new Date(groups[key].latest as string)) {
-        groups[key].latest = event.timestamp
-      }
-    }
-    return groups
-  }, [recentEvents])
   const realizedPnl = tradeFeed.reduce((sum, row) => sum + (row.pnl ?? 0), 0)
   const unrealizedPnl = positions.reduce((sum, row) => sum + (toFiniteNumber((row as Record<string, unknown>).pnl) ?? 0), 0)
   const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
