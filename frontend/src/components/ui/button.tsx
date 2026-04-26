@@ -52,7 +52,7 @@ function Button({
 
   return (
     <Comp data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props}>
-      <span>{children}</span>
+      <Slot.Slottable>{children}</Slot.Slottable>
       {shortcut ? (
         <kbd className="ml-1 border border-slate-500/40 px-1 font-mono text-[10px] font-normal normal-case tracking-normal text-slate-500/70">
           {shortcut}
