@@ -267,9 +267,11 @@ const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: strin
 
 function NotificationFeed({
   notifications,
+  wsConnected,
   onAcknowledge,
 }: {
   notifications: Notification[]
+  wsConnected: boolean
   onAcknowledge: (id: string) => void
 }) {
   const unread = notifications.filter((n) => !n.acknowledged)
@@ -288,7 +290,7 @@ function NotificationFeed({
         </div>
       </div>
       {notifications.length === 0 ? (
-        <EmptyState message="Stream disconnected" />
+        <EmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
       ) : (
         <div className="max-h-72 space-y-2 overflow-y-auto">
           {notifications.map((notif) => {
@@ -1544,7 +1546,7 @@ export function DashboardView({ section }: { section: Section }) {
             )}
           </div>
 
-          <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />
+          <NotificationFeed notifications={notifications} wsConnected={wsConnected} onAcknowledge={acknowledgeNotification} />
         </div>
       )}
 
