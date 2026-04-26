@@ -126,7 +126,7 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText(/Discovered from heartbeats, instances, and logs/i)).toBeInTheDocument()
     expect(screen.getByText(/Data Wiring/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/No active agents/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
   })
 
   it('renders heartbeat-wired agent status rows (in-memory running -> Live)', () => {

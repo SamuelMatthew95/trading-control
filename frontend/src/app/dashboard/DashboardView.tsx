@@ -1504,7 +1504,7 @@ export function DashboardView({ section }: { section: Section }) {
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
             {agentInstances.length === 0 ? (
               <div className="space-y-2">
-                <EmptyState message="No active agents" />
+                <EmptyState message="No instances registered yet" />
                 {agentStatuses.some((agent) => String(agent.status).toUpperCase() === 'ACTIVE') && (
                   <p className="text-xs font-sans text-amber-600 dark:text-amber-400">
                     Agents are reporting ACTIVE heartbeats, but no lifecycle records were returned. Check agent_instances DB writes.
@@ -1724,7 +1724,7 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
             {recentEvents.length === 0 ? (
-              <EmptyState message="Stream disconnected" />
+              <EmptyState message={wsConnected ? 'No websocket events yet' : 'Stream disconnected'} />
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
