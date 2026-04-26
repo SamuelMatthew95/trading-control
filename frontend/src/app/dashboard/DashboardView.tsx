@@ -85,7 +85,7 @@ const formatAgeFromMs = (ageMs: number | null): string => {
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
-const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
+const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-900'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'system'
 
@@ -219,7 +219,7 @@ const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: strin
   CRITICAL: { badge: 'bg-rose-500/15 text-rose-500 border border-rose-500/30', dot: 'bg-rose-500 animate-pulse', label: 'CRITICAL' },
   URGENT: { badge: 'bg-orange-500/15 text-orange-500 border border-orange-500/30', dot: 'bg-orange-500', label: 'URGENT' },
   WARNING: { badge: 'bg-amber-500/15 text-amber-500 border border-amber-500/30', dot: 'bg-amber-400', label: 'WARNING' },
-  INFO: { badge: 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30', dot: 'bg-indigo-400', label: 'INFO' },
+  INFO: { badge: 'bg-slate-500/10 text-slate-500 border border-slate-500/30', dot: 'bg-slate-400', label: 'INFO' },
 }
 
 function NotificationFeed({
@@ -298,8 +298,8 @@ const PROPOSAL_TYPE_LABEL: Record<string, string> = {
   regime_adjustment: 'Regime Adjust',
 }
 const PROPOSAL_TYPE_STYLE: Record<string, string> = {
-  parameter_change: 'bg-indigo-500/15 text-indigo-400',
-  code_change: 'bg-violet-500/15 text-violet-400',
+  parameter_change: 'bg-slate-500/10 text-slate-500',
+  code_change: 'bg-slate-500/10 text-slate-500',
   regime_adjustment: 'bg-amber-500/15 text-amber-500',
 }
 
@@ -315,12 +315,12 @@ function ProposalsFeed({
     <div className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-violet-500" />
+          <Brain className="h-4 w-4 text-slate-500" />
           <p className={sectionTitleClass}>Strategy Proposals</p>
         </div>
         <div className="flex items-center gap-2">
           {pending.length > 0 && (
-            <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-bold text-white">{pending.length} pending</span>
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-900 dark:bg-slate-700 dark:text-slate-100">{pending.length} pending</span>
           )}
           <p className={mutedClass}>{proposals.length} total</p>
         </div>
@@ -334,7 +334,7 @@ function ProposalsFeed({
               key={proposal.id}
               className={cn(
                 'rounded-lg border p-3 transition-opacity',
-                proposal.status === 'pending' ? 'border-violet-200 dark:border-violet-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
+                proposal.status === 'pending' ? 'border-slate-200 dark:border-slate-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
               )}
             >
               <div className="mb-2 flex items-center gap-2 flex-wrap">
@@ -400,7 +400,7 @@ function MobileNavigation({ section }: { section: Section }) {
             className={cn(
               'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold',
               section === link.key
-                ? 'bg-slate-900 text-slate-100 dark:bg-slate-100 dark:text-slate-900'
+                ? 'bg-slate-900 text-slate-900 dark:bg-slate-100 dark:text-slate-900'
                 : 'text-slate-500 dark:text-slate-400'
             )}
           >
@@ -454,7 +454,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_runs.map((r, i) => (
                     <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
+                      <span className="font-bold text-slate-900 dark:text-slate-900">{String(r.agent_name ?? '--')}</span>
                       {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
                       {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
                     </div>
@@ -468,7 +468,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_logs.map((lg, i) => (
                     <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="text-indigo-500">{String(lg.log_type ?? '--')}</span>
+                      <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
                       {' · '}{String(lg.created_at ?? '')}
                     </div>
                   ))}
@@ -556,7 +556,7 @@ function ProposalsSection() {
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1 min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-xs font-semibold text-indigo-500">
+                    <span className="rounded bg-slate-500/10 px-2 py-0.5 text-xs font-semibold text-slate-500">
                       {p.proposal_type.replace(/_/g, ' ')}
                     </span>
                     {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
@@ -1024,12 +1024,12 @@ export function DashboardView({ section }: { section: Section }) {
                     : '--',
                   colorClass: performanceSummary != null
                     ? performanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                    : 'text-slate-900 dark:text-slate-100',
+                    : 'text-slate-900 dark:text-slate-900',
                 },
                 {
                   label: 'Win Rate',
                   value: performanceSummary != null ? `${(performanceSummary.win_rate * 100).toFixed(1)}%` : '--',
-                  colorClass: 'text-slate-900 dark:text-slate-100',
+                  colorClass: 'text-slate-900 dark:text-slate-900',
                 },
                 {
                   label: 'Best Trade',
@@ -1072,7 +1072,7 @@ export function DashboardView({ section }: { section: Section }) {
                       className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
                     >
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
+                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-900">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-2">
                           <span className={cn('h-1.5 w-1.5 rounded-full', 
                             agent.status === 'Live' ? 'bg-emerald-300' : 
@@ -1087,7 +1087,7 @@ export function DashboardView({ section }: { section: Section }) {
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
-                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">
                           {agent.count} events
                         </p>
                         <p className={mutedClass}>
@@ -1141,7 +1141,7 @@ export function DashboardView({ section }: { section: Section }) {
                         <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
                         <div className={cn('h-2 w-2 rounded-full', hasData ? 'bg-emerald-500' : 'bg-slate-500')} />
                       </div>
-                      <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                      <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-900">
                         {hasData ? formatUSD(price) : '--'}
                       </p>
                       <div className="mt-2 flex items-center justify-between">
@@ -1182,7 +1182,7 @@ export function DashboardView({ section }: { section: Section }) {
 
                   const GRADE_STYLE: Record<string, string> = {
                     A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-                    B: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+                    B: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
                     C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
                     D: 'bg-rose-500/15 text-rose-500',
                     F: 'bg-rose-500/15 text-rose-500',
@@ -1215,7 +1215,7 @@ export function DashboardView({ section }: { section: Section }) {
                         {trade.execution_trace_id && (
                           <button
                             onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
                           >
                             trace:{trade.execution_trace_id.slice(0, 8)}…
                           </button>
@@ -1248,12 +1248,12 @@ export function DashboardView({ section }: { section: Section }) {
                     return (
                       <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
+                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-900">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
                             <button
                               onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
                             >
                               trace:{(log.trace_id as string).slice(0, 8)}…
                             </button>
@@ -1295,15 +1295,15 @@ export function DashboardView({ section }: { section: Section }) {
                       const side = sanitizeValue(position?.side).toUpperCase()
                       return (
                         <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
+                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{sanitizeValue(position?.symbol)}</td>
                           <td className="px-2 py-2">
                             <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
                               {side === '--' ? 'N/A' : side}
                             </span>
                           </td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
                           <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
                             {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
                           </td>
@@ -1404,7 +1404,7 @@ export function DashboardView({ section }: { section: Section }) {
                   ) : (
                     realAgents.map((agent) => (
                       <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-900">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
                           <span className="inline-flex items-center gap-2">
                             <span className={cn(
@@ -1421,8 +1421,8 @@ export function DashboardView({ section }: { section: Section }) {
                           </span>
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
-                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
                       </tr>
                     ))
                   )}
@@ -1457,7 +1457,7 @@ export function DashboardView({ section }: { section: Section }) {
                       const isActive = inst.status === 'active'
                       return (
                         <tr key={inst.id} className="border-t border-slate-200 dark:border-slate-800">
-                          <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-100">{inst.instance_key}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-900">{inst.instance_key}</td>
                           <td className="px-2 py-1.5 text-xs font-sans text-slate-600 dark:text-slate-400">{inst.pool_name}</td>
                           <td className="px-2 py-1.5 text-xs font-sans">
                             <span className="inline-flex items-center gap-1.5">
@@ -1465,7 +1465,7 @@ export function DashboardView({ section }: { section: Section }) {
                               <span className={isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}>{inst.status}</span>
                             </span>
                           </td>
-                          <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-100">{inst.event_count}</td>
+                          <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-900">{inst.event_count}</td>
                           <td className="px-2 py-1.5 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{formatUptime(inst.uptime_seconds)}</td>
                           <td className="px-2 py-1.5 text-xs font-mono text-slate-500">{formatTimestamp(inst.started_at)}</td>
                         </tr>
@@ -1485,10 +1485,10 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
             {[
-              { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-indigo-500' },
-              { label: 'Reflections Completed', value: learningSummary.reflectionsCompleted, Icon: Brain, color: 'text-violet-500' },
-              { label: 'IC Values Updated', value: learningSummary.icValuesUpdated, Icon: Activity, color: 'text-indigo-500' },
-              { label: 'Strategies Tested', value: learningSummary.strategiesTested, Icon: Zap, color: 'text-violet-500' },
+              { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-slate-500' },
+              { label: 'Reflections Completed', value: learningSummary.reflectionsCompleted, Icon: Brain, color: 'text-slate-500' },
+              { label: 'IC Values Updated', value: learningSummary.icValuesUpdated, Icon: Activity, color: 'text-slate-500' },
+              { label: 'Strategies Tested', value: learningSummary.strategiesTested, Icon: Zap, color: 'text-slate-500' },
             ].map((item) => (
               <div key={item.label} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
@@ -1511,7 +1511,7 @@ export function DashboardView({ section }: { section: Section }) {
                     <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
-                        <div className="h-2 rounded-full bg-indigo-500" style={{ width: `${Math.round(weight * 100)}%` }} />
+                        <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.round(weight * 100)}%` }} />
                       </div>
                       <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(weight * 100).toFixed(1)}%</span>
                     </div>
@@ -1536,7 +1536,7 @@ export function DashboardView({ section }: { section: Section }) {
                   <tbody>
                     {gradeHistory.map((g, i) => (
                       <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-900">{g.grade ?? '--'}</td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
                         <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
                       </tr>
@@ -1552,7 +1552,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Win Rate</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`}</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
@@ -1627,7 +1627,7 @@ export function DashboardView({ section }: { section: Section }) {
                       <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
                       <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
                     </div>
-                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
+                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-900">{stat.count}</p>
                   </div>
                 )
               })}
@@ -1643,11 +1643,11 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Messages Received</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{wsMessageCount}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Last Message</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{formatTimestamp(wsLastMessageTimestamp)}</p>
               </div>
             </div>
           </div>
@@ -1660,7 +1660,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
                   <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-indigo-500/15 text-indigo-400' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-slate-500/10 text-slate-500' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
                       {event.stream}
                     </span>
                     <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
@@ -1683,7 +1683,7 @@ export function DashboardView({ section }: { section: Section }) {
                     {persistedCounts.slice(0, 8).map((row) => (
                       <div key={row.stream} className="flex items-center justify-between text-xs font-mono">
                         <span className="text-slate-600 dark:text-slate-300">{row.stream}</span>
-                        <span className="text-slate-900 dark:text-slate-100">{row.processed_count}</span>
+                        <span className="text-slate-900 dark:text-slate-900">{row.processed_count}</span>
                       </div>
                     ))}
                   </div>

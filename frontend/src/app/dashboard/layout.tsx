@@ -84,7 +84,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-900">
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-900 md:static md:translate-x-0',
@@ -92,7 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       >
         <div className="flex h-12 items-center gap-2 border-b border-slate-200 px-4 dark:border-slate-800">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-slate-100">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-slate-900">
             <BarChart3 className="h-4 w-4" />
           </div>
           <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-slate-100">Trading Console</p>
@@ -108,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={cn(
                   'flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-400'
+                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
                     : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                 )}
               >
@@ -134,7 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-1 items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 md:hidden"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-900 md:hidden"
               >
                 <Menu className="h-4 w-4" />
               </button>
@@ -170,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </AlertDialogTrigger>
                   <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <AlertDialogHeader>
-                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
+                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-900">
                         {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
                       </AlertDialogTitle>
                       <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-300">
