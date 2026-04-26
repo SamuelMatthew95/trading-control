@@ -62,6 +62,7 @@ beforeAll(() => {
 
 describe('DashboardView — overview', () => {
   beforeEach(() => {
+    mockStore.wsConnected = false
     mockStore.orders = []
     mockStore.positions = []
     mockStore.agentLogs = []
@@ -99,9 +100,24 @@ describe('DashboardView — overview', () => {
     // The ticker symbols appear after loading completes
     expect(screen.getByText(/Live Market Prices/i)).toBeInTheDocument()
   })
+
+  it('marks system as trading when open positions exist without orders/trade feed', () => {
+    mockStore.wsConnected = true
+    mockStore.positions = [{ side: 'long', pnl: 5.25 }]
+    mockStore.orders = []
+    mockStore.tradeFeed = []
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText(/System Status:\s*trading/i)).toBeInTheDocument()
+  })
 })
 
 describe('DashboardView — trading', () => {
+  beforeEach(() => {
+    mockStore.wsConnected = false
+  })
+
   it('renders without crashing when store is empty', () => {
     expect(() => render(<DashboardView section="trading" />)).not.toThrow()
   })
@@ -114,6 +130,7 @@ describe('DashboardView — trading', () => {
 
 describe('DashboardView — agents', () => {
   beforeEach(() => {
+    mockStore.wsConnected = false
     mockStore.agentStatuses = []
   })
 
