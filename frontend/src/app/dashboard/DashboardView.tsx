@@ -1,12 +1,13 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import {
   Activity,
-  BarChart3,
   Bell,
   Brain,
   CheckCheck,
@@ -93,7 +94,7 @@ type AgentSummary = {
   name: string
   count: number
   lastSeen: Date | null
-  status: 'ACTIVE' | 'IDLE' | 'WAITING' | 'STALE' | 'OFFLINE'
+  status: 'Live' | 'Stale' | 'Error' | 'Idle'
   tier: 'active' | 'challenger' | 'inactive'
   source: 'heartbeat' | 'instance' | 'log' | 'mixed'
 }
@@ -128,14 +129,46 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(cast) ? cast : null
 }
 
+function isClosedTrade(order: Record<string, unknown> | null | undefined): boolean {
+  if (!order) return false
+  const status = String(order.status ?? '').toLowerCase()
+  if (status === 'filled' || status === 'closed' || status === 'executed' || status === 'completed') return true
+  if (order.filled_at != null) return true
+  return false
+}
+
+function parseTimestamp(value: unknown): Date | null {
+  if (value == null) return null
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+  if (typeof value === 'number') {
+    const ms = value > 10_000_000_000 ? value : value * 1000
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const raw = String(value).trim()
+  if (!raw) return null
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const num = Number(raw)
+    if (Number.isFinite(num)) {
+      const ms = num > 10_000_000_000 ? num : num * 1000
+      const d = new Date(ms)
+      if (!Number.isNaN(d.getTime())) return d
+    }
+  }
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function canonicalAgentKey(name: string): string {
+  return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
+}
+
 function normalizeAgentStatus(value: string): AgentSummary['status'] {
   const raw = String(value || '').toUpperCase()
-  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'ACTIVE'
-  if (raw === 'IDLE') return 'IDLE'
-  if (raw === 'STALE') return 'STALE'
-  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'OFFLINE'
-  if (raw === 'STARTING' || raw === 'INITIALIZING' || raw === 'PENDING') return 'WAITING'
-  return 'WAITING'
+  if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'Live'
+  if (raw === 'STALE') return 'Stale'
+  if (raw === 'OFFLINE' || raw === 'ERROR' || raw === 'FAILED') return 'Error'
+  return 'Idle'
 }
 
 function pickHigherPriorityStatus(
@@ -144,11 +177,10 @@ function pickHigherPriorityStatus(
 ): AgentSummary['status'] {
   if (!current) return incoming
   const priority: Record<AgentSummary['status'], number> = {
-    ACTIVE: 0,
-    IDLE: 1,
-    STALE: 2,
-    WAITING: 3,
-    OFFLINE: 4,
+    Live: 0,
+    Stale: 1,
+    Error: 2,
+    Idle: 3,
   }
   return priority[incoming] < priority[current] ? incoming : current
 }
@@ -158,13 +190,10 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
   return toFiniteNumber(match?.value)
 }
 
-function EmptyState({ message, icon: Icon }: { message: string; icon: ComponentType<{ className?: string }> }) {
+function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
   return (
     <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <Icon className="h-5 w-5 text-slate-400" />
-        <p className="text-sm font-sans text-slate-400">{message}</p>
-      </div>
+      <p className="text-sm font-sans text-slate-400">{message}</p>
     </div>
   )
 }
@@ -182,57 +211,20 @@ function PriceCardSkeleton() {
   )
 }
 
-function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
-  const points = useMemo(() => {
-    let running = 0
-    return orders.map((order, index) => {
-      running += toFiniteNumber(order?.pnl) ?? 0
-      return { x: index, y: running }
-    })
-  }, [orders])
-
-  if (points.length === 0) {
-    return <EmptyState message="No equity data yet" icon={BarChart3} />
-  }
-
-  const maxY = Math.max(...points.map((point) => point.y), 0)
-  const minY = Math.min(...points.map((point) => point.y), 0)
-  const range = maxY - minY || 1
-  const chartPoints = points
-    .map((point, index) => {
-      const x = (index / Math.max(points.length - 1, 1)) * 100
-      const y = 100 - ((point.y - minY) / range) * 100
-      return `${x},${y}`
-    })
-    .join(' ')
-
-  return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <svg viewBox="0 0 100 100" className="h-48 w-full">
-        <polyline
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="text-emerald-500"
-          points={chartPoints}
-        />
-      </svg>
-    </div>
-  )
-}
-
 const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: string }> = {
   CRITICAL: { badge: 'bg-rose-500/15 text-rose-500 border border-rose-500/30', dot: 'bg-rose-500 animate-pulse', label: 'CRITICAL' },
   URGENT: { badge: 'bg-orange-500/15 text-orange-500 border border-orange-500/30', dot: 'bg-orange-500', label: 'URGENT' },
   WARNING: { badge: 'bg-amber-500/15 text-amber-500 border border-amber-500/30', dot: 'bg-amber-400', label: 'WARNING' },
-  INFO: { badge: 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30', dot: 'bg-indigo-400', label: 'INFO' },
+  INFO: { badge: 'bg-slate-500/10 text-slate-500 border border-slate-500/30', dot: 'bg-slate-400', label: 'INFO' },
 }
 
 function NotificationFeed({
   notifications,
+  wsConnected,
   onAcknowledge,
 }: {
   notifications: Notification[]
+  wsConnected: boolean
   onAcknowledge: (id: string) => void
 }) {
   const unread = notifications.filter((n) => !n.acknowledged)
@@ -251,7 +243,7 @@ function NotificationFeed({
         </div>
       </div>
       {notifications.length === 0 ? (
-        <EmptyState message="No notifications yet" icon={Bell} />
+        <EmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
       ) : (
         <div className="max-h-72 space-y-2 overflow-y-auto">
           {notifications.map((notif) => {
@@ -304,8 +296,8 @@ const PROPOSAL_TYPE_LABEL: Record<string, string> = {
   regime_adjustment: 'Regime Adjust',
 }
 const PROPOSAL_TYPE_STYLE: Record<string, string> = {
-  parameter_change: 'bg-indigo-500/15 text-indigo-400',
-  code_change: 'bg-violet-500/15 text-violet-400',
+  parameter_change: 'bg-slate-500/10 text-slate-500',
+  code_change: 'bg-slate-500/10 text-slate-500',
   regime_adjustment: 'bg-amber-500/15 text-amber-500',
 }
 
@@ -321,12 +313,12 @@ function ProposalsFeed({
     <div className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-violet-500" />
+          <Brain className="h-4 w-4 text-slate-500" />
           <p className={sectionTitleClass}>Strategy Proposals</p>
         </div>
         <div className="flex items-center gap-2">
           {pending.length > 0 && (
-            <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-bold text-white">{pending.length} pending</span>
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-900 dark:bg-slate-700 dark:text-slate-100">{pending.length} pending</span>
           )}
           <p className={mutedClass}>{proposals.length} total</p>
         </div>
@@ -340,7 +332,7 @@ function ProposalsFeed({
               key={proposal.id}
               className={cn(
                 'rounded-lg border p-3 transition-opacity',
-                proposal.status === 'pending' ? 'border-violet-200 dark:border-violet-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
+                proposal.status === 'pending' ? 'border-slate-200 dark:border-slate-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
               )}
             >
               <div className="mb-2 flex items-center gap-2 flex-wrap">
@@ -389,29 +381,31 @@ function ProposalsFeed({
 }
 
 function MobileNavigation({ section }: { section: Section }) {
-  const links: { key: Section; label: string }[] = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'trading', label: 'Trading' },
-    { key: 'agents', label: 'Agents' },
-    { key: 'learning', label: 'Learning' },
-    { key: 'system', label: 'System' },
+  const links: { key: Section; label: string; href: string }[] = [
+    { key: 'overview', label: 'Overview', href: '/dashboard' },
+    { key: 'trading', label: 'Trading', href: '/dashboard/trading' },
+    { key: 'agents', label: 'Agents', href: '/dashboard/agents' },
+    { key: 'learning', label: 'Learning', href: '/dashboard/learning' },
+    { key: 'system', label: 'System', href: '/dashboard/system' },
   ]
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-100/95 px-2 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
       <div className="mx-auto grid max-w-7xl grid-cols-5 gap-1">
         {links.map((link) => (
-          <div
+          <Link
             key={link.key}
+            href={link.href}
+            aria-current={section === link.key ? 'page' : undefined}
             className={cn(
-              'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold',
+              'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold transition-colors',
               section === link.key
                 ? 'bg-slate-900 text-slate-100 dark:bg-slate-100 dark:text-slate-900'
-                : 'text-slate-500 dark:text-slate-400'
+                : 'text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
             )}
           >
             {link.label}
-          </div>
+          </Link>
         ))}
       </div>
     </nav>
@@ -474,7 +468,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_logs.map((lg, i) => (
                     <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="text-indigo-500">{String(lg.log_type ?? '--')}</span>
+                      <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
                       {' · '}{String(lg.created_at ?? '')}
                     </div>
                   ))}
@@ -562,7 +556,7 @@ function ProposalsSection() {
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1 min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-xs font-semibold text-indigo-500">
+                    <span className="rounded bg-slate-500/10 px-2 py-0.5 text-xs font-semibold text-slate-500">
                       {p.proposal_type.replace(/_/g, ' ')}
                     </span>
                     {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
@@ -845,12 +839,18 @@ export function DashboardView({ section }: { section: Section }) {
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
     const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
-    const wins = orders.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
-    const winRate = orders.length > 0 ? (wins / orders.length) * 100 : null
+    const closedTrades = orders.filter((order) => isClosedTrade(order) && toFiniteNumber(order?.pnl) != null)
+    const wins = closedTrades.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
+    const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : null
     const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
     const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
     const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
-    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard
+    const baseEquity = getMetric(systemMetrics, 'portfolio_value')
+      ?? getMetric(systemMetrics, 'account_equity')
+      ?? getMetric(systemMetrics, 'equity')
+      ?? getMetric(systemMetrics, 'starting_equity')
+    const computedDailyChange = baseEquity && baseEquity > 0 ? (dailyPnlNumeric / baseEquity) * 100 : null
+    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard ?? computedDailyChange
 
     return {
       dailyPnlNumeric,
@@ -858,68 +858,87 @@ export function DashboardView({ section }: { section: Section }) {
       activePositions,
       dailyChange,
       hasOrders: orders.length > 0,
+      hasClosedTrades: closedTrades.length > 0,
     }
   }, [orders, positions, systemMetrics, dashboardData])
 
+  const fallbackPerformanceSummary = useMemo(() => {
+    const closedPnls = orders
+      .filter((order) => isClosedTrade(order))
+      .map((order) => toFiniteNumber(order?.pnl))
+      .filter((pnl): pnl is number => pnl != null)
+    if (closedPnls.length === 0) return null
+    const total = closedPnls.reduce((sum, pnl) => sum + pnl, 0)
+    const wins = closedPnls.filter((pnl) => pnl > 0)
+    return {
+      total_pnl: total,
+      win_rate: wins.length / closedPnls.length,
+      best_trade: Math.max(...closedPnls),
+      worst_trade: Math.min(...closedPnls),
+    }
+  }, [orders])
+
+  const resolvedPerformanceSummary = performanceSummary ?? fallbackPerformanceSummary
+
   const realAgents = useMemo(() => {
-    const grouped = agentLogs.reduce<Record<string, { count: number; lastSeen: Date | null }>>((acc, log) => {
+    const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
       const name = sanitizeValue(log?.agent_name || log?.agent)
       if (name === '--') return acc
-      const timestamp = new Date(String(log?.timestamp || log?.created_at || ''))
-      const safeDate = Number.isNaN(timestamp.getTime()) ? null : timestamp
-      const existing = acc[name] ?? { count: 0, lastSeen: null }
+      const agentKey = canonicalAgentKey(name)
+      const safeDate = parseTimestamp(log?.timestamp || log?.created_at)
+      const existing = acc[agentKey] ?? { displayName: name, count: 0, lastSeen: null }
       const newest = !existing.lastSeen || (safeDate && safeDate > existing.lastSeen) ? safeDate : existing.lastSeen
-      acc[name] = { count: existing.count + 1, lastSeen: newest }
+      acc[agentKey] = { displayName: existing.displayName, count: existing.count + 1, lastSeen: newest }
       return acc
     }, {})
 
     const now = Date.now()
-    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([name, data]) => {
+    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'ACTIVE' : 'IDLE'
-      const tier: AgentSummary['tier'] = status === 'ACTIVE' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
-      return { name, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
+      const status: AgentSummary['status'] = data.lastSeen == null && data.count > 0 ? 'Stale' : ageMs < 5 * 60 * 1000 ? 'Live' : 'Idle'
+      const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
+      return { name: data.displayName, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
     })
 
-    const normalizedByName = new Map(incomingAgents.map((agent) => [agent.name, agent]))
+    const normalizedByName = new Map(incomingAgents.map((agent) => [canonicalAgentKey(agent.name), agent]))
     for (const status of agentStatuses) {
-      const existing = normalizedByName.get(status.name)
-      const parsedLastEvent = status.last_event ? new Date(status.last_event) : null
-      const statusDate = parsedLastEvent && !Number.isNaN(parsedLastEvent.getTime()) ? parsedLastEvent : null
-      const mappedStatus = normalizeAgentStatus(status.status)
+      const agentKey = canonicalAgentKey(status.name)
+      const existing = normalizedByName.get(agentKey)
+      const statusDate = parseTimestamp(status.last_event)
+      const isDormant = (status.event_count ?? 0) === 0 && statusDate == null
+      const mappedStatus = isDormant ? 'Idle' : normalizeAgentStatus(status.status)
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
-      normalizedByName.set(status.name, {
-        name: status.name,
+      normalizedByName.set(agentKey, {
+        name: existing?.name ?? status.name,
         count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
         lastSeen: statusDate ?? existing?.lastSeen ?? null,
         status: mergedStatus,
-        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
         source: existing ? 'mixed' : 'heartbeat',
       })
     }
 
     for (const inst of agentInstances) {
-      const existing = normalizedByName.get(inst.pool_name)
-      const startedAt = inst.started_at ? new Date(inst.started_at) : null
-      const startedDate = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null
-      const mappedStatus = inst.status === 'active' ? 'ACTIVE' : 'OFFLINE'
+      const agentKey = canonicalAgentKey(inst.pool_name)
+      const existing = normalizedByName.get(agentKey)
+      const startedDate = parseTimestamp(inst.started_at)
+      const mappedStatus = inst.status === 'active' ? 'Live' : 'Idle'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
-      normalizedByName.set(inst.pool_name, {
-        name: inst.pool_name,
+      normalizedByName.set(agentKey, {
+        name: existing?.name ?? inst.pool_name,
         count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
         lastSeen: existing?.lastSeen ?? startedDate ?? null,
         status: mergedStatus,
-        tier: mergedStatus === 'ACTIVE' ? 'active' : mergedStatus === 'OFFLINE' ? 'inactive' : 'challenger',
+        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
         source: existing ? 'mixed' : 'instance',
       })
     }
 
     const priority: Record<AgentSummary['status'], number> = {
-      ACTIVE: 0,
-      IDLE: 1,
-      STALE: 2,
-      WAITING: 3,
-      OFFLINE: 4,
+      Live: 0,
+      Stale: 1,
+      Error: 2,
+      Idle: 3,
     }
 
     return Array.from(normalizedByName.values()).sort((a, b) => {
@@ -1006,7 +1025,7 @@ export function DashboardView({ section }: { section: Section }) {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
               { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
-              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`, trend: 0 },
+              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
               { title: 'Daily Change %', value: summary.dailyChange == null ? 'N/A' : `${sanitizeValue(summary.dailyChange.toFixed(2))}%`, trend: summary.dailyChange == null ? 0 : summary.dailyChange > 0 ? 1 : summary.dailyChange < 0 ? -1 : 0 },
             ].map((item) => (
@@ -1026,26 +1045,26 @@ export function DashboardView({ section }: { section: Section }) {
               {[
                 {
                   label: 'Total P&L',
-                  value: performanceSummary != null
-                    ? `${performanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(performanceSummary.total_pnl)}`
+                  value: resolvedPerformanceSummary != null
+                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
                     : '--',
-                  colorClass: performanceSummary != null
-                    ? performanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                  colorClass: resolvedPerformanceSummary != null
+                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
                     : 'text-slate-900 dark:text-slate-100',
                 },
                 {
                   label: 'Win Rate',
-                  value: performanceSummary != null ? `${(performanceSummary.win_rate * 100).toFixed(1)}%` : '--',
+                  value: resolvedPerformanceSummary != null ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
                   colorClass: 'text-slate-900 dark:text-slate-100',
                 },
                 {
                   label: 'Best Trade',
-                  value: performanceSummary != null ? `+${formatUSD(performanceSummary.best_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? `+${formatUSD(resolvedPerformanceSummary.best_trade)}` : '--',
                   colorClass: 'text-emerald-500',
                 },
                 {
                   label: 'Worst Trade',
-                  value: performanceSummary != null ? `-${formatUSD(performanceSummary.worst_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? `-${formatUSD(resolvedPerformanceSummary.worst_trade)}` : '--',
                   colorClass: 'text-rose-500',
                 },
               ].map((cell) => (
@@ -1070,7 +1089,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <p className={mutedClass}>{sanitizeValue(realAgents.length)}</p>
               </div>
               {realAgents.length === 0 ? (
-                <EmptyState message="No agent data available" icon={Activity} />
+                <EmptyState message="No active agents" />
               ) : (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {realAgents.map((agent) => (
@@ -1081,17 +1100,15 @@ export function DashboardView({ section }: { section: Section }) {
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-2">
-                          <span className={cn('h-2 w-2 rounded-full', 
-                            agent.status === 'ACTIVE' ? 'animate-pulse bg-emerald-500' : 
-                            agent.status === 'IDLE' ? 'bg-amber-500' :
-                            agent.status === 'STALE' ? 'bg-orange-500' :
-                            agent.status === 'OFFLINE' ? 'bg-rose-500' : 'bg-slate-500'
+                          <span className={cn('h-1.5 w-1.5 rounded-full', 
+                            agent.status === 'Live' ? 'bg-emerald-300' : 
+                            agent.status === 'Stale' ? 'bg-amber-300' :
+                            agent.status === 'Error' ? 'bg-rose-300' : 'bg-slate-400'
                           )} />
                           <span className={cn('text-xs font-sans font-medium',
-                            agent.status === 'ACTIVE' ? 'text-emerald-500' : 
-                            agent.status === 'IDLE' ? 'text-amber-500' :
-                            agent.status === 'STALE' ? 'text-orange-500' :
-                            agent.status === 'OFFLINE' ? 'text-rose-500' : 'text-slate-500'
+                            agent.status === 'Live' ? 'text-emerald-300' : 
+                            agent.status === 'Stale' ? 'text-amber-300' :
+                            agent.status === 'Error' ? 'text-rose-300' : 'text-slate-400'
                           )}>{agent.status}</span>
                         </div>
                       </div>
@@ -1140,7 +1157,8 @@ export function DashboardView({ section }: { section: Section }) {
                 tickerEntries.map(([symbol, priceData]) => {
                   const price = toFiniteNumber(priceData?.price)
                   const previous = toFiniteNumber(priceData?.previousPrice)
-                  const change = price != null && previous != null ? price - previous : null
+                  const observedChange = toFiniteNumber(priceData?.change)
+                  const change = observedChange ?? (price != null && previous != null ? price - previous : null)
                   const isPositive = (change ?? 0) >= 0
                   const hasData = price != null && !isNaN(price)
                   
@@ -1178,7 +1196,7 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={mutedClass}>{tradeFeed.length} fills</p>
             </div>
             {tradeFeed.length === 0 ? (
-              <EmptyState message="No fills yet — paper trades execute continuously" icon={Activity} />
+              <EmptyState message="No orders today" />
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-1">
                 {tradeFeed.slice(0, 50).map((trade) => {
@@ -1191,7 +1209,7 @@ export function DashboardView({ section }: { section: Section }) {
 
                   const GRADE_STYLE: Record<string, string> = {
                     A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-                    B: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+                    B: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
                     C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
                     D: 'bg-rose-500/15 text-rose-500',
                     F: 'bg-rose-500/15 text-rose-500',
@@ -1224,7 +1242,7 @@ export function DashboardView({ section }: { section: Section }) {
                         {trade.execution_trace_id && (
                           <button
                             onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
                           >
                             trace:{trade.execution_trace_id.slice(0, 8)}…
                           </button>
@@ -1246,7 +1264,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             </div>
             {agentLogs.length === 0 ? (
-              <EmptyState message="No agent activity yet" icon={Activity} />
+              <EmptyState message="No active agents" />
             ) : (
               <div className="relative max-h-80 overflow-y-auto">
                 <div className="space-y-2">
@@ -1262,7 +1280,7 @@ export function DashboardView({ section }: { section: Section }) {
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
                             <button
                               onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950 transition-colors"
+                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
                             >
                               trace:{(log.trace_id as string).slice(0, 8)}…
                             </button>
@@ -1294,7 +1312,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No open positions" icon={BarChart3} /></td>
+                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No orders today" /></td>
                     </tr>
                   ) : (
                     positions.map((position, index) => {
@@ -1408,7 +1426,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {showNoAgentDataMessage ? (
                     <tr>
-                      <td colSpan={5} className="px-2 py-8"><EmptyState message="No agent data available" icon={Activity} /></td>
+                      <td colSpan={5} className="px-2 py-8"><EmptyState message="No active agents" /></td>
                     </tr>
                   ) : (
                     realAgents.map((agent) => (
@@ -1418,17 +1436,15 @@ export function DashboardView({ section }: { section: Section }) {
                           <span className="inline-flex items-center gap-2">
                             <span className={cn(
                               'h-2 w-2 rounded-full',
-                              agent.status === 'ACTIVE'
-                                ? 'animate-pulse bg-emerald-500'
-                                : agent.status === 'IDLE'
-                                  ? 'bg-amber-500'
-                                  : agent.status === 'STALE'
-                                    ? 'bg-orange-500'
-                                    : agent.status === 'OFFLINE'
-                                      ? 'bg-rose-500'
-                                      : 'bg-slate-500',
+                              agent.status === 'Live'
+                                ? 'bg-emerald-300'
+                                : agent.status === 'Stale'
+                                  ? 'bg-amber-300'
+                                  : agent.status === 'Error'
+                                    ? 'bg-rose-300'
+                                    : 'bg-slate-400',
                             )} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status.toLowerCase()}</span>
+                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
@@ -1446,7 +1462,7 @@ export function DashboardView({ section }: { section: Section }) {
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Instances</p>
             {agentInstances.length === 0 ? (
               <div className="space-y-2">
-                <EmptyState message="No instances registered yet" icon={Activity} />
+                <EmptyState message="No instances registered yet" />
                 {agentStatuses.some((agent) => String(agent.status).toUpperCase() === 'ACTIVE') && (
                   <p className="text-xs font-sans text-amber-600 dark:text-amber-400">
                     Agents are reporting ACTIVE heartbeats, but no lifecycle records were returned. Check agent_instances DB writes.
@@ -1488,7 +1504,7 @@ export function DashboardView({ section }: { section: Section }) {
             )}
           </div>
 
-          <NotificationFeed notifications={notifications} onAcknowledge={acknowledgeNotification} />
+          <NotificationFeed notifications={notifications} wsConnected={wsConnected} onAcknowledge={acknowledgeNotification} />
         </div>
       )}
 
@@ -1496,10 +1512,10 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
             {[
-              { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-indigo-500' },
-              { label: 'Reflections Completed', value: learningSummary.reflectionsCompleted, Icon: Brain, color: 'text-violet-500' },
-              { label: 'IC Values Updated', value: learningSummary.icValuesUpdated, Icon: Activity, color: 'text-indigo-500' },
-              { label: 'Strategies Tested', value: learningSummary.strategiesTested, Icon: Zap, color: 'text-violet-500' },
+              { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-slate-500' },
+              { label: 'Reflections Completed', value: learningSummary.reflectionsCompleted, Icon: Brain, color: 'text-slate-500' },
+              { label: 'IC Values Updated', value: learningSummary.icValuesUpdated, Icon: Activity, color: 'text-slate-500' },
+              { label: 'Strategies Tested', value: learningSummary.strategiesTested, Icon: Zap, color: 'text-slate-500' },
             ].map((item) => (
               <div key={item.label} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
@@ -1522,7 +1538,7 @@ export function DashboardView({ section }: { section: Section }) {
                     <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
-                        <div className="h-2 rounded-full bg-indigo-500" style={{ width: `${Math.round(weight * 100)}%` }} />
+                        <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.round(weight * 100)}%` }} />
                       </div>
                       <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(weight * 100).toFixed(1)}%</span>
                     </div>
@@ -1666,12 +1682,12 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
             {recentEvents.length === 0 ? (
-              <EmptyState message="No websocket events yet" icon={Activity} />
+              <EmptyState message={wsConnected ? 'No websocket events yet' : 'Stream disconnected'} />
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
                   <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-indigo-500/15 text-indigo-400' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', event.stream === 'market_ticks' ? 'bg-emerald-500/15 text-emerald-500' : event.stream === 'signals' ? 'bg-slate-500/10 text-slate-500' : event.stream === 'orders' ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-400')}>
                       {event.stream}
                     </span>
                     <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
