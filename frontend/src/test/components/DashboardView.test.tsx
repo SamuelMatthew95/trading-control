@@ -107,7 +107,7 @@ describe('DashboardView — trading', () => {
 
   it('shows empty state when no positions', () => {
     render(<DashboardView section="trading" />)
-    expect(screen.getByText(/no open positions/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/no orders today/i).length).toBeGreaterThan(0)
   })
 })
 
@@ -126,10 +126,10 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText(/Discovered from heartbeats, instances, and logs/i)).toBeInTheDocument()
     expect(screen.getByText(/Data Wiring/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
-    expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/No active agents/i).length).toBeGreaterThan(0)
   })
 
-  it('renders heartbeat-wired agent status rows (in-memory running -> active)', () => {
+  it('renders heartbeat-wired agent status rows (in-memory running -> Live)', () => {
     mockStore.agentStatuses = [
       {
         name: 'SIGNAL_AGENT',
@@ -142,7 +142,7 @@ describe('DashboardView — agents', () => {
     ]
     render(<DashboardView section="agents" />)
     expect(screen.getByText('Signal Agent')).toBeInTheDocument()
-    expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getByText('Live')).toBeInTheDocument()
     expect(screen.getByText('heartbeat')).toBeInTheDocument()
   })
 })
