@@ -42,6 +42,7 @@ class BaseStreamConsumer(ABC):
         self._shutdown_event = asyncio.Event()
         self._backoff = 1  # Exponential backoff state
         self._max_backoff = 10  # Maximum backoff in seconds
+        self._instance_id: str | None = None
 
     # ------------------------------------------------------------------
     # Public introspection — used by AgentSupervisor to detect crashes
@@ -76,6 +77,24 @@ class BaseStreamConsumer(ABC):
         self._running = True
         self._shutdown_event.clear()
         self._backoff = 1  # Reset backoff
+        try:
+            from api.services.agents.db_helpers import (
+                register_agent_instance,
+                write_agent_lifecycle_event,
+            )
+
+            self._instance_id = await register_agent_instance(
+                instance_key=self.consumer,
+                pool_name=self.consumer,
+            )
+            await write_agent_lifecycle_event(
+                pool_name=self.consumer,
+                instance_id=self._instance_id,
+                lifecycle_phase="started",
+                details={"stream": self.stream},
+            )
+        except Exception:
+            log_structured("warning", "consumer_instance_register_failed", exc_info=True)
 
         self._task = asyncio.create_task(self._run(), name=f"consumer:{self.stream}")
         if self.agent_state:
@@ -105,6 +124,22 @@ class BaseStreamConsumer(ABC):
         except Exception:
             log_structured("warning", "Redis connection error during consume", stream=self.stream)
         finally:
+            if self._instance_id:
+                try:
+                    from api.services.agents.db_helpers import (
+                        retire_agent_instance,
+                        write_agent_lifecycle_event,
+                    )
+
+                    await retire_agent_instance(self._instance_id)
+                    await write_agent_lifecycle_event(
+                        pool_name=self.consumer,
+                        instance_id=self._instance_id,
+                        lifecycle_phase="stopped",
+                        details={"stream": self.stream},
+                    )
+                except Exception:
+                    log_structured("warning", "consumer_instance_retire_failed", exc_info=True)
             self._task = None
             log_structured("info", "Consumer stopped", stream=self.stream)
 
@@ -198,6 +233,18 @@ class BaseStreamConsumer(ABC):
                     stream=self.stream,
                     exc_info=True,
                 )
+                if self._instance_id:
+                    try:
+                        from api.services.agents.db_helpers import write_agent_lifecycle_event
+
+                        await write_agent_lifecycle_event(
+                            pool_name=self.consumer,
+                            instance_id=self._instance_id,
+                            lifecycle_phase="recovered",
+                            details={"stream": self.stream},
+                        )
+                    except Exception:
+                        pass
 
                 # Implement exponential backoff with shutdown check
                 if not await self._backoff_and_check_shutdown():
@@ -218,6 +265,18 @@ class BaseStreamConsumer(ABC):
                     stream=self.stream,
                     exc_info=True,
                 )
+                if self._instance_id:
+                    try:
+                        from api.services.agents.db_helpers import write_agent_lifecycle_event
+
+                        await write_agent_lifecycle_event(
+                            pool_name=self.consumer,
+                            instance_id=self._instance_id,
+                            lifecycle_phase="crashed",
+                            details={"stream": self.stream},
+                        )
+                    except Exception:
+                        pass
                 raise
 
         log_structured("info", "Consumer loop ended", stream=self.stream)

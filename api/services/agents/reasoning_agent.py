@@ -222,6 +222,10 @@ class ReasoningAgent(BaseStreamConsumer):
                 "type": "agent_log",
                 "msg_id": str(uuid.uuid4()),
                 "source": SOURCE_REASONING,
+                "agent_name": AGENT_REASONING,
+                "confidence_score": float(summary.get(FieldName.CONFIDENCE) or 0.0) * 100.0,
+                "reasoning": str(summary.get(FieldName.PRIMARY_EDGE) or "reasoning decision"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 **summary,
             },
         )
@@ -253,6 +257,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.PRICE: float(
                     data.get(FieldName.PRICE, data.get(FieldName.LAST_PRICE, 0.0))
                 ),
+                "session_id": strategy_id,
                 FieldName.TIMESTAMP: data.get(
                     FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat()
                 ),

@@ -128,6 +128,54 @@ async def test_upsert_trade_lifecycle_memory_mode_dedups_on_execution_trace_id()
     # The original fill data must still be present (merge not overwrite)
     assert row["entry_price"] == pytest.approx(50000.0)
     assert row["qty"] == pytest.approx(0.1)
+    # Grade/update upserts must not create a random extra order row.
+    assert len(get_runtime_store().orders) == 1
+
+
+async def test_upsert_trade_lifecycle_memory_mode_preserves_null_pnl_and_session():
+    """Opening fills should keep pnl/pnl_percent as None and carry session_id."""
+    await upsert_trade_lifecycle(
+        execution_trace_id="trace-open",
+        symbol="BTC/USD",
+        side="buy",
+        qty=0.2,
+        entry_price=50000.0,
+        exit_price=None,
+        pnl=None,
+        pnl_percent=None,
+        order_id="ord-open",
+        status="filled",
+        session_id="sess-123",
+    )
+
+    order = get_runtime_store().orders[0]
+    assert order["pnl"] is None
+    assert order["pnl_percent"] is None
+    assert order["session_id"] == "sess-123"
+
+    row = get_runtime_store().trade_feed[0]
+    assert row["pnl"] is None
+    assert row["pnl_percent"] is None
+    assert row["session_id"] == "sess-123"
+
+
+async def test_upsert_trade_lifecycle_memory_mode_normalizes_status_case():
+    """Memory rows should treat FILLED/filled consistently for downstream consumers."""
+    await upsert_trade_lifecycle(
+        execution_trace_id="trace-case",
+        symbol="ETH/USD",
+        side="sell",
+        qty=1.0,
+        entry_price=3000.0,
+        exit_price=3025.0,
+        order_id="ord-case",
+        status="FILLED",
+    )
+
+    order = get_runtime_store().orders[0]
+    row = get_runtime_store().trade_feed[0]
+    assert order["status"] == "filled"
+    assert row["status"] == "filled"
 
 
 async def test_write_agent_log_memory_mode_populates_agent_logs():
