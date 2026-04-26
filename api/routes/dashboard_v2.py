@@ -1549,7 +1549,7 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
     Returns ``None`` for malformed rows so the endpoint doesn't surface partial
     debug payloads as real trades.
     """
-    trade_id = raw.get("id") or raw.get("execution_trace_id") or raw.get(FieldName.ORDER_ID)
+    trade_id = raw.get("id") or raw.get(FieldName.EXECUTION_TRACE_ID) or raw.get(FieldName.ORDER_ID)
     symbol = raw.get(FieldName.SYMBOL)
     side = raw.get(FieldName.SIDE)
     if not trade_id or not symbol or not side:
@@ -1582,19 +1582,19 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
         if raw.get(FieldName.PNL_PERCENT) is not None
         else None,
         "order_id": str(raw[FieldName.ORDER_ID]) if raw.get(FieldName.ORDER_ID) else None,
-        "execution_trace_id": raw.get("execution_trace_id"),
-        "signal_trace_id": raw.get("signal_trace_id"),
+        FieldName.EXECUTION_TRACE_ID: raw.get(FieldName.EXECUTION_TRACE_ID),
+        FieldName.SIGNAL_TRACE_ID: raw.get(FieldName.SIGNAL_TRACE_ID),
         "grade": raw.get(FieldName.GRADE),
         "grade_score": float(raw[FieldName.GRADE_SCORE])
         if raw.get(FieldName.GRADE_SCORE) is not None
         else None,
-        "grade_label": raw.get("grade_label"),
+        FieldName.GRADE_LABEL: raw.get(FieldName.GRADE_LABEL),
         "status": raw.get(FieldName.STATUS) or "filled",
         "filled_at": _as_iso(raw.get(FieldName.FILLED_AT)),
-        "graded_at": _as_iso(raw.get("graded_at")),
-        "reflected_at": _as_iso(raw.get("reflected_at")),
+        FieldName.GRADED_AT: _as_iso(raw.get(FieldName.GRADED_AT)),
+        FieldName.REFLECTED_AT: _as_iso(raw.get(FieldName.REFLECTED_AT)),
         "created_at": _as_iso(raw.get(FieldName.CREATED_AT)),
-        "session_id": raw.get("session_id"),
+        FieldName.SESSION_ID: raw.get(FieldName.SESSION_ID),
     }
 
 
@@ -1610,7 +1610,7 @@ def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> 
         if normalized is not None
     ]
     if session_id:
-        trades = [t for t in trades if str(t.get("session_id") or "") == session_id]
+        trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
     trades = trades[:safe_limit]
     return {
         "trades": trades,
@@ -1664,22 +1664,22 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                 "pnl": round(pnl, 2) if pnl is not None else None,
                 "pnl_percent": round(pnl_pct, 4) if pnl_pct is not None else None,
                 "order_id": str(row[8]) if row[8] else None,
-                "execution_trace_id": row[9],
-                "signal_trace_id": row[10],
+                FieldName.EXECUTION_TRACE_ID: row[9],
+                FieldName.SIGNAL_TRACE_ID: row[10],
                 "grade": row[11],
                 "grade_score": float(row[12]) if row[12] is not None else None,
-                "grade_label": row[13],
+                FieldName.GRADE_LABEL: row[13],
                 "status": row[14],
                 "filled_at": row[15].isoformat() if row[15] else None,
-                "graded_at": row[16].isoformat() if row[16] else None,
-                "reflected_at": row[17].isoformat() if row[17] else None,
+                FieldName.GRADED_AT: row[16].isoformat() if row[16] else None,
+                FieldName.REFLECTED_AT: row[17].isoformat() if row[17] else None,
                 "created_at": row[18].isoformat() if row[18] else None,
-                "session_id": row[19],
+                FieldName.SESSION_ID: row[19],
             }
 
         trades = [_fmt(r) for r in rows]
         if session_id:
-            trades = [t for t in trades if str(t.get("session_id") or "") == session_id]
+            trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
 
         # Backward compatibility: if trade_lifecycle is empty, surface filled orders.
         if not trades:
@@ -1716,21 +1716,21 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                             "pnl": None,
                             "pnl_percent": None,
                             "order_id": str(row[0]),
-                            "execution_trace_id": row[6],
-                            "signal_trace_id": None,
+                            FieldName.EXECUTION_TRACE_ID: row[6],
+                            FieldName.SIGNAL_TRACE_ID: None,
                             "grade": None,
                             "grade_score": None,
-                            "grade_label": None,
+                            FieldName.GRADE_LABEL: None,
                             "status": row[5],
                             "filled_at": row[8].isoformat() if row[8] else None,
-                            "graded_at": None,
-                            "reflected_at": None,
+                            FieldName.GRADED_AT: None,
+                            FieldName.REFLECTED_AT: None,
                             "created_at": row[7].isoformat() if row[7] else None,
-                            "session_id": row[9],
+                            FieldName.SESSION_ID: row[9],
                         }
                     )
             if session_id:
-                trades = [t for t in trades if str(t.get("session_id") or "") == session_id]
+                trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
 
         # DB returned zero rows — fall back to in-memory trade_feed so memory-
         # mode fills (paper trades that never reached trade_lifecycle because

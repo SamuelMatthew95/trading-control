@@ -709,7 +709,7 @@ class MetricsAggregator:
                     "order_id": str(row[FieldName.ORDER_ID])
                     if row.get(FieldName.ORDER_ID)
                     else None,
-                    FieldName.TRACE_ID: row.get("execution_trace_id"),
+                    FieldName.TRACE_ID: row.get(FieldName.EXECUTION_TRACE_ID),
                 }
             )
 

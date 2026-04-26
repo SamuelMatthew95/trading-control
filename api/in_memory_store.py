@@ -145,11 +145,11 @@ class InMemoryStore:
         """
         payload = dict(trade)
         payload.setdefault("created_at", time.time())
-        key = payload.get("execution_trace_id") or payload.get(FieldName.ORDER_ID)
+        key = payload.get(FieldName.EXECUTION_TRACE_ID) or payload.get(FieldName.ORDER_ID)
         if key:
             for i, existing in enumerate(self.trade_feed):
                 if (
-                    existing.get("execution_trace_id") == key
+                    existing.get(FieldName.EXECUTION_TRACE_ID) == key
                     or existing.get(FieldName.ORDER_ID) == key
                 ):
                     merged = {**existing, **{k: v for k, v in payload.items() if v is not None}}
