@@ -53,6 +53,30 @@ describe('EquityCurve', () => {
     expect(series[1].equity).toBe(10)
   })
 
+  it('accepts string-encoded pnl values', () => {
+    const series = buildEquitySeries([
+      { created_at: '2026-01-01T00:00:00Z', pnl: '10.5' },
+      { created_at: '2026-01-01T00:01:00Z', pnl: '-2.5' },
+    ])
+
+    expect(series).toHaveLength(2)
+    expect(series[0].equity).toBe(10.5)
+    expect(series[1].equity).toBe(8)
+  })
+
+  it('uses zero-baseline endpoint to determine gain/loss color', () => {
+    render(
+      <EquityCurve
+        orders={[
+          { created_at: '2026-01-01T00:00:00Z', pnl: 100 },
+          { created_at: '2026-01-01T00:01:00Z', pnl: -50 },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('$50.00')).toHaveClass('text-emerald-500')
+  })
+
   it('returns padded y-axis domain', () => {
     const series = buildEquitySeries([
       { created_at: '2026-01-01T00:00:00Z', pnl: 100 },

@@ -129,6 +129,14 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(cast) ? cast : null
 }
 
+function isClosedTrade(order: Record<string, unknown> | null | undefined): boolean {
+  if (!order) return false
+  const status = String(order.status ?? '').toLowerCase()
+  if (status === 'filled' || status === 'closed' || status === 'executed' || status === 'completed') return true
+  if (order.filled_at != null) return true
+  return false
+}
+
 function parseTimestamp(value: unknown): Date | null {
   if (value == null) return null
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value
@@ -831,7 +839,7 @@ export function DashboardView({ section }: { section: Section }) {
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
     const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
-    const closedTrades = orders.filter((order) => toFiniteNumber(order?.pnl) != null)
+    const closedTrades = orders.filter((order) => isClosedTrade(order) && toFiniteNumber(order?.pnl) != null)
     const wins = closedTrades.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
     const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : null
     const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
@@ -855,7 +863,10 @@ export function DashboardView({ section }: { section: Section }) {
   }, [orders, positions, systemMetrics, dashboardData])
 
   const fallbackPerformanceSummary = useMemo(() => {
-    const closedPnls = orders.map((order) => toFiniteNumber(order?.pnl)).filter((pnl): pnl is number => pnl != null)
+    const closedPnls = orders
+      .filter((order) => isClosedTrade(order))
+      .map((order) => toFiniteNumber(order?.pnl))
+      .filter((pnl): pnl is number => pnl != null)
     if (closedPnls.length === 0) return null
     const total = closedPnls.reduce((sum, pnl) => sum + pnl, 0)
     const wins = closedPnls.filter((pnl) => pnl > 0)

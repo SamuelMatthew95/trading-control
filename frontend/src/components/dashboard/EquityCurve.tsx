@@ -23,8 +23,16 @@ type EquityPoint = {
 }
 
 const toFinite = (value: unknown): number | null => {
-  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) return null
-  return value
+  if (typeof value === 'number') {
+    if (Number.isNaN(value) || !Number.isFinite(value)) return null
+    return value
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim())
+    if (Number.isNaN(parsed) || !Number.isFinite(parsed)) return null
+    return parsed
+  }
+  return null
 }
 
 const parseTimestamp = (value: unknown): number | null => {
@@ -126,9 +134,8 @@ export function EquityCurve({
     return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">No equity data yet</div>
   }
 
-  const first = series[0]?.equity ?? 0
   const last = series[series.length - 1]?.equity ?? 0
-  const positive = last >= first
+  const positive = last >= 0
   const strokeColor = positive ? '#10b981' : '#f43f5e'
   const fillColor = positive ? 'rgba(16,185,129,0.14)' : 'rgba(244,63,94,0.14)'
 
