@@ -51,9 +51,9 @@ async def write_heartbeat(
         "last_event": last_event,
         "event_count": event_count,
         "last_seen": int(time.time()),
-        "last_seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        FieldName.LAST_SEEN_AT: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         FieldName.UPDATED_AT: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "heartbeat_count": max(int(event_count), 1),
+        FieldName.HEARTBEAT_COUNT: max(int(event_count), 1),
     }
     if extra:
         payload.update(extra)
@@ -111,9 +111,9 @@ async def write_heartbeat(
                         "event_count": event_count,
                         "metadata": json.dumps(
                             {
-                                "last_seen_at": payload["last_seen_at"],
+                                FieldName.LAST_SEEN_AT: payload[FieldName.LAST_SEEN_AT],
                                 FieldName.UPDATED_AT: payload[FieldName.UPDATED_AT],
-                                "heartbeat_count": payload["heartbeat_count"],
+                                FieldName.HEARTBEAT_COUNT: payload[FieldName.HEARTBEAT_COUNT],
                                 FieldName.SOURCE: payload[FieldName.SOURCE],
                             }
                         ),
@@ -147,9 +147,9 @@ async def write_heartbeat(
                         "metadata": json.dumps(
                             {
                                 "agent_name": agent_name,
-                                "last_seen_at": payload["last_seen_at"],
+                                FieldName.LAST_SEEN_AT: payload[FieldName.LAST_SEEN_AT],
                                 FieldName.UPDATED_AT: payload[FieldName.UPDATED_AT],
-                                "heartbeat_count": payload["heartbeat_count"],
+                                FieldName.HEARTBEAT_COUNT: payload[FieldName.HEARTBEAT_COUNT],
                                 FieldName.SOURCE: "heartbeat_upsert",
                             }
                         ),

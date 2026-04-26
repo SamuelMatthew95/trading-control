@@ -209,6 +209,7 @@ class FieldName(StrEnum):
     LAST_EVENT = "last_event"
     LAST_PRICE = "last_price"
     LAST_SEEN = "last_seen"
+    LAST_SEEN_AT = "last_seen_at"
     LOG_LEVEL = "log_level"
     LOG_TYPE = "log_type"
     MARKET_VALUE = "market_value"
@@ -271,6 +272,7 @@ class FieldName(StrEnum):
     TRADE_TYPE = "trade_type"
     TS = "ts"
     TYPE = "type"
+    HEARTBEAT_COUNT = "heartbeat_count"
     UNREALIZED_PNL = "unrealized_pnl"
     UPDATED_AT = "updated_at"
 

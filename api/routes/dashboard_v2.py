@@ -577,8 +577,12 @@ async def get_agents_status() -> dict[str, Any]:
                     existing[FieldName.EVENT_COUNT] = max(
                         int(existing[FieldName.EVENT_COUNT]), int(row[4] or 0)
                     )
-                    existing["heartbeat_count"] = int(meta.get("heartbeat_count") or 0)
-                    if existing[FieldName.STATUS] == "ACTIVE" and not existing.get("last_seen_at"):
+                    existing[FieldName.HEARTBEAT_COUNT] = int(
+                        meta.get(FieldName.HEARTBEAT_COUNT) or 0
+                    )
+                    if existing[FieldName.STATUS] == "ACTIVE" and not existing.get(
+                        FieldName.LAST_SEEN_AT
+                    ):
                         existing[FieldName.STATUS] = "STALE"
                         existing[FieldName.LAST_EVENT] = "missing_last_seen_at"
 

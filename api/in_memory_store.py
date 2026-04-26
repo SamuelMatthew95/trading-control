@@ -184,7 +184,7 @@ class InMemoryStore:
                     "name": name,
                     "status": data.get(FieldName.STATUS, "unknown"),
                     "last_seen": data.get(FieldName.LAST_SEEN, now),
-                    "last_seen_at": data.get("last_seen_at"),
+                    "last_seen_at": data.get(FieldName.LAST_SEEN_AT),
                     "last_event": data.get(FieldName.LAST_EVENT, ""),
                     "event_count": int(data.get(FieldName.EVENT_COUNT, 0) or 0),
                     "source": data.get(FieldName.SOURCE, "in_memory"),
