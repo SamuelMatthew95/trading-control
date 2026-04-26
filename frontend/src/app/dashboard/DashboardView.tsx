@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'r
 import { useCodexStore, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import {
   Activity,
-  BarChart3,
   Bell,
   Brain,
   CheckCheck,
@@ -197,62 +197,6 @@ function PriceCardSkeleton() {
       <div className="mt-2 flex items-center justify-between">
         <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
         <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      </div>
-    </div>
-  )
-}
-
-function EquityCurve({ orders }: { orders: Array<Record<string, unknown>> }) {
-  const points = useMemo(() => {
-    let running = 0
-    return orders.map((order, index) => {
-      running += toFiniteNumber(order?.pnl) ?? 0
-      return { x: index, y: running }
-    })
-  }, [orders])
-
-  if (points.length === 0) {
-    return <EmptyState message="No equity data yet" icon={BarChart3} />
-  }
-
-  const maxY = Math.max(...points.map((point) => point.y), 0)
-  const minY = Math.min(...points.map((point) => point.y), 0)
-  const range = maxY - minY || 1
-  const chartPoints = points
-    .map((point, index) => {
-      const x = (index / Math.max(points.length - 1, 1)) * 100
-      const y = 100 - ((point.y - minY) / range) * 100
-      return `${x},${y}`
-    })
-    .join(' ')
-  const areaPoints = `0,100 ${chartPoints} 100,100`
-  const latest = points[points.length - 1]?.y ?? 0
-  const positive = latest >= 0
-
-  return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-mono uppercase tracking-[0.04em] text-slate-500">Cumulative P&L</span>
-        <span className={cn('text-sm font-mono tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>
-          {positive ? '+' : '-'}{formatUSD(Math.abs(latest))}
-        </span>
-      </div>
-      <svg viewBox="0 0 100 100" className="h-44 w-full">
-        <line x1="0" y1="50" x2="100" y2="50" className="stroke-slate-300 dark:stroke-slate-700" strokeWidth="0.5" />
-        <polyline fill="none" className="stroke-slate-300 dark:stroke-slate-700" strokeWidth="0.5" points="0,20 100,20" />
-        <polyline fill="none" className="stroke-slate-300 dark:stroke-slate-700" strokeWidth="0.5" points="0,80 100,80" />
-        <polygon points={areaPoints} className={cn(positive ? 'fill-emerald-500/10' : 'fill-rose-500/10')} />
-        <polyline
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          className={cn(positive ? 'text-emerald-500' : 'text-rose-500')}
-          points={chartPoints}
-        />
-      </svg>
-      <div className="mt-1 flex justify-between text-[11px] font-mono text-slate-500">
-        <span>{points.length} points</span>
-        <span>Range {formatUSD(maxY - minY)}</span>
       </div>
     </div>
   )
