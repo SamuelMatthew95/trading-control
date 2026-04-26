@@ -164,13 +164,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant={killSwitchActive ? 'destructive' : 'default'} shortcut="ESC">
-                      {killSwitchActive ? 'Halt' : 'Active'}
+                    <Button variant={killSwitchActive ? 'destructive' : 'outline'} shortcut={killSwitchActive ? 'ESC' : '⏎'}>
+                      {killSwitchActive ? 'Kill Switch On' : 'Kill Switch Off'}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <AlertDialogHeader>
-                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-900">
+                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                         {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
                       </AlertDialogTitle>
                       <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-300">
@@ -184,7 +184,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         disabled={killSwitchPending}
                         onClick={() => handleKillSwitch(!killSwitchActive)}
                       >
-                        {killSwitchPending ? 'Working…' : 'Confirm ⏎'}
+                        {killSwitchPending ? 'Working…' : killSwitchActive ? 'Deactivate ⏎' : 'Activate ⏎'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
