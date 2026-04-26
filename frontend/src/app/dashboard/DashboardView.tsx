@@ -128,6 +128,32 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(cast) ? cast : null
 }
 
+function parseTimestamp(value: unknown): Date | null {
+  if (value == null) return null
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+  if (typeof value === 'number') {
+    const ms = value > 10_000_000_000 ? value : value * 1000
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const raw = String(value).trim()
+  if (!raw) return null
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const num = Number(raw)
+    if (Number.isFinite(num)) {
+      const ms = num > 10_000_000_000 ? num : num * 1000
+      const d = new Date(ms)
+      if (!Number.isNaN(d.getTime())) return d
+    }
+  }
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function canonicalAgentKey(name: string): string {
+  return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
+}
+
 function normalizeAgentStatus(value: string): AgentSummary['status'] {
   const raw = String(value || '').toUpperCase()
   if (raw === 'ACTIVE' || raw === 'RUNNING' || raw === 'OK') return 'Live'
@@ -400,7 +426,7 @@ function MobileNavigation({ section }: { section: Section }) {
             className={cn(
               'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold',
               section === link.key
-                ? 'bg-slate-900 text-slate-900 dark:bg-slate-100 dark:text-slate-900'
+                ? 'bg-slate-900 text-slate-100 dark:bg-slate-100 dark:text-slate-900'
                 : 'text-slate-500 dark:text-slate-400'
             )}
           >
@@ -839,12 +865,18 @@ export function DashboardView({ section }: { section: Section }) {
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
     const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
-    const wins = orders.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
-    const winRate = orders.length > 0 ? (wins / orders.length) * 100 : null
+    const closedTrades = orders.filter((order) => toFiniteNumber(order?.pnl) != null)
+    const wins = closedTrades.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
+    const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : null
     const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
     const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
     const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
-    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard
+    const baseEquity = getMetric(systemMetrics, 'portfolio_value')
+      ?? getMetric(systemMetrics, 'account_equity')
+      ?? getMetric(systemMetrics, 'equity')
+      ?? getMetric(systemMetrics, 'starting_equity')
+    const computedDailyChange = baseEquity && baseEquity > 0 ? (dailyPnlNumeric / baseEquity) * 100 : null
+    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard ?? computedDailyChange
 
     return {
       dailyPnlNumeric,
@@ -852,38 +884,56 @@ export function DashboardView({ section }: { section: Section }) {
       activePositions,
       dailyChange,
       hasOrders: orders.length > 0,
+      hasClosedTrades: closedTrades.length > 0,
     }
   }, [orders, positions, systemMetrics, dashboardData])
 
+  const fallbackPerformanceSummary = useMemo(() => {
+    const closedPnls = orders.map((order) => toFiniteNumber(order?.pnl)).filter((pnl): pnl is number => pnl != null)
+    if (closedPnls.length === 0) return null
+    const total = closedPnls.reduce((sum, pnl) => sum + pnl, 0)
+    const wins = closedPnls.filter((pnl) => pnl > 0)
+    const losses = closedPnls.filter((pnl) => pnl < 0)
+    return {
+      total_pnl: total,
+      win_rate: wins.length / closedPnls.length,
+      best_trade: Math.max(...closedPnls),
+      worst_trade: Math.min(...closedPnls),
+    }
+  }, [orders])
+
+  const resolvedPerformanceSummary = performanceSummary ?? fallbackPerformanceSummary
+
   const realAgents = useMemo(() => {
-    const grouped = agentLogs.reduce<Record<string, { count: number; lastSeen: Date | null }>>((acc, log) => {
+    const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
       const name = sanitizeValue(log?.agent_name || log?.agent)
       if (name === '--') return acc
-      const timestamp = new Date(String(log?.timestamp || log?.created_at || ''))
-      const safeDate = Number.isNaN(timestamp.getTime()) ? null : timestamp
-      const existing = acc[name] ?? { count: 0, lastSeen: null }
+      const agentKey = canonicalAgentKey(name)
+      const safeDate = parseTimestamp(log?.timestamp || log?.created_at)
+      const existing = acc[agentKey] ?? { displayName: name, count: 0, lastSeen: null }
       const newest = !existing.lastSeen || (safeDate && safeDate > existing.lastSeen) ? safeDate : existing.lastSeen
-      acc[name] = { count: existing.count + 1, lastSeen: newest }
+      acc[agentKey] = { displayName: existing.displayName, count: existing.count + 1, lastSeen: newest }
       return acc
     }, {})
 
     const now = Date.now()
-    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([name, data]) => {
+    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = ageMs < 5 * 60 * 1000 ? 'Live' : 'Idle'
+      const status: AgentSummary['status'] = data.lastSeen == null && data.count > 0 ? 'Stale' : ageMs < 5 * 60 * 1000 ? 'Live' : 'Idle'
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
-      return { name, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
+      return { name: data.displayName, count: data.count, lastSeen: data.lastSeen, status, tier, source: 'log' }
     })
 
-    const normalizedByName = new Map(incomingAgents.map((agent) => [agent.name, agent]))
+    const normalizedByName = new Map(incomingAgents.map((agent) => [canonicalAgentKey(agent.name), agent]))
     for (const status of agentStatuses) {
-      const existing = normalizedByName.get(status.name)
-      const parsedLastEvent = status.last_event ? new Date(status.last_event) : null
-      const statusDate = parsedLastEvent && !Number.isNaN(parsedLastEvent.getTime()) ? parsedLastEvent : null
-      const mappedStatus = normalizeAgentStatus(status.status)
+      const agentKey = canonicalAgentKey(status.name)
+      const existing = normalizedByName.get(agentKey)
+      const statusDate = parseTimestamp(status.last_event)
+      const isDormant = (status.event_count ?? 0) === 0 && statusDate == null
+      const mappedStatus = isDormant ? 'Idle' : normalizeAgentStatus(status.status)
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
-      normalizedByName.set(status.name, {
-        name: status.name,
+      normalizedByName.set(agentKey, {
+        name: existing?.name ?? status.name,
         count: Math.max(existing?.count ?? 0, status.event_count ?? 0),
         lastSeen: statusDate ?? existing?.lastSeen ?? null,
         status: mergedStatus,
@@ -893,13 +943,13 @@ export function DashboardView({ section }: { section: Section }) {
     }
 
     for (const inst of agentInstances) {
-      const existing = normalizedByName.get(inst.pool_name)
-      const startedAt = inst.started_at ? new Date(inst.started_at) : null
-      const startedDate = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null
+      const agentKey = canonicalAgentKey(inst.pool_name)
+      const existing = normalizedByName.get(agentKey)
+      const startedDate = parseTimestamp(inst.started_at)
       const mappedStatus = inst.status === 'active' ? 'Live' : 'Error'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
-      normalizedByName.set(inst.pool_name, {
-        name: inst.pool_name,
+      normalizedByName.set(agentKey, {
+        name: existing?.name ?? inst.pool_name,
         count: Math.max(existing?.count ?? 0, inst.event_count ?? 0),
         lastSeen: existing?.lastSeen ?? startedDate ?? null,
         status: mergedStatus,
@@ -999,7 +1049,7 @@ export function DashboardView({ section }: { section: Section }) {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
               { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
-              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`, trend: 0 },
+              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
               { title: 'Daily Change %', value: summary.dailyChange == null ? 'N/A' : `${sanitizeValue(summary.dailyChange.toFixed(2))}%`, trend: summary.dailyChange == null ? 0 : summary.dailyChange > 0 ? 1 : summary.dailyChange < 0 ? -1 : 0 },
             ].map((item) => (
@@ -1019,26 +1069,26 @@ export function DashboardView({ section }: { section: Section }) {
               {[
                 {
                   label: 'Total P&L',
-                  value: performanceSummary != null
-                    ? `${performanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(performanceSummary.total_pnl)}`
+                  value: resolvedPerformanceSummary != null
+                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
                     : '--',
-                  colorClass: performanceSummary != null
-                    ? performanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                  colorClass: resolvedPerformanceSummary != null
+                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
                     : 'text-slate-900 dark:text-slate-900',
                 },
                 {
                   label: 'Win Rate',
-                  value: performanceSummary != null ? `${(performanceSummary.win_rate * 100).toFixed(1)}%` : '--',
+                  value: resolvedPerformanceSummary != null ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
                   colorClass: 'text-slate-900 dark:text-slate-900',
                 },
                 {
                   label: 'Best Trade',
-                  value: performanceSummary != null ? `+${formatUSD(performanceSummary.best_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? `+${formatUSD(resolvedPerformanceSummary.best_trade)}` : '--',
                   colorClass: 'text-emerald-500',
                 },
                 {
                   label: 'Worst Trade',
-                  value: performanceSummary != null ? `-${formatUSD(performanceSummary.worst_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? `-${formatUSD(resolvedPerformanceSummary.worst_trade)}` : '--',
                   colorClass: 'text-rose-500',
                 },
               ].map((cell) => (
@@ -1131,7 +1181,8 @@ export function DashboardView({ section }: { section: Section }) {
                 tickerEntries.map(([symbol, priceData]) => {
                   const price = toFiniteNumber(priceData?.price)
                   const previous = toFiniteNumber(priceData?.previousPrice)
-                  const change = price != null && previous != null ? price - previous : null
+                  const observedChange = toFiniteNumber(priceData?.change)
+                  const change = observedChange ?? (price != null && previous != null ? price - previous : null)
                   const isPositive = (change ?? 0) >= 0
                   const hasData = price != null && !isNaN(price)
                   
