@@ -49,6 +49,9 @@ async def write_heartbeat(
         "last_event": last_event,
         "event_count": event_count,
         "last_seen": int(time.time()),
+        "last_seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        FieldName.UPDATED_AT: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "heartbeat_count": max(int(event_count), 1),
     }
     if extra:
         payload.update(extra)
@@ -89,6 +92,27 @@ async def write_heartbeat(
                         "status": AgentStatus.ACTIVE,
                         "last_event": last_event,
                         "count": event_count,
+                    },
+                )
+                await session.execute(
+                    text("""
+                        UPDATE agent_instances
+                        SET
+                            status = 'active',
+                            event_count = GREATEST(event_count, :event_count),
+                            metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS JSONB)
+                        WHERE instance_key = :instance_key
+                    """),
+                    {
+                        "instance_key": agent_name.lower().replace("_", "-"),
+                        "event_count": event_count,
+                        "metadata": json.dumps(
+                            {
+                                "last_seen_at": payload["last_seen_at"],
+                                FieldName.UPDATED_AT: payload[FieldName.UPDATED_AT],
+                                "heartbeat_count": payload["heartbeat_count"],
+                            }
+                        ),
                     },
                 )
     except Exception:

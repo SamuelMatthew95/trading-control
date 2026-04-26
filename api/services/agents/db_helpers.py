@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid as _uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -76,10 +77,11 @@ async def write_agent_log(
                 or payload.get(FieldName.AGENT_NAME)
                 or log_type,
                 "message": message,
+                "reasoning": payload.get("reasoning") or message,
                 "log_level": "info",
                 "trace_id": trace_id,
                 "log_type": log_type,
-                "confidence": payload.get(FieldName.CONFIDENCE),
+                "confidence": payload.get("confidence_score") or payload.get(FieldName.CONFIDENCE),
                 "timestamp": payload.get(FieldName.TIMESTAMP)
                 or datetime.now(timezone.utc).isoformat(),
             }
@@ -281,22 +283,39 @@ async def register_agent_instance(instance_key: str, pool_name: str) -> str:
     for attempt in range(1, _REGISTER_MAX_ATTEMPTS + 1):
         try:
             async with AsyncSessionFactory() as session:
-                await session.execute(
+                result = await session.execute(
                     text("""
                         INSERT INTO agent_instances
-                            (id, instance_key, pool_name, status, started_at, schema_version)
+                            (id, instance_key, pool_name, status, started_at, schema_version, metadata)
                         VALUES
-                            (:id, :key, :pool, 'active', NOW(), :schema_version)
-                        ON CONFLICT (id) DO NOTHING
+                            (:id, :key, :pool, 'active', NOW(), :schema_version, CAST(:metadata AS JSONB))
+                        ON CONFLICT (instance_key) DO UPDATE SET
+                            status = 'active',
+                            retired_at = NULL,
+                            metadata = COALESCE(agent_instances.metadata, '{}'::jsonb) || EXCLUDED.metadata
+                        RETURNING id
                     """),
                     {
                         "id": instance_id,
                         "key": instance_key,
                         "pool": pool_name,
                         "schema_version": DB_SCHEMA_VERSION,
+                        "metadata": json.dumps(
+                            {
+                                "agent_name": pool_name,
+                                "agent_id": pool_name,
+                                "agent_type": "service",
+                                "session_id": os.getenv("SESSION_ID", "default"),
+                                "environment": os.getenv("ENVIRONMENT", "dev"),
+                            }
+                        ),
                     },
                 )
+                persisted_id = result.scalar()
                 await session.commit()
+            persisted_id_str = str(persisted_id or "")
+            if len(persisted_id_str) == 36 and persisted_id_str.count("-") == 4:
+                return persisted_id_str
             return instance_id
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
@@ -336,6 +355,11 @@ async def retire_agent_instance(instance_id: str) -> None:
                 {"id": instance_id},
             )
             await session.commit()
+            await write_agent_lifecycle_event(
+                pool_name="unknown",
+                instance_id=instance_id,
+                lifecycle_phase="stopped",
+            )
     except Exception:
         log_structured(
             "warning",
@@ -362,6 +386,29 @@ async def increment_instance_event_count(instance_id: str) -> None:
             await session.commit()
     except Exception:
         pass  # Non-critical counter — never raise
+
+
+async def write_agent_lifecycle_event(
+    *,
+    pool_name: str,
+    instance_id: str,
+    lifecycle_phase: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Persist lifecycle transitions in agent_logs as canonical lifecycle rows."""
+    payload = {
+        "agent_name": pool_name,
+        "agent_id": pool_name,
+        "instance_id": instance_id,
+        "lifecycle_event": lifecycle_phase,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "details": details or {},
+    }
+    await write_agent_log(
+        trace_id=f"{pool_name}:{instance_id}:{lifecycle_phase}",
+        log_type="lifecycle",
+        payload=payload,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +438,7 @@ async def upsert_trade_lifecycle(
     filled_at: str | None = None,
     graded_at: str | None = None,
     reflected_at: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Insert or update one row in trade_lifecycle keyed on execution_trace_id.
 
@@ -399,22 +447,26 @@ async def upsert_trade_lifecycle(
     """
     if not is_db_available():
         store = get_runtime_store()
-        store.add_order(
-            {
-                "order_id": order_id or execution_trace_id,
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "quantity": qty,
-                "price": exit_price or entry_price,
-                "filled_price": exit_price or entry_price,
-                "pnl": pnl or 0.0,
-                "pnl_percent": pnl_percent or 0.0,
-                "status": status,
-                "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
-                "trace_id": execution_trace_id,
-            }
-        )
+        normalized_status = str(status or "filled").lower()
+        should_store_order = normalized_status in {"filled", "executed"} and qty is not None
+        if should_store_order:
+            store.add_order(
+                {
+                    "order_id": order_id or execution_trace_id,
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "quantity": qty,
+                    "price": exit_price or entry_price,
+                    "filled_price": exit_price or entry_price,
+                    "pnl": pnl,
+                    "pnl_percent": pnl_percent,
+                    "status": normalized_status,
+                    "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
+                    "trace_id": execution_trace_id,
+                    "session_id": session_id,
+                }
+            )
         store.upsert_trade_fill(
             {
                 "id": execution_trace_id,
@@ -431,10 +483,11 @@ async def upsert_trade_lifecycle(
                 "grade": grade,
                 "grade_score": grade_score,
                 "grade_label": grade_label,
-                "status": status,
+                "status": normalized_status,
                 "filled_at": filled_at or datetime.now(timezone.utc).isoformat(),
                 "graded_at": graded_at,
                 "reflected_at": reflected_at,
+                "session_id": session_id,
             }
         )
         return

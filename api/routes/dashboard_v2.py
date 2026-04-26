@@ -522,7 +522,7 @@ async def get_agents_status() -> dict[str, Any]:
     try:
         redis_client = await get_redis()
         now = int(datetime.now(timezone.utc).timestamp())
-        agents = []
+        heartbeat_map: dict[str, dict[str, Any]] = {}
         for name in ALL_AGENT_NAMES:
             raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=name))
             if raw:
@@ -533,27 +533,54 @@ async def get_agents_status() -> dict[str, Any]:
                     status = "STALE"
                 else:
                     status = data.get(FieldName.STATUS, "ACTIVE")
-                agents.append(
-                    {
-                        "name": name,
-                        "status": status,
-                        "event_count": data.get(FieldName.EVENT_COUNT, 0),
-                        "last_event": data.get(FieldName.LAST_EVENT, ""),
-                        "last_seen": last_seen,
-                        "seconds_ago": age,
-                    }
-                )
+                heartbeat_map[name] = {
+                    "name": name,
+                    "status": status,
+                    "event_count": data.get(FieldName.EVENT_COUNT, 0),
+                    "last_event": data.get(FieldName.LAST_EVENT, ""),
+                    "last_seen": last_seen,
+                    "last_seen_at": datetime.fromtimestamp(last_seen, tz=timezone.utc).isoformat()
+                    if last_seen
+                    else None,
+                    "seconds_ago": age,
+                }
             else:
-                agents.append(
-                    {
-                        "name": name,
-                        "status": "WAITING",
-                        "event_count": 0,
-                        "last_event": "",
-                        "last_seen": 0,
-                        "seconds_ago": 0,
-                    }
+                heartbeat_map[name] = {
+                    "name": name,
+                    "status": "WAITING",
+                    "event_count": 0,
+                    "last_event": "",
+                    "last_seen": 0,
+                    "last_seen_at": None,
+                    "seconds_ago": 0,
+                }
+
+        agents = list(heartbeat_map.values())
+        if is_db_available():
+            async with AsyncSessionFactory() as session:
+                res = await session.execute(
+                    text("""
+                        SELECT instance_key, status, started_at, retired_at, event_count, metadata
+                        FROM agent_instances
+                        WHERE status IN ('active', 'retired')
+                    """)
                 )
+                for row in res.all():
+                    key = str(row[0] or "").upper().replace("-", "_")
+                    existing = heartbeat_map.get(key)
+                    if existing is None:
+                        continue
+                    meta = row[5] if isinstance(row[5], dict) else {}
+                    existing["instance_status"] = row[1]
+                    existing["started_at"] = row[2].isoformat() if row[2] else None
+                    existing["retired_at"] = row[3].isoformat() if row[3] else None
+                    existing[FieldName.EVENT_COUNT] = max(
+                        int(existing[FieldName.EVENT_COUNT]), int(row[4] or 0)
+                    )
+                    existing["heartbeat_count"] = int(meta.get("heartbeat_count") or 0)
+                    if existing[FieldName.STATUS] == "ACTIVE" and not existing.get("last_seen_at"):
+                        existing[FieldName.STATUS] = "STALE"
+                        existing[FieldName.LAST_EVENT] = "missing_last_seen_at"
 
         return {
             "agents": agents,
@@ -1516,11 +1543,75 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
-    """Return the in-memory trade_feed list shaped to the trade-feed endpoint contract."""
+def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize one in-memory trade row to the /trade-feed response contract.
+
+    Returns ``None`` for malformed rows so the endpoint doesn't surface partial
+    debug payloads as real trades.
+    """
+    trade_id = raw.get("id") or raw.get("execution_trace_id") or raw.get(FieldName.ORDER_ID)
+    symbol = raw.get(FieldName.SYMBOL)
+    side = raw.get(FieldName.SIDE)
+    if not trade_id or not symbol or not side:
+        return None
+
+    def _as_iso(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
+        if isinstance(value, str):
+            return value
+        return str(value)
+
+    return {
+        "id": str(trade_id),
+        "symbol": str(symbol),
+        "side": str(side),
+        "qty": float(raw[FieldName.QTY]) if raw.get(FieldName.QTY) is not None else None,
+        "entry_price": float(raw[FieldName.ENTRY_PRICE])
+        if raw.get(FieldName.ENTRY_PRICE) is not None
+        else None,
+        "exit_price": float(raw[FieldName.EXIT_PRICE])
+        if raw.get(FieldName.EXIT_PRICE) is not None
+        else None,
+        "pnl": float(raw[FieldName.PNL]) if raw.get(FieldName.PNL) is not None else None,
+        "pnl_percent": float(raw[FieldName.PNL_PERCENT])
+        if raw.get(FieldName.PNL_PERCENT) is not None
+        else None,
+        "order_id": str(raw[FieldName.ORDER_ID]) if raw.get(FieldName.ORDER_ID) else None,
+        "execution_trace_id": raw.get("execution_trace_id"),
+        "signal_trace_id": raw.get("signal_trace_id"),
+        "grade": raw.get(FieldName.GRADE),
+        "grade_score": float(raw[FieldName.GRADE_SCORE])
+        if raw.get(FieldName.GRADE_SCORE) is not None
+        else None,
+        "grade_label": raw.get("grade_label"),
+        "status": raw.get(FieldName.STATUS) or "filled",
+        "filled_at": _as_iso(raw.get(FieldName.FILLED_AT)),
+        "graded_at": _as_iso(raw.get("graded_at")),
+        "reflected_at": _as_iso(raw.get("reflected_at")),
+        "created_at": _as_iso(raw.get(FieldName.CREATED_AT)),
+        "session_id": raw.get("session_id"),
+    }
+
+
+def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> dict[str, Any]:
+    """Return normalized in-memory trade rows shaped to the trade-feed contract."""
     store = get_runtime_store()
     safe_limit = max(1, min(limit, 200))
-    trades = list(reversed(store.trade_feed))[:safe_limit]
+    trades = [
+        normalized
+        for normalized in (
+            _normalize_in_memory_trade_row(row) for row in reversed(store.trade_feed)
+        )
+        if normalized is not None
+    ]
+    if session_id:
+        trades = [t for t in trades if str(t.get("session_id") or "") == session_id]
+    trades = trades[:safe_limit]
     return {
         "trades": trades,
         "count": len(trades),
@@ -1530,7 +1621,7 @@ def _in_memory_trade_feed_payload(limit: int) -> dict[str, Any]:
 
 
 @router.get("/trade-feed")
-async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
+async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, Any]:
     """Return the most recent trades with full lifecycle state.
 
     Each row shows what happened end-to-end: filled price, P&L, grade, and
@@ -1538,20 +1629,22 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
     clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
     """
     if not is_db_available():
-        return _in_memory_trade_feed_payload(limit)
+        return _in_memory_trade_feed_payload(limit, session_id=session_id)
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 text("""
                     SELECT
-                        id, symbol, side, qty, entry_price, exit_price,
-                        pnl, pnl_percent, order_id,
-                        execution_trace_id, signal_trace_id,
-                        grade, grade_score, grade_label,
-                        status, filled_at, graded_at, reflected_at,
-                        created_at
-                    FROM trade_lifecycle
-                    ORDER BY created_at DESC
+                        tl.id, tl.symbol, tl.side, tl.qty, tl.entry_price, tl.exit_price,
+                        tl.pnl, tl.pnl_percent, tl.order_id,
+                        tl.execution_trace_id, tl.signal_trace_id,
+                        tl.grade, tl.grade_score, tl.grade_label,
+                        tl.status, tl.filled_at, tl.graded_at, tl.reflected_at,
+                        tl.created_at,
+                        COALESCE(o.strategy_id::text, tl.decision_trace_id) AS session_id
+                    FROM trade_lifecycle tl
+                    LEFT JOIN orders o ON o.id::text = tl.order_id::text
+                    ORDER BY COALESCE(filled_at, created_at) ASC
                     LIMIT :limit
                 """),
                 {"limit": min(limit, 200)},
@@ -1581,9 +1674,12 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                 "graded_at": row[16].isoformat() if row[16] else None,
                 "reflected_at": row[17].isoformat() if row[17] else None,
                 "created_at": row[18].isoformat() if row[18] else None,
+                "session_id": row[19],
             }
 
         trades = [_fmt(r) for r in rows]
+        if session_id:
+            trades = [t for t in trades if str(t.get("session_id") or "") == session_id]
 
         # Backward compatibility: if trade_lifecycle is empty, surface filled orders.
         if not trades:
@@ -1599,7 +1695,8 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                             o.status,
                             to_jsonb(o)->>'trace_id',
                             o.created_at,
-                            o.filled_at
+                            o.filled_at,
+                            o.strategy_id::text AS session_id
                         FROM orders o
                         WHERE status IN ('filled', 'executed')
                         ORDER BY COALESCE(filled_at, created_at) DESC
@@ -1629,14 +1726,17 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
                             "graded_at": None,
                             "reflected_at": None,
                             "created_at": row[7].isoformat() if row[7] else None,
+                            "session_id": row[9],
                         }
                     )
+            if session_id:
+                trades = [t for t in trades if str(t.get("session_id") or "") == session_id]
 
         # DB returned zero rows — fall back to in-memory trade_feed so memory-
         # mode fills (paper trades that never reached trade_lifecycle because
         # the DB was down when they filled) still surface on the dashboard.
         if not trades:
-            fallback = _in_memory_trade_feed_payload(limit)
+            fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
             if fallback["count"] > 0:
                 return fallback
 
@@ -1647,7 +1747,7 @@ async def get_trade_feed(limit: int = 50) -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "trade_feed_failed", exc_info=True)
-        return _in_memory_trade_feed_payload(limit)
+        return _in_memory_trade_feed_payload(limit, session_id=session_id)
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,11 @@ class _Result:
         return self._rows
 
 
+class _ResultWithFirst(_Result):
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+
 class _SessionFromResults:
     def __init__(self, queued_results):
         self._queued_results = queued_results
@@ -269,7 +274,7 @@ async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
     _enable_db(monkeypatch)
     session_rows = [
         [[]],
-        [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None, None)]],
+        [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None, None, None)]],
     ]
     monkeypatch.setattr(
         dashboard_v2,
@@ -358,6 +363,63 @@ async def test_dashboard_state_db_failure_returns_in_memory_snapshot(monkeypatch
     assert payload["notifications"]
 
 
+@pytest.mark.asyncio
+async def test_agents_status_active_has_non_null_last_seen_at(monkeypatch):
+    class _Redis:
+        async def get(self, _key):
+            return '{"status":"ACTIVE","event_count":2,"last_event":"tick","last_seen":1710000000}'
+
+    async def _get_redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: False)
+    payload = await dashboard_v2.get_agents_status()
+    assert payload["agents"]
+    assert all(
+        a.get("last_seen_at") is not None for a in payload["agents"] if a["status"] == "ACTIVE"
+    )
+
+
+@pytest.mark.asyncio
+async def test_agents_status_merges_db_and_heartbeat_by_agent_name(monkeypatch):
+    class _Redis:
+        async def get(self, _key):
+            return '{"status":"ACTIVE","event_count":1,"last_event":"hb","last_seen":1710000010}'
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _ResultWithFirst(
+                [
+                    (
+                        "reasoning-agent",
+                        "active",
+                        None,
+                        None,
+                        4,
+                        {"heartbeat_count": 3},
+                    )
+                ]
+            )
+
+    async def _get_redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    payload = await dashboard_v2.get_agents_status()
+    rows = [r for r in payload["agents"] if r["name"] == "REASONING_AGENT"]
+    assert len(rows) == 1
+    assert rows[0]["event_count"] >= 1
+
+
 class _FakeAggregator:
     def __init__(self, _session):
         pass
@@ -429,6 +491,90 @@ async def test_trade_feed_prefers_in_memory_when_db_returns_empty(monkeypatch):
     assert payload["count"] == 1
     assert payload["source"] == "in_memory"
     assert payload["trades"][0]["id"] == "trace-bridge"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_db_orders_fallback_honors_session_filter(monkeypatch):
+    """If lifecycle is empty and orders fallback is used, session_id filtering must still apply."""
+    _enable_db(monkeypatch)
+    session_rows = [
+        [[]],  # trade_lifecycle empty
+        [[("ord-1", "BTC/USD", "buy", 0.1, 50000.0, "filled", "trace-1", None, None, "sess-a")]],
+    ]
+    monkeypatch.setattr(
+        dashboard_v2,
+        "AsyncSessionFactory",
+        _FactoryWithQueuedSessions(session_rows),
+    )
+
+    payload = await dashboard_v2.get_trade_feed(limit=10, session_id="sess-b")
+    assert payload["count"] == 0
+    assert payload["trades"] == []
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_in_memory_honors_session_filter():
+    """In-memory /trade-feed should apply session_id filtering just like DB mode."""
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_trade_fill(
+        {
+            "id": "trace-a",
+            "symbol": "BTC/USD",
+            "side": "buy",
+            "qty": 0.1,
+            "entry_price": 50000.0,
+            "pnl": None,
+            "execution_trace_id": "trace-a",
+            "session_id": "sess-a",
+            "status": "filled",
+        }
+    )
+    store.upsert_trade_fill(
+        {
+            "id": "trace-b",
+            "symbol": "ETH/USD",
+            "side": "sell",
+            "qty": 1.0,
+            "entry_price": 3000.0,
+            "pnl": 25.0,
+            "execution_trace_id": "trace-b",
+            "session_id": "sess-b",
+            "status": "filled",
+        }
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_trade_feed(limit=10, session_id="sess-b")
+    assert payload["source"] == "in_memory"
+    assert payload["count"] == 1
+    assert payload["trades"][0]["id"] == "trace-b"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_in_memory_filters_malformed_rows():
+    """Malformed in-memory rows should be ignored instead of leaking partial payloads."""
+    set_db_available(False)
+    store = InMemoryStore()
+    store.trade_feed.append({"debug": "noise-only"})
+    store.upsert_trade_fill(
+        {
+            "id": "trace-good",
+            "symbol": "BTC/USD",
+            "side": "buy",
+            "qty": 0.1,
+            "entry_price": 50000.0,
+            "execution_trace_id": "trace-good",
+            "status": "filled",
+        }
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["count"] == 1
+    assert payload["trades"][0]["id"] == "trace-good"
+    assert payload["trades"][0]["execution_trace_id"] == "trace-good"
+    assert isinstance(payload["trades"][0]["created_at"], str)
 
 
 @pytest.mark.asyncio
