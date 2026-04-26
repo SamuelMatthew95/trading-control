@@ -679,7 +679,7 @@ export function DashboardView({ section }: { section: Section }) {
     const marketConnected = wsConnected || (dataLatencyMs != null && dataLatencyMs <= 5_000)
     if (!marketConnected) return 'booting'
     if (positions.length === 0 && (streamStats.executions?.count ?? 0) === 0) return 'idle'
-    if (orders.length > 0 || tradeFeed.length > 0) return 'trading'
+    if (positions.length > 0 || orders.length > 0 || tradeFeed.length > 0) return 'trading'
     return 'idle'
   }, [dataLatencyMs, orders.length, positions.length, streamStats.executions?.count, systemFeedError, tradeFeed.length, wsConnected])
 
