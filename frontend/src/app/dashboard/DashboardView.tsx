@@ -443,7 +443,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_runs.map((r, i) => (
                     <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="font-bold text-slate-900 dark:text-slate-900">{String(r.agent_name ?? '--')}</span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
                       {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
                       {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
                     </div>
@@ -1036,12 +1036,12 @@ export function DashboardView({ section }: { section: Section }) {
                     : '--',
                   colorClass: resolvedPerformanceSummary != null
                     ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                    : 'text-slate-900 dark:text-slate-900',
+                    : 'text-slate-900 dark:text-slate-100',
                 },
                 {
                   label: 'Win Rate',
                   value: resolvedPerformanceSummary != null ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
-                  colorClass: 'text-slate-900 dark:text-slate-900',
+                  colorClass: 'text-slate-900 dark:text-slate-100',
                 },
                 {
                   label: 'Best Trade',
@@ -1084,7 +1084,7 @@ export function DashboardView({ section }: { section: Section }) {
                       className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
                     >
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-900">{displayAgentName(agent.name)}</p>
+                        <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-2">
                           <span className={cn('h-1.5 w-1.5 rounded-full', 
                             agent.status === 'Live' ? 'bg-emerald-300' : 
@@ -1099,7 +1099,7 @@ export function DashboardView({ section }: { section: Section }) {
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
-                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">
+                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
                           {agent.count} events
                         </p>
                         <p className={mutedClass}>
@@ -1154,7 +1154,7 @@ export function DashboardView({ section }: { section: Section }) {
                         <p className={sectionTitleClass}>{sanitizeValue(symbol)}</p>
                         <div className={cn('h-2 w-2 rounded-full', hasData ? 'bg-emerald-500' : 'bg-slate-500')} />
                       </div>
-                      <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-900">
+                      <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">
                         {hasData ? formatUSD(price) : '--'}
                       </p>
                       <div className="mt-2 flex items-center justify-between">
@@ -1261,7 +1261,7 @@ export function DashboardView({ section }: { section: Section }) {
                     return (
                       <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-900">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
+                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
                             <button
@@ -1308,15 +1308,15 @@ export function DashboardView({ section }: { section: Section }) {
                       const side = sanitizeValue(position?.side).toUpperCase()
                       return (
                         <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{sanitizeValue(position?.symbol)}</td>
+                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
                           <td className="px-2 py-2">
                             <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
                               {side === '--' ? 'N/A' : side}
                             </span>
                           </td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
                           <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
                             {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
                           </td>
@@ -1417,7 +1417,7 @@ export function DashboardView({ section }: { section: Section }) {
                   ) : (
                     realAgents.map((agent) => (
                       <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-900">{displayAgentName(agent.name)}</td>
+                        <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
                           <span className="inline-flex items-center gap-2">
                             <span className={cn(
@@ -1434,8 +1434,8 @@ export function DashboardView({ section }: { section: Section }) {
                           </span>
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{agent.source}</td>
-                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{sanitizeValue(agent.count)}</td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                        <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(agent.count)}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
                       </tr>
                     ))
                   )}
@@ -1470,7 +1470,7 @@ export function DashboardView({ section }: { section: Section }) {
                       const isActive = inst.status === 'active'
                       return (
                         <tr key={inst.id} className="border-t border-slate-200 dark:border-slate-800">
-                          <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-900">{inst.instance_key}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-100">{inst.instance_key}</td>
                           <td className="px-2 py-1.5 text-xs font-sans text-slate-600 dark:text-slate-400">{inst.pool_name}</td>
                           <td className="px-2 py-1.5 text-xs font-sans">
                             <span className="inline-flex items-center gap-1.5">
@@ -1478,7 +1478,7 @@ export function DashboardView({ section }: { section: Section }) {
                               <span className={isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}>{inst.status}</span>
                             </span>
                           </td>
-                          <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-900">{inst.event_count}</td>
+                          <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-100">{inst.event_count}</td>
                           <td className="px-2 py-1.5 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{formatUptime(inst.uptime_seconds)}</td>
                           <td className="px-2 py-1.5 text-xs font-mono text-slate-500">{formatTimestamp(inst.started_at)}</td>
                         </tr>
@@ -1549,7 +1549,7 @@ export function DashboardView({ section }: { section: Section }) {
                   <tbody>
                     {gradeHistory.map((g, i) => (
                       <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-900">{g.grade ?? '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
                         <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
                       </tr>
@@ -1565,7 +1565,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Win Rate</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`}</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
@@ -1640,7 +1640,7 @@ export function DashboardView({ section }: { section: Section }) {
                       <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
                       <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
                     </div>
-                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-900">{stat.count}</p>
+                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
                   </div>
                 )
               })}
@@ -1656,11 +1656,11 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Messages Received</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{wsMessageCount}</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Last Message</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-900">{formatTimestamp(wsLastMessageTimestamp)}</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
               </div>
             </div>
           </div>
@@ -1696,7 +1696,7 @@ export function DashboardView({ section }: { section: Section }) {
                     {persistedCounts.slice(0, 8).map((row) => (
                       <div key={row.stream} className="flex items-center justify-between text-xs font-mono">
                         <span className="text-slate-600 dark:text-slate-300">{row.stream}</span>
-                        <span className="text-slate-900 dark:text-slate-900">{row.processed_count}</span>
+                        <span className="text-slate-900 dark:text-slate-100">{row.processed_count}</span>
                       </div>
                     ))}
                   </div>
