@@ -373,12 +373,12 @@ function ProposalsFeed({
 }
 
 function MobileNavigation({ section }: { section: Section }) {
-  const links: { key: Section; label: string }[] = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'trading', label: 'Trading' },
-    { key: 'agents', label: 'Agents' },
-    { key: 'learning', label: 'Learning' },
-    { key: 'system', label: 'System' },
+  const links: { key: Section; label: string; href: string }[] = [
+    { key: 'overview', label: 'Overview', href: '/dashboard' },
+    { key: 'trading', label: 'Trading', href: '/dashboard/trading' },
+    { key: 'agents', label: 'Agents', href: '/dashboard/agents' },
+    { key: 'learning', label: 'Learning', href: '/dashboard/learning' },
+    { key: 'system', label: 'System', href: '/dashboard/system' },
   ]
 
   return (
@@ -387,7 +387,7 @@ function MobileNavigation({ section }: { section: Section }) {
         {links.map((link) => (
           <Link
             key={link.key}
-            href={link.key === 'overview' ? '/dashboard' : `/dashboard/${link.key}`}
+            href={link.href}
             aria-current={section === link.key ? 'page' : undefined}
             className={cn(
               'flex min-h-11 items-center justify-center rounded-lg px-2 text-xs font-sans font-semibold transition-colors',
