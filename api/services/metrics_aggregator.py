@@ -571,7 +571,7 @@ class MetricsAggregator:
                             ),
                             "requires_approval": bool(p.get(FieldName.REQUIRES_APPROVAL, True)),
                             "confidence": _safe_float(p.get(FieldName.CONFIDENCE)) or None,
-                            "reflection_trace_id": _safe_str(p.get("reflection_trace_id")),
+                            "reflection_trace_id": _safe_str(p.get(FieldName.REFLECTION_TRACE_ID)),
                             "status": _safe_str(p.get(FieldName.STATUS)) or OrderStatus.PENDING,
                             "timestamp": row[2].isoformat() if row[2] else None,
                         }

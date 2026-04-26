@@ -49,7 +49,9 @@ class OrderReconciler:
             )
             rows = result.mappings().all()
             for row in rows:
-                broker_status = await self.broker.get_order_status(str(row["broker_order_id"]))
+                broker_status = await self.broker.get_order_status(
+                    str(row[FieldName.BROKER_ORDER_ID])
+                )
                 discrepancy = self._build_discrepancy(row, broker_status)
                 if discrepancy is None:
                     continue
@@ -89,7 +91,7 @@ class OrderReconciler:
         if broker_status is None:
             return {
                 "order_id": str(order_row["id"]),
-                "broker_order_id": str(order_row["broker_order_id"]),
+                FieldName.BROKER_ORDER_ID: str(order_row[FieldName.BROKER_ORDER_ID]),
                 "db_status": order_row[FieldName.STATUS],
                 "broker_status": "missing",
             }
@@ -97,7 +99,7 @@ class OrderReconciler:
             return None
         return {
             "order_id": str(order_row["id"]),
-            "broker_order_id": str(order_row["broker_order_id"]),
+            FieldName.BROKER_ORDER_ID: str(order_row[FieldName.BROKER_ORDER_ID]),
             "db_status": order_row[FieldName.STATUS],
             "broker_status": broker_status.get(FieldName.STATUS),
         }

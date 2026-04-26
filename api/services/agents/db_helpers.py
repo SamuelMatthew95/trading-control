@@ -186,7 +186,7 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
 
     Memory mode: writes to InMemoryStore event_history.
     """
-    trace_id = proposal.get("reflection_trace_id") or proposal.get(FieldName.MSG_ID) or ""
+    trace_id = proposal.get(FieldName.REFLECTION_TRACE_ID) or proposal.get(FieldName.MSG_ID) or ""
     if not is_db_available():
         get_runtime_store().add_event(
             {
@@ -538,28 +538,28 @@ async def upsert_trade_lifecycle(
                         updated_at       = NOW()
                 """),
                 {
-                    "symbol": symbol,
-                    "side": side.lower(),
-                    "qty": qty,
-                    "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "pnl": pnl,
-                    "pnl_percent": pnl_percent,
-                    "order_id": order_id,
-                    "signal_trace_id": signal_trace_id,
-                    "decision_trace_id": decision_trace_id,
-                    "execution_trace_id": execution_trace_id,
-                    "grade_trace_id": grade_trace_id,
-                    "reflection_trace_id": reflection_trace_id,
-                    "grade": grade,
-                    "grade_score": grade_score,
-                    "grade_label": grade_label,
-                    "status": status,
-                    "filled_at": filled_at or now_iso,
-                    "graded_at": graded_at,
-                    "reflected_at": reflected_at,
-                    "schema_version": DB_SCHEMA_VERSION,
-                    "source": SOURCE_EXECUTION,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side.lower(),
+                    FieldName.QTY: qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.EXIT_PRICE: exit_price,
+                    FieldName.PNL: pnl,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.SIGNAL_TRACE_ID: signal_trace_id,
+                    FieldName.DECISION_TRACE_ID: decision_trace_id,
+                    FieldName.EXECUTION_TRACE_ID: execution_trace_id,
+                    FieldName.GRADE_TRACE_ID: grade_trace_id,
+                    FieldName.REFLECTION_TRACE_ID: reflection_trace_id,
+                    FieldName.GRADE: grade,
+                    FieldName.GRADE_SCORE: grade_score,
+                    FieldName.GRADE_LABEL: grade_label,
+                    FieldName.STATUS: status,
+                    FieldName.FILLED_AT: filled_at or now_iso,
+                    FieldName.GRADED_AT: graded_at,
+                    FieldName.REFLECTED_AT: reflected_at,
+                    FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                    FieldName.SOURCE: SOURCE_EXECUTION,
                 },
             )
             await session.commit()

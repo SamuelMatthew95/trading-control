@@ -1191,7 +1191,7 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                     "content": payload.get(FieldName.CONTENT, {}),
                     "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
                     "confidence": payload.get(FieldName.CONFIDENCE),
-                    "reflection_trace_id": payload.get("reflection_trace_id"),
+                    "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
                     "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
