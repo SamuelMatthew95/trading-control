@@ -154,10 +154,19 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     )
 
 
+def _get_gemini_api_key() -> str:
+    api_key = (
+        getattr(settings, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY") or ""
+    ).strip()
+    if not api_key:
+        raise RuntimeError("missing_api_key: set GEMINI_API_KEY in environment")
+    return api_key
+
+
 async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     import google.generativeai as genai
 
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    genai.configure(api_key=_get_gemini_api_key())
     model = genai.GenerativeModel("gemini-2.0-flash")
     retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
@@ -270,7 +279,7 @@ async def _call_provider_raw(
     if provider == "gemini":
         import google.generativeai as genai
 
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        genai.configure(api_key=_get_gemini_api_key())
         model = genai.GenerativeModel("gemini-2.0-flash")
         retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
@@ -315,7 +324,6 @@ async def call_llm_with_system(
         raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
     try:
         log_structured("info", "Calling LLM with custom prompt", provider=provider)
-        await asyncio.sleep(1)
         result = await _call_provider_raw(provider, prompt, system_prompt, trace_id)
         log_structured("info", "LLM custom call succeeded", provider=provider)
         return result
@@ -343,7 +351,6 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
     try:
         log_structured("info", "Calling LLM", provider=provider)
-        await asyncio.sleep(1)
         result = await _PROVIDERS[provider](prompt, trace_id)
         log_structured("info", "LLM succeeded", provider=provider)
         return result
