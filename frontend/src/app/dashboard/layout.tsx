@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api } from '@/lib/apiClient'
 import {
   AlertDialog,
@@ -34,7 +35,6 @@ const formatUSD = (value?: number | null): string => {
   if (value == null || isNaN(value) || !isFinite(value)) return '$0.00'
   return `$${Math.abs(value).toFixed(2)}`
 }
-type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   useWebSocket()
@@ -42,19 +42,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [killSwitchPending, setKillSwitchPending] = useState(false)
-  const { killSwitchActive, orders, positions, wsConnected, setKillSwitch } = useCodexStore()
+  const [mounted, setMounted] = useState(false)
+  const { killSwitchActive, orders, positions, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
 
   const dailyPnl = useMemo(() => {
     const realized = orders.reduce((sum, order) => sum + (Number(order?.pnl) || 0), 0)
     const unrealized = positions.reduce((sum, position) => sum + (Number(position?.pnl) || 0), 0)
     return realized + unrealized
   }, [orders, positions])
-  const systemStatus = useMemo<SystemStatus>(() => {
-    if (!wsConnected) return 'booting'
-    if (positions.length === 0 && orders.length === 0) return 'idle'
-    if (orders.length > 0) return 'trading'
-    return 'idle'
-  }, [orders.length, positions.length, wsConnected])
+  const systemStatus = useSystemStatus()
+
+  // Hydrate persisted store data from localStorage AFTER the first client
+  // render so the initial SSR'd HTML matches. Without this gate the first
+  // render uses persisted data on the client but empty state on the server,
+  // triggering React hydration errors #418/#423/#425.
+  useEffect(() => {
+    hydrateFromLocalStorage()
+    setMounted(true)
+  }, [hydrateFromLocalStorage])
 
   // Hydrate the kill-switch state from the server so the UI starts in sync
   // with Redis even if no one has toggled it in this session yet.
@@ -74,6 +79,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       cancelled = true
     }
   }, [setKillSwitch])
+
+  // Show a reconnecting banner whenever the WebSocket has been disconnected
+  // for >2s after first mount. The 2s delay avoids flashing the banner on
+  // every page load before the first connection succeeds.
+  const showReconnectBanner = mounted && !wsConnected
 
   const handleKillSwitch = async (activate: boolean) => {
     if (killSwitchPending) return
@@ -213,6 +223,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
         </header>
+
+        {showReconnectBanner && (
+          <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs font-sans font-semibold text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500 align-middle" />
+            <span className="ml-2">Reconnecting to live feed…</span>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
