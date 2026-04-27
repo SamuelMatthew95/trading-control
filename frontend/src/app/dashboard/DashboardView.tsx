@@ -415,7 +415,10 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
 
   useEffect(() => {
     fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then((d) => { setData(d as TraceData); setLoading(false) })
       .catch(() => { setError('Failed to load trace'); setLoading(false) })
   }, [traceId])
@@ -814,6 +817,7 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchPerformance = async () => {
       try {
         const r = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
+        if (!r.ok) return
         const d = await r.json()
         if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
       } catch {
@@ -830,11 +834,14 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchAgentInstances = async () => {
       try {
         const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
+        if (!r.ok) {
+          setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
+          return
+        }
         const d = await r.json()
         useCodexStore.getState().setAgentInstances(d.instances ?? [])
-        setApiHealth((prev) => ({ ...prev, agentInstances: r.ok ? 'ok' : 'error' }))
+        setApiHealth((prev) => ({ ...prev, agentInstances: 'ok' }))
       } catch {
-        // non-fatal
         setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
       }
     }
