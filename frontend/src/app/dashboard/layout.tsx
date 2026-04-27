@@ -31,10 +31,6 @@ const NAV = [
   { href: '/dashboard/system', label: 'System', Icon: Settings2 },
 ]
 
-const formatUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '$0.00'
-  return `$${Math.abs(value).toFixed(2)}`
-}
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   useWebSocket()
 
@@ -53,7 +49,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!wsConnected) return 'idle'
     if (orders.length > 0) return 'active'
     return 'idle'
-  }, [orders.length, positions.length, wsConnected, wsDiagnostics.lastError])
+  }, [orders.length, wsConnected, wsDiagnostics.lastError])
 
   // Hydrate the kill-switch state from the server so the UI starts in sync
   // with Redis even if no one has toggled it in this session yet.
