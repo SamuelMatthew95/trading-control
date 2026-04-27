@@ -5,20 +5,8 @@ import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/use
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
-import { AgentStream } from '@/components/dashboard/AgentStream'
-import { PositionsTable } from '@/components/dashboard/PositionsTable'
-import {
-  Activity,
-  Bell,
-  Brain,
-  CheckCheck,
-  FileCode,
-  ThumbsDown,
-  ThumbsUp,
-  TrendingDown,
-  TrendingUp,
-  Zap,
-} from 'lucide-react'
+import { TradingConsoleSection } from '@/components/dashboard/TradingConsoleSection'
+import { Activity, Bell, Brain, CheckCheck, FileCode, ThumbsDown, ThumbsUp, TrendingDown, TrendingUp, Zap } from 'lucide-react'
 import type { Notification, Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
@@ -1330,114 +1318,23 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'trading' && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-          <div className="space-y-4 xl:col-span-3">
-            <div className={cardClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <p className={sectionTitleClass}>System Stats</p>
-                <span className={mutedClass}>Live</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <p className={mutedClass}>Trades</p>
-                  <p className="text-sm font-mono tabular-nums text-slate-100">{tradeFeed.length}</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <p className={mutedClass}>Positions</p>
-                  <p className="text-sm font-mono tabular-nums text-slate-100">{positions.length}</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <p className={mutedClass}>Agents</p>
-                  <p className="text-sm font-mono tabular-nums text-slate-100">{realAgents.length}</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <p className={mutedClass}>WS</p>
-                  <p className={cn('text-sm font-mono tabular-nums', wsConnected ? 'text-emerald-400' : 'text-amber-400')}>
-                    {wsConnected ? 'Connected' : 'Reconnecting'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className={cardClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <p className={sectionTitleClass}>Trade Feed</p>
-                <p className={mutedClass}>{tradeFeed.length} fills</p>
-              </div>
-              {tradeFeed.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-700 px-4 py-8 text-center text-xs font-sans text-slate-500">
-                  Awaiting fills...
-                </div>
-              ) : (
-                <div className="max-h-96 overflow-y-auto space-y-1">
-                  {tradeFeed.slice(0, 20).map((trade) => {
-                    const isBuy = trade.side === 'buy'
-                    const pnl = toFiniteNumber(trade.pnl)
-                    const pnlPct = toFiniteNumber(trade.pnl_percent)
-                    const isPnlPositive = (pnl ?? 0) >= 0
-                    const exitPrice = toFiniteNumber(trade.exit_price)
-                    const qty = toFiniteNumber(trade.qty)
-
-                    return (
-                      <div key={trade.id} className="flex items-center justify-between gap-2 border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400')}>
-                            {isBuy ? 'BUY' : 'SELL'}
-                          </span>
-                          <span className="text-sm font-mono font-semibold text-slate-100">{trade.symbol}</span>
-                          <span className={mutedClass}>
-                            {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
-                          </span>
-                        </div>
-                        <span className={cn('text-xs font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-400' : 'text-rose-400')}>
-                          {pnl == null ? '--' : `${isPnlPositive ? '+' : '-'}${formatUSD(pnl)}${pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}`}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-4 xl:col-span-5">
-            {hasSyncDrift && (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">
-                Sync drift warning: realtime events are present, but lifecycle rows are 0.
-              </div>
-            )}
-            <AgentStream logs={agentLogs as Array<Record<string, unknown>>} formatMessage={formatAgentMessage} />
-          </div>
-
-          <div className="space-y-4 xl:col-span-4">
-            <div className={cardClass}>
-              <p className={sectionTitleClass}>Portfolio Summary</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <p className={mutedClass}>Open Positions</p>
-                  <p className="text-sm font-mono tabular-nums text-slate-100">{positions.length}</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <p className={mutedClass}>Unrealized P&amp;L</p>
-                  <p className="text-sm font-mono tabular-nums text-slate-100">
-                    {formatUSD(positions.reduce((sum, position) => sum + (toFiniteNumber(position?.pnl) ?? 0), 0))}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <PositionsTable
-              positions={positions as Array<Record<string, unknown>>}
-              onClose={(position) => {
-                const traceId = resolvePositionTraceId(position)
-                if (traceId) setActiveTraceId(traceId)
-              }}
-              onViewDetails={(position) => {
-                const traceId = resolvePositionTraceId(position)
-                if (traceId) setActiveTraceId(traceId)
-              }}
-            />
-          </div>
-        </div>
+        <TradingConsoleSection
+          tradeFeed={tradeFeed}
+          positions={positions as Array<Record<string, unknown>>}
+          realAgentsCount={realAgents.length}
+          wsConnected={wsConnected}
+          hasSyncDrift={hasSyncDrift}
+          agentLogs={agentLogs as Array<Record<string, unknown>>}
+          formatAgentMessage={formatAgentMessage}
+          onClosePosition={(position) => {
+            const traceId = resolvePositionTraceId(position)
+            if (traceId) setActiveTraceId(traceId)
+          }}
+          onViewPositionDetails={(position) => {
+            const traceId = resolvePositionTraceId(position)
+            if (traceId) setActiveTraceId(traceId)
+          }}
+        />
       )}
 
       {section === 'agents' && (
