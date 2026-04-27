@@ -19,6 +19,7 @@ type EquityPoint = {
   timestamp: number
   label: string
   pnl: number
+  delta: number
   equity: number
 }
 
@@ -94,6 +95,7 @@ export const buildEquitySeries = (orders: EquityOrder[]): EquityPoint[] => {
     return {
       timestamp,
       pnl,
+      delta: pnl,
       equity: running,
       label: formatTickTime(timestamp),
     }
@@ -121,6 +123,15 @@ export function EquityCurve({
 }) {
   const series = useMemo(() => buildEquitySeries(orders), [orders])
   const domain = useMemo(() => getPaddedDomain(series), [series])
+  const stats = useMemo(() => {
+    if (series.length === 0) return null
+    const end = series[series.length - 1]?.equity ?? 0
+    const change = end
+    const peak = Math.max(...series.map((point) => point.equity))
+    const trough = Math.min(...series.map((point) => point.equity))
+    const swing = peak - trough
+    return { end, change, peak, swing }
+  }, [series])
 
   if (isLoading) {
     return <div className="h-72 animate-pulse rounded-lg border border-slate-200 bg-slate-100/70 dark:border-slate-800 dark:bg-slate-800/40" />
@@ -134,22 +145,48 @@ export function EquityCurve({
     return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">No equity data yet</div>
   }
 
-  const last = series[series.length - 1]?.equity ?? 0
+  const last = stats?.end ?? 0
   const positive = last >= 0
   const strokeColor = positive ? '#10b981' : '#f43f5e'
-  const fillColor = positive ? 'rgba(16,185,129,0.14)' : 'rgba(244,63,94,0.14)'
+  const gradientTop = positive ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)'
+  const gradientBottom = positive ? 'rgba(16,185,129,0.02)' : 'rgba(244,63,94,0.02)'
 
   return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-mono uppercase tracking-[0.04em] text-slate-500">Cumulative P&L</span>
-        <span className={cn('text-sm font-mono tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>{formatUSD(last)}</span>
+    <div className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/60 to-white p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:via-slate-900/60 dark:to-slate-950">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Cumulative P&amp;L</p>
+          <p className={cn('text-xl font-semibold tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>{formatUSD(last)}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Net</p>
+            <p className={cn('text-xs font-medium tabular-nums', (stats?.change ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
+              {(stats?.change ?? 0) >= 0 ? '+' : ''}
+              {formatUSD(stats?.change ?? 0)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Peak</p>
+            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatUSD(stats?.peak ?? 0)}</p>
+          </div>
+          <div className="col-span-2 rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:col-span-1 dark:border-slate-800 dark:bg-slate-900/60">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Range</p>
+            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatUSD(stats?.swing ?? 0)}</p>
+          </div>
+        </div>
       </div>
 
-      <div className="h-72 w-full">
+      <div className="h-72 w-full rounded-lg border border-slate-200/70 bg-white/80 p-2 dark:border-slate-800/80 dark:bg-slate-950/40">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={series} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-slate-200 dark:text-slate-700" />
+            <defs>
+              <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={gradientTop} />
+                <stop offset="95%" stopColor={gradientBottom} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="2 4" stroke="currentColor" className="text-slate-200 dark:text-slate-800" />
             <XAxis
               dataKey="timestamp"
               type="number"
@@ -171,13 +208,10 @@ export function EquityCurve({
             />
             <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 4" />
             <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 10, boxShadow: '0 10px 25px rgba(2,6,23,0.35)' }}
               labelStyle={{ color: '#cbd5e1', fontSize: 12 }}
               formatter={(value: number, _name, item) => {
-                const index = item?.payload?.timestamp
-                const current = series.find((point) => point.timestamp === index)
-                const previous = series[series.findIndex((point) => point.timestamp === index) - 1]
-                const change = current && previous ? current.equity - previous.equity : current?.equity ?? 0
+                const change = typeof item?.payload?.delta === 'number' ? item.payload.delta : 0
                 return [
                   `${formatUSD(value)} (Δ ${change >= 0 ? '+' : ''}${formatUSD(change)})`,
                   'Equity',
@@ -186,14 +220,16 @@ export function EquityCurve({
               labelFormatter={(value) => formatTooltipTime(Number(value))}
             />
             <Area
-              type="monotone"
+              type="monotoneX"
               dataKey="equity"
               stroke={strokeColor}
+              strokeWidth={2.5}
               fillOpacity={1}
-              fill={fillColor}
+              fill="url(#equityGradient)"
               isAnimationActive={false}
               connectNulls={false}
-              dot={series.length < 3}
+              dot={series.length < 3 ? { r: 3, strokeWidth: 0, fill: strokeColor } : false}
+              activeDot={{ r: 4, strokeWidth: 0, fill: strokeColor }}
             />
           </AreaChart>
         </ResponsiveContainer>
