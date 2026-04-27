@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
+import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -55,6 +56,15 @@ const formatUSD = (value?: number | null): string => {
   return `$${Math.abs(value).toFixed(2)}`;
 };
 
+// Renders a signed USD value with leading sign — BUT never produces "-$0.00".
+// Zero (or near-zero rounding to zero) is always rendered without a sign.
+const signedUSD = (value?: number | null): string => {
+  if (value == null || isNaN(value) || !isFinite(value)) return '--';
+  const abs = Math.abs(value);
+  if (abs < 0.005) return '$0.00';
+  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`;
+};
+
 const formatTimeAgo = (date: Date): string => {
   const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
@@ -93,7 +103,6 @@ const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
-type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
 type AgentSummary = {
   name: string
@@ -149,24 +158,30 @@ function isClosedTrade(order: Record<string, unknown> | null | undefined): boole
 
 function parseTimestamp(value: unknown): Date | null {
   if (value == null) return null
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+  if (value instanceof Date) {
+    const t = value.getTime()
+    return Number.isNaN(t) || t <= 0 ? null : value
+  }
   if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return null
     const ms = value > 10_000_000_000 ? value : value * 1000
     const d = new Date(ms)
     return Number.isNaN(d.getTime()) ? null : d
   }
   const raw = String(value).trim()
-  if (!raw) return null
+  if (!raw || raw === '0') return null
   if (/^\d+(\.\d+)?$/.test(raw)) {
     const num = Number(raw)
-    if (Number.isFinite(num)) {
+    if (Number.isFinite(num) && num > 0) {
       const ms = num > 10_000_000_000 ? num : num * 1000
       const d = new Date(ms)
       if (!Number.isNaN(d.getTime())) return d
     }
+    return null
   }
   const d = new Date(raw)
-  return Number.isNaN(d.getTime()) ? null : d
+  if (Number.isNaN(d.getTime()) || d.getTime() <= 0) return null
+  return d
 }
 
 function parseHeartbeatTimestamp(status: AgentStatus): Date | null {
@@ -254,7 +269,7 @@ function NotificationFeed({
         </div>
         <div className="flex items-center gap-2">
           {unread.length > 0 && (
-            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{unread.length}</span>
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white" title={`${unread.length} unread`}>{unread.length} unread</span>
           )}
           <p className={mutedClass}>{notifications.length} total</p>
         </div>
@@ -278,9 +293,17 @@ function NotificationFeed({
                   <div className="mb-1 flex items-center gap-2">
                     <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
                     <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
-                    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', notif.state === 'resolved' || notif.acknowledged ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
-                      {notif.state === 'resolved' || notif.acknowledged ? 'resolved' : 'action needed'}
-                    </span>
+                    {(() => {
+                      const isResolved = notif.state === 'resolved' || notif.acknowledged
+                      const isActionable = !isResolved && (notif.severity === 'CRITICAL' || notif.severity === 'URGENT')
+                      if (isResolved) {
+                        return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-emerald-500/10 text-emerald-500">resolved</span>
+                      }
+                      if (isActionable) {
+                        return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-500">action needed</span>
+                      }
+                      return null
+                    })()}
                     <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
                   </div>
                   <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
@@ -638,6 +661,9 @@ export function DashboardView({ section }: { section: Section }) {
     eventHistory: 'pending',
   })
   const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
+  // null = not yet fetched, true/false = fetched from /dashboard/state
+  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
+  const [llmProvider, setLlmProvider] = useState<string>('')
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -677,14 +703,8 @@ export function DashboardView({ section }: { section: Section }) {
   const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
   const wins = tradeFeed.filter((row) => (row.pnl ?? 0) > 0).length
   const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
-  const systemStatus = useMemo<SystemStatus>(() => {
-    if (systemFeedError) return 'error'
-    const marketConnected = wsConnected || (dataLatencyMs != null && dataLatencyMs <= 5_000)
-    if (!marketConnected) return 'booting'
-    if (positions.length === 0 && (streamStats.executions?.count ?? 0) === 0) return 'idle'
-    if (positions.length > 0 || orders.length > 0 || tradeFeed.length > 0) return 'trading'
-    return 'idle'
-  }, [dataLatencyMs, orders.length, positions.length, streamStats.executions?.count, systemFeedError, tradeFeed.length, wsConnected])
+  const baseSystemStatus = useSystemStatus()
+  const systemStatus = systemFeedError ? 'error' : baseSystemStatus
 
   // ── REST fallback data fetching ──────────────────────────────────────────
   // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
@@ -701,6 +721,8 @@ export function DashboardView({ section }: { section: Section }) {
           console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
           useCodexStore.getState().hydrateDashboard(data)
           setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
+          if (typeof data.llm_available === 'boolean') setLlmAvailable(data.llm_available)
+          if (typeof data.llm_provider === 'string') setLlmProvider(data.llm_provider)
         } else {
           console.warn('[Dashboard] /dashboard/state responded', r.status)
           setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
@@ -916,7 +938,21 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [orders])
 
-  const resolvedPerformanceSummary = performanceSummary ?? fallbackPerformanceSummary
+  // The API summary is preferred ONLY if it actually carries data. In in-memory
+  // mode the backend returns `{total_pnl: 0, win_rate: 0, ...}` even when the
+  // session has real fills, which left Total/Best/Worst pinned to $0.00 while
+  // the headline Daily P&L showed a real loss. Fall back to the locally
+  // computed summary whenever the API response is uniformly zero AND we have
+  // closed trades on the client.
+  const apiSummaryHasSignal = performanceSummary != null && (
+    (performanceSummary.total_pnl ?? 0) !== 0
+    || (performanceSummary.win_rate ?? 0) !== 0
+    || (performanceSummary.best_trade ?? 0) !== 0
+    || (performanceSummary.worst_trade ?? 0) !== 0
+  )
+  const resolvedPerformanceSummary = apiSummaryHasSignal
+    ? performanceSummary
+    : (fallbackPerformanceSummary ?? performanceSummary)
 
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
@@ -1150,7 +1186,7 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
+              { title: 'Daily P&L', value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
               { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
               { title: 'Daily Change %', value: `${sanitizeValue((summary.dailyChange ?? 0).toFixed(2))}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
@@ -1172,7 +1208,7 @@ export function DashboardView({ section }: { section: Section }) {
                 {
                   label: 'Total P&L',
                   value: resolvedPerformanceSummary != null
-                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
+                    ? signedUSD(resolvedPerformanceSummary.total_pnl)
                     : '--',
                   colorClass: resolvedPerformanceSummary != null
                     ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
@@ -1185,12 +1221,12 @@ export function DashboardView({ section }: { section: Section }) {
                 },
                 {
                   label: 'Best Trade',
-                  value: resolvedPerformanceSummary != null ? `+${formatUSD(resolvedPerformanceSummary.best_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.best_trade) : '--',
                   colorClass: 'text-emerald-500',
                 },
                 {
                   label: 'Worst Trade',
-                  value: resolvedPerformanceSummary != null ? `-${formatUSD(resolvedPerformanceSummary.worst_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.worst_trade) : '--',
                   colorClass: 'text-rose-500',
                 },
               ].map((cell) => (
@@ -1215,7 +1251,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <p className={mutedClass}>{sanitizeValue(realAgents.length)}</p>
               </div>
               {realAgents.length === 0 ? (
-                <EmptyState message="No active agents" />
+                <EmptyState message={wsConnected ? 'No active agents' : 'Connecting…'} />
               ) : (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {realAgents.map((agent) => (
@@ -1263,12 +1299,28 @@ export function DashboardView({ section }: { section: Section }) {
                     <span className="text-xs font-sans text-amber-500">Loading</span>
                   </div>
                 ) : Object.keys(prices).length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <div className={cn('h-2 w-2 rounded-full', dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'bg-emerald-500' : 'bg-amber-500')} />
-                    <span className={cn('text-xs font-sans', dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'text-emerald-500' : 'text-amber-500')}>
-                      {dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'Live' : 'Stale'}
-                    </span>
-                  </div>
+                  (() => {
+                    // Derive freshness from the prices themselves rather than the
+                    // market_ticks stream lag. When prices are hydrated via REST
+                    // (cold start, WS not connected) the stream lag metric is
+                    // null and would falsely display "Stale" while the tile
+                    // dots show green. Pick the freshest updatedAt across all
+                    // tiles and grade by that.
+                    const ages = Object.values(prices)
+                      .map((p) => parseTimestamp((p as { updatedAt?: string | null })?.updatedAt))
+                      .filter((d): d is Date => d instanceof Date)
+                      .map((d) => Date.now() - d.getTime())
+                    const freshestMs = ages.length > 0 ? Math.min(...ages) : null
+                    const isLive = freshestMs != null && freshestMs <= 60_000
+                    return (
+                      <div className="flex items-center gap-2">
+                        <div className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-amber-500')} />
+                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-500' : 'text-amber-500')}>
+                          {isLive ? 'Live' : 'Stale'}
+                        </span>
+                      </div>
+                    )
+                  })()
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-slate-500" />
@@ -1747,22 +1799,20 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
-                <p className={cn('text-sm font-mono tabular-nums', summary.dailyPnlNumeric >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                  {resolvedPerformanceSummary != null
-                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
-                    : '--'}
+                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
+                  {resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Best Day</p>
                 <p className="text-sm font-mono tabular-nums text-emerald-500">
-                  {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${learningSummary.bestDay[1] >= 0 ? '+' : '-'}${formatUSD(learningSummary.bestDay[1])})` : 'N/A'}
+                  {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${signedUSD(learningSummary.bestDay[1])})` : 'N/A'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Worst Day</p>
                 <p className="text-sm font-mono tabular-nums text-rose-500">
-                  {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${learningSummary.worstDay[1] >= 0 ? '+' : '-'}${formatUSD(learningSummary.worstDay[1])})` : 'N/A'}
+                  {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${signedUSD(learningSummary.worstDay[1])})` : 'N/A'}
                 </p>
               </div>
             </div>
@@ -1831,6 +1881,15 @@ export function DashboardView({ section }: { section: Section }) {
           {!persistenceEnabled && (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
               Persistence appears disabled (no persisted events/logs). Agents/Learning views may show incomplete history.
+            </div>
+          )}
+          {llmAvailable === false && (
+            <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 p-3 text-sm text-blue-600 dark:text-blue-400">
+              <span className="font-semibold">Rule-based mode</span> — no{' '}
+              {llmProvider ? llmProvider.charAt(0).toUpperCase() + llmProvider.slice(1) : 'LLM'}{' '}
+              API key configured. Reasoning decisions use signal direction only; set{' '}
+              {llmProvider ? llmProvider.toUpperCase() + '_API_KEY' : 'an LLM API key'} to enable
+              AI-powered analysis.
             </div>
           )}
 
