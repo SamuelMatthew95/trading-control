@@ -74,7 +74,7 @@ describe('EquityCurve', () => {
       />,
     )
 
-    expect(screen.getByText('$50.00')).toHaveClass('text-emerald-500')
+    expect(screen.getByText('Cumulative P&L').nextElementSibling).toHaveClass('text-emerald-500')
   })
 
   it('returns padded y-axis domain', () => {
