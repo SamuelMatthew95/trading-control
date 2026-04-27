@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import { api } from '@/lib/apiClient'
 
 type Signal = {
   id: string
@@ -14,13 +14,15 @@ export function SignalsSidebar() {
   const [items, setItems] = useState<Signal[]>([])
 
   const load = async () => {
-    const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/signals`)
-    setItems(response.data.items || [])
+    const response = await fetch(api('/signals'))
+    if (!response.ok) return
+    const data = await response.json()
+    setItems(data.items || [])
   }
 
   useEffect(() => {
-    load().catch(() => undefined)
-    const timer = setInterval(() => load().catch(() => undefined), 60000)
+    load().catch((err) => console.warn('[Signals] Failed to load:', err))
+    const timer = setInterval(() => load().catch((err) => console.warn('[Signals] Failed to load:', err)), 60000)
     return () => clearInterval(timer)
   }, [])
 
@@ -28,7 +30,7 @@ export function SignalsSidebar() {
     const previous = items
     setItems((current) => current.filter((signal) => signal.id !== id))
     try {
-      await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/signals/${id}/dismiss`)
+      await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
     } catch {
       setItems(previous)
     }
