@@ -93,7 +93,9 @@ describe('TradeFeed panel', () => {
 
   it('shows empty state when tradeFeed is empty', () => {
     render(<DashboardView section="trading" />)
-    expect(screen.getAllByText(/no orders today/i).length).toBeGreaterThan(0)
+    expect(
+      screen.getByText((content) => /no orders today/i.test(content)),
+    ).toBeInTheDocument()
   })
 
   it('renders symbol and side badge when store has items', () => {
@@ -122,7 +124,9 @@ describe('TradeFeed panel', () => {
   it('renders grade badge when grade is set', () => {
     mockStore.tradeFeed = [makeTrade({ grade: 'A' })]
     render(<DashboardView section="trading" />)
-    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(
+      screen.getByText((content) => content.trim() === 'A'),
+    ).toBeInTheDocument()
   })
 
   it('trace chip renders as a clickable button element', () => {
@@ -131,7 +135,7 @@ describe('TradeFeed panel', () => {
     const tradeWithTrace = makeTrade({ execution_trace_id: 'abcdef12-9999-0000-1111-222233334444' })
     mockStore.tradeFeed = [tradeWithTrace]
     render(<DashboardView section="trading" />)
-    const traceBtn = screen.getByText(/trace:abcdef12/)
+    const traceBtn = screen.getByText((content) => /trace:abcdef12/i.test(content))
     expect(traceBtn).toBeInTheDocument()
     expect(traceBtn.tagName).toBe('BUTTON')
   })

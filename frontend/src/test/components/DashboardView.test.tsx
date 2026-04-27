@@ -124,7 +124,9 @@ describe('DashboardView — trading', () => {
 
   it('shows empty state when no positions', () => {
     render(<DashboardView section="trading" />)
-    expect(screen.getAllByText(/no orders today/i).length).toBeGreaterThan(0)
+    expect(
+      screen.getByText((content) => /no orders today/i.test(content)),
+    ).toBeInTheDocument()
   })
 })
 
