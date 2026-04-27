@@ -154,7 +154,7 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
 
 
 def _get_gemini_api_key() -> str:
-    api_key = (getattr(settings, "GEMINI_API_KEY", None) or "").strip()
+    api_key = (_get_provider_key("gemini") or "").strip()
     if not api_key:
         raise RuntimeError("missing_api_key: set GEMINI_API_KEY in environment")
     return api_key
