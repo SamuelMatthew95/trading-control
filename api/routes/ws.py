@@ -22,6 +22,7 @@ from api.constants import (
 )
 from api.events.bus import STREAMS
 from api.observability import log_structured
+from api.runtime_state import get_runtime_store, runtime_mode
 
 router = APIRouter(tags=["ws"])
 
@@ -37,20 +38,26 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     type — orders[], positions[], agent_logs[], prices{} — so every client
     starts with the same consistent view without any REST calls.
     """
-    from api.database import AsyncSessionFactory
-    from api.services.metrics_aggregator import MetricsAggregator
+    try:
+        from api.database import AsyncSessionFactory
+        from api.services.metrics_aggregator import MetricsAggregator
 
-    async with AsyncSessionFactory() as session:
-        aggregator = MetricsAggregator(session)
-        data = await aggregator.get_raw_snapshot()
-        # Paired PnL: closed trade pairs + open positions with unrealized PnL.
-        # Included in the initial snapshot so the UI always has P&L data on
-        # connect/reconnect without a separate REST fetch.
-        try:
-            data[FieldName.PNL] = await aggregator.get_paired_pnl(redis_client=redis_client)
-        except Exception:
-            log_structured("warning", "ws_snapshot_pnl_failed", exc_info=True)
-            data[FieldName.PNL] = {"closed_trades": [], "open_positions": [], "summary": {}}
+        async with AsyncSessionFactory() as session:
+            aggregator = MetricsAggregator(session)
+            data = await aggregator.get_raw_snapshot()
+            # Paired PnL: closed trade pairs + open positions with unrealized PnL.
+            # Included in the initial snapshot so the UI always has P&L data on
+            # connect/reconnect without a separate REST fetch.
+            try:
+                data[FieldName.PNL] = await aggregator.get_paired_pnl(redis_client=redis_client)
+            except Exception:
+                log_structured("warning", "ws_snapshot_pnl_failed", exc_info=True)
+                data[FieldName.PNL] = get_runtime_store().paired_pnl_payload()
+    except Exception:
+        log_structured("warning", "ws_snapshot_db_unavailable", exc_info=True)
+        data = get_runtime_store().dashboard_fallback_snapshot()
+        data["mode"] = runtime_mode()
+        data[FieldName.PNL] = get_runtime_store().paired_pnl_payload()
 
     # Enrich with current prices from Redis cache
     if redis_client is not None:

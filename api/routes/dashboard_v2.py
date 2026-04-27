@@ -60,7 +60,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     """Compute dashboard PnL metrics directly from in-memory runtime state."""
     store = get_runtime_store()
     orders = list(store.orders)
-    positions = list(store.positions.values())
+    open_positions = store.open_positions()
     total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
     wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
     losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
@@ -71,12 +71,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
         "winning_trades": wins,
         "losing_trades": losses,
         "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
-        "active_positions": sum(
-            1
-            for p in positions
-            if str(p.get(FieldName.SIDE, "")).lower() in {"long", "short"}
-            and float(p.get(FieldName.QTY) or 0.0) > 0
-        ),
+        "active_positions": len(open_positions),
         "best_trade": round(
             max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
         ),
@@ -258,26 +253,11 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
     price so unrealized PnL updates on every request.
     """
     if not is_db_available():
-        metrics = _in_memory_pnl_payload()
-        winning_trades = int(metrics["winning_trades"])
-        total_trades = winning_trades + int(metrics["losing_trades"])
+        payload = get_runtime_store().paired_pnl_payload()
         return {
-            "closed_trades": metrics.get(FieldName.PNL, []),
-            "open_positions": list(get_runtime_store().positions.values()),
-            "summary": {
-                "realized_pnl": float(metrics["total_pnl"]),
-                "unrealized_pnl": sum(
-                    float(p.get(FieldName.UNREALIZED_PNL) or 0.0)
-                    for p in get_runtime_store().positions.values()
-                ),
-                "total_pnl": float(metrics["total_pnl"]),
-                "closed_trades": total_trades,
-                "winning_trades": winning_trades,
-                "win_rate_percent": round(
-                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
-                ),
-                "open_positions": len(get_runtime_store().positions),
-            },
+            "closed_trades": payload["closed_trades"],
+            "open_positions": payload["open_positions"],
+            "summary": payload["summary"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -289,26 +269,11 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
             return await aggregator.get_paired_pnl(redis_client=redis_client)
     except Exception:
         log_structured("warning", "paired_pnl_unavailable", exc_info=True)
-        metrics = _in_memory_pnl_payload()
-        winning_trades = int(metrics["winning_trades"])
-        total_trades = winning_trades + int(metrics["losing_trades"])
+        payload = get_runtime_store().paired_pnl_payload()
         return {
-            "closed_trades": metrics.get(FieldName.PNL, []),
-            "open_positions": list(get_runtime_store().positions.values()),
-            "summary": {
-                "realized_pnl": float(metrics["total_pnl"]),
-                "unrealized_pnl": sum(
-                    float(p.get(FieldName.UNREALIZED_PNL) or 0.0)
-                    for p in get_runtime_store().positions.values()
-                ),
-                "total_pnl": float(metrics["total_pnl"]),
-                "closed_trades": total_trades,
-                "winning_trades": winning_trades,
-                "win_rate_percent": round(
-                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
-                ),
-                "open_positions": len(get_runtime_store().positions),
-            },
+            "closed_trades": payload["closed_trades"],
+            "open_positions": payload["open_positions"],
+            "summary": payload["summary"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }

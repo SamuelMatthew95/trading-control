@@ -48,6 +48,13 @@ class InMemoryStore:
     trade_feed: list[dict[str, Any]] = field(default_factory=list)
     last_health: str = "unknown"
 
+    @staticmethod
+    def _safe_float(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
         self.agents[agent_id] = {**existing, **data}
@@ -161,12 +168,14 @@ class InMemoryStore:
         return payload
 
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
+        def _has_open_quantity(position: dict[str, Any]) -> bool:
+            qty = self._safe_float(position.get(FieldName.QTY, 0) or 0)
+            return qty is not None and abs(qty) > 0
+
         now = time.time()
         return {
             "orders": list(reversed(self.orders[-50:])),
-            "positions": [
-                p for p in self.positions.values() if float(p.get(FieldName.QTY, 0) or 0) > 0
-            ],
+            "positions": [p for p in self.positions.values() if _has_open_quantity(p)],
             "agent_logs": list(reversed(self.agent_logs[-50:])),
             "learning_events": list(reversed(self.grade_history[-20:])),
             "proposals": [
@@ -195,4 +204,51 @@ class InMemoryStore:
             "mode": "in_memory",
             "db_health": self.last_health,
             "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode
+        }
+
+    def open_positions(self) -> list[dict[str, Any]]:
+        """Return normalized in-memory open positions (long/short with non-zero qty)."""
+        rows: list[dict[str, Any]] = []
+        for position in self.positions.values():
+            side = str(position.get(FieldName.SIDE, "")).lower()
+            qty = self._safe_float(position.get(FieldName.QTY))
+            if side not in {"long", "short"} or qty is None or abs(qty) <= 0:
+                continue
+            rows.append(position)
+        return rows
+
+    def paired_pnl_payload(self) -> dict[str, Any]:
+        """Compute paired PnL payload shape used by REST/WS in-memory fallbacks."""
+        closed_trades = list(self.orders[-100:])
+        open_positions = self.open_positions()
+
+        realized_pnl = sum(
+            self._safe_float(order.get(FieldName.PNL)) or 0.0 for order in closed_trades
+        )
+        winning_trades = sum(
+            1 for order in closed_trades if (self._safe_float(order.get(FieldName.PNL)) or 0.0) > 0
+        )
+        losing_trades = sum(
+            1 for order in closed_trades if (self._safe_float(order.get(FieldName.PNL)) or 0.0) < 0
+        )
+        total_trades = winning_trades + losing_trades
+        unrealized_pnl = sum(
+            self._safe_float(position.get(FieldName.UNREALIZED_PNL)) or 0.0
+            for position in open_positions
+        )
+
+        return {
+            "closed_trades": closed_trades,
+            "open_positions": open_positions,
+            "summary": {
+                "realized_pnl": round(realized_pnl, 8),
+                "unrealized_pnl": round(unrealized_pnl, 8),
+                "total_pnl": round(realized_pnl + unrealized_pnl, 8),
+                "closed_trades": total_trades,
+                "winning_trades": winning_trades,
+                "win_rate_percent": round(
+                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
+                ),
+                "open_positions": len(open_positions),
+            },
         }

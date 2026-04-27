@@ -123,6 +123,22 @@ async def test_pnl_metrics_uses_in_memory_state_when_db_unavailable():
 
 
 @pytest.mark.asyncio
+async def test_pnl_metrics_counts_short_positions_in_memory_mode():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_position(
+        "TSLA",
+        {"symbol": "TSLA", "side": "short", "qty": -3.0, "unrealized_pnl": 12.5},
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_pnl_metrics()
+
+    assert payload["source"] == "in_memory"
+    assert payload["active_positions"] == 1
+
+
+@pytest.mark.asyncio
 async def test_paired_pnl_fallback_uses_in_memory_orders(monkeypatch):
     set_db_available(False)
     store = InMemoryStore()
@@ -136,8 +152,35 @@ async def test_paired_pnl_fallback_uses_in_memory_orders(monkeypatch):
     payload = await dashboard_v2.get_paired_pnl(RequestStub())
 
     assert payload["source"] == "in_memory"
-    assert payload["summary"]["total_pnl"] == pytest.approx(200.0)
+    assert payload["summary"]["realized_pnl"] == pytest.approx(200.0)
+    assert payload["summary"]["unrealized_pnl"] == pytest.approx(35.0)
+    assert payload["summary"]["total_pnl"] == pytest.approx(235.0)
     assert payload["summary"]["open_positions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_paired_pnl_in_memory_filters_flat_and_bad_qty_positions():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_position(
+        "TSLA",
+        {"symbol": "TSLA", "side": "short", "qty": -2.0, "unrealized_pnl": 15.0},
+    )
+    store.upsert_position(
+        "AAPL",
+        {"symbol": "AAPL", "side": "long", "qty": 0.0, "unrealized_pnl": 99.0},
+    )
+    store.upsert_position(
+        "BAD",
+        {"symbol": "BAD", "side": "long", "qty": "bad", "unrealized_pnl": 50.0},
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_paired_pnl(RequestStub())
+
+    assert payload["summary"]["open_positions"] == 1
+    assert payload["summary"]["unrealized_pnl"] == pytest.approx(15.0)
+    assert [p["symbol"] for p in payload["open_positions"]] == ["TSLA"]
 
 
 class RequestStub:
