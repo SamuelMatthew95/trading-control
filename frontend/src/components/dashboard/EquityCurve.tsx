@@ -123,14 +123,13 @@ export function EquityCurve({
   const domain = useMemo(() => getPaddedDomain(series), [series])
   const stats = useMemo(() => {
     if (series.length === 0) return null
-    const start = series[0]?.equity ?? 0
     const end = series[series.length - 1]?.equity ?? 0
-    const change = end - start
-    const percent = start === 0 ? null : (change / Math.abs(start)) * 100
+    const change = end
+    const percent = null
     const peak = Math.max(...series.map((point) => point.equity))
     const trough = Math.min(...series.map((point) => point.equity))
     const swing = peak - trough
-    return { start, end, change, percent, peak, swing }
+    return { end, change, percent, peak, swing }
   }, [series])
 
   if (isLoading) {
