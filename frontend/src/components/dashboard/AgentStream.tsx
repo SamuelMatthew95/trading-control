@@ -2,6 +2,7 @@
 
 import { memo, useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { dashboardCardClass, dashboardSectionTitleClass } from '@/components/dashboard/uiTokens'
 
 type AgentLogRecord = Record<string, unknown>
 
@@ -71,9 +72,9 @@ export const AgentStream = memo(function AgentStream({
   const grouped = useMemo(() => groupLogs(logs.slice(-25).reverse(), formatMessage), [logs, formatMessage])
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
+    <div className={dashboardCardClass}>
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Agent Thought Stream</p>
+        <p className={dashboardSectionTitleClass}>Agent Thought Stream</p>
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
           <span className="text-xs text-slate-400">LIVE</span>

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { AgentStream } from '@/components/dashboard/AgentStream'
 import { PositionsTable } from '@/components/dashboard/PositionsTable'
 import type { TradeFeedItem } from '@/stores/useCodexStore'
+import { dashboardCardClass, dashboardMutedClass, dashboardSectionTitleClass } from '@/components/dashboard/uiTokens'
 
 type PositionRecord = Record<string, unknown>
 
@@ -42,26 +43,26 @@ export const TradingConsoleSection = memo(function TradingConsoleSection({
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
       <div className="space-y-4 xl:col-span-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5">
+        <div className={dashboardCardClass}>
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400">System Stats</p>
-            <span className="text-xs font-sans text-slate-500 dark:text-slate-400">Live</span>
+            <p className={dashboardSectionTitleClass}>System Stats</p>
+            <span className={dashboardMutedClass}>Live</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Trades</p>
+              <p className={dashboardMutedClass}>Trades</p>
               <p className="text-sm font-mono tabular-nums text-slate-100">{tradeFeed.length}</p>
             </div>
             <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Positions</p>
+              <p className={dashboardMutedClass}>Positions</p>
               <p className="text-sm font-mono tabular-nums text-slate-100">{positions.length}</p>
             </div>
             <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Agents</p>
+              <p className={dashboardMutedClass}>Agents</p>
               <p className="text-sm font-mono tabular-nums text-slate-100">{realAgentsCount}</p>
             </div>
             <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="text-xs font-sans text-slate-500 dark:text-slate-400">WS</p>
+              <p className={dashboardMutedClass}>WS</p>
               <p className={cn('text-sm font-mono tabular-nums', wsConnected ? 'text-emerald-400' : 'text-amber-400')}>
                 {wsConnected ? 'Connected' : 'Reconnecting'}
               </p>
@@ -69,10 +70,10 @@ export const TradingConsoleSection = memo(function TradingConsoleSection({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5">
+        <div className={dashboardCardClass}>
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400">Trade Feed</p>
-            <p className="text-xs font-sans text-slate-500 dark:text-slate-400">{tradeFeed.length} fills</p>
+            <p className={dashboardSectionTitleClass}>Trade Feed</p>
+            <p className={dashboardMutedClass}>{tradeFeed.length} fills</p>
           </div>
           {tradeFeed.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-700 px-4 py-8 text-center text-xs font-sans text-slate-500">
@@ -95,7 +96,7 @@ export const TradingConsoleSection = memo(function TradingConsoleSection({
                         {isBuy ? 'BUY' : 'SELL'}
                       </span>
                       <span className="text-sm font-mono font-semibold text-slate-100">{trade.symbol}</span>
-                      <span className="text-xs font-sans text-slate-500 dark:text-slate-400">
+                      <span className={dashboardMutedClass}>
                         {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
                       </span>
                     </div>
@@ -120,15 +121,15 @@ export const TradingConsoleSection = memo(function TradingConsoleSection({
       </div>
 
       <div className="space-y-4 xl:col-span-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400">Portfolio Summary</p>
+        <div className={dashboardCardClass}>
+          <p className={dashboardSectionTitleClass}>Portfolio Summary</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Open Positions</p>
+              <p className={dashboardMutedClass}>Open Positions</p>
               <p className="text-sm font-mono tabular-nums text-slate-100">{positions.length}</p>
             </div>
             <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="text-xs font-sans text-slate-500 dark:text-slate-400">Unrealized P&amp;L</p>
+              <p className={dashboardMutedClass}>Unrealized P&amp;L</p>
               <p className="text-sm font-mono tabular-nums text-slate-100">
                 {formatUSD(positions.reduce((sum, position) => sum + (toFiniteNumber(position?.pnl) ?? 0), 0))}
               </p>

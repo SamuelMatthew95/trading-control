@@ -2,6 +2,7 @@
 
 import { memo, useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { dashboardCardClass, dashboardSectionTitleClass } from '@/components/dashboard/uiTokens'
 
 type PositionRecord = Record<string, unknown>
 
@@ -54,8 +55,8 @@ export const PositionsTable = memo(function PositionsTable({
   )
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">Open Positions</p>
+    <div className={dashboardCardClass}>
+      <p className={cn('mb-3', dashboardSectionTitleClass)}>Open Positions</p>
       <div className="overflow-x-auto">
         <table className="min-w-full">
           <thead>
