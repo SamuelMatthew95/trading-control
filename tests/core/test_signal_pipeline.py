@@ -221,12 +221,13 @@ class TestLLMRouter:
         ):
             assert _get_gemini_api_key() == "settings-gemini-key"
 
-    def test_get_gemini_api_key_falls_back_to_env(self):
+    def test_get_gemini_api_key_does_not_fallback_to_env(self):
         with (
             patch.object(settings, "GEMINI_API_KEY", None),
             patch.dict("os.environ", {"GEMINI_API_KEY": "env-gemini-key"}, clear=False),
         ):
-            assert _get_gemini_api_key() == "env-gemini-key"
+            with pytest.raises(RuntimeError, match="missing_api_key: set GEMINI_API_KEY"):
+                _get_gemini_api_key()
 
     def test_get_gemini_api_key_raises_when_missing(self):
         with (

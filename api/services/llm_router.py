@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 
 from api.config import settings
 from api.constants import FieldName
@@ -155,9 +154,7 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
 
 
 def _get_gemini_api_key() -> str:
-    api_key = (
-        getattr(settings, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY") or ""
-    ).strip()
+    api_key = (getattr(settings, "GEMINI_API_KEY", None) or "").strip()
     if not api_key:
         raise RuntimeError("missing_api_key: set GEMINI_API_KEY in environment")
     return api_key
