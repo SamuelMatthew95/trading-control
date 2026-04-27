@@ -46,7 +46,6 @@
     "vitest.config.ts",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "**/__tests__/**",
-    "src/legacy-pages/**/*"
+    "**/__tests__/**"
   ]
 }
