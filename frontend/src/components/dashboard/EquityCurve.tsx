@@ -168,11 +168,11 @@ export function EquityCurve({
           </div>
           <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
             <p className="text-[10px] uppercase tracking-wide text-slate-500">Peak</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatUSD(stats?.peak ?? 0)}</p>
+            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{stats != null ? formatUSD(stats.peak) : '--'}</p>
           </div>
           <div className="col-span-2 rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:col-span-1 dark:border-slate-800 dark:bg-slate-900/60">
             <p className="text-[10px] uppercase tracking-wide text-slate-500">Range</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatUSD(stats?.swing ?? 0)}</p>
+            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{stats != null ? formatUSD(stats.swing) : '--'}</p>
           </div>
         </div>
       </div>
