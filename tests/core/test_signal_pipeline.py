@@ -12,6 +12,7 @@ from api.services.llm_router import (
     _get_provider_key,
     _parse_response,
     call_llm,
+    call_llm_with_system,
 )
 from api.services.signal_generator import SignalGenerator
 
@@ -255,6 +256,45 @@ class TestLLMRouter:
 
             mock_groq.assert_called_once()
             assert result["action"] == "buy"
+
+    @pytest.mark.asyncio
+    async def test_llm_router_calls_gemini_provider(self):
+        mock_gemini = AsyncMock(return_value=({"action": "hold", "confidence": 0.5}, 44, 0.0))
+        with (
+            patch.dict(
+                "api.services.llm_router._PROVIDERS",
+                {"gemini": mock_gemini},
+            ),
+            patch.object(settings, "GEMINI_API_KEY", "gemini-key"),
+            patch.object(settings, "LLM_PROVIDER", "gemini"),
+        ):
+            result, _, _ = await call_llm(
+                prompt="test prompt",
+                trace_id="test-trace",
+            )
+
+            mock_gemini.assert_called_once()
+            assert result["action"] == "hold"
+
+    @pytest.mark.asyncio
+    async def test_llm_router_custom_prompt_calls_gemini_raw_path(self):
+        with (
+            patch(
+                "api.services.llm_router._call_provider_raw",
+                new=AsyncMock(return_value=('{"action":"hold"}', 12, 0.0)),
+            ) as mock_raw,
+            patch.object(settings, "GEMINI_API_KEY", "gemini-key"),
+            patch.object(settings, "LLM_PROVIDER", "gemini"),
+        ):
+            text, tokens, cost = await call_llm_with_system(
+                prompt="user prompt",
+                system_prompt="system prompt",
+                trace_id="trace-123",
+            )
+            mock_raw.assert_called_once_with("gemini", "user prompt", "system prompt", "trace-123")
+            assert text == '{"action":"hold"}'
+            assert tokens == 12
+            assert cost == 0.0
 
 
 class TestMarketIngestor:
