@@ -5,18 +5,9 @@ import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/use
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
-import {
-  Activity,
-  Bell,
-  Brain,
-  CheckCheck,
-  FileCode,
-  ThumbsDown,
-  ThumbsUp,
-  TrendingDown,
-  TrendingUp,
-  Zap,
-} from 'lucide-react'
+import { TradingConsoleSection } from '@/components/dashboard/TradingConsoleSection'
+import { dashboardCardClass, dashboardMutedClass, dashboardSectionTitleClass } from '@/components/dashboard/uiTokens'
+import { Activity, Bell, Brain, CheckCheck, FileCode, ThumbsDown, ThumbsUp, TrendingDown, TrendingUp, Zap } from 'lucide-react'
 import type { Notification, Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
@@ -87,9 +78,9 @@ const formatWiringAge = (ageMs: number | null): string => {
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
 }
 
-const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
-const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
-const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
+const cardClass = dashboardCardClass
+const sectionTitleClass = dashboardSectionTitleClass
+const mutedClass = dashboardMutedClass
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
@@ -1137,6 +1128,24 @@ export function DashboardView({ section }: { section: Section }) {
     [prices]
   )
 
+  const hasSyncDrift = useMemo(() => {
+    const hasRealtimeSignals = agentLogs.length > 0 || agentStatuses.length > 0
+    return wsConnected && hasRealtimeSignals && agentInstances.length === 0
+  }, [agentInstances.length, agentLogs.length, agentStatuses.length, wsConnected])
+
+  const resolvePositionTraceId = useCallback((position: Record<string, unknown>): string | null => {
+    const candidates = [
+      position.trace_id,
+      position.execution_trace_id,
+      position.signal_trace_id,
+      position.order_id,
+    ]
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate
+    }
+    return null
+  }, [])
+
   const contentBySection = (
     <>
       {section === 'overview' && (
@@ -1310,163 +1319,23 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'trading' && (
-        <div className="space-y-4">
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Trade Feed</p>
-              <p className={mutedClass}>{tradeFeed.length} fills</p>
-            </div>
-            {tradeFeed.length === 0 ? (
-              <EmptyState message="No orders today" />
-            ) : (
-              <div className="max-h-96 overflow-y-auto space-y-1">
-                {tradeFeed.slice(0, 50).map((trade) => {
-                  const isBuy = trade.side === 'buy'
-                  const pnl = toFiniteNumber(trade.pnl)
-                  const pnlPct = toFiniteNumber(trade.pnl_percent)
-                  const isPnlPositive = (pnl ?? 0) >= 0
-                  const exitPrice = toFiniteNumber(trade.exit_price)
-                  const qty = toFiniteNumber(trade.qty)
-
-                  const GRADE_STYLE: Record<string, string> = {
-                    A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-                    B: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
-                    C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-                    D: 'bg-rose-500/15 text-rose-500',
-                    F: 'bg-rose-500/15 text-rose-500',
-                  }
-
-                  return (
-                    <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-500')}>
-                          {isBuy ? 'BUY' : 'SELL'}
-                        </span>
-                        <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
-                        <span className={mutedClass}>
-                          {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {pnl != null ? (
-                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
-                          </span>
-                        ) : (
-                          <span className={mutedClass}>--</span>
-                        )}
-                        {trade.grade && (
-                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', GRADE_STYLE[trade.grade] ?? 'bg-slate-500/15 text-slate-500')}>
-                            {trade.grade}
-                          </span>
-                        )}
-                        {trade.execution_trace_id && (
-                          <button
-                            onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                          >
-                            trace:{trade.execution_trace_id.slice(0, 8)}…
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Agent Thought Stream</p>
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                <span className={mutedClass}>LIVE</span>
-              </div>
-            </div>
-            {agentLogs.length === 0 ? (
-              <EmptyState message="No active agents" />
-            ) : (
-              <div className="relative max-h-80 overflow-y-auto">
-                <div className="space-y-2">
-                  {agentLogs.slice(-10).reverse().map((log, index) => {
-                    const confidence = toFiniteNumber(log?.confidence)
-                    const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
-                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
-                    return (
-                      <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
-                        <div className="mb-1 flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
-                          <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
-                          {typeof log?.trace_id === 'string' && log.trace_id ? (
-                            <button
-                              onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                            >
-                              trace:{(log.trace_id as string).slice(0, 8)}…
-                            </button>
-                          ) : null}
-                        </div>
-                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
-                      </div>
-                    )
-                  })}
-                </div>
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-slate-900" />
-              </div>
-            )}
-          </div>
-
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Open Positions</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-slate-200 pb-2 dark:border-slate-800">
-                    {['Symbol', 'Side', 'Qty', 'Entry Price', 'Current Price', 'P&L', 'P&L %'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No orders today" /></td>
-                    </tr>
-                  ) : (
-                    positions.map((position, index) => {
-                      const pnl = toFiniteNumber(position?.pnl)
-                      const pnlPct = toFiniteNumber(position?.pnl_percent)
-                      const isPositive = (pnl ?? 0) >= 0
-                      const side = sanitizeValue(position?.side).toUpperCase()
-                      return (
-                        <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
-                          <td className="px-2 py-2">
-                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
-                              {side === '--' ? 'N/A' : side}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
-                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
-                          </td>
-                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {pnlPct == null ? '--' : `${sanitizeValue(pnlPct.toFixed(2))}%`}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <TradingConsoleSection
+          tradeFeed={tradeFeed}
+          positions={positions as Array<Record<string, unknown>>}
+          realAgentsCount={realAgents.length}
+          wsConnected={wsConnected}
+          hasSyncDrift={hasSyncDrift}
+          agentLogs={agentLogs as Array<Record<string, unknown>>}
+          formatAgentMessage={formatAgentMessage}
+          onClosePosition={(position) => {
+            const traceId = resolvePositionTraceId(position)
+            if (traceId) setActiveTraceId(traceId)
+          }}
+          onViewPositionDetails={(position) => {
+            const traceId = resolvePositionTraceId(position)
+            if (traceId) setActiveTraceId(traceId)
+          }}
+        />
       )}
 
       {section === 'agents' && (
