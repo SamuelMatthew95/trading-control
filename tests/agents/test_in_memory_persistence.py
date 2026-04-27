@@ -191,6 +191,30 @@ def test_dashboard_fallback_snapshot_skips_malformed_position_qty():
     assert "BAD" not in symbols
 
 
+def test_in_memory_store_paired_pnl_payload_matches_expected_shape():
+    store = InMemoryStore()
+    store.add_order({"symbol": "BTC/USD", "pnl": 120.0})
+    store.add_order({"symbol": "ETH/USD", "pnl": -20.0})
+    store.upsert_position(
+        "TSLA",
+        {"symbol": "TSLA", "side": "short", "qty": -2.0, "unrealized_pnl": 15.0},
+    )
+    store.upsert_position(
+        "BAD",
+        {"symbol": "BAD", "side": "long", "qty": "bad", "unrealized_pnl": 99.0},
+    )
+
+    payload = store.paired_pnl_payload()
+
+    assert payload["summary"]["realized_pnl"] == pytest.approx(100.0)
+    assert payload["summary"]["unrealized_pnl"] == pytest.approx(15.0)
+    assert payload["summary"]["total_pnl"] == pytest.approx(115.0)
+    assert payload["summary"]["winning_trades"] == 1
+    assert payload["summary"]["closed_trades"] == 2
+    assert payload["summary"]["open_positions"] == 1
+    assert [p["symbol"] for p in payload["open_positions"]] == ["TSLA"]
+
+
 def test_upsert_trade_fill_dedupes_on_execution_trace_id():
     """Second upsert with the same execution_trace_id merges non-None fields into the
     existing row; list length stays at 1."""
