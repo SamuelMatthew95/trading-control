@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from api.routes.ws import dashboard_ws
+from api.in_memory_store import InMemoryStore
+from api.routes.ws import _build_db_snapshot, dashboard_ws
+from api.runtime_state import set_db_available, set_runtime_store
 
 
 class TestWebSocketFixes:
@@ -82,3 +84,55 @@ class TestWebSocketFixes:
         assert "websocket_broadcaster" in ws_source
         assert "add_connection" in ws_source
         assert "remove_connection" in ws_source
+
+    @pytest.mark.asyncio
+    async def test_build_db_snapshot_falls_back_to_in_memory_when_db_unavailable(self, monkeypatch):
+        set_db_available(False)
+        store = InMemoryStore()
+        store.add_order({"symbol": "BTC/USD", "pnl": 120.0})
+        store.upsert_position(
+            "TSLA",
+            {"symbol": "TSLA", "side": "short", "qty": -1.0, "unrealized_pnl": 8.0},
+        )
+        set_runtime_store(store)
+
+        class _ExplodingFactory:
+            async def __aenter__(self):
+                raise RuntimeError("db down")
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        monkeypatch.setattr("api.database.AsyncSessionFactory", lambda: _ExplodingFactory())
+
+        snapshot = await _build_db_snapshot(redis_client=None)
+        data = snapshot["data"]
+
+        assert snapshot["type"] == "dashboard_update"
+        assert data["mode"] == "in_memory_fallback"
+        assert data["pnl"]["summary"]["open_positions"] == 1
+        assert data["pnl"]["summary"]["realized_pnl"] == pytest.approx(120.0)
+
+    @pytest.mark.asyncio
+    async def test_build_db_snapshot_filters_invalid_in_memory_positions_on_fallback(
+        self, monkeypatch
+    ):
+        set_db_available(False)
+        store = InMemoryStore()
+        store.upsert_position("BAD", {"symbol": "BAD", "side": "long", "qty": "bad"})
+        store.upsert_position("FLAT", {"symbol": "FLAT", "side": "long", "qty": 0})
+        store.upsert_position("OK", {"symbol": "OK", "side": "short", "qty": -2})
+        set_runtime_store(store)
+
+        class _ExplodingFactory:
+            async def __aenter__(self):
+                raise RuntimeError("db down")
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        monkeypatch.setattr("api.database.AsyncSessionFactory", lambda: _ExplodingFactory())
+
+        snapshot = await _build_db_snapshot(redis_client=None)
+        symbols = [p["symbol"] for p in snapshot["data"]["pnl"]["open_positions"]]
+        assert symbols == ["OK"]

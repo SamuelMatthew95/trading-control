@@ -30,9 +30,6 @@ from api.constants import (
 from api.in_memory_store import DEFAULT_AGENTS, InMemoryStore
 from api.runtime_state import set_db_available, set_runtime_store
 
-pytestmark = pytest.mark.asyncio
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -168,6 +165,32 @@ def test_dashboard_fallback_snapshot_surfaces_trade_feed_and_agent_logs():
     assert len(snapshot["proposals"]) == 1
 
 
+def test_dashboard_fallback_snapshot_includes_short_positions():
+    """Short positions (negative qty) are still open and must be visible in memory-mode fallback."""
+    store = InMemoryStore()
+    store.upsert_position("TSLA", {"symbol": "TSLA", "qty": -2, "avg_cost": 250.0})
+    store.upsert_position("AAPL", {"symbol": "AAPL", "qty": 0, "avg_cost": 190.0})
+
+    snapshot = store.dashboard_fallback_snapshot()
+    symbols = {row["symbol"] for row in snapshot["positions"]}
+
+    assert "TSLA" in symbols
+    assert "AAPL" not in symbols
+
+
+def test_dashboard_fallback_snapshot_skips_malformed_position_qty():
+    """Malformed qty values should not crash snapshot generation or leak invalid positions."""
+    store = InMemoryStore()
+    store.upsert_position("BAD", {"symbol": "BAD", "qty": "not-a-number"})
+    store.upsert_position("GOOD", {"symbol": "GOOD", "qty": "1.5"})
+
+    snapshot = store.dashboard_fallback_snapshot()
+    symbols = {row["symbol"] for row in snapshot["positions"]}
+
+    assert "GOOD" in symbols
+    assert "BAD" not in symbols
+
+
 def test_upsert_trade_fill_dedupes_on_execution_trace_id():
     """Second upsert with the same execution_trace_id merges non-None fields into the
     existing row; list length stays at 1."""
@@ -206,6 +229,7 @@ def test_upsert_trade_fill_dedupes_on_execution_trace_id():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 async def test_write_agent_log_grade_type_goes_to_grade_history():
     """GRADE log_type must write to InMemoryStore.grade_history, not event_history."""
     store = _fresh_store()
@@ -231,6 +255,7 @@ async def test_write_agent_log_grade_type_goes_to_grade_history():
     assert len(store.event_history) == 0  # must NOT write to event_history
 
 
+@pytest.mark.asyncio
 async def test_write_agent_log_non_grade_goes_to_event_history():
     """Non-GRADE log types (REFLECTION, PROPOSAL, etc.) must write to event_history."""
     store = _fresh_store()
@@ -250,6 +275,7 @@ async def test_write_agent_log_non_grade_goes_to_event_history():
     assert len(store.grade_history) == 0  # must NOT write to grade_history
 
 
+@pytest.mark.asyncio
 async def test_write_grade_to_db_memory_mode():
     """write_grade_to_db in memory mode populates grade_history with correct fields."""
     store = _fresh_store()
@@ -266,6 +292,7 @@ async def test_write_grade_to_db_memory_mode():
     assert "timestamp" in g
 
 
+@pytest.mark.asyncio
 async def test_persist_proposal_memory_mode():
     """persist_proposal in memory mode writes a PROPOSAL event to event_history."""
     store = _fresh_store()
@@ -287,6 +314,7 @@ async def test_persist_proposal_memory_mode():
     assert ev["payload"]["proposal_type"] == "strategy_change"
 
 
+@pytest.mark.asyncio
 async def test_get_last_reflection_memory_mode_returns_empty():
     """get_last_reflection must return {} in memory mode — no DB, no history."""
     _fresh_store()
@@ -297,6 +325,7 @@ async def test_get_last_reflection_memory_mode_returns_empty():
     assert result == {}
 
 
+@pytest.mark.asyncio
 async def test_register_agent_instance_memory_mode_returns_uuid():
     """register_agent_instance returns a UUID string without touching the DB."""
     _fresh_store()
@@ -310,6 +339,7 @@ async def test_register_agent_instance_memory_mode_returns_uuid():
     assert instance_id.count("-") == 4
 
 
+@pytest.mark.asyncio
 async def test_register_agent_instance_retries_transient_db_error(monkeypatch):
     """Regression: a single transient DB failure must not leave the agent
     running with an unpersisted instance_id. register_agent_instance retries
@@ -352,6 +382,7 @@ async def test_register_agent_instance_retries_transient_db_error(monkeypatch):
     assert len(instance_id) == 36 and instance_id.count("-") == 4
 
 
+@pytest.mark.asyncio
 async def test_register_agent_instance_gives_up_after_max_attempts(monkeypatch):
     """If every retry fails, register_agent_instance still returns a UUID
     (agent keeps running) but must log at ERROR level so ops can see that
@@ -407,6 +438,7 @@ async def test_register_agent_instance_gives_up_after_max_attempts(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 async def test_signal_generator_begin_run_memory_mode_adds_agent_run(monkeypatch):
     """_begin_run in memory mode: should_proceed=True, db_run_id=None, agent_run stored."""
     from api.events.bus import EventBus
@@ -437,6 +469,7 @@ async def test_signal_generator_begin_run_memory_mode_adds_agent_run(monkeypatch
     assert run["source"] == "signal_generator"
 
 
+@pytest.mark.asyncio
 async def test_signal_generator_begin_run_db_mode_skips_duplicate(monkeypatch):
     """_begin_run in DB mode: returns (False, None) when msg_id is a duplicate."""
     from api.events.bus import EventBus
@@ -479,6 +512,7 @@ async def test_signal_generator_begin_run_db_mode_skips_duplicate(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 async def test_signal_generator_persist_signal_complete_memory_mode(monkeypatch):
     """_persist_signal_complete in memory mode writes event + grade + run update + log."""
     from api.events.bus import EventBus
@@ -544,6 +578,7 @@ async def test_signal_generator_persist_signal_complete_memory_mode(monkeypatch)
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 async def test_reasoning_agent_persist_run_memory_mode():
     """_persist_run in memory mode: returns run_id, writes to agent_runs store."""
     from api.events.bus import EventBus
@@ -588,6 +623,7 @@ async def test_reasoning_agent_persist_run_memory_mode():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 async def test_reasoning_agent_persist_vector_memory_mode():
     """_persist_vector in memory mode: writes to vector_memory store."""
     from api.events.bus import EventBus

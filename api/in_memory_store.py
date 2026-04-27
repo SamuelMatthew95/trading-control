@@ -161,12 +161,16 @@ class InMemoryStore:
         return payload
 
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
+        def _has_open_quantity(position: dict[str, Any]) -> bool:
+            try:
+                return abs(float(position.get(FieldName.QTY, 0) or 0)) > 0
+            except (TypeError, ValueError):
+                return False
+
         now = time.time()
         return {
             "orders": list(reversed(self.orders[-50:])),
-            "positions": [
-                p for p in self.positions.values() if float(p.get(FieldName.QTY, 0) or 0) > 0
-            ],
+            "positions": [p for p in self.positions.values() if _has_open_quantity(p)],
             "agent_logs": list(reversed(self.agent_logs[-50:])),
             "learning_events": list(reversed(self.grade_history[-20:])),
             "proposals": [
