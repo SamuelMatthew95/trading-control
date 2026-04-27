@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 
 from api.config import settings
 from api.constants import FieldName
@@ -63,6 +65,7 @@ def _get_provider_key(provider: str) -> str:
         "groq": settings.GROQ_API_KEY,
         "anthropic": getattr(settings, "ANTHROPIC_API_KEY", ""),
         "openai": getattr(settings, "OPENAI_API_KEY", ""),
+        "gemini": getattr(settings, "GEMINI_API_KEY", ""),
     }
     return keys.get(provider, "")
 
@@ -141,12 +144,53 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     return _parse_response(text, trace_id, cost_usd), tokens, cost_usd
 
 
-# To add Gemini: pip install google-generativeai, add GEMINI_API_KEY to config,
-# implement _call_gemini(), and add "gemini": _call_gemini to _PROVIDERS
+def _is_gemini_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "429" in message
+        or "rate" in message
+        or "quota" in message
+        or "resource exhausted" in message
+    )
+
+
+async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
+    import google.generativeai as genai
+
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
+
+    for attempt in range(retries + 1):
+        try:
+            response = await asyncio.to_thread(
+                model.generate_content,
+                f"{SYSTEM_PROMPT}\n\n{prompt}",
+            )
+            text = response.text or ""
+            usage = getattr(response, "usage_metadata", None)
+            tokens = int(getattr(usage, "total_token_count", 0) or 0)
+            return _parse_response(text, trace_id, 0.0), tokens, 0.0
+        except Exception as exc:
+            if _is_gemini_rate_limit_error(exc) and attempt < retries:
+                delay = 2**attempt
+                log_structured(
+                    "warning",
+                    "gemini_rate_limit_retry",
+                    attempt=attempt + 1,
+                    backoff_seconds=delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise
+    raise RuntimeError("gemini_call_failed_without_exception")
+
+
 _PROVIDERS = {
     "groq": _call_groq,
     "anthropic": _call_anthropic,
     "openai": _call_openai,
+    "gemini": _call_gemini,
 }
 
 
@@ -223,6 +267,37 @@ async def _call_provider_raw(
         tokens = response.usage.total_tokens if response.usage else 0
         return text, tokens, round(tokens * 0.0000006, 6)
 
+    if provider == "gemini":
+        import google.generativeai as genai
+
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
+
+        for attempt in range(retries + 1):
+            try:
+                response = await asyncio.to_thread(
+                    model.generate_content,
+                    f"{system_prompt}\n\n{prompt}",
+                )
+                text = response.text or ""
+                usage = getattr(response, "usage_metadata", None)
+                tokens = int(getattr(usage, "total_token_count", 0) or 0)
+                return text, tokens, 0.0
+            except Exception as exc:
+                if _is_gemini_rate_limit_error(exc) and attempt < retries:
+                    delay = 2**attempt
+                    log_structured(
+                        "warning",
+                        "gemini_rate_limit_retry",
+                        attempt=attempt + 1,
+                        backoff_seconds=delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        raise RuntimeError("gemini_raw_call_failed_without_exception")
+
     raise RuntimeError(f"unknown_provider: '{provider}'")
 
 
@@ -240,6 +315,7 @@ async def call_llm_with_system(
         raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
     try:
         log_structured("info", "Calling LLM with custom prompt", provider=provider)
+        await asyncio.sleep(1)
         result = await _call_provider_raw(provider, prompt, system_prompt, trace_id)
         log_structured("info", "LLM custom call succeeded", provider=provider)
         return result
@@ -267,6 +343,7 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
     try:
         log_structured("info", "Calling LLM", provider=provider)
+        await asyncio.sleep(1)
         result = await _PROVIDERS[provider](prompt, trace_id)
         log_structured("info", "LLM succeeded", provider=provider)
         return result
