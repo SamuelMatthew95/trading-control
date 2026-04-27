@@ -6,6 +6,7 @@ import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { TradingConsoleSection } from '@/components/dashboard/TradingConsoleSection'
+import { dashboardCardClass, dashboardMutedClass, dashboardSectionTitleClass } from '@/components/dashboard/uiTokens'
 import { Activity, Bell, Brain, CheckCheck, FileCode, ThumbsDown, ThumbsUp, TrendingDown, TrendingUp, Zap } from 'lucide-react'
 import type { Notification, Proposal } from '@/stores/useCodexStore'
 
@@ -77,9 +78,9 @@ const formatWiringAge = (ageMs: number | null): string => {
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
 }
 
-const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
-const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
-const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
+const cardClass = dashboardCardClass
+const sectionTitleClass = dashboardSectionTitleClass
+const mutedClass = dashboardMutedClass
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
