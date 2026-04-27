@@ -62,6 +62,8 @@ describe('EquityCurve', () => {
     expect(series).toHaveLength(2)
     expect(series[0].equity).toBe(10.5)
     expect(series[1].equity).toBe(8)
+    expect(series[0].delta).toBe(10.5)
+    expect(series[1].delta).toBe(-2.5)
   })
 
   it('uses zero-baseline endpoint to determine gain/loss color', () => {

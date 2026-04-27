@@ -19,6 +19,7 @@ type EquityPoint = {
   timestamp: number
   label: string
   pnl: number
+  delta: number
   equity: number
 }
 
@@ -94,6 +95,7 @@ export const buildEquitySeries = (orders: EquityOrder[]): EquityPoint[] => {
     return {
       timestamp,
       pnl,
+      delta: pnl,
       equity: running,
       label: formatTickTime(timestamp),
     }
@@ -125,11 +127,10 @@ export function EquityCurve({
     if (series.length === 0) return null
     const end = series[series.length - 1]?.equity ?? 0
     const change = end
-    const percent = null
     const peak = Math.max(...series.map((point) => point.equity))
     const trough = Math.min(...series.map((point) => point.equity))
     const swing = peak - trough
-    return { end, change, percent, peak, swing }
+    return { end, change, peak, swing }
   }, [series])
 
   if (isLoading) {
@@ -171,15 +172,7 @@ export function EquityCurve({
           </div>
           <div className="col-span-2 rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:col-span-1 dark:border-slate-800 dark:bg-slate-900/60">
             <p className="text-[10px] uppercase tracking-wide text-slate-500">Range</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">
-              {formatUSD(stats?.swing ?? 0)}
-              {stats?.percent != null && (
-                <span className="ml-1 text-slate-500">
-                  ({stats.percent >= 0 ? '+' : ''}
-                  {stats.percent.toFixed(1)}%)
-                </span>
-              )}
-            </p>
+            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatUSD(stats?.swing ?? 0)}</p>
           </div>
         </div>
       </div>
@@ -218,10 +211,7 @@ export function EquityCurve({
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 10, boxShadow: '0 10px 25px rgba(2,6,23,0.35)' }}
               labelStyle={{ color: '#cbd5e1', fontSize: 12 }}
               formatter={(value: number, _name, item) => {
-                const index = item?.payload?.timestamp
-                const current = series.find((point) => point.timestamp === index)
-                const previous = series[series.findIndex((point) => point.timestamp === index) - 1]
-                const change = current && previous ? current.equity - previous.equity : current?.equity ?? 0
+                const change = typeof item?.payload?.delta === 'number' ? item.payload.delta : 0
                 return [
                   `${formatUSD(value)} (Δ ${change >= 0 ? '+' : ''}${formatUSD(change)})`,
                   'Equity',
