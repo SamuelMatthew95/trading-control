@@ -77,7 +77,7 @@ export const TradingConsoleSection = memo(function TradingConsoleSection({
           </div>
           {tradeFeed.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-700 px-4 py-8 text-center text-xs font-sans text-slate-500">
-              Awaiting fills...
+              No orders today
             </div>
           ) : (
             <div className="max-h-96 overflow-y-auto space-y-1">
@@ -103,6 +103,19 @@ export const TradingConsoleSection = memo(function TradingConsoleSection({
                     <span className={cn('text-xs font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-400' : 'text-rose-400')}>
                       {pnl == null ? '--' : `${isPnlPositive ? '+' : '-'}${formatUSD(pnl)}${pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}`}
                     </span>
+                    {trade.grade && (
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs font-bold text-emerald-400">
+                        {trade.grade}
+                      </span>
+                    )}
+                    {trade.execution_trace_id && (
+                      <button
+                        type="button"
+                        className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                      >
+                        trace:{trade.execution_trace_id.slice(0, 8)}…
+                      </button>
+                    )}
                   </div>
                 )
               })}
