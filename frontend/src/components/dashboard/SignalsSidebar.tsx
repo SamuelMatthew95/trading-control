@@ -33,10 +33,16 @@ export function SignalsSidebar() {
     // snapshot, preserving any signals that loaded() added during the await.
     const dismissed = items.find((s) => s.id === id)
     setItems((current) => current.filter((s) => s.id !== id))
-    try {
-      await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
-    } catch {
+    const rollback = () => {
       if (dismissed) setItems((current) => [dismissed, ...current])
+    }
+    try {
+      // fetch only rejects on network errors; HTTP 4xx/5xx must be detected
+      // explicitly via response.ok or the optimistic remove leaks UI state.
+      const response = await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
+      if (!response.ok) rollback()
+    } catch {
+      rollback()
     }
   }
 
