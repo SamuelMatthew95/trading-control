@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/apiClient'
 
 type Signal = {
@@ -13,26 +13,32 @@ export function SignalsSidebar() {
   const [open, setOpen] = useState(true)
   const [items, setItems] = useState<Signal[]>([])
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const response = await fetch(api('/signals'))
     if (!response.ok) return
     const data = await response.json()
     setItems(data.items || [])
-  }
+  }, [])
 
   useEffect(() => {
     load().catch((err) => console.warn('[Signals] Failed to load:', err))
     const timer = setInterval(() => load().catch((err) => console.warn('[Signals] Failed to load:', err)), 60000)
     return () => clearInterval(timer)
-  }, [])
+  }, [load])
 
   const dismiss = async (id: string) => {
-    const previous = items
-    setItems((current) => current.filter((signal) => signal.id !== id))
+    // Capture the dismissed signal synchronously before the await so we can
+    // re-insert just that one item on failure instead of restoring a stale
+    // snapshot that may be missing signals loaded by the interval since then.
+    let dismissed: Signal | undefined
+    setItems((current) => {
+      dismissed = current.find((s) => s.id === id)
+      return current.filter((s) => s.id !== id)
+    })
     try {
       await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
     } catch {
-      setItems(previous)
+      if (dismissed) setItems((current) => [dismissed!, ...current])
     }
   }
 
