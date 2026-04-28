@@ -312,9 +312,12 @@ class WebSocketManager {
         const currentPriceData = store.prices[symbol]
         const messageTimestamp = msg.timestamp || new Date().toISOString()
         
-        // Only update if WebSocket data is newer than existing data
-        const shouldUpdate = !currentPriceData?.updatedAt || 
-          new Date(messageTimestamp) > new Date(currentPriceData.updatedAt)
+        // Only update if WebSocket data is newer than existing data.
+        // Use Date.parse() so an invalid messageTimestamp (NaN) never silently
+        // beats a valid stored timestamp and never silently blocks an update.
+        const msgTs = Date.parse(messageTimestamp)
+        const storedTs = currentPriceData?.updatedAt ? Date.parse(currentPriceData.updatedAt) : -Infinity
+        const shouldUpdate = !currentPriceData?.updatedAt || (Number.isFinite(msgTs) && msgTs > storedTs)
         
         if (shouldUpdate && Number.isFinite(price)) {
           const previousPrice = currentPriceData?.price ?? price
