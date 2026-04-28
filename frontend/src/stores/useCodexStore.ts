@@ -291,6 +291,7 @@ type CodexState = {
   trackWsMessage: (event: { stream?: string | null; msgId?: string | null; timestamp?: string | null }) => void
   trackMarketTick: (symbol?: string | null) => void
   hydrateDashboard: (data: DashboardData) => void
+  hydrateFromLocalStorage: () => void
   bulkUpdate: (updates: Partial<CodexState>) => void
   fetchPrices: () => Promise<void>
 }
@@ -316,25 +317,18 @@ const _saveToStorage = (key: string, data: unknown[]): void => {
   }
 }
 
+// Initial state intentionally empty on BOTH server and client. localStorage
+// hydration runs once on mount via `hydrateFromLocalStorage()` so the first
+// client render matches the server-rendered HTML — preventing React
+// hydration errors #418/#423/#425 that previously fired on every page load.
 export const useCodexStore = create<CodexState>((set) => ({
   prices: {},
-  orders: _loadFromStorage<Order>('codex.orders', 100),
-  positions: _loadFromStorage<Position>('codex.positions', 50),
+  orders: [],
+  positions: [],
   signals: [],
   agentLogs: [],
   riskAlerts: [],
-  notifications: (() => {
-    if (typeof window === 'undefined') return []
-    try {
-      const raw = window.localStorage.getItem('codex.notifications')
-      if (!raw) return []
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return []
-      return parsed.map(normalizeStoredNotification).filter((item): item is Notification => item !== null).slice(0, 200)
-    } catch {
-      return []
-    }
-  })(),
+  notifications: [],
   proposals: [],
   tradeFeed: [],
   agentInstances: [],
@@ -409,9 +403,12 @@ export const useCodexStore = create<CodexState>((set) => ({
         for (const [symbol, priceData] of Object.entries(prices)) {
           if (priceData && typeof priceData === 'object') {
             const price = Number(priceData.price)
+            // Skip entries where the API sent null/undefined/non-numeric price;
+            // Number(undefined) = NaN which would poison the ticker display.
+            if (!Number.isFinite(price)) continue
             const previousPrice = state.prices[symbol]?.price ?? price
             const change = price - previousPrice
-            
+
             updatedPrices[symbol] = {
               price,
               change,
@@ -538,6 +535,31 @@ export const useCodexStore = create<CodexState>((set) => ({
       lastMarketSymbol: symbol || state.lastMarketSymbol,
     })),
 
+  hydrateFromLocalStorage: () => {
+    if (typeof window === 'undefined') return
+    const orders = _loadFromStorage<Order>('codex.orders', 100)
+    const positions = _loadFromStorage<Position>('codex.positions', 50)
+    let notifications: Notification[] = []
+    try {
+      const raw = window.localStorage.getItem('codex.notifications')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          notifications = parsed
+            .map(normalizeStoredNotification)
+            .filter((item): item is Notification => item !== null)
+            .slice(0, 200)
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+    set((state) => ({
+      orders: orders.length > 0 ? orders : state.orders,
+      positions: positions.length > 0 ? positions : state.positions,
+      notifications: notifications.length > 0 ? notifications : state.notifications,
+    }))
+  },
   hydrateDashboard: (data: DashboardData) => {
     set((currentState) => {
       const updates: Partial<CodexState> = {
@@ -622,7 +644,7 @@ export const useCodexStore = create<CodexState>((set) => ({
             status: (p.status as ProposalStatus) ?? 'pending' as ProposalStatus,
           }))
         if (newProposals.length > 0) {
-          updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 100)
+          updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 50)
         }
       }
 

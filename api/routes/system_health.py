@@ -17,7 +17,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.constants import FieldName
+from api.constants import ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY, FieldName
 
 from ..core.config import get_settings
 from ..core.models import Event, Order, Position
@@ -398,26 +398,34 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
 
 async def get_worker_heartbeats(redis_client) -> dict[str, Any]:
     """Get worker heartbeat status."""
+    # Heartbeats are written as individual string keys by write_heartbeat()
+    # (REDIS_AGENT_STATUS_KEY = "agent:status:{name}"), NOT as a Redis hash.
+    # The former hgetall("agent:heartbeats") always returned {} because that
+    # hash key is never written.
     try:
-        heartbeat_data = await redis_client.hgetall("agent:heartbeats")
-
-        heartbeats = {}
-        for worker_id, data in heartbeat_data.items():
+        heartbeats: dict[str, Any] = {}
+        for agent_name in ALL_AGENT_NAMES:
+            key = REDIS_AGENT_STATUS_KEY.format(name=agent_name)
+            raw = await redis_client.get(key)
+            if raw is None:
+                continue
             try:
-                parsed = json.loads(data)
-                last_seen = datetime.fromisoformat(
-                    parsed[FieldName.LAST_SEEN].replace("Z", "+00:00")
-                )
-                age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
-
-                heartbeats[worker_id] = {
+                parsed = json.loads(raw)
+                last_seen_str = parsed.get(FieldName.LAST_SEEN_AT)
+                if last_seen_str:
+                    last_seen = datetime.fromisoformat(last_seen_str.replace("Z", "+00:00"))
+                    age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
+                else:
+                    age_seconds = None
+                heartbeats[agent_name] = {
                     **parsed,
                     "age_seconds": age_seconds,
-                    "status": "alive" if age_seconds < 120 else "missing",
+                    "status": "alive"
+                    if (age_seconds is not None and age_seconds < 120)
+                    else "missing",
                 }
             except (json.JSONDecodeError, ValueError):
-                heartbeats[worker_id] = {"status": "invalid", "raw_data": data}
-
+                heartbeats[agent_name] = {"status": "invalid", "raw_data": raw}
         return heartbeats
 
     except Exception as e:
@@ -458,9 +466,9 @@ def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status:
     for _stream, health in stream_health.items():
         if health.get(FieldName.STATUS) == "error":
             return "red"
-        if health.get("oldest_msg_age_seconds", 0) > 60:
+        if health.get("oldest_pending_age_seconds", 0) > 60:
             return "yellow"
-        if health.get("pending_ack", 0) > 100:
+        if health.get("pending", 0) > 100:
             return "yellow"
 
     # Check DB pool utilization

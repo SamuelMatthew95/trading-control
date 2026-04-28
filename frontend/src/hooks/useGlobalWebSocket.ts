@@ -121,6 +121,10 @@ class WebSocketManager {
           this._state = ConnectionState.ERROR
           this._cleanupSocket()
           this._updateStoreState()
+          // _cleanupSocket nulls onclose before close(), so onclose will not
+          // fire to schedule a retry — kick the backoff loop here instead so
+          // cold-start servers eventually get reached.
+          this._scheduleReconnect()
         }
       }, this.CONN_TIMEOUT)
     } catch (err) {
@@ -138,6 +142,13 @@ class WebSocketManager {
   }
   reconnect() {
     this._retry = 0
+    // connect() guards on RECONNECTING/CONNECTING/CONNECTED and bails out, so a
+    // user-initiated reconnect from those states must clear it first.
+    if (this._state === ConnectionState.RECONNECTING) {
+      if (this._reconnectTimer) clearTimeout(this._reconnectTimer)
+      this._reconnectTimer = null
+      this._state = ConnectionState.DISCONNECTED
+    }
     this.connect()
   }
   setStoreUpdate(fn: (() => void) | null) {
@@ -183,6 +194,29 @@ class WebSocketManager {
   private _getRetryDelay(attempt: number): number {
     const d = Math.min(this.BASE_DELAY * Math.pow(2, attempt), this.MAX_DELAY)
     return Math.floor(d + Math.random() * 1000)
+  }
+  private _scheduleReconnect() {
+    if (this._retry >= this.MAX_RETRIES) {
+      console.error('[WS] Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
+      this._state = ConnectionState.ERROR
+      useCodexStore.getState().setWsDiagnostics({
+        reconnectAttempts: this._retry,
+        lastError: 'Max reconnect attempts reached',
+      })
+      this._updateStoreState()
+      return
+    }
+    this._state = ConnectionState.RECONNECTING
+    this._retry++
+    const delay = this._getRetryDelay(this._retry)
+    console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
+    useCodexStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
+    this._reconnectTimer = setTimeout(() => {
+      // connect() bails out while state is RECONNECTING, so flip to
+      // DISCONNECTED here or the timer can never reopen the socket.
+      this._state = ConnectionState.DISCONNECTED
+      this.connect()
+    }, delay)
   }
   private _cleanupSocket() {
     if (this._socket) {
@@ -290,9 +324,12 @@ class WebSocketManager {
         const currentPriceData = store.prices[symbol]
         const messageTimestamp = msg.timestamp || new Date().toISOString()
         
-        // Only update if WebSocket data is newer than existing data
-        const shouldUpdate = !currentPriceData?.updatedAt || 
-          new Date(messageTimestamp) > new Date(currentPriceData.updatedAt)
+        // Only update if WebSocket data is newer than existing data.
+        // Use Date.parse() so an invalid messageTimestamp (NaN) never silently
+        // beats a valid stored timestamp and never silently blocks an update.
+        const msgTs = Date.parse(messageTimestamp)
+        const storedTs = currentPriceData?.updatedAt ? Date.parse(currentPriceData.updatedAt) : -Infinity
+        const shouldUpdate = !currentPriceData?.updatedAt || (Number.isFinite(msgTs) && msgTs > storedTs)
         
         if (shouldUpdate && Number.isFinite(price)) {
           const previousPrice = currentPriceData?.price ?? price
@@ -413,21 +450,8 @@ class WebSocketManager {
       this._updateStoreState()
       this.dispatch('ws-disconnected')
       // Reconnect with exponential backoff + jitter
-      if (wasConnected && this._retry < this.MAX_RETRIES) {
-        this._state = ConnectionState.RECONNECTING
-        this._retry++
-        const delay = this._getRetryDelay(this._retry)
-        console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
-        useCodexStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
-        this._reconnectTimer = setTimeout(() => this.connect(), delay)
-      } else if (this._retry >= this.MAX_RETRIES) {
-        console.error('[WS] Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
-        this._state = ConnectionState.ERROR
-        useCodexStore.getState().setWsDiagnostics({
-          reconnectAttempts: this._retry,
-          lastError: 'Max reconnect attempts reached',
-        })
-        this._updateStoreState()
+      if (wasConnected) {
+        this._scheduleReconnect()
       }
     }
     this._socket.onerror = (event) => {

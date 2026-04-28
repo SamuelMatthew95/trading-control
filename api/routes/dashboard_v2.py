@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from sqlalchemy import text
 
+from api.config import settings
 from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
@@ -180,6 +181,19 @@ async def get_dashboard_state() -> dict[str, Any]:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
 
         data.setdefault("mode", runtime_mode())
+        # Expose whether the configured LLM provider has an API key so the
+        # frontend can surface a "rule-based mode" banner instead of silently
+        # showing no reasoning decisions.
+        provider = settings.LLM_PROVIDER.lower().strip()
+        provider_key_map = {
+            "gemini": getattr(settings, "GEMINI_API_KEY", None),
+            "anthropic": getattr(settings, "ANTHROPIC_API_KEY", None),
+            "openai": getattr(settings, "OPENAI_API_KEY", None),
+            "groq": getattr(settings, "GROQ_API_KEY", None),
+        }
+        llm_key = provider_key_map.get(provider) or ""
+        data["llm_available"] = bool(llm_key and llm_key.strip())
+        data["llm_provider"] = provider
         return data
 
     except Exception:

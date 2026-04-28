@@ -84,3 +84,45 @@ async def test_get_position_returns_flat_when_absent(broker):
     assert float(position["qty"]) == 0.0
     assert position["side"] == "flat"
     assert float(position["entry_price"]) == 0.0
+
+
+async def test_partial_close_preserves_entry_price(broker):
+    """Regression: previous PaperBroker overwrote entry_price on every order,
+    so the second sell after a partial close would compute realized PnL
+    against the partial-close fill price instead of the original entry.
+    """
+    # Open a 2 BTC long at $50k
+    await broker.place_order(symbol="BTC/USD", side="buy", qty=2.0, price=50_000.0)
+    pos = await broker.get_position("BTC/USD")
+    original_entry = float(pos["entry_price"])
+    assert original_entry == pytest.approx(50_000.0, rel=1e-3)
+
+    # Partially close 1 BTC at $60k — entry_price MUST stay near $50k
+    await broker.place_order(symbol="BTC/USD", side="sell", qty=1.0, price=60_000.0)
+    pos = await broker.get_position("BTC/USD")
+    assert float(pos["qty"]) == pytest.approx(1.0, rel=1e-6)
+    assert float(pos["entry_price"]) == pytest.approx(original_entry, rel=1e-6), (
+        "Partial close must preserve the original entry price"
+    )
+
+
+async def test_add_to_position_uses_weighted_average_entry(broker):
+    """Adding to an existing long should yield a weighted-average entry price."""
+    await broker.place_order(symbol="ETH/USD", side="buy", qty=1.0, price=2000.0)
+    await broker.place_order(symbol="ETH/USD", side="buy", qty=1.0, price=4000.0)
+    pos = await broker.get_position("ETH/USD")
+    # Weighted avg: (entry1 * 1 + entry2 * 1) / 2 — within slippage tolerance
+    assert float(pos["entry_price"]) == pytest.approx(3000.0, rel=1e-3)
+    assert float(pos["qty"]) == pytest.approx(2.0, rel=1e-6)
+
+
+async def test_full_close_marks_position_flat(broker):
+    """Closing a position fully should mark side=flat with qty≈0 so the next
+    open starts from a clean slate instead of inheriting stale entry data.
+    """
+    await broker.place_order(symbol="SOL/USD", side="buy", qty=1.0, price=100.0)
+    await broker.place_order(symbol="SOL/USD", side="sell", qty=1.0, price=120.0)
+    pos = await broker.get_position("SOL/USD")
+    assert abs(float(pos["qty"])) < 1e-6
+    assert pos["side"] == "flat"
+    assert float(pos["entry_price"]) == 0.0

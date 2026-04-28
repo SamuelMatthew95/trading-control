@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
+import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -55,6 +56,15 @@ const formatUSD = (value?: number | null): string => {
   return `$${Math.abs(value).toFixed(2)}`;
 };
 
+// Renders a signed USD value with leading sign — BUT never produces "-$0.00".
+// Zero (or near-zero rounding to zero) is always rendered without a sign.
+const signedUSD = (value?: number | null): string => {
+  if (value == null || isNaN(value) || !isFinite(value)) return '--';
+  const abs = Math.abs(value);
+  if (abs < 0.005) return '$0.00';
+  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`;
+};
+
 const formatTimeAgo = (date: Date): string => {
   const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
@@ -93,7 +103,6 @@ const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
-type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
 type AgentSummary = {
   name: string
@@ -149,24 +158,30 @@ function isClosedTrade(order: Record<string, unknown> | null | undefined): boole
 
 function parseTimestamp(value: unknown): Date | null {
   if (value == null) return null
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+  if (value instanceof Date) {
+    const t = value.getTime()
+    return Number.isNaN(t) || t <= 0 ? null : value
+  }
   if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return null
     const ms = value > 10_000_000_000 ? value : value * 1000
     const d = new Date(ms)
     return Number.isNaN(d.getTime()) ? null : d
   }
   const raw = String(value).trim()
-  if (!raw) return null
+  if (!raw || raw === '0') return null
   if (/^\d+(\.\d+)?$/.test(raw)) {
     const num = Number(raw)
-    if (Number.isFinite(num)) {
+    if (Number.isFinite(num) && num > 0) {
       const ms = num > 10_000_000_000 ? num : num * 1000
       const d = new Date(ms)
       if (!Number.isNaN(d.getTime())) return d
     }
+    return null
   }
   const d = new Date(raw)
-  return Number.isNaN(d.getTime()) ? null : d
+  if (Number.isNaN(d.getTime()) || d.getTime() <= 0) return null
+  return d
 }
 
 function parseHeartbeatTimestamp(status: AgentStatus): Date | null {
@@ -254,7 +269,7 @@ function NotificationFeed({
         </div>
         <div className="flex items-center gap-2">
           {unread.length > 0 && (
-            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{unread.length}</span>
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white" title={`${unread.length} unread`}>{unread.length} unread</span>
           )}
           <p className={mutedClass}>{notifications.length} total</p>
         </div>
@@ -278,9 +293,17 @@ function NotificationFeed({
                   <div className="mb-1 flex items-center gap-2">
                     <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
                     <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
-                    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', notif.state === 'resolved' || notif.acknowledged ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
-                      {notif.state === 'resolved' || notif.acknowledged ? 'resolved' : 'action needed'}
-                    </span>
+                    {(() => {
+                      const isResolved = notif.state === 'resolved' || notif.acknowledged
+                      const isActionable = !isResolved && (notif.severity === 'CRITICAL' || notif.severity === 'URGENT')
+                      if (isResolved) {
+                        return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-emerald-500/10 text-emerald-500">resolved</span>
+                      }
+                      if (isActionable) {
+                        return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-500">action needed</span>
+                      }
+                      return null
+                    })()}
                     <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
                   </div>
                   <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
@@ -415,7 +438,10 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
 
   useEffect(() => {
     fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then((d) => { setData(d as TraceData); setLoading(false) })
       .catch(() => { setError('Failed to load trace'); setLoading(false) })
   }, [traceId])
@@ -439,7 +465,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
                 <div className="space-y-1">
                   {data.agent_runs.map((r, i) => (
-                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                    <div key={`${traceId}-run-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
                       <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
                       {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
                       {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
@@ -453,7 +479,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
                 <div className="space-y-1">
                   {data.agent_logs.map((lg, i) => (
-                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                    <div key={`${traceId}-log-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
                       <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
                       {' · '}{String(lg.created_at ?? '')}
                     </div>
@@ -466,10 +492,10 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Grades</p>
                 <div className="space-y-1">
                   {data.agent_grades.map((g, i) => {
-                    const score = typeof g.score === 'number' ? g.score : null
+                    const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
                     const scoreColor = score == null ? 'text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
                     return (
-                      <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                      <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
                         <span>{String(g.grade_type ?? '--')}</span>
                         <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
                       </div>
@@ -498,15 +524,18 @@ function ProposalsSection() {
     setPendingAction(id)
     const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
     try {
-      await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
+      // fetch only rejects on network error — HTTP 4xx/5xx must be detected via
+      // response.ok or the store update becomes detached from server state.
+      const response = await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-      updateProposalStatus(id, status)
+      if (response.ok) {
+        updateProposalStatus(id, status)
+      }
     } catch {
-      // non-fatal — store will update optimistically
-      updateProposalStatus(id, status)
+      // network failure — leave proposal in its current state
     } finally {
       setPendingAction(null)
     }
@@ -635,6 +664,9 @@ export function DashboardView({ section }: { section: Section }) {
     eventHistory: 'pending',
   })
   const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
+  // null = not yet fetched, true/false = fetched from /dashboard/state
+  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
+  const [llmProvider, setLlmProvider] = useState<string>('')
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -674,14 +706,8 @@ export function DashboardView({ section }: { section: Section }) {
   const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
   const wins = tradeFeed.filter((row) => (row.pnl ?? 0) > 0).length
   const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
-  const systemStatus = useMemo<SystemStatus>(() => {
-    if (systemFeedError) return 'error'
-    const marketConnected = wsConnected || (dataLatencyMs != null && dataLatencyMs <= 5_000)
-    if (!marketConnected) return 'booting'
-    if (positions.length === 0 && (streamStats.executions?.count ?? 0) === 0) return 'idle'
-    if (positions.length > 0 || orders.length > 0 || tradeFeed.length > 0) return 'trading'
-    return 'idle'
-  }, [dataLatencyMs, orders.length, positions.length, streamStats.executions?.count, systemFeedError, tradeFeed.length, wsConnected])
+  const baseSystemStatus = useSystemStatus()
+  const systemStatus = systemFeedError ? 'error' : baseSystemStatus
 
   // ── REST fallback data fetching ──────────────────────────────────────────
   // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
@@ -698,6 +724,8 @@ export function DashboardView({ section }: { section: Section }) {
           console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
           useCodexStore.getState().hydrateDashboard(data)
           setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
+          if (typeof data.llm_available === 'boolean') setLlmAvailable(data.llm_available)
+          if (typeof data.llm_provider === 'string') setLlmProvider(data.llm_provider)
         } else {
           console.warn('[Dashboard] /dashboard/state responded', r.status)
           setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
@@ -814,6 +842,7 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchPerformance = async () => {
       try {
         const r = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
+        if (!r.ok) return
         const d = await r.json()
         if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
       } catch {
@@ -830,11 +859,14 @@ export function DashboardView({ section }: { section: Section }) {
     const fetchAgentInstances = async () => {
       try {
         const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
+        if (!r.ok) {
+          setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
+          return
+        }
         const d = await r.json()
         useCodexStore.getState().setAgentInstances(d.instances ?? [])
-        setApiHealth((prev) => ({ ...prev, agentInstances: r.ok ? 'ok' : 'error' }))
+        setApiHealth((prev) => ({ ...prev, agentInstances: 'ok' }))
       } catch {
-        // non-fatal
         setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
       }
     }
@@ -909,7 +941,21 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [orders])
 
-  const resolvedPerformanceSummary = performanceSummary ?? fallbackPerformanceSummary
+  // The API summary is preferred ONLY if it actually carries data. In in-memory
+  // mode the backend returns `{total_pnl: 0, win_rate: 0, ...}` even when the
+  // session has real fills, which left Total/Best/Worst pinned to $0.00 while
+  // the headline Daily P&L showed a real loss. Fall back to the locally
+  // computed summary whenever the API response is uniformly zero AND we have
+  // closed trades on the client.
+  const apiSummaryHasSignal = performanceSummary != null && (
+    (performanceSummary.total_pnl ?? 0) !== 0
+    || (performanceSummary.win_rate ?? 0) !== 0
+    || (performanceSummary.best_trade ?? 0) !== 0
+    || (performanceSummary.worst_trade ?? 0) !== 0
+  )
+  const resolvedPerformanceSummary = apiSummaryHasSignal
+    ? performanceSummary
+    : (fallbackPerformanceSummary ?? performanceSummary)
 
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
@@ -1143,10 +1189,10 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { title: 'Daily P&L', value: summary.hasOrders ? `${summary.dailyPnlNumeric >= 0 ? '+' : '-'}${formatUSD(summary.dailyPnlNumeric)}` : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
-              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
+              { title: 'Daily P&L', value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
+              { title: 'Win Rate', value: summary.winRate == null || !Number.isFinite(summary.winRate) ? '--' : `${summary.winRate.toFixed(2)}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
-              { title: 'Daily Change %', value: `${sanitizeValue((summary.dailyChange ?? 0).toFixed(2))}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
+              { title: 'Daily Change %', value: `${typeof summary.dailyChange === 'number' && Number.isFinite(summary.dailyChange) ? summary.dailyChange.toFixed(2) : '0.00'}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
             ].map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
@@ -1165,7 +1211,7 @@ export function DashboardView({ section }: { section: Section }) {
                 {
                   label: 'Total P&L',
                   value: resolvedPerformanceSummary != null
-                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
+                    ? signedUSD(resolvedPerformanceSummary.total_pnl)
                     : '--',
                   colorClass: resolvedPerformanceSummary != null
                     ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
@@ -1173,17 +1219,17 @@ export function DashboardView({ section }: { section: Section }) {
                 },
                 {
                   label: 'Win Rate',
-                  value: resolvedPerformanceSummary != null ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
+                  value: resolvedPerformanceSummary != null && Number.isFinite(resolvedPerformanceSummary.win_rate) ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
                   colorClass: 'text-slate-900 dark:text-slate-100',
                 },
                 {
                   label: 'Best Trade',
-                  value: resolvedPerformanceSummary != null ? `+${formatUSD(resolvedPerformanceSummary.best_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.best_trade) : '--',
                   colorClass: 'text-emerald-500',
                 },
                 {
                   label: 'Worst Trade',
-                  value: resolvedPerformanceSummary != null ? `-${formatUSD(resolvedPerformanceSummary.worst_trade)}` : '--',
+                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.worst_trade) : '--',
                   colorClass: 'text-rose-500',
                 },
               ].map((cell) => (
@@ -1208,7 +1254,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <p className={mutedClass}>{sanitizeValue(realAgents.length)}</p>
               </div>
               {realAgents.length === 0 ? (
-                <EmptyState message="No active agents" />
+                <EmptyState message={wsConnected ? 'No active agents' : 'Connecting…'} />
               ) : (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {realAgents.map((agent) => (
@@ -1256,12 +1302,34 @@ export function DashboardView({ section }: { section: Section }) {
                     <span className="text-xs font-sans text-amber-500">Loading</span>
                   </div>
                 ) : Object.keys(prices).length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <div className={cn('h-2 w-2 rounded-full', dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'bg-emerald-500' : 'bg-amber-500')} />
-                    <span className={cn('text-xs font-sans', dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'text-emerald-500' : 'text-amber-500')}>
-                      {dataLatencyMs != null && dataLatencyMs <= 5_000 ? 'Live' : 'Stale'}
-                    </span>
-                  </div>
+                  (() => {
+                    // Derive freshness from the prices themselves rather than the
+                    // market_ticks stream lag. When prices are hydrated via REST
+                    // (cold start, WS not connected) the stream lag metric is
+                    // null and would falsely display "Stale" while the tile
+                    // dots show green. Pick the freshest updatedAt across all
+                    // tiles and grade by that.
+                    // /dashboard/state hydrates Redis payloads with `ts`
+                    // (or `timestamp`) rather than `updatedAt`, so fall back
+                    // to those before declaring a tile stale on cold start.
+                    const ages = Object.values(prices)
+                      .map((p) => {
+                        const r = p as { updatedAt?: string | null; ts?: string | null; timestamp?: string | null }
+                        return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
+                      })
+                      .filter((d): d is Date => d instanceof Date)
+                      .map((d) => Date.now() - d.getTime())
+                    const freshestMs = ages.length > 0 ? Math.min(...ages) : null
+                    const isLive = freshestMs != null && freshestMs <= 60_000
+                    return (
+                      <div className="flex items-center gap-2">
+                        <div className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-amber-500')} />
+                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-500' : 'text-amber-500')}>
+                          {isLive ? 'Live' : 'Stale'}
+                        </span>
+                      </div>
+                    )
+                  })()
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-slate-500" />
@@ -1394,7 +1462,7 @@ export function DashboardView({ section }: { section: Section }) {
                     const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
                     const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
                     return (
-                      <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
+                      <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
@@ -1688,17 +1756,23 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={cn(sectionTitleClass, 'mb-3')}>IC Factor Weights</p>
               <div className="space-y-2">
-                {Object.entries(icWeights).map(([factor, weight]) => (
-                  <div key={factor} className="flex items-center justify-between">
-                    <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
-                        <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.round(weight * 100)}%` }} />
+                {Object.entries(icWeights).map(([factor, weight]) => {
+                  // Weight comes from Redis JSON with no server-side validation;
+                  // guard against null/Infinity/NaN before calling .toFixed().
+                  // Clamp to [0, 1] so the progress bar never overflows.
+                  const w = typeof weight === 'number' && Number.isFinite(weight) ? Math.max(0, Math.min(1, weight)) : 0
+                  return (
+                    <div key={factor} className="flex items-center justify-between">
+                      <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
+                          <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.round(w * 100)}%` }} />
+                        </div>
+                        <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(w * 100).toFixed(1)}%</span>
                       </div>
-                      <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(weight * 100).toFixed(1)}%</span>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1740,22 +1814,20 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
-                <p className={cn('text-sm font-mono tabular-nums', summary.dailyPnlNumeric >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                  {resolvedPerformanceSummary != null
-                    ? `${resolvedPerformanceSummary.total_pnl >= 0 ? '+' : '-'}${formatUSD(resolvedPerformanceSummary.total_pnl)}`
-                    : '--'}
+                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
+                  {resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Best Day</p>
                 <p className="text-sm font-mono tabular-nums text-emerald-500">
-                  {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${learningSummary.bestDay[1] >= 0 ? '+' : '-'}${formatUSD(learningSummary.bestDay[1])})` : 'N/A'}
+                  {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${signedUSD(learningSummary.bestDay[1])})` : 'N/A'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Worst Day</p>
                 <p className="text-sm font-mono tabular-nums text-rose-500">
-                  {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${learningSummary.worstDay[1] >= 0 ? '+' : '-'}${formatUSD(learningSummary.worstDay[1])})` : 'N/A'}
+                  {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${signedUSD(learningSummary.worstDay[1])})` : 'N/A'}
                 </p>
               </div>
             </div>
@@ -1826,6 +1898,15 @@ export function DashboardView({ section }: { section: Section }) {
               Persistence appears disabled (no persisted events/logs). Agents/Learning views may show incomplete history.
             </div>
           )}
+          {llmAvailable === false && (
+            <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 p-3 text-sm text-blue-600 dark:text-blue-400">
+              <span className="font-semibold">Rule-based mode</span> — no{' '}
+              {llmProvider ? llmProvider.charAt(0).toUpperCase() + llmProvider.slice(1) : 'LLM'}{' '}
+              API key configured. Reasoning decisions use signal direction only; set{' '}
+              {llmProvider ? llmProvider.toUpperCase() + '_API_KEY' : 'an LLM API key'} to enable
+              AI-powered analysis.
+            </div>
+          )}
 
           {/* ── Connection Diagnostics ── always visible so broken configs are obvious */}
           <div className={cardClass}>
@@ -1864,7 +1945,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Message rate</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsDiagnostics.messageRate.toFixed(2)} /sec</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{Number.isFinite(wsDiagnostics.messageRate) ? wsDiagnostics.messageRate.toFixed(2) : '0.00'} /sec</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Last error</p>
@@ -1942,7 +2023,7 @@ export function DashboardView({ section }: { section: Section }) {
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
-                  <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? ''}-${event.msgId !== 'n/a' ? (event.msgId ?? index) : index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <span
                       className={cn(
                         'rounded px-2 py-0.5 text-xs font-semibold',
@@ -1957,7 +2038,7 @@ export function DashboardView({ section }: { section: Section }) {
                     >
                       {event.stream}
                     </span>
-                    <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
                     <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
                   </div>
                 ))}

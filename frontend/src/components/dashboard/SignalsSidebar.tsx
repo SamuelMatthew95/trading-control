@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import axios from 'axios'
+import { useCallback, useEffect, useState } from 'react'
+import { api } from '@/lib/apiClient'
 
 type Signal = {
   id: string
@@ -13,24 +13,36 @@ export function SignalsSidebar() {
   const [open, setOpen] = useState(true)
   const [items, setItems] = useState<Signal[]>([])
 
-  const load = async () => {
-    const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/signals`)
-    setItems(response.data.items || [])
-  }
-
-  useEffect(() => {
-    load().catch(() => undefined)
-    const timer = setInterval(() => load().catch(() => undefined), 60000)
-    return () => clearInterval(timer)
+  const load = useCallback(async () => {
+    const response = await fetch(api('/signals'))
+    if (!response.ok) return
+    const data = await response.json()
+    setItems(data.items || [])
   }, [])
 
+  useEffect(() => {
+    load().catch((err) => console.warn('[Signals] Failed to load:', err))
+    const timer = setInterval(() => load().catch((err) => console.warn('[Signals] Failed to load:', err)), 60000)
+    return () => clearInterval(timer)
+  }, [load])
+
   const dismiss = async (id: string) => {
-    const previous = items
-    setItems((current) => current.filter((signal) => signal.id !== id))
+    // Read from the closure at click time. dismiss() is only ever called from a
+    // synchronous click handler, so `items` is the current render's state here.
+    // On failure re-insert just this one signal rather than restoring the whole
+    // snapshot, preserving any signals that loaded() added during the await.
+    const dismissed = items.find((s) => s.id === id)
+    setItems((current) => current.filter((s) => s.id !== id))
+    const rollback = () => {
+      if (dismissed) setItems((current) => [dismissed, ...current])
+    }
     try {
-      await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/signals/${id}/dismiss`)
+      // fetch only rejects on network errors; HTTP 4xx/5xx must be detected
+      // explicitly via response.ok or the optimistic remove leaks UI state.
+      const response = await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
+      if (!response.ok) rollback()
     } catch {
-      setItems(previous)
+      rollback()
     }
   }
 

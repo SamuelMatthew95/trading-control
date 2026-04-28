@@ -20,7 +20,7 @@ export function AgentCard({ agent, isDark }: { agent: AgentView; isDark: boolean
       <div className={`space-y-2 text-sm ${muted}`}>
         <p className="flex items-center gap-2"><Activity className="h-4 w-4 text-cyan-500" /> Current: {agent.current_task || 'Idle'}</p>
         <p>Last task: {agent.last_task || 'N/A'}</p>
-        <p>Latency: {agent.latency_ms ? `${agent.latency_ms.toFixed(0)}ms` : 'N/A'}</p>
+        <p>Latency: {typeof agent.latency_ms === 'number' ? `${agent.latency_ms.toFixed(0)}ms` : 'N/A'}</p>
         {agent.error ? <p className="flex items-center gap-2 text-red-500"><AlertTriangle className="h-4 w-4" /> {agent.error}</p> : null}
       </div>
     </article>

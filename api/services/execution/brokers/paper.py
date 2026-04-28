@@ -44,14 +44,40 @@ class PaperBroker:
         else:
             cash += notional
         await self.redis.set(REDIS_KEY_PAPER_CASH, cash)
+
         current_position = await self.get_position(symbol)
         current_qty = float(current_position.get(FieldName.QTY, 0.0))
+        prior_entry = float(current_position.get(FieldName.ENTRY_PRICE, 0.0) or 0.0)
         new_qty = current_qty + (qty * direction)
+
+        # Compute the new entry price honestly. Previous code overwrote
+        # entry_price to fill_price on EVERY order, which destroyed cost basis
+        # after any partial close — the next sell would compute realized PnL
+        # against the closing price instead of the original entry.
+        if abs(new_qty) < 1e-9:
+            new_entry_price = 0.0
+            new_side = PositionSide.FLAT
+        elif abs(current_qty) < 1e-9 or prior_entry <= 0:
+            new_entry_price = fill_price
+            new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+        elif (current_qty > 0) == (direction > 0):
+            # Adding in the same direction → weighted average cost
+            new_entry_price = (prior_entry * abs(current_qty) + fill_price * qty) / abs(new_qty)
+            new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+        elif (current_qty > 0) != (new_qty > 0):
+            # Order flipped direction past zero → new opening price
+            new_entry_price = fill_price
+            new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+        else:
+            # Reducing same-direction position (partial close) → preserve entry
+            new_entry_price = prior_entry
+            new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+
         position_payload = {
             FieldName.SYMBOL: symbol,
-            FieldName.SIDE: PositionSide.LONG if new_qty >= 0 else PositionSide.SHORT,
+            FieldName.SIDE: new_side,
             FieldName.QTY: new_qty,
-            FieldName.ENTRY_PRICE: fill_price,
+            FieldName.ENTRY_PRICE: new_entry_price,
             "current_price": fill_price,
         }
         await self.redis.set(
