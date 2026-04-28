@@ -403,9 +403,12 @@ export const useCodexStore = create<CodexState>((set) => ({
         for (const [symbol, priceData] of Object.entries(prices)) {
           if (priceData && typeof priceData === 'object') {
             const price = Number(priceData.price)
+            // Skip entries where the API sent null/undefined/non-numeric price;
+            // Number(undefined) = NaN which would poison the ticker display.
+            if (!Number.isFinite(price)) continue
             const previousPrice = state.prices[symbol]?.price ?? price
             const change = price - previousPrice
-            
+
             updatedPrices[symbol] = {
               price,
               change,
