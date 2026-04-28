@@ -68,11 +68,6 @@ async def analyze_trade(
                     last_task=f"analyze {request.symbol}",
                 )
 
-            history = trading_service.orchestrator.get_trade_history()
-            if history:
-                # Removed run_lifecycle_service reference - service deleted
-                pass
-
         estimated_tokens = max(200, len(str(result)) // 2)
         estimated_cost_usd = round(estimated_tokens * 0.000003, 6)
         metrics_store.log_event(
