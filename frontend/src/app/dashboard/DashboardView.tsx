@@ -1187,9 +1187,9 @@ export function DashboardView({ section }: { section: Section }) {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
               { title: 'Daily P&L', value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
-              { title: 'Win Rate', value: summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
+              { title: 'Win Rate', value: summary.winRate == null || !Number.isFinite(summary.winRate) ? '--' : `${summary.winRate.toFixed(2)}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
-              { title: 'Daily Change %', value: `${sanitizeValue((summary.dailyChange ?? 0).toFixed(2))}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
+              { title: 'Daily Change %', value: `${typeof summary.dailyChange === 'number' && Number.isFinite(summary.dailyChange) ? summary.dailyChange.toFixed(2) : '0.00'}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
             ].map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
@@ -1216,7 +1216,7 @@ export function DashboardView({ section }: { section: Section }) {
                 },
                 {
                   label: 'Win Rate',
-                  value: resolvedPerformanceSummary != null ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
+                  value: resolvedPerformanceSummary != null && Number.isFinite(resolvedPerformanceSummary.win_rate) ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
                   colorClass: 'text-slate-900 dark:text-slate-100',
                 },
                 {
@@ -1453,7 +1453,7 @@ export function DashboardView({ section }: { section: Section }) {
                     const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
                     const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
                     return (
-                      <div key={`${sanitizeValue(log?.timestamp)}-${index}`} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
+                      <div key={String(log?.trace_id || log?.id || `${sanitizeValue(log?.timestamp)}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
@@ -2008,7 +2008,7 @@ export function DashboardView({ section }: { section: Section }) {
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
-                  <div key={`${event.msgId}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <div key={event.msgId || String(index)} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <span
                       className={cn(
                         'rounded px-2 py-0.5 text-xs font-semibold',
