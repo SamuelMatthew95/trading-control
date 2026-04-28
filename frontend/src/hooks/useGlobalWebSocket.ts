@@ -142,6 +142,13 @@ class WebSocketManager {
   }
   reconnect() {
     this._retry = 0
+    // connect() guards on RECONNECTING/CONNECTING/CONNECTED and bails out, so a
+    // user-initiated reconnect from those states must clear it first.
+    if (this._state === ConnectionState.RECONNECTING) {
+      if (this._reconnectTimer) clearTimeout(this._reconnectTimer)
+      this._reconnectTimer = null
+      this._state = ConnectionState.DISCONNECTED
+    }
     this.connect()
   }
   setStoreUpdate(fn: (() => void) | null) {
@@ -204,7 +211,12 @@ class WebSocketManager {
     const delay = this._getRetryDelay(this._retry)
     console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
     useCodexStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
-    this._reconnectTimer = setTimeout(() => this.connect(), delay)
+    this._reconnectTimer = setTimeout(() => {
+      // connect() bails out while state is RECONNECTING, so flip to
+      // DISCONNECTED here or the timer can never reopen the socket.
+      this._state = ConnectionState.DISCONNECTED
+      this.connect()
+    }, delay)
   }
   private _cleanupSocket() {
     if (this._socket) {
