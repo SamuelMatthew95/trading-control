@@ -686,6 +686,7 @@ export function DashboardView({ section }: { section: Section }) {
       ? 'Healthy'
       : 'Degraded'
   const signalsCount = streamStats['signals']?.count ?? 0
+  const decisionsCount = streamStats['decisions']?.count ?? 0
   const ordersCount = streamStats['orders']?.count ?? 0
   const executionsCount = streamStats['executions']?.count ?? 0
   const pipelineWarning = signalsCount > 0 && ordersCount === 0
@@ -707,7 +708,20 @@ export function DashboardView({ section }: { section: Section }) {
   const wins = tradeFeed.filter((row) => (row.pnl ?? 0) > 0).length
   const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
   const baseSystemStatus = useSystemStatus()
-  const systemStatus = systemFeedError ? 'error' : baseSystemStatus
+  const computedSystemStatus = throughput > 0 ? 'active' : baseSystemStatus
+  const systemStatus = systemFeedError ? 'error' : computedSystemStatus
+  const killSwitchActive = Boolean((dashboardData as Record<string, unknown> | null)?.kill_switch_active)
+  const lastDecision = recentEvents.find((event) => event.stream === 'decisions')
+  const executionBlocked = killSwitchActive || (signalsCount > 0 && ordersCount === 0)
+  const executionBlockReason = killSwitchActive
+    ? 'Kill switch active'
+    : signalsCount > 0 && ordersCount === 0
+      ? 'Signals are being generated, but no orders are emitted'
+      : 'No execution blocker detected'
+  const gradedTradesCount = streamStats['agent_grades']?.count ?? 0
+  const reflectionsCount = streamStats['reflection_outputs']?.count ?? 0
+  const strategiesCount = proposals.length
+  const dbAgentsCount = agentInstances.length
 
   // ── REST fallback data fetching ──────────────────────────────────────────
   // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
@@ -1379,13 +1393,18 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'trading' && (
         <div className="space-y-4">
+          {executionBlocked && (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
+              Execution FAILED: signals and decisions are present but no orders/fills were generated.
+            </div>
+          )}
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Trade Feed</p>
               <p className={mutedClass}>{tradeFeed.length} fills</p>
             </div>
             {tradeFeed.length === 0 ? (
-              <EmptyState message="No orders today" />
+              <EmptyState message={executionBlocked ? 'Execution pipeline blocked before order placement' : 'No fills yet'} />
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-1">
                 {tradeFeed.slice(0, 50).map((trade) => {
@@ -1501,7 +1520,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No orders today" /></td>
+                      <td colSpan={7} className="px-2 py-8"><EmptyState message={executionBlocked ? 'No positions because execution is blocked' : 'No open positions'} /></td>
                     </tr>
                   ) : (
                     positions.map((position, index) => {
@@ -1539,6 +1558,21 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'agents' && (
         <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Agent Health Summary</p>
+              <p className={cn(mutedClass, 'mt-2')}>Live: <span className="font-mono">{realAgents.filter((a) => a.status === 'Live').length}</span></p>
+              <p className={mutedClass}>Offline/Stale: <span className="font-mono">{realAgents.filter((a) => a.status !== 'Live').length}</span></p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Consistency Check</p>
+              <p className={cn(mutedClass, 'mt-2')}>Runtime agents: <span className="font-mono">{agentStatuses.length}</span></p>
+              <p className={mutedClass}>DB agents: <span className="font-mono">{dbAgentsCount}</span></p>
+              <p className={cn('mt-1 text-xs', agentStatuses.length > 0 && dbAgentsCount === 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                {agentStatuses.length > 0 && dbAgentsCount === 0 ? 'Mismatch detected' : 'Runtime and DB are aligned'}
+              </p>
+            </div>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <div className={cardClass}>
               <p className={sectionTitleClass}>Market Ticks</p>
@@ -1702,6 +1736,20 @@ export function DashboardView({ section }: { section: Section }) {
       {section === 'learning' && (
         <div className="space-y-4">
           <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Learning Funnel</p>
+            <p className="text-sm font-mono text-slate-900 dark:text-slate-100">
+              Trades → Grading → Reflection → Strategy
+            </p>
+            <p className="text-sm font-mono text-slate-900 dark:text-slate-100">
+              {learningSummary.tradesEvaluated} → {gradedTradesCount} → {reflectionsCount} → {strategiesCount}
+            </p>
+            {learningSummary.tradesEvaluated > 0 && gradedTradesCount === 0 && (
+              <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">
+                Learning pipeline blocked at GRADING stage
+              </p>
+            )}
+          </div>
+          <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Learning Pipeline Status</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {learningPipelineStages.map((stage) => (
@@ -1721,7 +1769,7 @@ export function DashboardView({ section }: { section: Section }) {
                   </p>
                   <p className="mt-1 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{stage.count}</p>
                   <p className="mt-1 text-[11px] font-mono text-slate-500">
-                    {stage.lastRun ? `last ${formatTimeAgoSafe(stage.lastRun)}` : 'No runs yet'}
+                    {stage.lastRun ? `last ${formatTimeAgoSafe(stage.lastRun)}` : 'No completed runs yet'}
                   </p>
                 </div>
               ))}
@@ -1956,20 +2004,25 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>
+            {!resolvedPerformanceSummary && totalTrades === 0 ? (
+              <EmptyState message="No trading activity yet" />
+            ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{formatUSD(realizedPnl)}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{formatUSD(unrealizedPnl)}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{formatUSD(realizedPnl + unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? formatUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Trades</p><p className="text-sm font-mono">{totalTrades}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{pnlWinRate.toFixed(1)}%</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{totalTrades === 0 ? 'No trades executed yet' : `${pnlWinRate.toFixed(1)}%`}</p></div>
             </div>
+            )}
           </div>
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Handoff</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signals (stream)</p><p className="text-sm font-mono">{signalsCount}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Decisions</p><p className="text-sm font-mono">{decisionsCount}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Orders</p><p className="text-sm font-mono">{ordersCount}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Executions</p><p className="text-sm font-mono">{executionsCount}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signal Agent (RT)</p><p className="text-sm font-mono">{signalAgentRealtimeCount}</p></div>
@@ -1981,8 +2034,13 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
+            <div className="mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+              <p className={mutedClass}>Execution status</p>
+              <p className={cn('text-sm font-semibold', executionBlocked ? 'text-amber-500' : 'text-emerald-500')}>{executionBlocked ? 'Execution Blocked' : 'Flowing'}</p>
+              <p className={cn(mutedClass, 'mt-1')}>Reason: {executionBlockReason}</p>
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
+              {['market_ticks', 'market_events', 'signals', 'decisions', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
                 const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
                 const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
                 return (
@@ -2031,6 +2089,8 @@ export function DashboardView({ section }: { section: Section }) {
                           ? 'bg-emerald-500/15 text-emerald-500'
                           : event.stream === 'signals'
                             ? 'bg-slate-500/10 text-slate-500'
+                            : event.stream === 'decisions'
+                              ? 'bg-indigo-500/15 text-indigo-500'
                             : event.stream === 'orders'
                               ? 'bg-amber-500/15 text-amber-500'
                               : 'bg-slate-500/15 text-slate-400'
@@ -2042,6 +2102,19 @@ export function DashboardView({ section }: { section: Section }) {
                     <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          <div className={cardClass}>
+            <p className={cn(sectionTitleClass, 'mb-3')}>Decision Trace</p>
+            {!lastDecision ? (
+              <EmptyState message="No decisions yet" />
+            ) : (
+              <div className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                <p><span className={mutedClass}>Symbol:</span> <span className="font-mono">{lastDecision.symbol ?? 'N/A'}</span></p>
+                <p><span className={mutedClass}>Decision:</span> <span className="font-mono">{lastDecision.type ?? 'N/A'}</span></p>
+                <p><span className={mutedClass}>Timestamp:</span> <span className="font-mono">{formatTimestamp(lastDecision.timestamp)}</span></p>
               </div>
             )}
           </div>
