@@ -2020,7 +2020,7 @@ export function DashboardView({ section }: { section: Section }) {
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
-                  <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? ''}-${event.msgId !== 'n/a' ? (event.msgId ?? index) : index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <span
                       className={cn(
                         'rounded px-2 py-0.5 text-xs font-semibold',
