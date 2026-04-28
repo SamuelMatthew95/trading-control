@@ -35,7 +35,14 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     fetchPrices: vi.fn().mockResolvedValue(undefined),
     hydrateDashboard: vi.fn(),
   }
-  const hook = Object.assign(() => store, { getState: () => store })
+  // Zustand hooks accept an optional selector — honour it so consumers like
+  // useSystemStatus that read scalar slices (e.g. s.orders.length) get the
+  // expected value rather than the entire store object.
+  const hook = Object.assign(
+    (selector?: (s: typeof store) => unknown) =>
+      typeof selector === 'function' ? selector(store) : store,
+    { getState: () => store },
+  )
   return { mockStore: store, mockUseCodexStore: hook }
 })
 
