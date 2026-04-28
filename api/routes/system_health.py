@@ -458,9 +458,9 @@ def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status:
     for _stream, health in stream_health.items():
         if health.get(FieldName.STATUS) == "error":
             return "red"
-        if health.get("oldest_msg_age_seconds", 0) > 60:
+        if health.get("oldest_pending_age_seconds", 0) > 60:
             return "yellow"
-        if health.get("pending_ack", 0) > 100:
+        if health.get("pending", 0) > 100:
             return "yellow"
 
     # Check DB pool utilization
