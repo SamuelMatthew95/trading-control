@@ -30,13 +30,16 @@ def upgrade() -> None:
     # register_agent_instance() relies on the unique constraint we are about to
     # add — without it, the INSERT...WHERE NOT EXISTS path is race-prone under
     # concurrent writers. CREATE UNIQUE INDEX would abort on duplicates and
-    # block the migration in production. Keep the most recent row per key
-    # (max id) and delete the rest before creating the index.
+    # block the migration in production. Keep the most recently started row
+    # per key (MAX(id) is wrong here — id is a random UUID v4, not time-ordered;
+    # use DISTINCT ON ordered by started_at DESC so the active instance survives).
     op.execute(
         """
         DELETE FROM agent_instances
         WHERE id NOT IN (
-            SELECT MAX(id) FROM agent_instances GROUP BY instance_key
+            SELECT DISTINCT ON (instance_key) id
+            FROM agent_instances
+            ORDER BY instance_key, started_at DESC NULLS LAST, created_at DESC NULLS LAST
         )
         """
     )
