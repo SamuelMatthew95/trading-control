@@ -641,7 +641,7 @@ export const useCodexStore = create<CodexState>((set) => ({
             status: (p.status as ProposalStatus) ?? 'pending' as ProposalStatus,
           }))
         if (newProposals.length > 0) {
-          updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 100)
+          updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 50)
         }
       }
 
