@@ -27,18 +27,16 @@ export function SignalsSidebar() {
   }, [load])
 
   const dismiss = async (id: string) => {
-    // Capture the dismissed signal synchronously before the await so we can
-    // re-insert just that one item on failure instead of restoring a stale
-    // snapshot that may be missing signals loaded by the interval since then.
-    let dismissed: Signal | undefined
-    setItems((current) => {
-      dismissed = current.find((s) => s.id === id)
-      return current.filter((s) => s.id !== id)
-    })
+    // Read from the closure at click time. dismiss() is only ever called from a
+    // synchronous click handler, so `items` is the current render's state here.
+    // On failure re-insert just this one signal rather than restoring the whole
+    // snapshot, preserving any signals that loaded() added during the await.
+    const dismissed = items.find((s) => s.id === id)
+    setItems((current) => current.filter((s) => s.id !== id))
     try {
       await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
     } catch {
-      if (dismissed) setItems((current) => [dismissed!, ...current])
+      if (dismissed) setItems((current) => [dismissed, ...current])
     }
   }
 
