@@ -170,17 +170,6 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
-        # Snapshot position BEFORE order to compute realized PnL
-        prior_position = await self.broker.get_position(symbol)
-        if self._reject_unmatched_sell(side=side, prior_position=prior_position):
-            log_structured(
-                "warning",
-                "execution_sell_rejected_no_open_position",
-                symbol=symbol,
-                trace_id=trace_id,
-            )
-            return
-
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
                 text(
@@ -206,7 +195,18 @@ class ExecutionEngine(BaseStreamConsumer):
 
             order_id: str | None = None
             vwap_plan = self._build_vwap_plan(qty)
+            # Snapshot position AFTER acquiring the lock so concurrent orders
+            # for the same symbol cannot race on a stale position read.
+            prior_position = await self.broker.get_position(symbol)
             try:
+                if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+                    log_structured(
+                        "warning",
+                        "execution_sell_rejected_no_open_position",
+                        symbol=symbol,
+                        trace_id=trace_id,
+                    )
+                    return
                 inserted = await session.execute(
                     text(
                         # Dual-write old (qty) + new (quantity) column names so both
@@ -538,16 +538,6 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
-        prior_position = await self.broker.get_position(symbol)
-        if self._reject_unmatched_sell(side=side, prior_position=prior_position):
-            log_structured(
-                "warning",
-                "execution_sell_rejected_no_open_position_memory",
-                symbol=symbol,
-                trace_id=trace_id,
-            )
-            return
-
         lock_acquired = await self.redis.set(
             lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
         )
@@ -555,6 +545,17 @@ class ExecutionEngine(BaseStreamConsumer):
             raise RuntimeError(f"Order lock already held for {symbol}")
 
         try:
+            # Snapshot position AFTER acquiring the lock so concurrent orders
+            # for the same symbol cannot race on a stale position read.
+            prior_position = await self.broker.get_position(symbol)
+            if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+                log_structured(
+                    "warning",
+                    "execution_sell_rejected_no_open_position_memory",
+                    symbol=symbol,
+                    trace_id=trace_id,
+                )
+                return
             broker_result = await self.broker.place_order(symbol, side, qty, price)
             fill_price = float(broker_result[FieldName.FILL_PRICE])
             filled_at = datetime.now(timezone.utc)
