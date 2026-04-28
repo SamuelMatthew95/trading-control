@@ -26,6 +26,20 @@ def upgrade() -> None:
     # Drop the existing non-unique index, then create a unique one.
     # Using IF EXISTS / IF NOT EXISTS so the migration is re-runnable.
     op.execute("DROP INDEX IF EXISTS idx_agent_instances_key")
+    # Pre-existing data may already contain duplicate instance_key rows because
+    # register_agent_instance() relies on the unique constraint we are about to
+    # add — without it, the INSERT...WHERE NOT EXISTS path is race-prone under
+    # concurrent writers. CREATE UNIQUE INDEX would abort on duplicates and
+    # block the migration in production. Keep the most recent row per key
+    # (max id) and delete the rest before creating the index.
+    op.execute(
+        """
+        DELETE FROM agent_instances
+        WHERE id NOT IN (
+            SELECT MAX(id) FROM agent_instances GROUP BY instance_key
+        )
+        """
+    )
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_instances_key ON agent_instances(instance_key)"
     )
