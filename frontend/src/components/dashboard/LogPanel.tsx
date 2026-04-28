@@ -7,7 +7,7 @@ export function LogPanel({ events, isDark }: { events: Array<Record<string, unkn
       <h3 className="mb-3 text-lg font-semibold">Execution Logs</h3>
       <div className="max-h-80 space-y-2 overflow-auto font-mono text-xs">
         {events.map((event, idx) => (
-          <details key={idx} className={`rounded border p-2 ${row}`}>
+          <details key={String(event.id || event.trace_id || event.msg_id || event.timestamp || idx)} className={`rounded border p-2 ${row}`}>
             <summary className="cursor-pointer text-cyan-500">{String(event.event_type || 'event')} • {String(event.timestamp || '')}</summary>
             <pre className="mt-2 whitespace-pre-wrap">{JSON.stringify(event, null, 2)}</pre>
           </details>
