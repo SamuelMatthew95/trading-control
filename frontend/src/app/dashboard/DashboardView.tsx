@@ -1306,8 +1306,14 @@ export function DashboardView({ section }: { section: Section }) {
                     // null and would falsely display "Stale" while the tile
                     // dots show green. Pick the freshest updatedAt across all
                     // tiles and grade by that.
+                    // /dashboard/state hydrates Redis payloads with `ts`
+                    // (or `timestamp`) rather than `updatedAt`, so fall back
+                    // to those before declaring a tile stale on cold start.
                     const ages = Object.values(prices)
-                      .map((p) => parseTimestamp((p as { updatedAt?: string | null })?.updatedAt))
+                      .map((p) => {
+                        const r = p as { updatedAt?: string | null; ts?: string | null; timestamp?: string | null }
+                        return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
+                      })
                       .filter((d): d is Date => d instanceof Date)
                       .map((d) => Date.now() - d.getTime())
                     const freshestMs = ages.length > 0 ? Math.min(...ages) : null
