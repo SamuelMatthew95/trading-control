@@ -1453,7 +1453,7 @@ export function DashboardView({ section }: { section: Section }) {
                     const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
                     const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
                     return (
-                      <div key={String(log?.trace_id || log?.id || `${sanitizeValue(log?.timestamp)}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
+                      <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
@@ -2014,7 +2014,7 @@ export function DashboardView({ section }: { section: Section }) {
             ) : (
               <div className="space-y-2">
                 {recentEvents.map((event, index) => (
-                  <div key={event.msgId || String(index)} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <span
                       className={cn(
                         'rounded px-2 py-0.5 text-xs font-semibold',
@@ -2029,7 +2029,7 @@ export function DashboardView({ section }: { section: Section }) {
                     >
                       {event.stream}
                     </span>
-                    <span className="text-xs font-mono text-slate-500">{event.msgId.slice(0, 10)}</span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
                     <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
                   </div>
                 ))}
