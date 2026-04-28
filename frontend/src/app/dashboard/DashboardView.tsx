@@ -465,7 +465,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
                 <div className="space-y-1">
                   {data.agent_runs.map((r, i) => (
-                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                    <div key={`${traceId}-run-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
                       <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
                       {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
                       {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
@@ -479,7 +479,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
                 <div className="space-y-1">
                   {data.agent_logs.map((lg, i) => (
-                    <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                    <div key={`${traceId}-log-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
                       <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
                       {' · '}{String(lg.created_at ?? '')}
                     </div>
@@ -492,10 +492,10 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Grades</p>
                 <div className="space-y-1">
                   {data.agent_grades.map((g, i) => {
-                    const score = typeof g.score === 'number' ? g.score : null
+                    const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
                     const scoreColor = score == null ? 'text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
                     return (
-                      <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                      <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
                         <span>{String(g.grade_type ?? '--')}</span>
                         <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
                       </div>
@@ -524,15 +524,18 @@ function ProposalsSection() {
     setPendingAction(id)
     const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
     try {
-      await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
+      // fetch only rejects on network error — HTTP 4xx/5xx must be detected via
+      // response.ok or the store update becomes detached from server state.
+      const response = await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-      updateProposalStatus(id, status)
+      if (response.ok) {
+        updateProposalStatus(id, status)
+      }
     } catch {
-      // non-fatal — store will update optimistically
-      updateProposalStatus(id, status)
+      // network failure — leave proposal in its current state
     } finally {
       setPendingAction(null)
     }
@@ -1942,7 +1945,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Message rate</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsDiagnostics.messageRate.toFixed(2)} /sec</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{Number.isFinite(wsDiagnostics.messageRate) ? wsDiagnostics.messageRate.toFixed(2) : '0.00'} /sec</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Last error</p>
