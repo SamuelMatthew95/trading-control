@@ -71,7 +71,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
         "total_pnl": round(total_pnl, 2),
         "winning_trades": wins,
         "losing_trades": losses,
-        "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
+        "win_rate": round((wins / (wins + losses)) if (wins + losses) > 0 else 0.0, 4),
         "active_positions": len(open_positions),
         "best_trade": round(
             max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
