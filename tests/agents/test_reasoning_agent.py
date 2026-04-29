@@ -404,3 +404,71 @@ async def test_fallback_derives_directional_action_when_llm_unavailable(agent):
 
     assert bullish["action"] == "buy"
     assert bearish["action"] == "sell"
+
+
+# ---------------------------------------------------------------------------
+# Learning-loop dampening tests — verify that ProposalApplier's Redis writes
+# (signal_weight_scale, agent_suspended) actually change ReasoningAgent
+# behavior. Without these, the loop is closed in name only.
+# ---------------------------------------------------------------------------
+
+
+async def test_suspended_agent_skips_processing(agent, mock_bus, mock_redis):
+    """When learning:agent_suspended:REASONING_AGENT is set, drop the signal."""
+    from api.constants import AGENT_REASONING, REDIS_KEY_AGENT_SUSPENDED
+
+    suspended_key = REDIS_KEY_AGENT_SUSPENDED.format(name=AGENT_REASONING)
+
+    async def _fake_get(key):
+        if key == suspended_key:
+            return "9999999999.0"  # any non-empty value
+        return None
+
+    mock_redis.get = AsyncMock(side_effect=_fake_get)
+    await agent.process(_make_signal())
+
+    # No publish to STREAM_DECISIONS — the agent returned early
+    published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
+    assert "decisions" not in published_streams
+
+
+async def test_weight_scale_applied_to_published_decision(agent, mock_bus, mock_redis, monkeypatch):
+    """signal_weight_scale=0.5 -> reasoning_score and signal_confidence halved."""
+    from api.constants import REDIS_KEY_AGENT_SUSPENDED, REDIS_KEY_SIGNAL_WEIGHT_SCALE
+    import json as _json
+
+    monkeypatch.setattr(
+        "api.services.agents.reasoning_agent.embed_text", AsyncMock(return_value=[0.1] * 1536)
+    )
+    monkeypatch.setattr(
+        "api.services.agents.reasoning_agent.search_vector_memory",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "api.services.agents.reasoning_agent.call_llm_with_system",
+        AsyncMock(return_value=(_json.dumps(_valid_summary("buy")), 500, 0.001)),
+    )
+    monkeypatch.setattr(
+        "api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()
+    )
+
+    async def _fake_get(key):
+        if isinstance(key, str) and key.startswith(REDIS_KEY_AGENT_SUSPENDED.split("{")[0]):
+            return None
+        if key == REDIS_KEY_SIGNAL_WEIGHT_SCALE:
+            return "0.5"
+        # Token budget probe and any other reads
+        return b"0"
+
+    mock_redis.get = AsyncMock(side_effect=_fake_get)
+    await agent.process(_make_signal())
+
+    decision_payload = next(
+        call.args[1]
+        for call in mock_bus.publish.call_args_list
+        if call.args[0] == "decisions"
+    )
+    # _valid_summary uses confidence=0.8, signal composite_score=0.75; both halved.
+    assert decision_payload["reasoning_score"] == pytest.approx(0.4, abs=1e-6)
+    assert decision_payload["signal_confidence"] == pytest.approx(0.375, abs=1e-6)
+    assert decision_payload["weight_scale"] == pytest.approx(0.5, abs=1e-6)

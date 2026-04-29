@@ -285,6 +285,49 @@ async def test_kill_switch_raises(engine, mock_redis):
         await engine.process(_make_order())
 
 
+async def test_trading_paused_drops_order_silently(engine, mock_redis, mock_broker):
+    """When learning:trading_paused='1', order is dropped without raising.
+
+    Distinct from kill switch — pause is set automatically by ProposalApplier
+    on Grade F retirements and must not crash the consumer (otherwise the
+    DLQ fills up). Just log and skip.
+    """
+    from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED
+
+    async def _fake_get(key):
+        if key == REDIS_KEY_KILL_SWITCH:
+            return "0"
+        if key == REDIS_KEY_TRADING_PAUSED:
+            return "1"
+        return None
+
+    mock_redis.get = AsyncMock(side_effect=_fake_get)
+
+    # Should NOT raise — should return cleanly without calling the broker
+    await engine.process(_make_order())
+    mock_broker.place_order.assert_not_called()
+
+
+async def test_low_score_gated_paper_mode(engine, mock_redis, mock_broker, monkeypatch):
+    """A 0.50-confidence signal must NOT clear the gate in paper mode.
+
+    Before the threshold unification, paper used 0.45 so this signal would
+    execute (0.50 > 0.45). After unification both modes use 0.55, so the
+    signal must be filtered out and the broker never called.
+    """
+    monkeypatch.setattr("api.config.settings.BROKER_MODE", "paper", raising=False)
+    monkeypatch.setattr("api.config.settings.ALPACA_PAPER", True, raising=False)
+    mock_redis.get = AsyncMock(return_value=None)  # neither pause nor kill switch
+
+    weak_order = _make_order()
+    weak_order["composite_score"] = 0.50
+    weak_order["signal_confidence"] = 0.50
+    weak_order["reasoning_score"] = 0.50
+
+    await engine.process(weak_order)
+    mock_broker.place_order.assert_not_called()
+
+
 async def test_position_upsert_called(engine, mock_bus, mock_redis, mock_broker):
     """After fill, the DB position is upserted via _upsert_position."""
     mock_redis.set = AsyncMock(return_value=True)
