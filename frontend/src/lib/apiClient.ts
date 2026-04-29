@@ -78,6 +78,7 @@ export const API_ENDPOINTS = {
   LEARNING_GRADES: "/dashboard/learning/grades",
   LEARNING_IC_WEIGHTS: "/dashboard/learning/ic-weights",
   LEARNING_REFLECTIONS: "/dashboard/learning/reflections",
+  LEARNING_LOOP: "/dashboard/learning/loop",
   
   // System
   SYSTEM_HEALTH: "/dashboard/system-health",
