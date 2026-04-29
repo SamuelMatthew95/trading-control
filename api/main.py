@@ -47,6 +47,7 @@ from api.services.agents.pipeline_agents import (
     ReflectionAgent,
     StrategyProposer,
 )
+from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
 from api.services.event_pipeline import EventPipeline
@@ -221,6 +222,12 @@ async def lifespan(app: FastAPI):
             StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
             NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ChallengerAgent(event_bus, dlq_manager, agent_state=agent_state),
+            # ProposalApplier closes the learning loop — it consumes
+            # STREAM_PROPOSALS (written by GradeAgent / ReflectionAgent /
+            # StrategyProposer) and applies the actions to Redis control-plane
+            # keys that ExecutionEngine and ReasoningAgent read. Without this
+            # consumer, low grades become DB rows that nobody acts on.
+            ProposalApplier(event_bus, dlq_manager, redis_client, agent_state=agent_state),
         ]
         for agent in agents:
             await agent.start()
