@@ -47,6 +47,9 @@ class InMemoryStore:
     positions: dict[str, dict[str, Any]] = field(default_factory=dict)
     trade_feed: list[dict[str, Any]] = field(default_factory=list)
     last_health: str = "unknown"
+    # Monotonically increasing counter for agent_log IDs — decoupled from list
+    # length so IDs stay unique even after the 500-item trim cap is hit.
+    _agent_log_seq: int = field(default=0)
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
@@ -77,6 +80,8 @@ class InMemoryStore:
             "timestamp": time.time(),
         }
         self.notifications.append(payload)
+        if len(self.notifications) > 500:
+            self.notifications = self.notifications[-500:]
         return payload
 
     def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
@@ -131,6 +136,11 @@ class InMemoryStore:
         existing = self.positions.get(symbol, {})
         self.positions[symbol] = {**existing, **position}
 
+    def next_agent_log_id(self) -> str:
+        """Return a unique, monotonically-increasing in-memory log ID."""
+        self._agent_log_seq += 1
+        return f"mem-{self._agent_log_seq}"
+
     def add_agent_log(self, log_payload: dict[str, Any]) -> dict[str, Any]:
         """Append one row to the in-memory agent_logs list.
 
@@ -180,7 +190,7 @@ class InMemoryStore:
             "learning_events": list(reversed(self.grade_history[-20:])),
             "proposals": [
                 e
-                for e in reversed(self.event_history[-100:])
+                for e in reversed(self.event_history)
                 if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL
             ][:20],
             "trade_feed": list(reversed(self.trade_feed[-50:])),
