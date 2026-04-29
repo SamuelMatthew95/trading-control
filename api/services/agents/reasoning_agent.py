@@ -91,12 +91,12 @@ class ReasoningAgent(BaseStreamConsumer):
         trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
 
         # Learning-loop suspension — when ProposalApplier processes a Grade D
-        # AGENT_SUSPENSION proposal, this key is set with a 24h TTL. While set
-        # we drop incoming signals so the bad reasoning agent stops emitting
-        # decisions; a fresh ICUpdater pass can clear weights, and the
-        # suspension auto-expires.
+        # AGENT_SUSPENSION proposal, this key is set to "1" with a 24h TTL,
+        # mirroring the kill-switch idiom. While set we drop incoming signals
+        # so the bad reasoning agent stops emitting decisions.
         suspended_key = REDIS_KEY_AGENT_SUSPENDED.format(name=AGENT_REASONING)
-        if await self.redis.get(suspended_key):
+        suspended_value = await self.redis.get(suspended_key)
+        if suspended_value in ("1", b"1"):
             log_structured(
                 "warning",
                 "reasoning_skipped_agent_suspended",

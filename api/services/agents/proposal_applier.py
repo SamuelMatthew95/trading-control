@@ -15,8 +15,8 @@ Redis control-plane keys that ExecutionEngine and ReasoningAgent read:
   retire_immediately     -> set ``learning:trading_paused`` = "1" (system-wide)
 
 Every applied proposal is recorded as an ``agent_logs`` row with
-``log_type='proposal'`` and an ``applied_at`` field so the dashboard can
-show pending vs applied at a glance.
+``log_type=LogType.PROPOSAL`` and an ``applied_at`` field so the
+dashboard can show pending vs applied at a glance.
 """
 
 from __future__ import annotations
@@ -185,7 +185,10 @@ class ProposalApplier(MultiStreamAgent):
         )
         suspended_until = datetime.now(timezone.utc).timestamp() + AGENT_SUSPEND_TTL_SECONDS
         key = REDIS_KEY_AGENT_SUSPENDED.format(name=agent_name)
-        await self.redis.set(key, str(suspended_until), ex=AGENT_SUSPEND_TTL_SECONDS)
+        # Write "1" (mirroring the kill_switch contract) so consumers can do
+        # the same `== "1"` check, and let TTL drive expiry.  The timestamp
+        # is recorded only in the agent_logs payload for human inspection.
+        await self.redis.set(key, "1", ex=AGENT_SUSPEND_TTL_SECONDS)
         return {
             "message": f"agent {agent_name} suspended for {AGENT_SUSPEND_TTL_SECONDS}s",
             FieldName.AGENT_NAME: agent_name,

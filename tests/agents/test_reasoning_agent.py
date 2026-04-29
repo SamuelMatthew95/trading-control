@@ -421,7 +421,7 @@ async def test_suspended_agent_skips_processing(agent, mock_bus, mock_redis):
 
     async def _fake_get(key):
         if key == suspended_key:
-            return "9999999999.0"  # any non-empty value
+            return "1"  # mirrors the kill-switch contract
         return None
 
     mock_redis.get = AsyncMock(side_effect=_fake_get)

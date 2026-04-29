@@ -116,7 +116,8 @@ async def test_agent_suspension_sets_redis_key(monkeypatch):
     await applier.process("proposals", "1-0", proposal)
 
     key = REDIS_KEY_AGENT_SUSPENDED.format(name=AGENT_REASONING)
-    assert await redis.get(key) is not None
+    # Mirrors the kill-switch contract — value is "1" while suspended.
+    assert await redis.get(key) == "1"
     # Verify a TTL was supplied so the suspension auto-expires
     assert any(call[0] == key and call[2] is not None for call in redis.set_calls)
 
