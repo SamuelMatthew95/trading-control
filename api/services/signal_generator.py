@@ -122,6 +122,17 @@ class SignalGenerator(BaseStreamConsumer):
         else:
             signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
 
+        # LOW strength == noise. Never trade direction off a sub-1.5% move —
+        # the score (0.30) was below the execution gate anyway, but emitting
+        # action=buy/sell here pollutes downstream agent logs and lets a
+        # generous LLM re-confidence the trade past the gate.
+        if strength == SignalStrength.LOW or direction == MarketDirection.NEUTRAL:
+            action = "hold"
+        elif direction == MarketDirection.BULLISH:
+            action = "buy"
+        else:
+            action = "sell"
+
         signal_payload: dict[str, Any] = {
             FieldName.TYPE: signal_type.value,
             FieldName.SYMBOL: symbol,
@@ -131,11 +142,7 @@ class SignalGenerator(BaseStreamConsumer):
             FieldName.STRENGTH: strength.value,
             FieldName.COMPOSITE_SCORE: round(score / 100.0, 4),
             FieldName.CONFIDENCE: round(score / 100.0, 4),
-            FieldName.ACTION: (
-                "buy"
-                if direction == MarketDirection.BULLISH
-                else ("sell" if direction == MarketDirection.BEARISH else "hold")
-            ),
+            FieldName.ACTION: action,
             FieldName.TRACE_ID: trace_id,
             FieldName.TS: int(time.time()),
             FieldName.SOURCE: AGENT_NAME,

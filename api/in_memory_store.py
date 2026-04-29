@@ -11,6 +11,7 @@ from api.constants import (
     AGENT_GRADE,
     AGENT_IC_UPDATER,
     AGENT_NOTIFICATION,
+    AGENT_PROPOSAL_APPLIER,
     AGENT_REASONING,
     AGENT_REFLECTION,
     AGENT_SIGNAL,
@@ -29,6 +30,7 @@ DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_STRATEGY_PROPOSER: {"status": "idle"},
     AGENT_NOTIFICATION: {"status": "idle"},
     AGENT_CHALLENGER: {"status": "idle"},
+    AGENT_PROPOSAL_APPLIER: {"status": "idle"},
 }
 
 

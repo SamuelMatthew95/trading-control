@@ -17,10 +17,14 @@ from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
+    REDIS_KEY_AGENT_SUSPENDED,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_KILL_SWITCH_UPDATED_AT,
     REDIS_KEY_PRICES,
+    REDIS_KEY_SIGNAL_WEIGHT_SCALE,
+    REDIS_KEY_TRADING_PAUSED,
+    REDIS_KEY_TRADING_PAUSED_REASON,
     REDIS_KEY_WORKER_HEARTBEAT,
     STREAM_DECISIONS,
     STREAM_GRADED_DECISIONS,
@@ -1428,6 +1432,164 @@ async def update_proposal_status(
     except Exception:
         log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/learning/loop")
+async def get_learning_loop_state() -> dict[str, Any]:
+    """Snapshot of the learning-loop control plane.
+
+    Returns: latest grade, recent proposals (with applied_at if ProposalApplier
+    has acted on them), per-symbol × signal-type loss attribution, and the
+    current Redis control-plane state (trading_paused, signal_weight_scale,
+    suspended agents). The frontend "Learning Loop" panel renders this.
+    """
+    out: dict[str, Any] = {
+        "latest_grade": None,
+        "recent_proposals": [],
+        "loss_attribution": [],
+        "control_plane": {},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # 1. Control-plane Redis keys (best-effort — Redis must be reachable
+    # but missing keys are not errors, they just mean "not set yet").
+    try:
+        redis_client = await get_redis()
+        paused_raw = await redis_client.get(REDIS_KEY_TRADING_PAUSED)
+        paused_reason = await redis_client.get(REDIS_KEY_TRADING_PAUSED_REASON)
+        weight_scale_raw = await redis_client.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE)
+        try:
+            weight_scale = float(weight_scale_raw) if weight_scale_raw is not None else 1.0
+        except (TypeError, ValueError):
+            weight_scale = 1.0
+        suspended: list[dict[str, Any]] = []
+        for name in ALL_AGENT_NAMES:
+            until_raw = await redis_client.get(REDIS_KEY_AGENT_SUSPENDED.format(name=name))
+            if until_raw:
+                try:
+                    suspended.append({"agent_name": name, "suspended_until": float(until_raw)})
+                except (TypeError, ValueError):
+                    suspended.append({"agent_name": name, "suspended_until": None})
+        out["control_plane"] = {
+            "trading_paused": paused_raw == "1",
+            "trading_paused_reason": paused_reason,
+            "signal_weight_scale": round(weight_scale, 6),
+            "suspended_agents": suspended,
+        }
+    except Exception:
+        log_structured("warning", "learning_loop_control_plane_read_failed", exc_info=True)
+
+    if not is_db_available():
+        return out
+
+    # 2. Latest grade — newest agent_logs row with log_type=LogType.GRADE.
+    try:
+        async with AsyncSessionFactory() as session:
+            grade_row = await session.execute(
+                text(
+                    """
+                    SELECT trace_id, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type = :log_type
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"log_type": LogType.GRADE},
+            )
+            row = grade_row.first()
+            if row is not None:
+                payload = _as_dict(row[1])
+                out["latest_grade"] = {
+                    "trace_id": row[0],
+                    "grade": payload.get(FieldName.GRADE),
+                    "score_pct": payload.get(FieldName.SCORE_PCT),
+                    "metrics": payload.get(FieldName.METRICS, {}),
+                    "fills_graded": payload.get("fills_graded"),
+                    "timestamp": row[2].isoformat() if row[2] else None,
+                }
+    except Exception:
+        log_structured("warning", "learning_loop_latest_grade_failed", exc_info=True)
+
+    # 3. Recent proposals with applied_at — ProposalApplier writes a
+    # log_type=LogType.PROPOSAL row with FieldName.APPLIED_AT after each apply,
+    # so a proposal is "pending" iff no log row exists with the same
+    # trace_id and applied=true.
+    try:
+        async with AsyncSessionFactory() as session:
+            rows = await session.execute(
+                text(
+                    """
+                    SELECT trace_id, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type = :log_type
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """
+                ),
+                {"log_type": LogType.PROPOSAL},
+            )
+            proposals = []
+            for row in rows.all():
+                payload = _as_dict(row[1])
+                proposals.append(
+                    {
+                        "trace_id": row[0],
+                        "proposal_type": payload.get(FieldName.PROPOSAL_TYPE),
+                        "action": payload.get(FieldName.ACTION),
+                        "applied": bool(payload.get(FieldName.APPLIED, False)),
+                        "applied_at": payload.get(FieldName.APPLIED_AT),
+                        "applied_by": payload.get(FieldName.APPLIED_BY),
+                        "message": payload.get(FieldName.MESSAGE),
+                        "timestamp": row[2].isoformat() if row[2] else None,
+                    }
+                )
+            out["recent_proposals"] = proposals
+    except Exception:
+        log_structured("warning", "learning_loop_proposals_failed", exc_info=True)
+
+    # 4. Loss attribution — group closed trades by symbol × signal_type.
+    # We pull the signal_type from agent_runs (joined by trace_id) so we
+    # can show "every momentum_buy on BTC after threshold X loses".
+    try:
+        async with AsyncSessionFactory() as session:
+            rows = await session.execute(
+                text(
+                    """
+                    SELECT
+                        o.symbol AS symbol,
+                        COALESCE(ar.signal_data::jsonb->>'signal_type', 'unknown') AS signal_type,
+                        COUNT(*) AS trades,
+                        COUNT(*) FILTER (WHERE COALESCE(tl.pnl, 0) < 0) AS losses,
+                        COALESCE(SUM(tl.pnl), 0)::float AS total_pnl,
+                        COALESCE(AVG(tl.pnl), 0)::float AS avg_pnl
+                    FROM trade_lifecycle tl
+                    JOIN orders o ON o.id::text = tl.order_id
+                    LEFT JOIN agent_runs ar ON ar.trace_id = tl.execution_trace_id
+                    WHERE tl.pnl IS NOT NULL
+                    GROUP BY o.symbol, signal_type
+                    ORDER BY total_pnl ASC
+                    LIMIT 30
+                    """
+                )
+            )
+            attribution = []
+            for row in rows.all():
+                attribution.append(
+                    {
+                        "symbol": row[0],
+                        "signal_type": row[1],
+                        "trades": int(row[2] or 0),
+                        "losses": int(row[3] or 0),
+                        "total_pnl": round(float(row[4] or 0.0), 2),
+                        "avg_pnl": round(float(row[5] or 0.0), 4),
+                    }
+                )
+            out["loss_attribution"] = attribution
+    except Exception:
+        log_structured("warning", "learning_loop_loss_attribution_failed", exc_info=True)
+
+    return out
 
 
 # ---------------------------------------------------------------------------

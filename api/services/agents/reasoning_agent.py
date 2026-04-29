@@ -25,9 +25,11 @@ from api.constants import (
     LLM_TIMEOUT_SECONDS,
     NO_ORDER_ACTIONS,
     REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
+    REDIS_KEY_AGENT_SUSPENDED,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
     REDIS_KEY_LLM_TOKENS,
+    REDIS_KEY_SIGNAL_WEIGHT_SCALE,
     SOURCE_REASONING,
     STREAM_AGENT_LOGS,
     STREAM_DECISIONS,
@@ -87,6 +89,21 @@ class ReasoningAgent(BaseStreamConsumer):
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
         trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
+
+        # Learning-loop suspension — when ProposalApplier processes a Grade D
+        # AGENT_SUSPENSION proposal, this key is set to "1" with a 24h TTL,
+        # mirroring the kill-switch idiom. While set we drop incoming signals
+        # so the bad reasoning agent stops emitting decisions.
+        suspended_key = REDIS_KEY_AGENT_SUSPENDED.format(name=AGENT_REASONING)
+        suspended_value = await self.redis.get(suspended_key)
+        if suspended_value in ("1", b"1"):
+            log_structured(
+                "warning",
+                "reasoning_skipped_agent_suspended",
+                trace_id=trace_id,
+                symbol=data.get(FieldName.SYMBOL),
+            )
+            return
 
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
 
@@ -236,6 +253,18 @@ class ReasoningAgent(BaseStreamConsumer):
         # weighted score (signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20).
         action = summary.get(FieldName.ACTION, "").lower()
         strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
+
+        # Apply the learning-loop weight scale: ProposalApplier multiplies
+        # this by 0.7 each time GradeAgent emits a Grade C proposal, so a
+        # losing strategy's decisions get progressively dampened until they
+        # fall below the execution gate. Default 1.0 = no dampening.
+        weight_scale = await self._get_signal_weight_scale()
+        scaled_reasoning = float(summary.get(FieldName.CONFIDENCE) or 0.0) * weight_scale
+        scaled_signal = (
+            float(data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.CONFIDENCE) or 0.0)
+            * weight_scale
+        )
+
         await self.bus.publish(
             STREAM_DECISIONS,
             {
@@ -246,10 +275,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.ACTION: action,
                 # Advisory scores — ExecutionEngine uses these in weighted formula
-                FieldName.REASONING_SCORE: float(summary.get(FieldName.CONFIDENCE) or 0.0),
-                FieldName.SIGNAL_CONFIDENCE: float(
-                    data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.CONFIDENCE) or 0.0
-                ),
+                FieldName.REASONING_SCORE: round(scaled_reasoning, 6),
+                FieldName.SIGNAL_CONFIDENCE: round(scaled_signal, 6),
+                FieldName.WEIGHT_SCALE: round(weight_scale, 6),
                 # Order parameters forwarded for ExecutionEngine use
                 FieldName.QTY: max(
                     float(data.get(FieldName.QTY, 1.0)), float(summary.get(FieldName.SIZE_PCT, 1.0))
@@ -280,6 +308,27 @@ class ReasoningAgent(BaseStreamConsumer):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _get_signal_weight_scale(self) -> float:
+        """Read learning:signal_weight_scale; default 1.0 if absent or malformed.
+
+        Written by ProposalApplier in response to Grade C proposals. Bounded
+        in (0, 1] — never amplifies, only dampens. A return value of 1.0
+        means the learning loop has not yet asked us to reduce weights.
+        """
+        try:
+            raw = await self.redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE)
+            if raw is None:
+                return 1.0
+            scale = float(raw)
+            if scale <= 0 or scale > 1.0:
+                return 1.0
+            return scale
+        except (TypeError, ValueError):
+            return 1.0
+        except Exception:
+            log_structured("warning", "reasoning_weight_scale_fetch_failed", exc_info=True)
+            return 1.0
 
     def _build_signal_summary(self, data: dict[str, Any]) -> str:
         return json.dumps(

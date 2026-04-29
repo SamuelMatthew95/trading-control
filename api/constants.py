@@ -155,6 +155,9 @@ class FieldName(StrEnum):
 
     ACTION = "action"
     AGENT = "agent"
+    APPLIED = "applied"
+    APPLIED_AT = "applied_at"
+    APPLIED_BY = "applied_by"
     AGENT_ID = "agent_id"
     AGENT_NAME = "agent_name"
     AGENT_RUN_ID = "agent_run_id"
@@ -275,6 +278,8 @@ class FieldName(StrEnum):
     HEARTBEAT_COUNT = "heartbeat_count"
     UNREALIZED_PNL = "unrealized_pnl"
     UPDATED_AT = "updated_at"
+    WEIGHT_SCALE = "weight_scale"
+    SUSPENDED_UNTIL = "suspended_until"
 
 
 class StatusValue(StrEnum):
@@ -325,6 +330,7 @@ AGENT_STRATEGY_PROPOSER: Final[str] = "STRATEGY_PROPOSER"
 AGENT_NOTIFICATION: Final[str] = "NOTIFICATION_AGENT"
 
 AGENT_CHALLENGER: Final[str] = "CHALLENGER_AGENT"
+AGENT_PROPOSAL_APPLIER: Final[str] = "PROPOSAL_APPLIER"
 
 # Ordered tuple used everywhere agent iteration is needed
 ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
@@ -337,6 +343,7 @@ ALL_AGENT_NAMES: Final[tuple[str, ...]] = (
     AGENT_STRATEGY_PROPOSER,
     AGENT_NOTIFICATION,
     AGENT_CHALLENGER,
+    AGENT_PROPOSAL_APPLIER,
 )
 
 # Source identifiers used in event payloads and DB source columns (lowercase by convention)
@@ -350,6 +357,7 @@ SOURCE_STRATEGY_PROPOSER: Final[str] = "strategy_proposer"
 SOURCE_NOTIFICATION: Final[str] = "notification_agent"
 SOURCE_DB_HELPERS: Final[str] = "db_helpers"
 SOURCE_SUPERVISOR: Final[str] = "agent_supervisor"
+SOURCE_PROPOSAL_APPLIER: Final[str] = "proposal_applier"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
@@ -376,6 +384,24 @@ REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
+
+# Learning-loop control plane — written by ProposalApplier, read by ExecutionEngine
+# and ReasoningAgent so grade-driven proposals actually change trading behavior.
+# trading_paused: "1" means refuse all new orders (mirror of kill switch, but
+# triggered by Grade F retirement proposals rather than the manual button).
+REDIS_KEY_TRADING_PAUSED: Final[str] = "learning:trading_paused"
+REDIS_KEY_TRADING_PAUSED_REASON: Final[str] = "learning:trading_paused_reason"
+# signal_weight_scale: float in (0, 1]. ReasoningAgent multiplies decision
+# confidence by this value. Each Grade C reduction multiplies it by 0.7.
+REDIS_KEY_SIGNAL_WEIGHT_SCALE: Final[str] = "learning:signal_weight_scale"
+REDIS_KEY_AGENT_SUSPENDED: Final[str] = "learning:agent_suspended:{name}"
+SIGNAL_WEIGHT_SCALE_MIN: Final[float] = (
+    0.05  # never drop below 5% — full mute uses suspension instead
+)
+SIGNAL_WEIGHT_REDUCTION_FACTOR: Final[float] = 0.7  # one Grade C → 30% reduction
+AGENT_SUSPEND_TTL_SECONDS: Final[int] = 86_400  # 24h cooling-off; auto-recover
+LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
+
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
 REDIS_PUBSUB_PRICE_UPDATES: Final[str] = "price_updates"  # pub/sub channel for SSE streaming
