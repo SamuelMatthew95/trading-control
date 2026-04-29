@@ -28,6 +28,7 @@ from api.constants import (
     AGENT_GRADE,
     AGENT_IC_UPDATER,
     AGENT_NOTIFICATION,
+    AGENT_PROPOSAL_APPLIER,
     AGENT_REASONING,
     AGENT_REFLECTION,
     AGENT_SIGNAL,
@@ -598,6 +599,7 @@ class TestDashboardStateRedisKeys:
                 AGENT_STRATEGY_PROPOSER,
                 AGENT_NOTIFICATION,
                 AGENT_CHALLENGER,
+                AGENT_PROPOSAL_APPLIER,
             ]
         }
         dashboard_read_keys = {REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES}
