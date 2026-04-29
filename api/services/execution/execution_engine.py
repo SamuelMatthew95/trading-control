@@ -28,6 +28,8 @@ from api.constants import (
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_ORDER_DEDUP,
     REDIS_KEY_ORDER_LOCK,
+    REDIS_KEY_TRADING_PAUSED,
+    REDIS_KEY_TRADING_PAUSED_REASON,
     SOURCE_EXECUTION,
     STREAM_DECISIONS,
     STREAM_EXECUTIONS,
@@ -78,6 +80,21 @@ class ExecutionEngine(BaseStreamConsumer):
     async def process(self, data: dict[str, Any]) -> None:
         if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
+        # Learning-loop circuit breaker — set by ProposalApplier when GradeAgent
+        # publishes a Grade F retirement proposal. Distinct from the manual
+        # kill switch so the dashboard can distinguish "operator paused" from
+        # "system paused itself because trades are losing".
+        if await self.redis.get(REDIS_KEY_TRADING_PAUSED) == "1":
+            reason = await self.redis.get(REDIS_KEY_TRADING_PAUSED_REASON) or "learning_loop_paused"
+            symbol = str(data.get(FieldName.SYMBOL) or "?")
+            log_structured(
+                "warning",
+                "execution_blocked_trading_paused",
+                symbol=symbol,
+                reason=reason,
+                trace_id=data.get(FieldName.TRACE_ID),
+            )
+            return
         if not is_db_available():
             await self._process_in_memory(data)
             return
@@ -138,11 +155,12 @@ class ExecutionEngine(BaseStreamConsumer):
         # legacy test payloads (no reasoning_score field) still clear the gate.
         reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        threshold = (
-            0.45
-            if (settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER)
-            else EXECUTION_DECISION_THRESHOLD
-        )
+        # Use the same threshold in paper and live so a strategy that loses in
+        # paper does not magically clear a higher bar in live. Previously paper
+        # used 0.45 and live used 0.55 — that asymmetry let weak momentum
+        # signals (confidence ~0.55) execute in paper and rack up losses that
+        # never would have made it past the live gate.
+        threshold = EXECUTION_DECISION_THRESHOLD
         if final_score < threshold:
             log_structured(
                 "info",
@@ -502,11 +520,7 @@ class ExecutionEngine(BaseStreamConsumer):
         )
         reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        threshold = (
-            0.45
-            if (settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER)
-            else EXECUTION_DECISION_THRESHOLD
-        )
+        threshold = EXECUTION_DECISION_THRESHOLD
         if final_score < threshold:
             return
 
