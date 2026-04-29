@@ -71,7 +71,7 @@ async def write_agent_log(
         )
         store.add_agent_log(
             {
-                "id": f"mem-{len(store.agent_logs) + 1}",
+                "id": store.next_agent_log_id(),
                 "agent_name": payload.get(FieldName.SOURCE)
                 or payload.get(FieldName.AGENT)
                 or payload.get(FieldName.AGENT_NAME)
