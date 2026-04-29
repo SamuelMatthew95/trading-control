@@ -135,3 +135,14 @@ Key tables:
 | `audit_log` | Immutable change history |
 
 Schema version: **v3**. Always use `schema_version='v3'` on new inserts.
+
+
+## Persistence routing pattern (pipeline)
+
+All pipeline writes must follow one explicit route decision **before** writing:
+
+1. `SKIP` — no writer exists for the stream.
+2. `MEMORY` — payload is intentionally routed to in-memory store (e.g., malformed `agent_logs`).
+3. `DB` — payload is valid and written through `SafeWriter`.
+
+This prevents implicit/exception-driven writes and keeps behavior deterministic under load.

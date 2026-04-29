@@ -29,6 +29,10 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agent_state import AgentStateRegistry
+from api.services.persistence_routing import (
+    PersistRoute,
+    determine_persist_route,
+)
 
 
 class EventPipeline:
@@ -316,8 +320,21 @@ class EventPipeline:
             STREAM_NOTIFICATIONS: self.safe_writer.write_notification,
         }
         writer = writer_methods.get(stream)
-        if writer is None:
+        route = determine_persist_route(stream=stream, event=event, writer=writer)
+
+        if route is PersistRoute.SKIP:
             return
+        if route is PersistRoute.MEMORY:
+            self._persist_agent_log_to_memory(msg_id=msg_id, event=event)
+            log_structured(
+                "warning",
+                "pipeline_agent_log_routed_to_memory",
+                stream=stream,
+                msg_id=msg_id,
+                reason="missing_required_fields",
+            )
+            return
+
         ok = await writer(msg_id=msg_id, stream=stream, data=event)
         if not ok:
             log_structured(
@@ -326,3 +343,63 @@ class EventPipeline:
                 stream=stream,
                 msg_id=msg_id,
             )
+
+    def _determine_persist_route(
+        self,
+        *,
+        stream: str,
+        event: dict[str, Any],
+        writer: Any | None,
+    ) -> PersistRoute:
+        """Select persistence destination for every pipeline write.
+
+        Routes are explicit and deterministic:
+        - "skip": no writer is registered for this stream.
+        - "memory": stream is agent_logs with malformed required fields.
+        - "db": normal path, call stream-specific SafeWriter method.
+        """
+        if writer is None:
+            return PersistRoute.SKIP
+        if stream == STREAM_AGENT_LOGS and self._should_persist_agent_log_to_memory(event):
+            return PersistRoute.MEMORY
+        return PersistRoute.DB
+
+    def _should_persist_agent_log_to_memory(self, event: dict[str, Any]) -> bool:
+        payload = self._extract_agent_log_payload(event)
+        level = payload.get("level") or payload.get(FieldName.LOG_LEVEL)
+        message = payload.get(FieldName.MESSAGE)
+        return not bool(level and message)
+
+    def _extract_agent_log_payload(self, event: dict[str, Any]) -> dict[str, Any]:
+        payload = event.get(FieldName.PAYLOAD)
+        if isinstance(payload, dict):
+            return payload
+        return event
+
+    def _persist_agent_log_to_memory(self, *, msg_id: str, event: dict[str, Any]) -> None:
+        payload = self._extract_agent_log_payload(event)
+        message = (
+            payload.get(FieldName.MESSAGE)
+            or payload.get("event")
+            or payload.get(FieldName.TYPE)
+            or "agent_log"
+        )
+        get_runtime_store().add_agent_log(
+            {
+                "id": f"mem-{msg_id}",
+                FieldName.AGENT_NAME: payload.get(FieldName.SOURCE)
+                or payload.get(FieldName.AGENT)
+                or payload.get(FieldName.AGENT_NAME)
+                or "pipeline",
+                FieldName.MESSAGE: str(message),
+                FieldName.LOG_LEVEL: str(
+                    payload.get("level") or payload.get(FieldName.LOG_LEVEL) or "warning"
+                ),
+                FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
+                FieldName.LOG_TYPE: payload.get(FieldName.TYPE) or STREAM_AGENT_LOGS,
+                "persist_path": "memory",
+                "db_persist_status": "skipped_missing_required_fields",
+                FieldName.TIMESTAMP: payload.get(FieldName.TIMESTAMP)
+                or datetime.now(timezone.utc).isoformat(),
+            }
+        )

@@ -132,3 +132,5 @@ Automatic actions based on grade thresholds (A–F) are triggered by GradeAgent 
 | Using `id=` keyword in `xgroup_create` | Use positional: `xgroup_create(stream, group, "$", mkstream=True)` |
 | Logging `error=str(exc)` | Use `exc_info=True` instead |
 | Calling another agent directly | Publish to the agent's input stream instead |
+| Letting write destinations be implicit per call site | Use explicit route selection for **all** writes (db/memory/skip) before writing. Decide destination from stream + payload validity + writer availability, then write once on that chosen route. |
+| Using `try/except` around `write_agent_log` for malformed payloads | Treat this as primary routing in `EventPipeline._persist_event` for malformed payloads (not exception fallback): if `level`/`log_level` or `message` is missing, route directly to in-memory persistence with explicit `persist_path="memory"` and `db_persist_status` metadata. |
