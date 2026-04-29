@@ -1482,7 +1482,7 @@ async def get_learning_loop_state() -> dict[str, Any]:
     if not is_db_available():
         return out
 
-    # 2. Latest grade — newest agent_logs row with log_type='grade'.
+    # 2. Latest grade — newest agent_logs row with log_type=LogType.GRADE.
     try:
         async with AsyncSessionFactory() as session:
             grade_row = await session.execute(
@@ -1512,7 +1512,7 @@ async def get_learning_loop_state() -> dict[str, Any]:
         log_structured("warning", "learning_loop_latest_grade_failed", exc_info=True)
 
     # 3. Recent proposals with applied_at — ProposalApplier writes a
-    # log_type='proposal' row with FieldName.APPLIED_AT after each apply,
+    # log_type=LogType.PROPOSAL row with FieldName.APPLIED_AT after each apply,
     # so a proposal is "pending" iff no log row exists with the same
     # trace_id and applied=true.
     try:
