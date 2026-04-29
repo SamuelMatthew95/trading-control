@@ -6,7 +6,7 @@ import asyncio
 import json
 
 from api.config import settings
-from api.constants import FieldName
+from api.constants import AgentAction, FieldName
 from api.observability import log_structured
 
 SYSTEM_PROMPT = (
@@ -33,29 +33,29 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
     text = text.strip()
     if not text:
         return {
-            FieldName.ACTION: "reject",
+            FieldName.ACTION: AgentAction.REJECT,
             FieldName.TRACE_ID: trace_id,
-            "fallback": True,
+            FieldName.FALLBACK: True,
             FieldName.ERROR: "Empty response from LLM",
-            "latency_ms": 0,
-            "cost_usd": cost_usd,
+            FieldName.LATENCY_MS: 0,
+            FieldName.COST_USD: cost_usd,
         }
     try:
         parsed = json.loads(text)
-        parsed["fallback"] = False
+        parsed[FieldName.FALLBACK] = False
         parsed[FieldName.TRACE_ID] = trace_id
-        parsed.setdefault("latency_ms", 0)
-        parsed.setdefault("cost_usd", cost_usd)
-        parsed.setdefault("risk_factors", [])
+        parsed.setdefault(FieldName.LATENCY_MS, 0)
+        parsed.setdefault(FieldName.COST_USD, cost_usd)
+        parsed.setdefault(FieldName.RISK_FACTORS, [])
         return parsed
     except json.JSONDecodeError as exc:
         return {
-            FieldName.ACTION: "reject",
+            FieldName.ACTION: AgentAction.REJECT,
             FieldName.TRACE_ID: trace_id,
-            "fallback": True,
+            FieldName.FALLBACK: True,
             FieldName.ERROR: f"Invalid JSON from LLM: {exc}",
-            "latency_ms": 0,
-            "cost_usd": cost_usd,
+            FieldName.LATENCY_MS: 0,
+            FieldName.COST_USD: cost_usd,
         }
 
 
