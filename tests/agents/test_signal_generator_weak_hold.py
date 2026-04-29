@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.constants import FieldName, STREAM_SIGNALS
+from api.constants import STREAM_SIGNALS, FieldName
 from api.services.signal_generator import SignalGenerator
 
 pytestmark = pytest.mark.asyncio

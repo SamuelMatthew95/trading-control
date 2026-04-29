@@ -395,7 +395,9 @@ REDIS_KEY_TRADING_PAUSED_REASON: Final[str] = "learning:trading_paused_reason"
 # confidence by this value. Each Grade C reduction multiplies it by 0.7.
 REDIS_KEY_SIGNAL_WEIGHT_SCALE: Final[str] = "learning:signal_weight_scale"
 REDIS_KEY_AGENT_SUSPENDED: Final[str] = "learning:agent_suspended:{name}"
-SIGNAL_WEIGHT_SCALE_MIN: Final[float] = 0.05  # never drop below 5% — full mute uses suspension instead
+SIGNAL_WEIGHT_SCALE_MIN: Final[float] = (
+    0.05  # never drop below 5% — full mute uses suspension instead
+)
 SIGNAL_WEIGHT_REDUCTION_FACTOR: Final[float] = 0.7  # one Grade C → 30% reduction
 AGENT_SUSPEND_TTL_SECONDS: Final[int] = 86_400  # 24h cooling-off; auto-recover
 LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights

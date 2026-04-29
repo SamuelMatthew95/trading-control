@@ -434,8 +434,9 @@ async def test_suspended_agent_skips_processing(agent, mock_bus, mock_redis):
 
 async def test_weight_scale_applied_to_published_decision(agent, mock_bus, mock_redis, monkeypatch):
     """signal_weight_scale=0.5 -> reasoning_score and signal_confidence halved."""
-    from api.constants import REDIS_KEY_AGENT_SUSPENDED, REDIS_KEY_SIGNAL_WEIGHT_SCALE
     import json as _json
+
+    from api.constants import REDIS_KEY_AGENT_SUSPENDED, REDIS_KEY_SIGNAL_WEIGHT_SCALE
 
     monkeypatch.setattr(
         "api.services.agents.reasoning_agent.embed_text", AsyncMock(return_value=[0.1] * 1536)
@@ -464,9 +465,7 @@ async def test_weight_scale_applied_to_published_decision(agent, mock_bus, mock_
     await agent.process(_make_signal())
 
     decision_payload = next(
-        call.args[1]
-        for call in mock_bus.publish.call_args_list
-        if call.args[0] == "decisions"
+        call.args[1] for call in mock_bus.publish.call_args_list if call.args[0] == "decisions"
     )
     # _valid_summary uses confidence=0.8, signal composite_score=0.75; both halved.
     assert decision_payload["reasoning_score"] == pytest.approx(0.4, abs=1e-6)

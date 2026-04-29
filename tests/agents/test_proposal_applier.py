@@ -68,12 +68,8 @@ def _make_applier(redis: _FakeRedis) -> ProposalApplier:
 
 async def test_signal_weight_reduction_multiplies_scale(monkeypatch):
     """Grade C proposal multiplies the scale by SIGNAL_WEIGHT_REDUCTION_FACTOR."""
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_agent_log", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_heartbeat", AsyncMock()
-    )
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis({REDIS_KEY_SIGNAL_WEIGHT_SCALE: "1.0"})
     applier = _make_applier(redis)
 
@@ -89,12 +85,8 @@ async def test_signal_weight_reduction_multiplies_scale(monkeypatch):
 
 async def test_signal_weight_reduction_floors_at_minimum(monkeypatch):
     """Repeated reductions never drop below SIGNAL_WEIGHT_SCALE_MIN."""
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_agent_log", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_heartbeat", AsyncMock()
-    )
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis({REDIS_KEY_SIGNAL_WEIGHT_SCALE: "0.06"})
     applier = _make_applier(redis)
 
@@ -109,12 +101,8 @@ async def test_signal_weight_reduction_floors_at_minimum(monkeypatch):
 
 async def test_agent_suspension_sets_redis_key(monkeypatch):
     """Grade D suspension writes learning:agent_suspended:{name} with TTL."""
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_agent_log", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_heartbeat", AsyncMock()
-    )
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis()
     applier = _make_applier(redis)
 
@@ -135,12 +123,8 @@ async def test_agent_suspension_sets_redis_key(monkeypatch):
 
 async def test_agent_retirement_pauses_trading(monkeypatch):
     """Grade F retirement sets learning:trading_paused = '1' with reason."""
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_agent_log", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_heartbeat", AsyncMock()
-    )
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis()
     applier = _make_applier(redis)
 
@@ -159,12 +143,8 @@ async def test_agent_retirement_pauses_trading(monkeypatch):
 
 async def test_unknown_proposal_type_is_logged_not_applied(monkeypatch):
     """parameter_change / code_change need human review — no Redis writes."""
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_agent_log", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_heartbeat", AsyncMock()
-    )
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis()
     applier = _make_applier(redis)
 
@@ -182,12 +162,8 @@ async def test_unknown_proposal_type_is_logged_not_applied(monkeypatch):
 async def test_apply_writes_agent_log_with_applied_at(monkeypatch):
     """Each applied proposal generates an agent_logs row with applied_at."""
     write_log_mock = AsyncMock()
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_agent_log", write_log_mock
-    )
-    monkeypatch.setattr(
-        "api.services.agents.proposal_applier.write_heartbeat", AsyncMock()
-    )
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log_mock)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis()
     applier = _make_applier(redis)
 
