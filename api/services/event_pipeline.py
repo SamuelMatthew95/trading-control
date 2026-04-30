@@ -313,7 +313,7 @@ class EventPipeline:
         if route == PersistRoute.MEMORY:
             write_event_to_memory(stream, msg_id, event, get_runtime_store())
             log_structured(
-                "warning",
+                "info",
                 "pipeline_event_routed_to_memory",
                 stream=stream,
                 msg_id=msg_id,
