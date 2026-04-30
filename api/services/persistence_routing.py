@@ -2,12 +2,17 @@
 
 Selects an explicit route (DB / MEMORY / SKIP) before attempting any write so
 that the pipeline never relies on exception-driven fallbacks.
+
+When the DB is unavailable every handled stream routes to MEMORY so no
+event is silently dropped.  Each stream dispatches to its dedicated
+InMemoryStore method; streams without a dedicated bucket fall back to
+add_event().
 """
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from api.constants import (
     STREAM_AGENT_GRADES,
@@ -25,6 +30,9 @@ from api.constants import (
 )
 from api.runtime_state import is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    from api.in_memory_store import InMemoryStore
 
 _DB_STREAMS: frozenset[str] = frozenset(
     {
@@ -83,19 +91,16 @@ def determine_persist_route(stream: str, event: dict[str, Any]) -> PersistRoute:
 
     Decision order:
       1. Stream not handled by pipeline writers → SKIP.
-      2. agent_logs stream with malformed payload → MEMORY.
-      3. DB unavailable + agent_logs stream → MEMORY (never silently drop logs).
-      4. DB unavailable for any other stream → SKIP.
-      5. → DB.
+      2. agent_logs stream with malformed payload → MEMORY (even when DB is up).
+      3. DB unavailable → MEMORY for all handled streams (never silently drop).
+      4. → DB.
     """
     if stream not in _DB_STREAMS:
         return PersistRoute.SKIP
     if stream == STREAM_AGENT_LOGS and should_route_agent_log_to_memory(event):
         return PersistRoute.MEMORY
     if not is_db_available():
-        if stream == STREAM_AGENT_LOGS:
-            return PersistRoute.MEMORY
-        return PersistRoute.SKIP
+        return PersistRoute.MEMORY
     return PersistRoute.DB
 
 
@@ -120,3 +125,36 @@ def build_memory_agent_log_row(msg_id: str, stream: str, event: dict[str, Any]) 
         FieldName.SCHEMA_VERSION: str(payload.get(FieldName.SCHEMA_VERSION) or DB_SCHEMA_VERSION),
         FieldName.TIMESTAMP: str(payload.get(FieldName.TIMESTAMP) or ""),
     }
+
+
+def write_event_to_memory(
+    stream: str, msg_id: str, event: dict[str, Any], store: InMemoryStore
+) -> None:
+    """Write a pipeline event to the appropriate InMemoryStore bucket.
+
+    Each stream maps to its dedicated store method so the in-memory snapshot
+    mirrors the same shape as the corresponding Postgres table.  Streams
+    without a dedicated bucket fall through to add_event() so nothing is lost.
+    """
+    if stream == STREAM_AGENT_LOGS:
+        store.add_agent_log(build_memory_agent_log_row(msg_id, stream, event))
+    elif stream == STREAM_ORDERS:
+        store.add_order(event)
+    elif stream == STREAM_AGENT_GRADES:
+        store.add_grade(event)
+    elif stream == STREAM_LEARNING_EVENTS:
+        store.add_vector_memory(event)
+    elif stream == STREAM_TRADE_PERFORMANCE:
+        store.upsert_trade_fill(event)
+    else:
+        # STREAM_EXECUTIONS, STREAM_RISK_ALERTS, STREAM_FACTOR_IC_HISTORY,
+        # STREAM_REFLECTION_OUTPUTS, STREAM_PROPOSALS, STREAM_NOTIFICATIONS
+        store.add_event(
+            {
+                "id": msg_id,
+                "kind": stream,
+                FieldName.SOURCE: str(event.get(FieldName.SOURCE) or stream),
+                FieldName.CREATED_AT: str(event.get(FieldName.TIMESTAMP) or ""),
+                FieldName.PAYLOAD: event,
+            }
+        )
