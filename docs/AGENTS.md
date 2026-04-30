@@ -34,6 +34,28 @@ Every agent must do these things in order on startup:
 3. Log a startup message including the stream name it is listening on.
 4. Enter the XREAD loop.
 
+## Persistence routing
+
+The `EventPipeline` selects a route **before** attempting any write, making persistence
+behavior deterministic rather than exception-driven.
+
+```
+determine_persist_route(stream, event) → PersistRoute.DB | MEMORY | SKIP
+```
+
+| Route | When selected | Action |
+|-------|--------------|--------|
+| `SKIP` | Stream has no writer, or DB unavailable and stream is not agent_logs | Return immediately — no write |
+| `MEMORY` | `agent_logs` stream with a malformed payload (missing required fields) | Write to `InMemoryStore.add_agent_log()`, log a `warning` |
+| `DB` | DB available and payload passes field validation | Call the matching `SafeWriter` method |
+
+**Rule:** Never add a bare `try/except` around a pipeline write to handle missing
+fields.  Instead, extend `should_route_agent_log_to_memory` (or add an analogous
+helper) and teach `determine_persist_route` to select `MEMORY` or `SKIP` before
+the write is attempted.
+
+Module: `api/services/persistence_routing.py`
+
 ## Adding a new agent
 
 1. Create `api/services/agents/your_agent.py` using the template below.

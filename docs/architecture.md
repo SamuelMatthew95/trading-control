@@ -81,6 +81,8 @@ api/
 │   ├── dlq.py
 │   └── ws.py
 ├── services/
+│   ├── event_pipeline.py        # Redis Streams → transform → WebSocket
+│   ├── persistence_routing.py   # Explicit DB/MEMORY/SKIP route selection for pipeline writes
 │   └── agents/
 │       ├── pipeline_agents.py   # GradeAgent, ICUpdater, ReflectionAgent, StrategyProposer, NotificationAgent
 │       └── reasoning_agent.py   # LLM-powered ReasoningAgent
@@ -112,7 +114,7 @@ On startup (`api.main`):
 
 | Guarantee | Mechanism |
 |---|---|
-| **Determinism** | All writes through `SafeWriter` only |
+| **Determinism** | All writes through `SafeWriter` only; pipeline selects an explicit route (DB/MEMORY/SKIP) via `determine_persist_route` before attempting any write |
 | **Idempotency** | `idempotency_key` on orders and events |
 | **Traceability** | `trace_id` spans event → agent_run → agent_log → vector_memory |
 | **Replayability** | Full state rebuildable from the `events` table |
