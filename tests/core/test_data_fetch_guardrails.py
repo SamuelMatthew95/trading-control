@@ -35,8 +35,11 @@ from api.constants import (
     AGENT_STRATEGY_PROPOSER,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
+    LogType,
 )
+from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
+from api.runtime_state import set_runtime_store
 from api.services.metrics_aggregator import MetricsAggregator
 
 # ---------------------------------------------------------------------------
@@ -308,6 +311,58 @@ class TestRawSnapshotDataSources:
             "risk_alerts",
         ):
             assert result[key] == [], f"Expected empty list for {key!r}"
+
+    @pytest.mark.asyncio
+    async def test_raw_snapshot_can_use_memory_store_without_session(self) -> None:
+        """Memory-mode aggregator snapshots must not require a DB session."""
+        store = InMemoryStore()
+        store.add_event(
+            {
+                "log_type": LogType.PROPOSAL,
+                "trace_id": "mem-raw",
+                "payload": {"content": "memory raw snapshot"},
+            }
+        )
+        set_runtime_store(store)
+
+        agg = MetricsAggregator(None, use_memory_store=True)
+        result = await agg.get_raw_snapshot()
+
+        assert result["source"] == "in_memory"
+        assert result["proposals"][0]["trace_id"] == "mem-raw"
+
+    @pytest.mark.asyncio
+    async def test_memory_mode_aggregator_methods_do_not_need_session(self) -> None:
+        """Every public dashboard read on MetricsAggregator must work without SQL."""
+        store = InMemoryStore()
+        store.add_order({"order_id": "ord-1", "status": "filled", "pnl": 10.0})
+        store.upsert_agent("SIGNAL_AGENT", {"status": "ACTIVE", "event_count": 3})
+        store.upsert_trade_fill(
+            {
+                "id": "trade-1",
+                "symbol": "SPY",
+                "side": "buy",
+                "qty": 1,
+                "entry_price": 500.0,
+                "pnl": 10.0,
+            }
+        )
+        store.upsert_position(
+            "SPY",
+            {"symbol": "SPY", "side": "long", "qty": 1, "unrealized_pnl": 4.0},
+        )
+        set_runtime_store(store)
+        agg = MetricsAggregator(None, use_memory_store=True)
+
+        assert await agg.get_stream_lag_metrics() == {}
+        assert (await agg.get_system_health())["source"] == "in_memory"
+        assert (await agg.get_pnl_metrics())["source"] == "in_memory"
+        assert (await agg.get_agent_metrics())["source"] == "in_memory"
+        assert (await agg.get_order_metrics())["source"] == "in_memory"
+        assert (await agg.get_dashboard_snapshot())["pnl"]["source"] == "in_memory"
+        paired = await agg.get_paired_pnl()
+        assert paired["source"] == "in_memory"
+        assert paired["summary"]["total_pnl"] == pytest.approx(14.0)
 
     @pytest.mark.asyncio
     async def test_proposals_with_stringified_json_payload(self) -> None:

@@ -5,17 +5,30 @@
 Trading Control is an event-driven algorithmic trading platform built around a 7-agent AI pipeline. Agents communicate exclusively through Redis Streams — never by calling each other directly.
 
 ```
-PostgreSQL (Source of Truth)
+Runtime Store (memory-first when DB is down)
         │
         ▼
-  Redis Streams (Event delivery / fan-out)
+  Redis Streams (event delivery / fan-out)
         │
         ▼
-  AI Agents (Consumers — never modify source truth directly)
+  AI Agents (consumers)
         │
         ▼
-  Next.js Dashboard (Real-time via SSE + WebSocket)
+  PostgreSQL (durable persistence when available)
+        │
+        ▼
+  Next.js Dashboard (REST + WebSocket hydration)
 ```
+
+## Runtime Storage Contract
+
+The dashboard must stay usable when PostgreSQL is unavailable. `api.runtime_state.is_db_available()` is the routing switch:
+
+- `False`: read dashboard state from `get_runtime_store()` only. Do not create an `AsyncSession`, do not call `AsyncSessionFactory()`, and do not depend on `get_db`.
+- `True`: read durable history from PostgreSQL and use in-memory data only as a compatibility fallback.
+- Every memory-mode dashboard payload should include `source: "in_memory"` or `mode: "in_memory"` so the UI and logs make the data source obvious.
+
+This applies to `api/routes/dashboard_v2.py`, `api/routes/ws.py`, and `api/services/metrics_aggregator.py`. The in-memory store is not a secondary afterthought for dashboard hydration; it is the primary runtime source whenever DB health is false.
 
 ## Agent Pipeline
 
@@ -119,6 +132,7 @@ On startup (`api.main`):
 | **Traceability** | `trace_id` spans event → agent_run → agent_log → vector_memory |
 | **Replayability** | Full state rebuildable from the `events` table |
 | **Atomicity** | Business write + event emit succeed or fail together |
+| **DB outage tolerance** | Dashboard reads short-circuit to `get_runtime_store()` before SQL session creation |
 
 ## Database schema (v3)
 

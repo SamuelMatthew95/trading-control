@@ -18,6 +18,7 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_LEARNING_EVENTS,
     STREAM_MARKET_EVENTS,
+    STREAM_NOTIFICATIONS,
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     AgentStatus,
@@ -30,6 +31,8 @@ _AGENT_NAMES = ALL_AGENT_NAMES
 
 _PIPELINE_STREAMS = PIPELINE_STREAMS
 _AGENT_PUSH_INTERVAL = 5  # seconds
+_HIDDEN_NOTIFICATION_TYPE_PREFIXES = ("stream:", "decision.", "signal.")
+_HIDDEN_NOTIFICATION_STREAM_SOURCES = {STREAM_AGENT_LOGS, "decisions", "signals"}
 
 
 class WebSocketBroadcaster:
@@ -267,6 +270,11 @@ class WebSocketBroadcaster:
         if stream == STREAM_AGENT_LOGS:
             return None
 
+        if stream == STREAM_NOTIFICATIONS:
+            if not self._is_displayable_notification_payload(payload):
+                return None
+            return {**base, **payload}
+
         # --- Market events: price ticker only (no payload noise) --------------
         if stream == STREAM_MARKET_EVENTS:
             raw_payload = payload.get(FieldName.PAYLOAD, payload)
@@ -292,10 +300,48 @@ class WebSocketBroadcaster:
         return {**base, **payload}
 
     @staticmethod
+    def _is_displayable_notification_payload(payload: dict[str, Any]) -> bool:
+        notification_type = str(
+            payload.get(FieldName.NOTIFICATION_TYPE) or payload.get(FieldName.TYPE) or ""
+        ).lower()
+        stream_source = str(
+            payload.get("stream_source") or payload.get(FieldName.SOURCE) or ""
+        ).lower()
+        message = str(
+            payload.get(FieldName.MESSAGE) or payload.get("summary") or payload.get("title") or ""
+        )
+
+        if not message.strip() or not notification_type or notification_type == "event":
+            return False
+        if notification_type.startswith(_HIDDEN_NOTIFICATION_TYPE_PREFIXES):
+            return False
+        if (
+            stream_source in _HIDDEN_NOTIFICATION_STREAM_SOURCES
+            and not notification_type.startswith("trade.")
+        ):
+            return False
+        return True
+
+    @staticmethod
     def _decode_redis_value(value: Any) -> str:
         if isinstance(value, bytes):
             return value.decode("utf-8")
         return str(value)
+
+    @classmethod
+    def _deserialize_redis_value(cls, value: Any) -> Any:
+        decoded = cls._decode_redis_value(value)
+        lower = decoded.lower()
+        if lower == "true":
+            return True
+        if lower == "false":
+            return False
+        if decoded.startswith(("{", "[", '"')):
+            try:
+                return json.loads(decoded)
+            except (json.JSONDecodeError, TypeError):
+                return decoded
+        return decoded
 
     @classmethod
     def _decode_redis_payload(cls, payload: Any) -> dict[str, Any]:
@@ -305,9 +351,7 @@ class WebSocketBroadcaster:
         decoded_payload: dict[str, Any] = {}
         for key, value in payload.items():
             decoded_key = cls._decode_redis_value(key)
-            decoded_value: Any = value
-            if isinstance(value, bytes):
-                decoded_value = value.decode("utf-8")
+            decoded_value = cls._deserialize_redis_value(value)
             decoded_payload[decoded_key] = decoded_value
         return decoded_payload
 

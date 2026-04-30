@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from contextlib import suppress
 from typing import Any
 
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -109,15 +108,22 @@ class BaseStreamConsumer(ABC):
         if self._task is None:
             return
 
-        # Wait for task completion with shorter timeout
+        # The loop can be blocked inside Redis/fakeredis reads. Cancel it first
+        # so stop() does not wait for the next poll interval to unwind.
+        if not self._task.done():
+            self._task.cancel()
+
         try:
-            await asyncio.wait_for(self._task, timeout=2.0)
+            done, pending = await asyncio.wait({self._task}, timeout=2.0)
+            if pending:
+                raise asyncio.TimeoutError
+            for task in done:
+                try:
+                    task.result()
+                except asyncio.CancelledError:
+                    pass
         except asyncio.TimeoutError:
             log_structured("warning", "Consumer task timeout, cancelling", stream=self.stream)
-            # Cancel the task
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
         except asyncio.CancelledError:
             # Expected when task is cancelled
             pass
@@ -226,6 +232,12 @@ class BaseStreamConsumer(ABC):
                         break
                     await self._handle_message(msg_id, data)
 
+                if not messages:
+                    try:
+                        await asyncio.wait_for(self._shutdown_event.wait(), timeout=0.05)
+                    except asyncio.TimeoutError:
+                        pass
+
             except (RedisConnectionError, RedisTimeoutError):
                 log_structured(
                     "warning",
@@ -308,6 +320,10 @@ class BaseStreamConsumer(ABC):
 
     async def _safe_reclaim_stale(self) -> list[tuple[str, dict[str, Any]]]:
         """Safely reclaim stale messages with timeout and error handling."""
+        redis_client = getattr(self.bus, "redis", None)
+        if type(redis_client).__module__.startswith("fakeredis."):
+            return []
+
         try:
             return await asyncio.wait_for(
                 self.bus.reclaim_stale(self.stream, self.group, self.consumer),

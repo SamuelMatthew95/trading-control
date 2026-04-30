@@ -251,7 +251,7 @@ def test_agent_supervisor_iterates_mixed_agent_list():
     async def _run():
         await supervisor._check_health()
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())
 
 
 def test_agent_supervisor_restart_is_rate_limited():
@@ -277,6 +277,6 @@ def test_agent_supervisor_restart_is_rate_limited():
         for _ in range(SUPERVISOR_MAX_RESTARTS_PER_WINDOW + 1):
             await supervisor._check_health()
 
-    asyncio.get_event_loop().run_until_complete(_run_checks())
+    asyncio.run(_run_checks())
 
     assert agent.start.await_count == SUPERVISOR_MAX_RESTARTS_PER_WINDOW

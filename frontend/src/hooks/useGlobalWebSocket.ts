@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
+import { useCodexStore, type AgentStatus, type NotificationDisplay } from '@/stores/useCodexStore'
 
 // --- Types ---
 type WebSocketMessage = {
@@ -30,6 +30,12 @@ export enum ConnectionState {
 }
 
 type Listener = (event: CustomEvent) => void
+
+function notificationNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const cast = Number(value)
+  return Number.isFinite(cast) ? cast : null
+}
 
 // --- WebSocketManager Singleton ---
 class WebSocketManager {
@@ -346,15 +352,31 @@ class WebSocketManager {
         // Stream payloads are partially typed; store merge handles sparse updates.
         store.updateOrder(msg as never)
       } else if (msg.stream === 'notifications') {
-        const raw = msg as unknown as Record<string, unknown>
+        const messageRaw = msg as unknown as Record<string, unknown>
+        const payloadRaw = this._coerceObject(messageRaw.payload)
+        const raw = msg.type === 'event' && payloadRaw ? payloadRaw : messageRaw
+        const delivery = this._coerceObject(raw.delivery)
+        const display = this._coerceObject(raw.display)
+        const severity = String(raw.severity || 'INFO').toUpperCase()
         store.addNotification({
-          severity: (raw.severity as string || 'INFO') as import('@/stores/useCodexStore').NotificationSeverity,
+          severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
+          title: raw.title ? String(raw.title) : undefined,
           message: String(raw.message || raw.summary || ''),
           notification_type: String(raw.notification_type || raw.type || 'system'),
-          stream_source: String(raw.stream_source || raw.source || ''),
+          stream_source: String(raw.stream_source || raw.source || (msg.type === 'event' ? msg.stream : '') || ''),
+          action: raw.action ? String(raw.action) : raw.side ? String(raw.side) : undefined,
+          symbol: raw.symbol ? String(raw.symbol) : undefined,
+          qty: notificationNumber(raw.qty),
+          fill_price: notificationNumber(raw.fill_price),
+          notional: notificationNumber(raw.notional),
+          pnl: notificationNumber(raw.pnl),
+          pnl_percent: notificationNumber(raw.pnl_percent),
+          order_id: raw.order_id == null ? null : String(raw.order_id),
           trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
           state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
-          timestamp: msg.timestamp || new Date().toISOString(),
+          delivery: delivery ?? undefined,
+          display: display ? display as NotificationDisplay : undefined,
+          timestamp: String(raw.timestamp || msg.timestamp || new Date().toISOString()),
         })
       } else if (msg.stream === 'proposals') {
         const raw = msg as unknown as Record<string, unknown>

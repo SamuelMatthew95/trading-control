@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from api.constants import LogType
 from api.in_memory_store import InMemoryStore
+from api.routes import ws as ws_routes
 from api.routes.ws import _build_db_snapshot, dashboard_ws
 from api.runtime_state import set_db_available, set_runtime_store
 
@@ -136,3 +138,28 @@ class TestWebSocketFixes:
         snapshot = await _build_db_snapshot(redis_client=None)
         symbols = [p["symbol"] for p in snapshot["data"]["pnl"]["open_positions"]]
         assert symbols == ["OK"]
+
+    @pytest.mark.asyncio
+    async def test_initial_snapshot_uses_memory_without_db_session(self, monkeypatch):
+        """The WS hydration snapshot must not open SQLAlchemy when DB is unavailable."""
+
+        def _raise_if_called():
+            raise AssertionError("DB session should not be created in memory mode")
+
+        monkeypatch.setattr("api.database.AsyncSessionFactory", _raise_if_called)
+        store = InMemoryStore()
+        store.add_event(
+            {
+                "log_type": LogType.PROPOSAL,
+                "trace_id": "ws-proposal",
+                "payload": {"content": "memory snapshot"},
+            }
+        )
+        set_runtime_store(store)
+        set_db_available(False)
+
+        payload = await ws_routes._build_db_snapshot(redis_client=None)
+
+        assert payload["type"] == "dashboard_update"
+        assert payload["data"]["source"] == "in_memory"
+        assert payload["data"]["proposals"][0]["trace_id"] == "ws-proposal"

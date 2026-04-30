@@ -139,6 +139,7 @@ describe('DashboardView — agents', () => {
   beforeEach(() => {
     mockStore.wsConnected = false
     mockStore.agentStatuses = []
+    mockStore.notifications = []
   })
 
   it('renders without crashing when store is empty', () => {
@@ -171,5 +172,56 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText('Signal Agent')).toBeInTheDocument()
     expect(screen.getByText('Live')).toBeInTheDocument()
     expect(screen.getByText('Realtime')).toBeInTheDocument()
+  })
+
+  it('renders buy trade notifications with trade fields', () => {
+    mockStore.notifications = [
+      {
+        id: 'notif-1',
+        severity: 'INFO',
+        title: 'BUY filled: BTC/USD',
+        message: 'BUY BTC/USD filled | Fill $50100.00 | Qty 0.25 | Notional $12525.00',
+        notification_type: 'trade.buy_filled',
+        stream_source: 'executions',
+        action: 'buy',
+        symbol: 'BTC/USD',
+        qty: 0.25,
+        fill_price: 50100,
+        notional: 12525,
+        pnl: null,
+        pnl_percent: null,
+        trace_id: 'trace-buy',
+        state: 'open',
+        display: {
+          kind: 'trade_execution',
+          tone: 'buy',
+          icon: 'arrow-up-right',
+          title: 'BUY filled: BTC/USD',
+          subtitle: 'BUY BTC/USD filled | Fill $50,100.00 | Qty 0.25 | Notional $12,525.00',
+          status_label: 'open',
+          badges: [{ label: 'BUY', tone: 'buy' }],
+          facts: [
+            { label: 'Symbol', value: 'BTC/USD' },
+            { label: 'Qty', value: '0.25' },
+            { label: 'Fill', value: '$50,100.00' },
+            { label: 'Notional', value: '$12,525.00' },
+          ],
+          meta: [
+            { label: 'Type', value: 'trade.buy_filled' },
+            { label: 'Source', value: 'executions' },
+          ],
+        },
+        timestamp: new Date().toISOString(),
+        acknowledged: false,
+      },
+    ]
+
+    render(<DashboardView section="agents" />)
+
+    expect(screen.getByText('BUY filled: BTC/USD')).toBeInTheDocument()
+    expect(screen.getByText(/trade\.buy_filled/)).toBeInTheDocument()
+    expect(screen.getByText('Qty')).toBeInTheDocument()
+    expect(screen.getByText('0.25')).toBeInTheDocument()
+    expect(screen.getByText('$12,525.00')).toBeInTheDocument()
   })
 })

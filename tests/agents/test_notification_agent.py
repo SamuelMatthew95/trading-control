@@ -201,6 +201,95 @@ async def test_publishes_to_notifications_stream(notification_agent, mock_bus):
     "api.core.writer.safe_writer.SafeWriter",
     MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
 )
+async def test_buy_execution_notification_is_trade_ready(notification_agent, mock_bus):
+    """Buy fills carry clear trade fields plus channel-specific delivery copy."""
+    event = {
+        "type": "order_filled",
+        "side": "buy",
+        "symbol": "BTC/USD",
+        "qty": 0.25,
+        "price": 50000.0,
+        "fill_price": 50100.0,
+        "order_id": "ord-1",
+        "trace_id": "trace-buy",
+    }
+
+    await notification_agent.process("executions", "id-buy", event)
+
+    notification = next(
+        c[0][1] for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"
+    )
+    assert notification["notification_type"] == "trade.buy_filled"
+    assert notification["title"] == "BUY filled: BTC/USD"
+    assert notification["action"] == "buy"
+    assert notification["symbol"] == "BTC/USD"
+    assert notification["qty"] == 0.25
+    assert notification["fill_price"] == 50100.0
+    assert notification["notional"] == 12525.0
+    assert notification["trace_id"] == "trace-buy"
+    assert notification["metadata"]["trade"]["stop_price"] == 47595.0
+    assert notification["metadata"]["trade"]["take_profit_price"] == 55110.0
+    assert notification["delivery"]["template"] == "trade_execution"
+    assert notification["delivery"]["slack"]["blocks"][0]["text"]["text"] == "BUY filled: BTC/USD"
+    assert notification["delivery"]["email"]["subject"] == "BUY filled: BTC/USD"
+    assert "BUY BTC/USD filled" in notification["delivery"]["telegram"]["text"]
+    assert notification["display"]["kind"] == "trade_execution"
+    assert notification["display"]["tone"] == "buy"
+    assert notification["display"]["icon"] == "arrow-up-right"
+    assert notification["display"]["title"] == "BUY filled: BTC/USD"
+    assert notification["display"]["badges"] == [{"label": "BUY", "tone": "buy"}]
+    display_facts = {item["label"]: item["value"] for item in notification["display"]["facts"]}
+    assert display_facts["Qty"] == "0.25"
+    assert display_facts["Fill"] == "$50,100.00"
+    assert display_facts["Notional"] == "$12,525.00"
+    assert display_facts["Stop"] == "$47,595.00"
+    assert display_facts["Target"] == "$55,110.00"
+
+
+@pytest.mark.asyncio
+@patch(
+    "api.core.writer.safe_writer.SafeWriter",
+    MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
+)
+async def test_sell_execution_notification_shows_realized_pnl(notification_agent, mock_bus):
+    """Sell fills are visibly distinct and include realized PnL when available."""
+    event = {
+        "type": "order_filled",
+        "side": "sell",
+        "symbol": "AAPL",
+        "qty": 5,
+        "fill_price": 188.25,
+        "pnl": -12.5,
+        "pnl_percent": -1.32,
+        "order_id": "ord-2",
+        "trace_id": "trace-sell",
+    }
+
+    await notification_agent.process("executions", "id-sell", event)
+
+    notification = next(
+        c[0][1] for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"
+    )
+    assert notification["severity"] == "WARNING"
+    assert notification["notification_type"] == "trade.sell_filled"
+    assert notification["title"] == "SELL filled: AAPL"
+    assert notification["action"] == "sell"
+    assert notification["notional"] == 941.25
+    assert "Proceeds $941.25" in notification["message"]
+    assert "Realized PnL -$12.50 (-1.32%)" in notification["message"]
+    assert notification["display"]["tone"] == "sell"
+    assert notification["display"]["icon"] == "arrow-down-right"
+    display_facts = {item["label"]: item for item in notification["display"]["facts"]}
+    assert display_facts["Proceeds"]["value"] == "$941.25"
+    assert display_facts["P&L"]["value"] == "-$12.50 (-1.32%)"
+    assert display_facts["P&L"]["tone"] == "loss"
+
+
+@pytest.mark.asyncio
+@patch(
+    "api.core.writer.safe_writer.SafeWriter",
+    MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
+)
 async def test_non_execution_streams_do_not_publish(notification_agent, mock_bus):
     """Signals, grades, proposals, and risk alerts must NOT surface as user notifications."""
     await notification_agent.process("signals", "id-1", {"symbol": "BTC/USD"})

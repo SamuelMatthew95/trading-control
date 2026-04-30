@@ -7,11 +7,10 @@ import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningLoopPanel } from '@/components/dashboard/LearningLoopPanel'
+import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import {
   Activity,
-  Bell,
   Brain,
-  CheckCheck,
   FileCode,
   ThumbsDown,
   ThumbsUp,
@@ -19,7 +18,7 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react'
-import type { Notification, Proposal } from '@/stores/useCodexStore'
+import type { Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -240,93 +239,6 @@ function PriceCardSkeleton() {
         <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
         <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
       </div>
-    </div>
-  )
-}
-
-const SEVERITY_STYLES: Record<string, { badge: string; dot: string; label: string }> = {
-  CRITICAL: { badge: 'bg-rose-500/15 text-rose-500 border border-rose-500/30', dot: 'bg-rose-500 animate-pulse', label: 'CRITICAL' },
-  URGENT: { badge: 'bg-orange-500/15 text-orange-500 border border-orange-500/30', dot: 'bg-orange-500', label: 'URGENT' },
-  WARNING: { badge: 'bg-amber-500/15 text-amber-500 border border-amber-500/30', dot: 'bg-amber-400', label: 'WARNING' },
-  INFO: { badge: 'bg-slate-500/10 text-slate-500 border border-slate-500/30', dot: 'bg-slate-400', label: 'INFO' },
-}
-
-function NotificationFeed({
-  notifications,
-  wsConnected,
-  onAcknowledge,
-}: {
-  notifications: Notification[]
-  wsConnected: boolean
-  onAcknowledge: (id: string) => void
-}) {
-  const unread = notifications.filter((n) => !n.acknowledged)
-  return (
-    <div className={cardClass}>
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bell className="h-4 w-4 text-slate-500" />
-          <p className={sectionTitleClass}>Notifications</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {unread.length > 0 && (
-            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white" title={`${unread.length} unread`}>{unread.length} unread</span>
-          )}
-          <p className={mutedClass}>{notifications.length} total</p>
-        </div>
-      </div>
-      {notifications.length === 0 ? (
-        <EmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
-      ) : (
-        <div className="max-h-72 space-y-2 overflow-y-auto">
-          {notifications.map((notif) => {
-            const style = SEVERITY_STYLES[notif.severity] ?? SEVERITY_STYLES['INFO']
-            return (
-              <div
-                key={notif.id}
-                className={cn(
-                  'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-opacity',
-                  notif.acknowledged ? 'border-slate-200 opacity-50 dark:border-slate-800' : 'border-slate-200 dark:border-slate-800',
-                )}
-              >
-                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', style.dot)} />
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', style.badge)}>{style.label}</span>
-                    <span className={mutedClass}>{sanitizeValue(notif.notification_type)}</span>
-                    {(() => {
-                      const isResolved = notif.state === 'resolved' || notif.acknowledged
-                      const isActionable = !isResolved && (notif.severity === 'CRITICAL' || notif.severity === 'URGENT')
-                      if (isResolved) {
-                        return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-emerald-500/10 text-emerald-500">resolved</span>
-                      }
-                      if (isActionable) {
-                        return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-500">action needed</span>
-                      }
-                      return null
-                    })()}
-                    <span className={cn(mutedClass, 'ml-auto shrink-0')}>{formatTimestamp(notif.timestamp)}</span>
-                  </div>
-                  <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{sanitizeValue(notif.message) === '--' ? 'No message' : notif.message}</p>
-                  <p className={cn(mutedClass, 'mt-1')}>
-                    Source: {sanitizeValue(notif.stream_source) === '--' ? 'system' : sanitizeValue(notif.stream_source)}
-                    {notif.trace_id ? ` · Trace ${notif.trace_id.slice(0, 8)}` : ''}
-                  </p>
-                </div>
-                {!notif.acknowledged && (
-                  <button
-                    onClick={() => onAcknowledge(notif.id)}
-                    className="mt-0.5 shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-500 dark:hover:bg-slate-800"
-                    title="Acknowledge"
-                  >
-                    <CheckCheck className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }

@@ -54,14 +54,48 @@ export interface LearningEvent {
 
 export type NotificationSeverity = 'CRITICAL' | 'URGENT' | 'WARNING' | 'INFO'
 
+export interface NotificationDisplayItem {
+  label: string
+  value: string
+  tone?: string
+}
+
+export interface NotificationDisplayBadge {
+  label: string
+  tone?: string
+}
+
+export interface NotificationDisplay {
+  kind?: string
+  tone?: string
+  icon?: string
+  title?: string
+  subtitle?: string
+  status_label?: string
+  badges?: NotificationDisplayBadge[]
+  facts?: NotificationDisplayItem[]
+  meta?: NotificationDisplayItem[]
+}
+
 export interface Notification {
   id: string
   severity: NotificationSeverity
+  title?: string
   message: string
   notification_type: string
   stream_source?: string
+  action?: string
+  symbol?: string
+  qty?: number | null
+  fill_price?: number | null
+  notional?: number | null
+  pnl?: number | null
+  pnl_percent?: number | null
+  order_id?: string | number | null
   trace_id?: string
   state?: 'open' | 'resolved'
+  delivery?: Record<string, unknown>
+  display?: NotificationDisplay
   timestamp: string
   acknowledged: boolean
 }
@@ -199,6 +233,29 @@ type DashboardData = {
 
 type PriceRecord = Record<string, PriceData>
 
+function normalizeNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const cast = Number(value)
+  return Number.isFinite(cast) ? cast : null
+}
+
+const hiddenNotificationTypePrefixes = ['stream:', 'decision.', 'signal.']
+const hiddenNotificationStreamSources = new Set(['agent_logs', 'decisions', 'signals'])
+
+export function isDisplayableNotification(
+  notification: Pick<Notification, 'notification_type' | 'message'> & Partial<Pick<Notification, 'stream_source' | 'title'>>
+): boolean {
+  const notificationType = String(notification.notification_type || '').trim().toLowerCase()
+  const streamSource = String(notification.stream_source || '').trim().toLowerCase()
+  const hasCopy = Boolean(String(notification.message || notification.title || '').trim())
+
+  if (!hasCopy || !notificationType || notificationType === 'event') return false
+  if (hiddenNotificationTypePrefixes.some((prefix) => notificationType.startsWith(prefix))) return false
+  if (hiddenNotificationStreamSources.has(streamSource) && !notificationType.startsWith('trade.')) return false
+
+  return true
+}
+
 function normalizeStoredNotification(input: unknown): Notification | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
@@ -211,17 +268,36 @@ function normalizeStoredNotification(input: unknown): Notification | null {
   const message = String(raw.message || '').trim()
   if (!message) return null
 
-  return {
+  const notification: Notification = {
     id: String(raw.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
     severity: normalizedSeverity,
+    title: raw.title ? String(raw.title) : undefined,
     message,
     notification_type: String(raw.notification_type || 'system'),
     stream_source: raw.stream_source ? String(raw.stream_source) : undefined,
+    action: raw.action ? String(raw.action) : undefined,
+    symbol: raw.symbol ? String(raw.symbol) : undefined,
+    qty: normalizeNumber(raw.qty),
+    fill_price: normalizeNumber(raw.fill_price),
+    notional: normalizeNumber(raw.notional),
+    pnl: normalizeNumber(raw.pnl),
+    pnl_percent: normalizeNumber(raw.pnl_percent),
+    order_id: raw.order_id == null ? null : String(raw.order_id),
     trace_id: raw.trace_id ? String(raw.trace_id) : undefined,
     state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
+    delivery:
+      raw.delivery && typeof raw.delivery === 'object' && !Array.isArray(raw.delivery)
+        ? (raw.delivery as Record<string, unknown>)
+        : undefined,
+    display:
+      raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display)
+        ? (raw.display as NotificationDisplay)
+        : undefined,
     timestamp: String(raw.timestamp || new Date().toISOString()),
     acknowledged: Boolean(raw.acknowledged),
   }
+
+  return isDisplayableNotification(notification) ? notification : null
 }
 
 // Type for price data from API
@@ -445,17 +521,26 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
-    const duplicateExists = state.notifications.some((n) =>
+    if (!isDisplayableNotification(notification)) {
+      const cleaned = state.notifications.filter(isDisplayableNotification)
+      if (cleaned.length !== state.notifications.length && typeof window !== 'undefined') {
+        window.localStorage.setItem('codex.notifications', JSON.stringify(cleaned))
+      }
+      return cleaned.length === state.notifications.length ? state : { notifications: cleaned }
+    }
+
+    const currentNotifications = state.notifications.filter(isDisplayableNotification)
+    const duplicateExists = currentNotifications.some((n) =>
       n.message === notification.message &&
       n.notification_type === notification.notification_type &&
       n.severity === notification.severity &&
       Math.abs(new Date(n.timestamp).getTime() - new Date(notification.timestamp).getTime()) < 10_000
     )
-    if (duplicateExists) return { notifications: state.notifications }
+    if (duplicateExists) return currentNotifications.length === state.notifications.length ? state : { notifications: currentNotifications }
 
     const next = [
       { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
-      ...state.notifications,
+      ...currentNotifications,
     ].slice(0, 200)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('codex.notifications', JSON.stringify(next))

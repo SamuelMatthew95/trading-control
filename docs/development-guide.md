@@ -121,6 +121,12 @@ ruff check . --fix && ruff format --check . && ruff check . --select=E9,F63,F7,F
 4. Update the Fern definition in the `fern-support/matthew` repo.
 5. Update `CHANGELOG.md`.
 
+For dashboard, websocket hydration, or metrics read endpoints, add the memory path first:
+
+- Check `is_db_available()` before creating `AsyncSessionFactory()` or accepting an `AsyncSession`.
+- Return from `get_runtime_store()` with `source: "in_memory"` when the DB is unavailable.
+- Add a regression test that sets `set_db_available(False)` and asserts the DB session factory was not called.
+
 ## Logging standards
 
 Always use `log_structured()` — never `print()` or `logger.*`:
