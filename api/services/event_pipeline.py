@@ -31,8 +31,8 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agent_state import AgentStateRegistry
 from api.services.persistence_routing import (
     PersistRoute,
-    build_memory_agent_log_row,
     determine_persist_route,
+    write_event_to_memory,
 )
 
 
@@ -311,11 +311,10 @@ class EventPipeline:
             return
 
         if route == PersistRoute.MEMORY:
-            row = build_memory_agent_log_row(msg_id, stream, event)
-            get_runtime_store().add_agent_log(row)
+            write_event_to_memory(stream, msg_id, event, get_runtime_store())
             log_structured(
                 "warning",
-                "pipeline_agent_log_routed_to_memory",
+                "pipeline_event_routed_to_memory",
                 stream=stream,
                 msg_id=msg_id,
             )
