@@ -84,9 +84,16 @@ curl -sS https://<backend-host>/api/dashboard/agents/status | jq .
 
 # System metrics
 curl -sS https://<backend-host>/api/dashboard/system/metrics | jq .
+
+# Dashboard hydration must return JSON even when persistence is in memory mode
+curl -sS https://<backend-host>/api/dashboard/state | jq '.source // .mode'
+curl -sS https://<backend-host>/api/dashboard/proposals | jq '.source'
+curl -sS https://<backend-host>/api/dashboard/agent-instances | jq '.source'
 ```
 
 Expected: all return 200 with valid JSON.
+
+If Render cannot reach Postgres, dashboard read endpoints should still return `source: "in_memory"` or `mode: "in_memory_fallback"`. They must not log SQLAlchemy DNS/session errors before serving memory data.
 
 ## Database schema
 

@@ -457,8 +457,11 @@ class TestConsumerShutdownFixes:
             patch.object(slow_consumer._task, "cancel") as mock_cancel,
             patch("api.events.consumer.log_structured") as mock_log,
         ):
-            # Simulate timeout by making wait_for raise TimeoutError
-            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            # Simulate timeout by leaving the task pending after the wait window.
+            with patch(
+                "asyncio.wait",
+                AsyncMock(return_value=(set(), {slow_consumer._task})),
+            ):
                 await slow_consumer.stop()
 
             # Should have attempted to cancel the task

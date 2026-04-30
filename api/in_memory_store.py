@@ -206,6 +206,7 @@ class InMemoryStore:
             "mode": "in_memory",
             "db_health": self.last_health,
             "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode
+            "source": "in_memory",
         }
 
     def open_positions(self) -> list[dict[str, Any]]:

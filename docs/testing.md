@@ -82,6 +82,30 @@ async def test_safe_writer(fake_session: FakeAsyncSession):
     assert record_id is not None
 ```
 
+### Memory-mode dashboard tests
+
+Dashboard read paths have a hard rule: when `set_db_available(False)` is active, they must not create a SQLAlchemy session at all.
+
+Use a recording `AsyncSessionFactory` in tests and assert it was never called. A fallback that first tries Postgres and then returns memory data is still a bug, because production DNS failures can block before fallback logic runs.
+
+```python
+factory_calls = []
+
+def recording_factory():
+    factory_calls.append("called")
+    raise AssertionError("DB session should not be created in memory mode")
+
+monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", recording_factory)
+set_db_available(False)
+
+payload = await dashboard_v2.get_dashboard_state()
+
+assert payload["source"] == "in_memory" or payload["mode"] == "in_memory_fallback"
+assert factory_calls == []
+```
+
+Add or update this coverage for every new dashboard, websocket hydration, or metrics read endpoint.
+
 ### Redis tests
 
 Use `FakeAsyncRedis` from the `fakeredis` PyPI package — never connect to a real Redis in unit tests. The `fake_redis` fixture in `tests/conftest.py` provides a pre-configured instance.

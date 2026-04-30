@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..constants import FieldName, LogType, OrderSide, OrderStatus, PositionSide
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
+from ..runtime_state import get_runtime_store
 
 # Health validation thresholds
 STALE_THRESHOLD_SECONDS = 30  # Mark stream as stale if no update in 30s
@@ -24,8 +25,90 @@ WARNING_LAG_MS = 1000  # Mark stream as warning if lag > 1 second
 class MetricsAggregator:
     """Centralized metrics read layer with safe computations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession | None, *, use_memory_store: bool = False):
         self.session = session
+        self.use_memory_store = use_memory_store
+
+    def _using_memory_store(self) -> bool:
+        return self.use_memory_store or self.session is None
+
+    def _memory_pnl_metrics(self) -> dict[str, Any]:
+        store = get_runtime_store()
+        orders = list(store.orders)
+        total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
+        winning_trades = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
+        win_rate = (winning_trades / len(orders) * 100) if orders else 0.0
+        return {
+            "total_pnl": total_pnl,
+            "today_pnl": total_pnl,
+            "total_trades": len(orders),
+            "winning_trades": winning_trades,
+            "win_rate_percent": win_rate,
+            "status": "memory_mode",
+            "last_update": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
+    def _memory_agent_metrics(self) -> dict[str, Any]:
+        store = get_runtime_store()
+        active_agents = [
+            {
+                "agent_id": agent_id,
+                "last_seen": data.get(FieldName.LAST_SEEN) or data.get(FieldName.LAST_SEEN_AT),
+                "message_count_5min": int(data.get(FieldName.EVENT_COUNT) or 0),
+            }
+            for agent_id, data in store.agents.items()
+            if str(data.get(FieldName.STATUS, "")).lower() in {"active", "running", "live"}
+        ]
+        return {
+            "active_agents": active_agents,
+            "active_agent_count": len(active_agents),
+            "last_update": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
+    def _memory_order_metrics(self) -> dict[str, Any]:
+        order_stats: dict[str, int] = {}
+        for order in get_runtime_store().orders:
+            status = str(order.get(FieldName.STATUS) or "unknown")
+            order_stats[status] = order_stats.get(status, 0) + 1
+        total_orders = sum(order_stats.values())
+        filled_orders = order_stats.get(OrderStatus.FILLED, 0) + order_stats.get("executed", 0)
+        fill_rate = (filled_orders / total_orders * 100) if total_orders else 0.0
+        return {
+            "orders_last_hour": order_stats,
+            "total_orders_last_hour": total_orders,
+            "fill_rate_percent": fill_rate,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
+    def _memory_paired_pnl(self) -> dict[str, Any]:
+        store = get_runtime_store()
+        closed_trades = list(reversed(store.trade_feed[-100:]))
+        realized_pnl = sum(float(trade.get(FieldName.PNL) or 0.0) for trade in closed_trades)
+        winning = sum(1 for trade in closed_trades if float(trade.get(FieldName.PNL) or 0.0) > 0)
+        open_positions = list(store.positions.values())
+        unrealized_pnl = sum(
+            float(position.get(FieldName.UNREALIZED_PNL) or 0.0) for position in open_positions
+        )
+        return {
+            "closed_trades": closed_trades,
+            "open_positions": open_positions,
+            "summary": {
+                "realized_pnl": round(realized_pnl, 8),
+                "unrealized_pnl": round(unrealized_pnl, 8),
+                "total_pnl": round(realized_pnl + unrealized_pnl, 8),
+                "closed_trades": len(closed_trades),
+                "winning_trades": winning,
+                "win_rate_percent": round(
+                    (winning / len(closed_trades) * 100) if closed_trades else 0.0, 2
+                ),
+                "open_positions": len(open_positions),
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
     async def get_stream_lag_metrics(self) -> dict[str, Any]:
         """
@@ -34,6 +117,9 @@ class MetricsAggregator:
         Returns:
             Dict with stream names as keys and lag info as values
         """
+        if self._using_memory_store():
+            return {}
+
         try:
             # Query latest lag per stream using DISTINCT ON
             query = text("""
@@ -74,13 +160,22 @@ class MetricsAggregator:
         Returns:
             Dict with health indicators
         """
+        if self._using_memory_store():
+            return {
+                "overall_status": "degraded",
+                "streams_status": {},
+                "mode": "in_memory",
+                "db_health": get_runtime_store().last_health,
+                "last_update": datetime.now(timezone.utc).isoformat(),
+                "source": "in_memory",
+            }
+
         try:
             health = {
                 "overall_status": "healthy",
                 "streams_status": {},
                 "last_update": datetime.now(timezone.utc).isoformat(),
             }
-
             # Get stream lag metrics
             lag_metrics = await self.get_stream_lag_metrics()
 
@@ -142,6 +237,9 @@ class MetricsAggregator:
         Returns:
             Dict with PnL information
         """
+        if self._using_memory_store():
+            return self._memory_pnl_metrics()
+
         try:
             # Get total PnL from trade_performance
             pnl_query = select(func.coalesce(func.sum(TradePerformance.pnl), 0))
@@ -205,6 +303,9 @@ class MetricsAggregator:
         Returns:
             Dict with agent information
         """
+        if self._using_memory_store():
+            return self._memory_agent_metrics()
+
         try:
             # Get recent agent activity (schema compatible across legacy/new agent_logs)
             five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
@@ -271,6 +372,9 @@ class MetricsAggregator:
         Returns:
             Dict with order information
         """
+        if self._using_memory_store():
+            return self._memory_order_metrics()
+
         try:
             # Get order counts by status in last hour
             hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -357,6 +461,8 @@ class MetricsAggregator:
         This is used for the WebSocket initial snapshot so every client
         starts with the same consistent view without any REST calls.
         """
+        if self._using_memory_store():
+            return get_runtime_store().dashboard_fallback_snapshot()
 
         def _safe_float(val: Any) -> float:
             try:
@@ -656,6 +762,9 @@ class MetricsAggregator:
         from Redis (when ``redis_client`` is provided) to show unrealized P&L.
         """
         import json as _json
+
+        if self._using_memory_store():
+            return self._memory_paired_pnl()
 
         try:
             closed_result = await self.session.execute(

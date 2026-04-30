@@ -88,6 +88,269 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     }
 
 
+def _timestamp_from_agent_data(data: dict[str, Any], now: datetime) -> str | None:
+    """Return an ISO timestamp from mixed heartbeat fields."""
+    for key in ("started_at", "last_seen_at", FieldName.UPDATED_AT):
+        value = data.get(key)
+        if value:
+            return str(value)
+
+    last_seen = data.get(FieldName.LAST_SEEN)
+    try:
+        ts = float(last_seen)
+    except (TypeError, ValueError):
+        return None
+    if ts <= 0:
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+def _timestamp_to_iso(value: Any) -> str | None:
+    """Normalize DB, memory, and epoch timestamps to an ISO string."""
+    if value is None or value == "":
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+def _in_memory_agent_instances_payload() -> dict[str, Any]:
+    """Build agent instance rows from in-memory heartbeat state without touching Postgres."""
+    store = get_runtime_store()
+    now = datetime.now(timezone.utc)
+    instances: list[dict[str, Any]] = []
+
+    for name in ALL_AGENT_NAMES:
+        data = store.get_agent(name) or {}
+        status_raw = str(data.get(FieldName.STATUS) or "").strip().lower()
+        if status_raw not in {"active", "running", "live"}:
+            continue
+
+        started_at = _timestamp_from_agent_data(data, now)
+        last_seen = data.get(FieldName.LAST_SEEN)
+        try:
+            uptime_seconds = max(0, int(now.timestamp()) - int(float(last_seen)))
+        except (TypeError, ValueError):
+            uptime_seconds = 0
+
+        instances.append(
+            {
+                "id": str(data.get(FieldName.AGENT_ID) or f"memory:{name}"),
+                "instance_key": str(data.get("instance_key") or name.lower().replace("_", "-")),
+                "pool_name": str(data.get("pool_name") or name),
+                "status": "active",
+                "started_at": started_at,
+                "retired_at": None,
+                "event_count": int(data.get(FieldName.EVENT_COUNT) or 0),
+                "uptime_seconds": uptime_seconds,
+            }
+        )
+
+    return {
+        "instances": instances,
+        "active_count": len(instances),
+        "retired_count": 0,
+        "timestamp": now.isoformat(),
+        "source": "in_memory",
+    }
+
+
+def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
+    """Return proposal events from the runtime store without opening a DB session."""
+    safe_limit = max(1, min(limit, 200))
+    proposals: list[dict[str, Any]] = []
+    for event in get_runtime_store().get_events(limit=200):
+        if event.get(FieldName.LOG_TYPE) != LogType.PROPOSAL:
+            continue
+        payload = _as_dict(event.get(FieldName.PAYLOAD))
+        trace_id = (
+            event.get(FieldName.TRACE_ID)
+            or payload.get(FieldName.TRACE_ID)
+            or payload.get(FieldName.REFLECTION_TRACE_ID)
+            or payload.get(FieldName.MSG_ID)
+        )
+        proposal_id = str(trace_id or len(proposals) + 1)
+        timestamp = _timestamp_to_iso(
+            event.get(FieldName.CREATED_AT)
+            or event.get(FieldName.TIMESTAMP)
+            or payload.get(FieldName.TIMESTAMP)
+        )
+        proposals.append(
+            {
+                "id": proposal_id,
+                "symbol": payload.get(FieldName.SYMBOL),
+                "action": payload.get(FieldName.ACTION),
+                "grade_score": payload.get(FieldName.GRADE_SCORE),
+                "bias": payload.get(FieldName.BIAS),
+                "buys": payload.get("buys"),
+                "sells": payload.get("sells"),
+                "strategy_name": payload.get(FieldName.STRATEGY_NAME),
+                "trace_id": trace_id,
+                "created_at": timestamp,
+                "source": "in_memory",
+                "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
+                "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
+                "content": payload.get(FieldName.CONTENT, {}),
+                "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
+                "confidence": payload.get(FieldName.CONFIDENCE),
+                "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
+                "timestamp": timestamp,
+            }
+        )
+        if len(proposals) >= safe_limit:
+            break
+    return proposals
+
+
+def _set_payload_status(record: dict[str, Any], status: str) -> None:
+    payload = _as_dict(record.get(FieldName.PAYLOAD))
+    payload[FieldName.STATUS] = status
+    record[FieldName.PAYLOAD] = payload
+
+
+def _proposal_matches(record: dict[str, Any], proposal_id: str) -> bool:
+    payload = _as_dict(record.get(FieldName.PAYLOAD))
+    candidates = {
+        record.get("id"),
+        record.get(FieldName.TRACE_ID),
+        record.get(FieldName.MSG_ID),
+        payload.get(FieldName.TRACE_ID),
+        payload.get(FieldName.REFLECTION_TRACE_ID),
+        payload.get(FieldName.MSG_ID),
+    }
+    return proposal_id in {str(candidate) for candidate in candidates if candidate is not None}
+
+
+def _update_in_memory_proposal_status(proposal_id: str, status: str) -> bool:
+    store = get_runtime_store()
+    updated = False
+    for collection in (store.event_history, store.agent_logs):
+        for record in collection:
+            if record.get(FieldName.LOG_TYPE) == LogType.PROPOSAL and _proposal_matches(
+                record, proposal_id
+            ):
+                _set_payload_status(record, status)
+                updated = True
+    return updated
+
+
+def _in_memory_reflections(limit: int = 20) -> list[dict[str, Any]]:
+    """Return reflection logs from memory in the learning endpoint shape."""
+    safe_limit = max(1, min(limit, 200))
+    rows = [
+        row
+        for row in reversed(
+            get_runtime_store().agent_logs[-200:] + get_runtime_store().event_history[-200:]
+        )
+        if row.get(FieldName.LOG_TYPE) == LogType.REFLECTION
+    ][:safe_limit]
+    reflections = []
+    for row in rows:
+        payload = _as_dict(row.get(FieldName.PAYLOAD))
+        timestamp = _timestamp_to_iso(
+            row.get(FieldName.CREATED_AT)
+            or row.get(FieldName.TIMESTAMP)
+            or payload.get(FieldName.TIMESTAMP)
+        )
+        reflections.append(
+            {
+                "trace_id": row.get(FieldName.TRACE_ID) or payload.get(FieldName.TRACE_ID),
+                "summary": payload.get("summary", ""),
+                "hypotheses": payload.get("hypotheses", []),
+                "winning_factors": payload.get("winning_factors", []),
+                "losing_factors": payload.get("losing_factors", []),
+                "regime_edge": payload.get("regime_edge", {}),
+                "fills_analyzed": payload.get("fills_analyzed"),
+                "timestamp": timestamp,
+            }
+        )
+    return reflections
+
+
+def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
+    """Return trace details from memory without touching Postgres."""
+    store = get_runtime_store()
+    runs = [
+        {
+            "id": str(row.get("id") or row.get(FieldName.MSG_ID) or trace_id),
+            "agent_name": row.get(FieldName.AGENT_NAME) or row.get(FieldName.SOURCE),
+            "run_type": row.get("run_type"),
+            "status": row.get(FieldName.STATUS),
+            "input_data": row.get(FieldName.INPUT_DATA),
+            "output_data": row.get(FieldName.OUTPUT_DATA),
+            "execution_time_ms": row.get(FieldName.EXECUTION_TIME_MS),
+            "created_at": _timestamp_to_iso(row.get(FieldName.CREATED_AT)),
+        }
+        for row in store.agent_runs
+        if row.get(FieldName.TRACE_ID) == trace_id
+    ]
+    logs = []
+    for row in store.agent_logs + store.event_history:
+        payload = _as_dict(row.get(FieldName.PAYLOAD))
+        if row.get(FieldName.TRACE_ID) != trace_id and payload.get(FieldName.TRACE_ID) != trace_id:
+            continue
+        logs.append(
+            {
+                "id": str(row.get("id") or row.get(FieldName.MSG_ID) or len(logs) + 1),
+                "log_type": row.get(FieldName.LOG_TYPE) or payload.get(FieldName.LOG_TYPE),
+                "payload": payload or row.get(FieldName.PAYLOAD),
+                "created_at": _timestamp_to_iso(
+                    row.get(FieldName.CREATED_AT) or row.get(FieldName.TIMESTAMP)
+                ),
+            }
+        )
+    grades = [
+        {
+            "id": str(row.get("id") or row.get(FieldName.MSG_ID) or trace_id),
+            "agent_id": str(row.get(FieldName.AGENT_ID) or row.get(FieldName.AGENT_NAME) or ""),
+            "grade_type": row.get(FieldName.GRADE_TYPE) or row.get(FieldName.GRADE),
+            "score": row.get(FieldName.SCORE) or row.get(FieldName.SCORE_PCT),
+            "metrics": row.get(FieldName.METRICS, {}),
+            "created_at": _timestamp_to_iso(
+                row.get(FieldName.CREATED_AT) or row.get(FieldName.TIMESTAMP)
+            ),
+        }
+        for row in store.grade_history
+        if row.get(FieldName.TRACE_ID) == trace_id
+    ]
+    return {
+        "trace_id": trace_id,
+        "agent_runs": runs,
+        "agent_logs": logs,
+        "agent_grades": grades,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
+
+
+def _performance_trends_empty_payload(
+    *, source: str | None = None, error: str | None = None
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "summary": {
+            "total_pnl": 0.0,
+            "total_trades": 0,
+            "win_rate": 0.0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
+            "best_trade": 0.0,
+            "worst_trade": 0.0,
+        },
+        "daily_pnl": [],
+        "grade_trend": [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if source:
+        payload[FieldName.SOURCE] = source
+    if error:
+        payload[FieldName.ERROR] = error
+    return payload
+
+
 @router.get("/snapshot")
 async def get_dashboard_snapshot() -> dict[str, Any]:
     """
@@ -208,6 +471,13 @@ async def get_dashboard_state() -> dict[str, Any]:
 @router.get("/stream-lag")
 async def get_stream_lag() -> dict[str, Any]:
     """Get stream lag metrics per stream."""
+    if not is_db_available():
+        return {
+            "stream_lag": {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
@@ -229,6 +499,9 @@ async def get_stream_lag() -> dict[str, Any]:
 @router.get("/system-health")
 async def get_system_health() -> dict[str, Any]:
     """Get system health metrics."""
+    if not is_db_available():
+        return await MetricsAggregator(None, use_memory_store=True).get_system_health()
+
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
@@ -332,6 +605,9 @@ async def get_agent_metrics() -> dict[str, Any]:
 @router.get("/orders")
 async def get_order_metrics() -> dict[str, Any]:
     """Get order flow metrics."""
+    if not is_db_available():
+        return await MetricsAggregator(None, use_memory_store=True).get_order_metrics()
+
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
@@ -661,6 +937,13 @@ async def get_system_stream_metrics() -> dict[str, Any]:
 @router.get("/events/recent")
 async def get_recent_events() -> dict[str, Any]:
     """Get last 10 events from events table, with in-memory fallback."""
+    if not is_db_available():
+        return {
+            "events": get_runtime_store().get_events(limit=10),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
     try:
         async with AsyncSessionFactory() as session:
             from sqlalchemy import text
@@ -996,6 +1279,13 @@ async def list_proposals() -> dict[str, Any]:
     Prefer events-based proposals when available, but degrade gracefully on
     older schemas where the events table/columns do not exist.
     """
+    if not is_db_available():
+        return {
+            "proposals": _in_memory_proposals(limit=20),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
     try:
         proposals = []
 
@@ -1088,6 +1378,11 @@ async def list_proposals() -> dict[str, Any]:
 @router.post("/proposals/{proposal_id}/approve")
 async def approve_proposal(proposal_id: str) -> dict[str, Any]:
     """Mark a strategy proposal as approved."""
+    if not is_db_available():
+        if not _update_in_memory_proposal_status(proposal_id, ProposalStatus.APPROVED):
+            raise HTTPException(status_code=404, detail="Proposal not found") from None
+        return {"status": ProposalStatus.APPROVED, "id": proposal_id, "source": "in_memory"}
+
     try:
         async with AsyncSessionFactory() as session:
             async with session.begin():
@@ -1119,6 +1414,11 @@ async def approve_proposal(proposal_id: str) -> dict[str, Any]:
 @router.post("/proposals/{proposal_id}/reject")
 async def reject_proposal(proposal_id: str) -> dict[str, Any]:
     """Mark a strategy proposal as rejected."""
+    if not is_db_available():
+        if not _update_in_memory_proposal_status(proposal_id, ProposalStatus.REJECTED):
+            raise HTTPException(status_code=404, detail="Proposal not found") from None
+        return {"status": ProposalStatus.REJECTED, "id": proposal_id, "source": "in_memory"}
+
     try:
         async with AsyncSessionFactory() as session:
             async with session.begin():
@@ -1155,6 +1455,15 @@ async def reject_proposal(proposal_id: str) -> dict[str, Any]:
 @router.get("/learning/proposals")
 async def get_proposals(limit: int = 50) -> dict[str, Any]:
     """Get recent strategy proposals from agent_logs."""
+    if not is_db_available():
+        proposals = _in_memory_proposals(limit=limit)
+        return {
+            "proposals": proposals,
+            "total": len(proposals),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -1334,40 +1643,56 @@ async def get_ic_weights() -> dict[str, Any]:
         raw = await redis_client.get(REDIS_KEY_IC_WEIGHTS)
         weights = json.loads(raw) if raw else {}
         history_result: list[dict[str, Any]] = []
-        try:
-            async with AsyncSessionFactory() as session:
-                result = await session.execute(
-                    text("""
-                        SELECT factor_name, ic_score, computed_at
-                        FROM factor_ic_history
-                        ORDER BY computed_at DESC
-                        LIMIT 20
-                    """)
-                )
-                rows = result.all()
-                history_result = [
-                    {
-                        "factor": row[0],
-                        "ic_score": float(row[1]),
-                        "computed_at": row[2].isoformat() if row[2] else None,
-                    }
-                    for row in rows
-                ]
-        except Exception:
-            pass
+        if is_db_available():
+            try:
+                async with AsyncSessionFactory() as session:
+                    result = await session.execute(
+                        text("""
+                            SELECT factor_name, ic_score, computed_at
+                            FROM factor_ic_history
+                            ORDER BY computed_at DESC
+                            LIMIT 20
+                        """)
+                    )
+                    rows = result.all()
+                    history_result = [
+                        {
+                            "factor": row[0],
+                            "ic_score": float(row[1]),
+                            "computed_at": row[2].isoformat() if row[2] else None,
+                        }
+                        for row in rows
+                    ]
+            except Exception:
+                pass
         return {
             "current_weights": weights,
             "history": history_result,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "redis_cache" if is_db_available() else "in_memory",
         }
     except Exception:
         log_structured("error", "ic weights fetch failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        return {
+            "current_weights": {},
+            "history": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
 
 
 @router.get("/learning/reflections")
 async def get_reflections(limit: int = 20) -> dict[str, Any]:
     """Get recent reflection outputs from agent_logs."""
+    if not is_db_available():
+        reflections = _in_memory_reflections(limit=limit)
+        return {
+            "reflections": reflections,
+            "total": len(reflections),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -1384,12 +1709,12 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
         reflections = [
             {
                 "trace_id": row[0],
-                "summary": row[1].get("summary", ""),
-                "hypotheses": row[1].get("hypotheses", []),
-                "winning_factors": row[1].get("winning_factors", []),
-                "losing_factors": row[1].get("losing_factors", []),
-                "regime_edge": row[1].get("regime_edge", {}),
-                "fills_analyzed": row[1].get("fills_analyzed"),
+                "summary": _as_dict(row[1]).get("summary", ""),
+                "hypotheses": _as_dict(row[1]).get("hypotheses", []),
+                "winning_factors": _as_dict(row[1]).get("winning_factors", []),
+                "losing_factors": _as_dict(row[1]).get("losing_factors", []),
+                "regime_edge": _as_dict(row[1]).get("regime_edge", {}),
+                "fills_analyzed": _as_dict(row[1]).get("fills_analyzed"),
                 "timestamp": row[2].isoformat() if row[2] else None,
             }
             for row in rows
@@ -1411,6 +1736,11 @@ async def update_proposal_status(
     """Persist proposal approval or rejection back to agent_logs payload."""
     if status not in {ProposalStatus.APPROVED, ProposalStatus.REJECTED}:
         raise HTTPException(status_code=400, detail="status must be 'approved' or 'rejected'")
+    if not is_db_available():
+        if not _update_in_memory_proposal_status(trace_id, status):
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return {"trace_id": trace_id, "status": status, "source": "in_memory"}
+
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -1600,6 +1930,12 @@ async def get_learning_loop_state() -> dict[str, Any]:
 @router.get("/trace/{trace_id}")
 async def get_trace(trace_id: str) -> dict[str, Any]:
     """Return the full trace for a trace_id: agent_runs + agent_logs + agent_grades."""
+    if not is_db_available():
+        payload = _in_memory_trace_payload(trace_id)
+        if not payload["agent_runs"] and not payload["agent_logs"] and not payload["agent_grades"]:
+            raise HTTPException(status_code=404, detail="Trace not found") from None
+        return payload
+
     try:
         async with AsyncSessionFactory() as session:
             run_result = await session.execute(
@@ -1903,6 +2239,9 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
 @router.get("/performance-trends")
 async def get_performance_trends() -> dict[str, Any]:
     """Return agent grade history and daily P&L for the last 30 days."""
+    if not is_db_available():
+        return _performance_trends_empty_payload(source="in_memory")
+
     try:
         async with AsyncSessionFactory() as session:
             # Daily P&L from trade_lifecycle
@@ -1990,21 +2329,7 @@ async def get_performance_trends() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "performance_trends_failed", exc_info=True)
-        return {
-            "summary": {
-                "total_pnl": 0.0,
-                "total_trades": 0,
-                "win_rate": 0.0,
-                "avg_win": 0.0,
-                "avg_loss": 0.0,
-                "best_trade": 0.0,
-                "worst_trade": 0.0,
-            },
-            "daily_pnl": [],
-            "grade_trend": [],
-            "error": "performance_trends_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        return _performance_trends_empty_payload(error="performance_trends_unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -2019,6 +2344,9 @@ async def get_agent_instances() -> dict[str, Any]:
     Active instances show how long they have been running and how many events
     they have processed.  Retired instances are kept for audit.
     """
+    if not is_db_available():
+        return _in_memory_agent_instances_payload()
+
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(

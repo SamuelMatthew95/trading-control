@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from api.constants import LogType
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
@@ -195,8 +196,20 @@ class RequestStub:
         self.app = self._App()
 
 
+class _MemoryModeRedis:
+    async def mget(self, keys):
+        return [None for _ in keys]
+
+    async def get(self, _key):
+        return None
+
+    async def xlen(self, _stream):
+        return 0
+
+
 @pytest.mark.asyncio
 async def test_performance_trends_falls_back_when_query_fails(monkeypatch):
+    _enable_db(monkeypatch)
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_performance_trends()
 
@@ -208,6 +221,7 @@ async def test_performance_trends_falls_back_when_query_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_instances_falls_back_when_query_fails(monkeypatch):
+    _enable_db(monkeypatch)
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_agent_instances()
 
@@ -215,6 +229,43 @@ async def test_agent_instances_falls_back_when_query_fails(monkeypatch):
     assert payload["active_count"] == 0
     assert payload["retired_count"] == 0
     assert payload["error"] == "agent_instances_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_agent_instances_use_memory_without_opening_db_when_db_unavailable(monkeypatch):
+    def _raise_if_called():
+        raise AssertionError("DB session should not be created in memory mode")
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _raise_if_called)
+    store = InMemoryStore()
+    store.upsert_agent(
+        "SIGNAL_AGENT",
+        {
+            "status": "ACTIVE",
+            "event_count": 7,
+            "last_event": "heartbeat",
+            "last_seen": 1_710_000_000,
+            "last_seen_at": "2024-03-09T16:00:00Z",
+        },
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    payload = await dashboard_v2.get_agent_instances()
+
+    assert payload["source"] == "in_memory"
+    assert payload["active_count"] == 1
+    assert payload["retired_count"] == 0
+    assert len(payload["instances"]) == 1
+    row = payload["instances"][0]
+    assert row["id"] == "memory:SIGNAL_AGENT"
+    assert row["instance_key"] == "signal-agent"
+    assert row["pool_name"] == "SIGNAL_AGENT"
+    assert row["status"] == "active"
+    assert row["started_at"] == "2024-03-09T16:00:00Z"
+    assert row["retired_at"] is None
+    assert row["event_count"] == 7
+    assert row["uptime_seconds"] >= 0
 
 
 def test_system_metrics_alias_route_exists():
@@ -234,6 +285,7 @@ async def test_event_history_falls_back_when_query_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_learning_proposals_fallbacks_to_events_when_agent_logs_empty(monkeypatch):
+    _enable_db(monkeypatch)
     # First session (agent_logs query): empty. Second session (events query): one row.
     session_rows = [
         [[]],
@@ -254,6 +306,7 @@ async def test_learning_proposals_fallbacks_to_events_when_agent_logs_empty(monk
 
 @pytest.mark.asyncio
 async def test_learning_proposals_returns_empty_when_events_fallback_errors(monkeypatch):
+    _enable_db(monkeypatch)
     monkeypatch.setattr(
         dashboard_v2,
         "AsyncSessionFactory",
@@ -336,6 +389,7 @@ async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_proposals_endpoint_falls_back_to_agent_logs_when_events_unavailable(monkeypatch):
+    _enable_db(monkeypatch)
     session_rows = [
         [[]],
         [[("trace-99", {"symbol": "TSLA", "status": "pending"}, None)]],
@@ -351,6 +405,137 @@ async def test_proposals_endpoint_falls_back_to_agent_logs_when_events_unavailab
     assert len(payload["proposals"]) == 1
     assert payload["proposals"][0]["id"] == "trace-99"
     assert payload["proposals"][0]["source"] == "agent_logs"
+
+
+@pytest.mark.asyncio
+async def test_proposals_use_memory_without_opening_db_when_db_unavailable(monkeypatch):
+    def _raise_if_called():
+        raise AssertionError("DB session should not be created in memory mode")
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _raise_if_called)
+    store = InMemoryStore()
+    store.add_event(
+        {
+            "log_type": LogType.PROPOSAL,
+            "trace_id": "mem-proposal",
+            "payload": {
+                "proposal_type": "parameter_change",
+                "content": {"description": "Tighten sizing"},
+                "confidence": 0.82,
+                "status": "pending",
+            },
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    panel_payload = await dashboard_v2.list_proposals()
+    learning_payload = await dashboard_v2.get_proposals(limit=10)
+
+    assert panel_payload["source"] == "in_memory"
+    assert panel_payload["proposals"][0]["id"] == "mem-proposal"
+    assert learning_payload["source"] == "in_memory"
+    assert learning_payload["total"] == 1
+    assert learning_payload["proposals"][0]["content"]["description"] == "Tighten sizing"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_memory_mode_never_opens_db_sessions(monkeypatch):
+    factory_calls = []
+
+    def _record_db_call():
+        factory_calls.append("called")
+        return _ExplodingSession()
+
+    async def _get_redis():
+        return _MemoryModeRedis()
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _record_db_call)
+    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    store = InMemoryStore()
+    store.add_event(
+        {
+            "id": "mem-proposal-event",
+            "log_type": LogType.PROPOSAL,
+            "trace_id": "mem-proposal",
+            "payload": {
+                "proposal_type": "parameter_change",
+                "content": {"description": "Memory proposal"},
+                "status": "pending",
+            },
+        }
+    )
+    store.add_agent_log(
+        {
+            "log_type": LogType.REFLECTION,
+            "trace_id": "mem-trace",
+            "payload": {"summary": "Memory reflection", "hypotheses": ["size down"]},
+        }
+    )
+    store.add_agent_run(
+        {
+            "id": "run-1",
+            "trace_id": "mem-trace",
+            "agent_name": "ReflectionAgent",
+            "status": "completed",
+        }
+    )
+    store.add_grade({"trace_id": "mem-trace", "grade": "B", "score": 0.74})
+    store.add_order({"order_id": "ord-1", "symbol": "SPY", "status": "filled", "pnl": 12.0})
+    store.upsert_position("SPY", {"symbol": "SPY", "side": "long", "qty": 1, "unrealized_pnl": 3})
+    store.upsert_trade_fill(
+        {
+            "id": "trade-1",
+            "symbol": "SPY",
+            "side": "buy",
+            "qty": 1,
+            "entry_price": 500,
+            "execution_trace_id": "mem-trace",
+            "status": "filled",
+            "pnl": 12.0,
+        }
+    )
+    store.upsert_agent(
+        "SIGNAL_AGENT",
+        {"status": "ACTIVE", "event_count": 1, "last_seen": 1_710_000_000},
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    payloads = [
+        await dashboard_v2.get_dashboard_snapshot(),
+        await dashboard_v2.get_dashboard_state(),
+        await dashboard_v2.get_stream_lag(),
+        await dashboard_v2.get_system_health(),
+        await dashboard_v2.get_pnl_metrics(),
+        await dashboard_v2.get_paired_pnl(RequestStub()),
+        await dashboard_v2.get_agent_metrics(),
+        await dashboard_v2.get_order_metrics(),
+        await dashboard_v2.get_flow_status(),
+        await dashboard_v2.get_prices(),
+        await dashboard_v2.get_agents_status(),
+        await dashboard_v2.get_system_stream_metrics(),
+        await dashboard_v2.get_recent_events(),
+        await dashboard_v2.get_event_history(),
+        await dashboard_v2.list_proposals(),
+        await dashboard_v2.get_proposals(limit=10),
+        await dashboard_v2.get_grade_history(limit=10),
+        await dashboard_v2.get_ic_weights(),
+        await dashboard_v2.get_reflections(limit=10),
+        await dashboard_v2.get_trace("mem-trace"),
+        await dashboard_v2.get_trade_feed(limit=10),
+        await dashboard_v2.get_performance_trends(),
+        await dashboard_v2.get_agent_instances(),
+        await dashboard_v2.approve_proposal("mem-proposal"),
+        await dashboard_v2.reject_proposal("mem-proposal"),
+        await dashboard_v2.update_proposal_status("mem-proposal", status="approved"),
+    ]
+
+    assert factory_calls == []
+    assert all(isinstance(payload, dict) for payload in payloads)
+    assert payloads[14]["proposals"][0]["source"] == "in_memory"
+    assert payloads[18]["reflections"][0]["summary"] == "Memory reflection"
+    assert payloads[19]["source"] == "in_memory"
 
 
 @pytest.mark.asyncio

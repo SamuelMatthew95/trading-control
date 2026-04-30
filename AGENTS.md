@@ -24,3 +24,13 @@ Rules:
 - Keep changes minimal and deterministic.
 - Prefer safe fallbacks over risky behavior in trading logic.
 - Update tests for behavior changes and keep assertions explicit.
+
+## Runtime fallback contract
+
+The app is deliberately memory-first when `api.runtime_state.is_db_available()` is false.
+
+- Dashboard, websocket hydration, and metrics read paths must check `is_db_available()` before creating any SQLAlchemy session.
+- Do not add `Depends(get_db)`, `DBSessionDep`, `AsyncSession`, or unconditional `AsyncSessionFactory()` usage to dashboard read routes.
+- If a route can serve from `get_runtime_store()`, it must return a memory payload with `source: "in_memory"` instead of probing Postgres.
+- Service-layer readers such as `MetricsAggregator` must support a no-session memory path for dashboard hydration.
+- Any new dashboard/metrics route must be covered by a memory-mode regression test that sets `set_db_available(False)` and proves no DB session factory is called.

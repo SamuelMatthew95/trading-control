@@ -37,7 +37,6 @@ from api.constants import (
     SOURCE_REASONING,
     SOURCE_REFLECTION,
     SOURCE_STRATEGY_PROPOSER,
-    STOP_LOSS_PCT,
     STREAM_AGENT_GRADES,
     STREAM_AGENT_LOGS,
     STREAM_DECISIONS,
@@ -52,7 +51,6 @@ from api.constants import (
     STREAM_SIGNALS,
     STREAM_TRADE_COMPLETED,
     STREAM_TRADE_PERFORMANCE,
-    TAKE_PROFIT_PCT,
     FieldName,
     Grade,
     HypothesisType,
@@ -75,6 +73,11 @@ from api.services.agents.db_helpers import (
     persist_proposal,
     write_agent_log,
     write_grade_to_db,
+)
+from api.services.agents.notification_payloads import (
+    build_execution_message,
+    build_trade_notification,
+    build_trade_notification_type,
 )
 from api.services.agents.prompts import (
     FALLBACK_REFLECTION,
@@ -1070,27 +1073,6 @@ class NotificationAgent(MultiStreamAgent):
     # Rich per-stream message builders
     # ------------------------------------------------------------------
 
-    def _msg_execution(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get(FieldName.SYMBOL) or "?")
-        side = str(data.get(FieldName.SIDE) or "").upper()
-        qty = float(data.get(FieldName.QTY) or 0)
-        fill_price = float(data.get(FieldName.FILL_PRICE) or data.get(FieldName.PRICE) or 0)
-        dollar_value = fill_price * qty
-
-        parts = [f"{side} FILLED — {symbol}"]
-        if fill_price > 0:
-            parts.append(
-                f"Price: ${fill_price:,.2f} | Qty: {qty:.4g} | Value: ${dollar_value:,.2f}"
-            )
-        if side == "BUY" and fill_price > 0:
-            stop_price = fill_price * (1 - STOP_LOSS_PCT)
-            tp_price = fill_price * (1 + TAKE_PROFIT_PCT)
-            parts.append(
-                f"Stop: ${stop_price:,.2f} (-{STOP_LOSS_PCT:.0%}) | "
-                f"TP: ${tp_price:,.2f} (+{TAKE_PROFIT_PCT:.0%})"
-            )
-        return " · ".join(parts)
-
     def _msg_trade_performance(self, data: dict[str, Any]) -> str:
         symbol = str(data.get(FieldName.SYMBOL) or "?")
         side = str(data.get(FieldName.SIDE) or "").upper()
@@ -1148,7 +1130,7 @@ class NotificationAgent(MultiStreamAgent):
 
     def _build_message(self, stream: str, event_type: str, data: dict[str, Any]) -> str:
         if stream == STREAM_EXECUTIONS:
-            return self._msg_execution(data)
+            return build_execution_message(data)
         if stream == STREAM_TRADE_PERFORMANCE:
             return self._msg_trade_performance(data)
         if stream == STREAM_SIGNALS:
@@ -1186,9 +1168,9 @@ class NotificationAgent(MultiStreamAgent):
 
     def _build_notification_type(self, stream: str, data: dict[str, Any]) -> str:
         if stream == STREAM_EXECUTIONS:
-            side = str(data.get(FieldName.SIDE) or "").lower()
+            side = str(data.get(FieldName.SIDE) or data.get(FieldName.ACTION) or "").lower()
             return (
-                f"execution.{side}"
+                build_trade_notification_type(side)
                 if side in {OrderSide.BUY, OrderSide.SELL}
                 else f"stream:{stream}"
             )
@@ -1234,6 +1216,13 @@ class NotificationAgent(MultiStreamAgent):
             await self._heartbeat(stream, data)
             return
 
+        event_type = str(
+            data.get(FieldName.TYPE) or data.get(FieldName.NOTIFICATION_TYPE) or stream
+        )
+        if event_type.lower() != "order_filled":
+            await self._heartbeat(stream, data, event_type=event_type)
+            return
+
         # Require a valid buy/sell side on the fill before surfacing it.
         side_raw = str(data.get(FieldName.SIDE) or data.get(FieldName.ACTION) or "").strip().lower()
         try:
@@ -1248,9 +1237,6 @@ class NotificationAgent(MultiStreamAgent):
             await self._heartbeat(stream, data)
             return
 
-        event_type = str(
-            data.get(FieldName.TYPE) or data.get(FieldName.NOTIFICATION_TYPE) or stream
-        )
         symbol_key = str(data.get(FieldName.SYMBOL) or data.get("asset") or "")
         trace_key = str(data.get(FieldName.TRACE_ID) or data.get(FieldName.MSG_ID) or "")
         dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
@@ -1268,18 +1254,17 @@ class NotificationAgent(MultiStreamAgent):
         now_iso = datetime.now(timezone.utc).isoformat()
         severity = self._classify_severity(stream, data)
         msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
-
-        notification = {
-            "msg_id": str(uuid.uuid4()),
-            "schema_version": DB_SCHEMA_VERSION,
-            "source": SOURCE_NOTIFICATION,
-            "severity": severity,
-            "notification_type": self._build_notification_type(stream, data),
-            "stream_source": stream,
-            "message": self._build_message(stream, event_type, data),
-            "metadata": {"observed_msg_id": msg_id, "stream": stream, "event_type": event_type},
-            "timestamp": now_iso,
-        }
+        notification = build_trade_notification(
+            data=data,
+            side=side_raw,
+            stream=stream,
+            event_type=event_type,
+            observed_msg_id=msg_id,
+            severity=severity,
+            timestamp=now_iso,
+            schema_version=DB_SCHEMA_VERSION,
+            source=SOURCE_NOTIFICATION,
+        )
 
         try:
             from api.core.writer.safe_writer import SafeWriter
@@ -1330,6 +1315,13 @@ class NotificationAgent(MultiStreamAgent):
         if stream == STREAM_TRADE_PERFORMANCE:
             pnl = float(data.get(FieldName.PNL) or 0.0)
             if pnl < 0:
+                return Severity.WARNING
+        if stream == STREAM_EXECUTIONS:
+            try:
+                pnl = float(data.get(FieldName.PNL))
+            except (TypeError, ValueError):
+                pnl = None
+            if pnl is not None and pnl < 0:
                 return Severity.WARNING
         return _STREAM_SEVERITY.get(stream, Severity.INFO)
 
