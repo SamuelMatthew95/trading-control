@@ -29,6 +29,11 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agent_state import AgentStateRegistry
+from api.services.persistence_routing import (
+    PersistRoute,
+    determine_persist_route,
+    write_event_to_memory,
+)
 
 
 class EventPipeline:
@@ -299,9 +304,23 @@ class EventPipeline:
         self._recent_events.appendleft(outbound)
 
     async def _persist_event(self, stream: str, msg_id: str, event: dict[str, Any]) -> None:
-        # NOTE: system_metrics is intentionally omitted — write_system_metric has a
-        # different positional signature that is incompatible with (msg_id, stream, data).
-        # Agents write system_metrics directly; the pipeline just broadcasts them.
+        # Route is selected before any write attempt — no exception-driven fallbacks.
+        route = determine_persist_route(stream, event)
+
+        if route == PersistRoute.SKIP:
+            return
+
+        if route == PersistRoute.MEMORY:
+            write_event_to_memory(stream, msg_id, event, get_runtime_store())
+            log_structured(
+                "info",
+                "pipeline_event_routed_to_memory",
+                stream=stream,
+                msg_id=msg_id,
+            )
+            return
+
+        # DB route — system_metrics is intentionally omitted (different signature).
         writer_methods = {
             STREAM_ORDERS: self.safe_writer.write_order,
             STREAM_EXECUTIONS: self.safe_writer.write_execution,

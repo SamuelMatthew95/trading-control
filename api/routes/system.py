@@ -227,7 +227,7 @@ async def stream_agent_logs(
                     params[FieldName.AGENT_ID] = agent_id
                 if level:
                     base_sql += " AND LOWER(COALESCE(" + level_col + "::text, '')) = :level"
-                    params["level"] = level.lower()
+                    params[FieldName.LEVEL] = level.lower()
                 base_sql += f" ORDER BY {time_col} DESC LIMIT :limit"
 
                 result = await session.execute(text(base_sql), params)
