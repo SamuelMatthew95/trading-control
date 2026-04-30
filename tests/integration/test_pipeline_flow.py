@@ -169,6 +169,16 @@ def test_should_route_agent_log_to_memory_wrong_schema_version():
     assert should_route_agent_log_to_memory(event) is True
 
 
+def test_should_route_agent_log_to_memory_missing_source():
+    event = {"schema_version": "v3", "trace_id": "t", "level": "INFO", "message": "hi"}
+    assert should_route_agent_log_to_memory(event) is True
+
+
+def test_should_route_agent_log_to_memory_missing_trace_id():
+    event = {"schema_version": "v3", "source": "s", "level": "INFO", "message": "hi"}
+    assert should_route_agent_log_to_memory(event) is True
+
+
 def test_should_route_agent_log_to_memory_all_fields_present():
     event = {
         "schema_version": "v3",
@@ -236,6 +246,38 @@ def test_write_event_to_memory_generic_fallback():
     write_event_to_memory("risk_alerts", "m6", event, store)
     assert len(store.event_history) == 1
     assert store.event_history[0]["kind"] == "risk_alerts"
+
+
+def test_write_event_to_memory_executions_generic_fallback():
+    store = InMemoryStore()
+    write_event_to_memory("executions", "m7", {"fill_price": 100.0}, store)
+    assert len(store.event_history) == 1
+    assert store.event_history[0]["kind"] == "executions"
+
+
+def test_write_event_to_memory_proposals_generic_fallback():
+    store = InMemoryStore()
+    write_event_to_memory("proposals", "m8", {"proposal_type": "rebalance"}, store)
+    assert len(store.event_history) == 1
+    assert store.event_history[0]["kind"] == "proposals"
+
+
+def test_write_event_to_memory_reflection_outputs_generic_fallback():
+    store = InMemoryStore()
+    write_event_to_memory("reflection_outputs", "m9", {"insights": []}, store)
+    assert len(store.event_history) == 1
+
+
+def test_write_event_to_memory_factor_ic_history_generic_fallback():
+    store = InMemoryStore()
+    write_event_to_memory("factor_ic_history", "m10", {"factor_name": "momentum"}, store)
+    assert len(store.event_history) == 1
+
+
+def test_write_event_to_memory_notifications_generic_fallback():
+    store = InMemoryStore()
+    write_event_to_memory("notifications", "m11", {"message": "order filled"}, store)
+    assert len(store.event_history) == 1
 
 
 # ---------------------------------------------------------------------------
