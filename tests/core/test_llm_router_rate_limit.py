@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+import pytest  # noqa: E402
 
 from api.services.llm_router import _extract_gemini_retry_delay
-
 
 # ---------------------------------------------------------------------------
 # _extract_gemini_retry_delay
@@ -57,8 +55,6 @@ async def test_call_gemini_success_no_sleep():
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", new_callable=AsyncMock) as mock_thread,
     ):
-        import google.generativeai as genai  # noqa: F401 — imported for patching
-
         mock_thread.return_value = fake_response
 
         from api.services.llm_router import _call_gemini
@@ -85,8 +81,6 @@ async def test_call_gemini_rate_limit_then_success():
         patch("api.services.llm_router.settings") as mock_settings,
     ):
         mock_settings.LLM_MAX_RETRIES = 2
-
-        from importlib import reload
 
         import api.services.llm_router as router_mod
 
