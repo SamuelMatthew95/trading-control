@@ -45,9 +45,20 @@ determine_persist_route(stream, event) → PersistRoute.DB | MEMORY | SKIP
 
 | Route | When selected | Action |
 |-------|--------------|--------|
-| `SKIP` | Stream has no writer, or DB unavailable and stream is not agent_logs | Return immediately — no write |
-| `MEMORY` | `agent_logs` stream with a malformed payload (missing required fields) | Write to `InMemoryStore.add_agent_log()`, log a `warning` |
-| `DB` | DB available and payload passes field validation | Call the matching `SafeWriter` method |
+| `SKIP` | Stream is not handled by the pipeline writers | Return immediately — no write |
+| `MEMORY` | DB unavailable (any handled stream), **or** `agent_logs` with a malformed payload even when DB is up | Call `write_event_to_memory()` → dispatches to the correct `InMemoryStore` bucket; logs a `warning` |
+| `DB` | DB available and payload is well-formed | Call the matching `SafeWriter` method |
+
+`write_event_to_memory` dispatches each stream to its dedicated store method:
+
+| Stream | InMemoryStore method |
+|--------|---------------------|
+| `agent_logs` | `add_agent_log()` (normalised via `build_memory_agent_log_row`) |
+| `orders` | `add_order()` |
+| `agent_grades` | `add_grade()` |
+| `learning_events` | `add_vector_memory()` |
+| `trade_performance` | `upsert_trade_fill()` |
+| everything else | `add_event()` (generic fallback — nothing is dropped) |
 
 **Rule:** Never add a bare `try/except` around a pipeline write to handle missing
 fields.  Instead, extend `should_route_agent_log_to_memory` (or add an analogous
