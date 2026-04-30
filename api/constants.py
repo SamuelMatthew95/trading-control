@@ -171,6 +171,7 @@ class FieldName(StrEnum):
     CONFIDENCE = "confidence"
     CONTENT = "content"
     CONTENT_TYPE = "content_type"
+    COST_USD = "cost_usd"
     CREATED_AT = "created_at"
     DATA = "data"
     DIRECTION = "direction"
@@ -193,6 +194,7 @@ class FieldName(StrEnum):
     EXTERNAL_ORDER_ID = "external_order_id"
     FACTOR_ID = "factor_id"
     FACTOR_NAME = "factor_name"
+    FALLBACK = "fallback"
     FEEDBACK = "feedback"
     FILL_PRICE = "fill_price"
     FILLED_AT = "filled_at"
@@ -213,6 +215,7 @@ class FieldName(StrEnum):
     LAST_PRICE = "last_price"
     LAST_SEEN = "last_seen"
     LAST_SEEN_AT = "last_seen_at"
+    LATENCY_MS = "latency_ms"
     LOG_LEVEL = "log_level"
     LOG_TYPE = "log_type"
     MARKET_VALUE = "market_value"
@@ -252,6 +255,7 @@ class FieldName(StrEnum):
     RUN_ID = "run_id"
     SCHEMA_VERSION = "schema_version"
     SCORE = "score"
+    SIGNAL = "signal"
     SCORE_PCT = "score_pct"
     SESSION_ID = "session_id"
     SHARPE_RATIO = "sharpe_ratio"
@@ -497,24 +501,34 @@ LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
 LLM_FALLBACK_MODE_USE_LAST_REFLECTION: Final[str] = "use_last_reflection"
 LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
 
+# Symbol constants
+SYMBOL_BTC_USD: Final[str] = "BTC/USD"
+SYMBOL_ETH_USD: Final[str] = "ETH/USD"
+SYMBOL_SOL_USD: Final[str] = "SOL/USD"
+SYMBOL_SPY: Final[str] = "SPY"
+SYMBOL_AAPL: Final[str] = "AAPL"
+SYMBOL_NVDA: Final[str] = "NVDA"
+SYMBOL_MSFT: Final[str] = "MSFT"
+SYMBOL_GOOGL: Final[str] = "GOOGL"
+
 # Valid symbols for trading
 VALID_SYMBOLS: Final[set[str]] = {
-    "BTC/USD",
-    "ETH/USD",
-    "SOL/USD",
-    "SPY",
-    "AAPL",
-    "NVDA",
-    "MSFT",
-    "GOOGL",
+    SYMBOL_BTC_USD,
+    SYMBOL_ETH_USD,
+    SYMBOL_SOL_USD,
+    SYMBOL_SPY,
+    SYMBOL_AAPL,
+    SYMBOL_NVDA,
+    SYMBOL_MSFT,
+    SYMBOL_GOOGL,
 }
 
 # Initial symbol prices for paper mode
 INITIAL_PRICES: Final[dict[str, float]] = {
-    "BTC/USD": 67000.0,
-    "ETH/USD": 3500.0,
-    "SOL/USD": 145.0,
-    "SPY": 510.0,
-    "AAPL": 178.0,
-    "NVDA": 875.0,
+    SYMBOL_BTC_USD: 67000.0,
+    SYMBOL_ETH_USD: 3500.0,
+    SYMBOL_SOL_USD: 145.0,
+    SYMBOL_SPY: 510.0,
+    SYMBOL_AAPL: 178.0,
+    SYMBOL_NVDA: 875.0,
 }

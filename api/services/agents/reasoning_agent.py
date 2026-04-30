@@ -507,7 +507,7 @@ class ReasoningAgent(BaseStreamConsumer):
         """Enforce capital-preservation-first decision hierarchy."""
         safe_decision = dict(decision)
         risk_factors = list(safe_decision.get(FieldName.RISK_FACTORS) or [])
-        action = str(safe_decision.get(FieldName.ACTION, "hold")).lower()
+        action = str(safe_decision.get(FieldName.ACTION, AgentAction.HOLD)).lower()
 
         # 1) Capital preservation hard stop.
         drawdown = float(context.get("risk_state", {}).get("drawdown") or 0.0)
@@ -565,7 +565,9 @@ class ReasoningAgent(BaseStreamConsumer):
     async def _apply_fallback(
         self, data: dict[str, Any], trace_id: str, reason: str
     ) -> dict[str, Any]:
-        base_action = str(data.get(FieldName.ACTION) or data.get("signal") or "hold").lower()
+        base_action = str(
+            data.get(FieldName.ACTION) or data.get(FieldName.SIGNAL) or AgentAction.HOLD
+        ).lower()
         signal_direction = str(data.get(FieldName.DIRECTION) or "").lower()
         if base_action in {"none", "", AgentAction.HOLD}:
             if signal_direction in {"bullish", AgentAction.BUY, "long"}:
@@ -680,22 +682,22 @@ class ReasoningAgent(BaseStreamConsumer):
                 ) RETURNING id
             """),
             {
-                "strategy_id": data.get(FieldName.STRATEGY_ID),
-                "symbol": data.get(FieldName.SYMBOL),
+                FieldName.STRATEGY_ID: data.get(FieldName.STRATEGY_ID),
+                FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 "signal_data": json.dumps(data, default=str),
-                "action": summary[FieldName.ACTION],
-                "confidence": summary[FieldName.CONFIDENCE],
-                "primary_edge": summary[FieldName.PRIMARY_EDGE],
-                "risk_factors": json.dumps(summary[FieldName.RISK_FACTORS], default=str),
-                "size_pct": summary[FieldName.SIZE_PCT],
-                "stop_atr_x": summary[FieldName.STOP_ATR_X],
-                "rr_ratio": summary[FieldName.RR_RATIO],
-                "latency_ms": summary["latency_ms"],
-                "cost_usd": summary["cost_usd"],
-                "trace_id": trace_id,
-                "fallback": fallback,
-                "source": AGENT_REASONING,
-                "schema_version": DB_SCHEMA_VERSION,
+                FieldName.ACTION: summary[FieldName.ACTION],
+                FieldName.CONFIDENCE: summary[FieldName.CONFIDENCE],
+                FieldName.PRIMARY_EDGE: summary[FieldName.PRIMARY_EDGE],
+                FieldName.RISK_FACTORS: json.dumps(summary[FieldName.RISK_FACTORS], default=str),
+                FieldName.SIZE_PCT: summary[FieldName.SIZE_PCT],
+                FieldName.STOP_ATR_X: summary[FieldName.STOP_ATR_X],
+                FieldName.RR_RATIO: summary[FieldName.RR_RATIO],
+                FieldName.LATENCY_MS: summary[FieldName.LATENCY_MS],
+                FieldName.COST_USD: summary[FieldName.COST_USD],
+                FieldName.TRACE_ID: trace_id,
+                FieldName.FALLBACK: fallback,
+                FieldName.SOURCE: AGENT_REASONING,
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
             },
         )
         return str(result.scalar_one())
@@ -757,7 +759,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.ACTION: summary.get(FieldName.ACTION),
                 "confidence": summary.get(FieldName.CONFIDENCE),
-                "fallback": fallback,
+                FieldName.FALLBACK: fallback,
                 FieldName.SOURCE: AGENT_REASONING,
                 FieldName.STATUS: "running",
             }
