@@ -216,6 +216,7 @@ class FieldName(StrEnum):
     LAST_SEEN = "last_seen"
     LAST_SEEN_AT = "last_seen_at"
     LATENCY_MS = "latency_ms"
+    LEVEL = "level"
     LOG_LEVEL = "log_level"
     LOG_TYPE = "log_type"
     MARKET_VALUE = "market_value"
