@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from api.constants import FieldName
 from api.events.bus import PIPELINE_GROUP
 from api.events.dlq import DLQManager
 from api.in_memory_store import InMemoryStore
@@ -228,3 +229,49 @@ async def test_pipeline_routes_malformed_agent_log_to_memory(monkeypatch):
     # Event still acked and broadcast
     assert bus.acked == [("agent_logs", PIPELINE_GROUP, "3-0")]
     assert any(m.get("type") == "event" for m in ws.sent)
+
+
+def test_determine_persist_route_memory_for_valid_agent_log_when_db_down(monkeypatch):
+    """Well-formed agent_logs must route to MEMORY when DB is unavailable, not SKIP."""
+    monkeypatch.setattr("api.services.persistence_routing.is_db_available", lambda: False)
+    event = {
+        "schema_version": "v3",
+        "source": "s",
+        "trace_id": "t",
+        "level": "INFO",
+        "message": "hello",
+    }
+    route = determine_persist_route("agent_logs", event)
+    assert route == PersistRoute.MEMORY
+
+
+@pytest.mark.asyncio
+async def test_pipeline_persists_valid_agent_log_to_memory_when_db_down(monkeypatch):
+    """Valid agent_log is written to InMemoryStore when DB is unavailable."""
+    store = InMemoryStore()
+    set_runtime_store(store)
+    set_db_available(False)
+    monkeypatch.setattr("api.services.persistence_routing.is_db_available", lambda: False)
+
+    bus = _FakeBus()
+    ws = _FakeBroadcaster()
+    dlq = DLQManager(_FakeRedis(), bus)
+    pipeline = EventPipeline(bus, ws, dlq)
+    writer = _FakeWriter()
+    pipeline.safe_writer = writer
+
+    valid_log = {
+        "schema_version": "v3",
+        "source": "reasoning_agent",
+        "trace_id": "trace-123",
+        "level": "INFO",
+        "message": "trade decision made",
+    }
+    await pipeline._process_message(
+        "agent_logs", "4-0", valid_log, "agent_log", "al2", "2026-01-01T00:00:00Z"
+    )
+
+    assert writer.calls == []
+    assert len(store.agent_logs) == 1
+    assert store.agent_logs[0][FieldName.SOURCE] == "reasoning_agent"
+    assert bus.acked == [("agent_logs", PIPELINE_GROUP, "4-0")]

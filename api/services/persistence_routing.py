@@ -84,14 +84,17 @@ def determine_persist_route(stream: str, event: dict[str, Any]) -> PersistRoute:
     Decision order:
       1. Stream not handled by pipeline writers → SKIP.
       2. agent_logs stream with malformed payload → MEMORY.
-      3. DB unavailable → SKIP (no generic memory fallback for non-log streams).
-      4. → DB.
+      3. DB unavailable + agent_logs stream → MEMORY (never silently drop logs).
+      4. DB unavailable for any other stream → SKIP.
+      5. → DB.
     """
     if stream not in _DB_STREAMS:
         return PersistRoute.SKIP
     if stream == STREAM_AGENT_LOGS and should_route_agent_log_to_memory(event):
         return PersistRoute.MEMORY
     if not is_db_available():
+        if stream == STREAM_AGENT_LOGS:
+            return PersistRoute.MEMORY
         return PersistRoute.SKIP
     return PersistRoute.DB
 
