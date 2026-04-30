@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from api.config import settings
 from api.constants import AgentAction, FieldName
@@ -143,6 +144,14 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     return _parse_response(text, trace_id, cost_usd), tokens, cost_usd
 
 
+def _extract_gemini_retry_delay(exc: Exception) -> float | None:
+    """Parse the suggested retry delay from a Gemini ResourceExhausted message."""
+    match = re.search(r"retry in (\d+(?:\.\d+)?)s", str(exc), re.IGNORECASE)
+    if match:
+        return float(match.group(1))
+    return None
+
+
 def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return (
@@ -179,12 +188,14 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
             return _parse_response(text, trace_id, 0.0), tokens, 0.0
         except Exception as exc:
             if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                delay = 2**attempt
+                suggested = _extract_gemini_retry_delay(exc)
+                delay = min(suggested, 120.0) if suggested is not None else 2**attempt
                 log_structured(
                     "warning",
                     "gemini_rate_limit_retry",
                     attempt=attempt + 1,
                     backoff_seconds=delay,
+                    trace_id=trace_id,
                 )
                 await asyncio.sleep(delay)
                 continue
@@ -292,12 +303,14 @@ async def _call_provider_raw(
                 return text, tokens, 0.0
             except Exception as exc:
                 if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                    delay = 2**attempt
+                    suggested = _extract_gemini_retry_delay(exc)
+                    delay = min(suggested, 120.0) if suggested is not None else 2**attempt
                     log_structured(
                         "warning",
                         "gemini_rate_limit_retry",
                         attempt=attempt + 1,
                         backoff_seconds=delay,
+                        trace_id=trace_id,
                     )
                     await asyncio.sleep(delay)
                     continue
