@@ -255,10 +255,12 @@ function NotificationFeed({
   notifications,
   wsConnected,
   onAcknowledge,
+  onClear,
 }: {
   notifications: Notification[]
   wsConnected: boolean
   onAcknowledge: (id: string) => void
+  onClear: () => void | Promise<void>
 }) {
   const unread = notifications.filter((n) => !n.acknowledged)
   return (
@@ -273,6 +275,15 @@ function NotificationFeed({
             <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white" title={`${unread.length} unread`}>{unread.length} unread</span>
           )}
           <p className={mutedClass}>{notifications.length} total</p>
+          {notifications.length > 0 && (
+            <button
+              onClick={() => { void onClear() }}
+              className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-500 transition-colors hover:border-rose-300 hover:text-rose-500 dark:border-slate-700 dark:hover:border-rose-600"
+              title="Clear all notifications"
+            >
+              Clear all
+            </button>
+          )}
         </div>
       </div>
       {notifications.length === 0 ? (
@@ -642,6 +653,7 @@ export function DashboardView({ section }: { section: Section }) {
     recentEvents = [],
     agentStatuses = [],
     acknowledgeNotification,
+    clearNotifications,
     updateProposalStatus,
   } = useCodexStore()
 
@@ -1696,7 +1708,7 @@ export function DashboardView({ section }: { section: Section }) {
             )}
           </div>
 
-          <NotificationFeed notifications={notifications} wsConnected={wsConnected} onAcknowledge={acknowledgeNotification} />
+          <NotificationFeed notifications={notifications} wsConnected={wsConnected} onAcknowledge={acknowledgeNotification} onClear={clearNotifications} />
         </div>
       )}
 

@@ -65,7 +65,7 @@ from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.runtime_state import is_db_available
+from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
@@ -1219,7 +1219,22 @@ class NotificationAgent(MultiStreamAgent):
     _PUBLISH_STREAMS: frozenset[str] = frozenset({STREAM_EXECUTIONS})
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        # Centralised recorder: any notification published by another agent
+        # directly to STREAM_NOTIFICATIONS still needs to land in the
+        # in-memory buffer so /dashboard/state can hydrate the UI on reload.
+        # We skip our own re-emits (source == SOURCE_NOTIFICATION) to avoid
+        # double-counting and never republish from this branch.
         if stream == STREAM_NOTIFICATIONS:
+            if data.get(FieldName.SOURCE) != SOURCE_NOTIFICATION:
+                try:
+                    get_runtime_store().record_notification(data)
+                except Exception:
+                    log_structured(
+                        "warning",
+                        "notification_record_failed",
+                        stream=stream,
+                        exc_info=True,
+                    )
             return
 
         # Track cumulative session PnL from closing fills — runs even when the
@@ -1267,7 +1282,7 @@ class NotificationAgent(MultiStreamAgent):
 
         now_iso = datetime.now(timezone.utc).isoformat()
         severity = self._classify_severity(stream, data)
-        msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
+        observed_msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
 
         notification = {
             "msg_id": str(uuid.uuid4()),
@@ -1277,19 +1292,44 @@ class NotificationAgent(MultiStreamAgent):
             "notification_type": self._build_notification_type(stream, data),
             "stream_source": stream,
             "message": self._build_message(stream, event_type, data),
-            "metadata": {"observed_msg_id": msg_id, "stream": stream, "event_type": event_type},
+            "metadata": {
+                "observed_msg_id": observed_msg_id,
+                "stream": stream,
+                "event_type": event_type,
+            },
             "timestamp": now_iso,
         }
 
+        # InMemoryStore is the single source of truth for the UI. Record first,
+        # then publish to the bus so REST hydration (/dashboard/state) and the
+        # live WebSocket stream stay consistent even if the bus call fails.
         try:
-            from api.core.writer.safe_writer import SafeWriter
-
-            writer = SafeWriter(AsyncSessionFactory)
-            await writer.write_notification(
-                notification[FieldName.MSG_ID], STREAM_NOTIFICATIONS, notification
-            )
+            get_runtime_store().record_notification(notification)
         except Exception:
-            log_structured("warning", "notification_persist_failed", stream=stream, exc_info=True)
+            log_structured(
+                "warning",
+                "notification_record_failed",
+                stream=stream,
+                exc_info=True,
+            )
+
+        # DB write is best-effort audit — only attempted when DB is up. The
+        # UI does not depend on it; failures are logged but not fatal.
+        if is_db_available():
+            try:
+                from api.core.writer.safe_writer import SafeWriter
+
+                writer = SafeWriter(AsyncSessionFactory)
+                await writer.write_notification(
+                    notification[FieldName.MSG_ID], STREAM_NOTIFICATIONS, notification
+                )
+            except Exception:
+                log_structured(
+                    "warning",
+                    "notification_persist_failed",
+                    stream=stream,
+                    exc_info=True,
+                )
 
         await self.bus.publish(STREAM_NOTIFICATIONS, notification)
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)

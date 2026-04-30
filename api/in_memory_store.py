@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
@@ -64,6 +65,49 @@ class InMemoryStore:
     def get_agent(self, agent_id: str) -> dict[str, Any] | None:
         return self.agents.get(agent_id)
 
+    _NOTIFICATION_LEVEL_TO_SEVERITY = {
+        "info": "INFO",
+        "warning": "WARNING",
+        "warn": "WARNING",
+        "error": "URGENT",
+        "urgent": "URGENT",
+        "critical": "CRITICAL",
+    }
+    _NOTIFICATION_BUFFER_LIMIT = 100
+
+    def record_notification(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Append a fully-formed notification payload to the buffer.
+
+        Canonical shape (matches frontend `Notification` interface):
+            severity, message, notification_type, stream_source, trace_id,
+            timestamp (ISO), msg_id (optional dedup key).
+
+        Idempotent on msg_id: a repeat msg_id within the buffer is dropped.
+        Returns the stored record, or None when deduplicated.
+        """
+        record = dict(payload)
+        msg_id = record.get(FieldName.MSG_ID)
+        if msg_id and any(n.get(FieldName.MSG_ID) == msg_id for n in self.notifications):
+            return None
+
+        record.setdefault("id", msg_id or f"mem-{len(self.notifications) + 1}")
+        record.setdefault("severity", "INFO")
+        record.setdefault(FieldName.NOTIFICATION_TYPE, "system")
+        record.setdefault("stream_source", record.get(FieldName.SOURCE) or "system")
+        record.setdefault("state", "open")
+        record.setdefault(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat())
+
+        self.notifications.append(record)
+        if len(self.notifications) > self._NOTIFICATION_BUFFER_LIMIT:
+            self.notifications = self.notifications[-self._NOTIFICATION_BUFFER_LIMIT :]
+        return record
+
+    def clear_notifications(self) -> int:
+        """Empty the notification buffer. Returns the number of entries cleared."""
+        cleared = len(self.notifications)
+        self.notifications = []
+        return cleared
+
     def add_notification(
         self,
         message: str,
@@ -71,15 +115,23 @@ class InMemoryStore:
         *,
         notification_type: str = "system",
     ) -> dict[str, Any]:
-        payload = {
-            "id": len(self.notifications) + 1,
-            "message": message,
-            "type": level,
-            "notification_type": notification_type,
-            "timestamp": time.time(),
-        }
-        self.notifications.append(payload)
-        return payload
+        """Convenience wrapper for legacy callers (e.g. startup messages).
+
+        Normalizes the legacy (message, level) pair into the canonical
+        record_notification payload so all consumers see the same shape.
+        """
+        severity = self._NOTIFICATION_LEVEL_TO_SEVERITY.get(level.lower(), "INFO")
+        return (
+            self.record_notification(
+                {
+                    FieldName.MESSAGE: message,
+                    "severity": severity,
+                    FieldName.NOTIFICATION_TYPE: notification_type,
+                    "stream_source": "system",
+                }
+            )
+            or {}
+        )
 
     def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(grade_payload)

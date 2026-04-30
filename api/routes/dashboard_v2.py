@@ -132,6 +132,18 @@ async def get_dashboard_state() -> dict[str, Any]:
                 log_structured("warning", "dashboard_state_db_failed", exc_info=True)
                 return get_runtime_store().dashboard_fallback_snapshot()
 
+        # Notifications always come from the in-memory buffer — they're
+        # transient UI data (per memory-storage.md), populated by
+        # NotificationAgent regardless of DB state. Merged here so REST
+        # hydration matches the live WebSocket feed on the DB-up path too,
+        # where MetricsAggregator does not query notifications. Done before
+        # Redis enrichment so every early return downstream still carries it.
+        try:
+            data["notifications"] = list(get_runtime_store().notifications[-100:])
+        except Exception:
+            log_structured("warning", "dashboard_state_notifications_failed", exc_info=True)
+            data.setdefault("notifications", [])
+
         # Redis enrichment is best-effort: a Redis outage must not prevent
         # the frontend from receiving its DB-backed hydration data.
         try:
@@ -185,6 +197,7 @@ async def get_dashboard_state() -> dict[str, Any]:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
 
         data.setdefault("mode", runtime_mode())
+
         # Expose whether the configured LLM provider has an API key so the
         # frontend can surface a "rule-based mode" banner instead of silently
         # showing no reasoning decisions.
@@ -203,6 +216,41 @@ async def get_dashboard_state() -> dict[str, Any]:
     except Exception:
         log_structured("error", "dashboard state failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/notifications")
+async def list_notifications(limit: int = 100) -> dict[str, Any]:
+    """Return the in-memory notification buffer.
+
+    The buffer is the canonical UI data source — populated by NotificationAgent
+    on every buy/sell fill and on direct publishes from other agents — and is
+    capped at 100 entries. Identical to the `notifications` field in
+    /dashboard/state, exposed standalone so the UI can poll lightly without
+    refetching the full dashboard payload.
+    """
+    safe_limit = max(1, min(limit, 100))
+    items = list(get_runtime_store().notifications[-safe_limit:])
+    return {
+        "notifications": items,
+        "count": len(items),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/notifications/clear")
+async def clear_notifications() -> dict[str, Any]:
+    """Empty the in-memory notification buffer ("clear all" / dismiss-all).
+
+    Buy/sell notifications continue to arrive on STREAM_NOTIFICATIONS via the
+    live WebSocket immediately afterwards; this only resets the persistent
+    buffer used for hydration on page load.
+    """
+    cleared = get_runtime_store().clear_notifications()
+    log_structured("info", "notifications_cleared", count=cleared)
+    return {
+        "cleared": cleared,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/stream-lag")

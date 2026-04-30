@@ -1,6 +1,6 @@
 'use client'
 import { create } from 'zustand'
-import { api } from '@/lib/apiClient'
+import { api, apiFetch } from '@/lib/apiClient'
 
 export interface AgentLog {
   agent_name: string
@@ -194,6 +194,7 @@ type DashboardData = {
   trade_feed?: TradeFeedItem[]
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
+  notifications?: Array<Record<string, unknown>>
   timestamp: string
 }
 
@@ -278,6 +279,7 @@ type CodexState = {
   addRiskAlert: (alert: Record<string, unknown>) => void
   addNotification: (notification: Omit<Notification, 'id' | 'acknowledged'>) => void
   acknowledgeNotification: (id: string) => void
+  clearNotifications: () => Promise<void>
   addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
   updateProposalStatus: (id: string, status: ProposalStatus) => void
   addLearningEvent: (event: LearningEvent) => void
@@ -469,6 +471,21 @@ export const useCodexStore = create<CodexState>((set) => ({
     }
     return { notifications: next }
   }),
+  clearNotifications: async () => {
+    // Clear server buffer first; on success drop the local copy.
+    // On failure, leave the UI as-is so the user can retry — losing the
+    // server view while the local list disappears would be surprising.
+    try {
+      await apiFetch('/dashboard/notifications/clear', { method: 'POST' })
+    } catch (err) {
+      console.warn('[notifications] clear failed:', err)
+      return
+    }
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('codex.notifications')
+    }
+    set({ notifications: [] })
+  },
   addProposal: (proposal) => set((state) => ({
     proposals: [
       { ...proposal, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' as ProposalStatus },
@@ -658,6 +675,27 @@ export const useCodexStore = create<CodexState>((set) => ({
 
       if (data.agent_statuses && Array.isArray(data.agent_statuses)) {
         updates.agentStatuses = data.agent_statuses as unknown as AgentStatus[]
+      }
+
+      // Notifications come from the backend in-memory buffer (max 100). Merge
+      // by id so a refresh hydrates missing entries without duplicating any
+      // already added via the live WebSocket feed.
+      if (data.notifications && Array.isArray(data.notifications)) {
+        const existingIds = new Set(currentState.notifications.map((n) => n.id))
+        const incoming: Notification[] = []
+        for (const raw of data.notifications) {
+          const normalized = normalizeStoredNotification(raw)
+          if (normalized && !existingIds.has(normalized.id)) {
+            incoming.push({ ...normalized, acknowledged: false })
+          }
+        }
+        if (incoming.length > 0) {
+          const merged = [...incoming, ...currentState.notifications].slice(0, 200)
+          updates.notifications = merged
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('codex.notifications', JSON.stringify(merged))
+          }
+        }
       }
 
       return updates
