@@ -231,7 +231,10 @@ class WebSocketBroadcaster:
         """Transform raw Redis stream payloads into frontend-friendly WS messages.
 
         Filtering rules (dashboard notification feed):
-          executions   → type=trade_notification only for BUY/SELL fills (signal: buy/sell side)
+          executions   → passthrough for BUY/SELL fills only; user-facing
+                         notification text comes from NotificationAgent →
+                         STREAM_NOTIFICATIONS, but the raw fill is still
+                         forwarded so stream-stat counters stay accurate
           agent_logs   → suppressed entirely (internal verbose logs — not user-facing)
           market_events → type=price_update for the price ticker
           signals      → passthrough with stream tag (pipeline view)
@@ -242,25 +245,16 @@ class WebSocketBroadcaster:
         """
         base = {"stream": stream, FieldName.MSG_ID: msg_id}
 
-        # --- Executions: only surface actual BUY/SELL fills ------------------
+        # --- Executions: forward only filled BUY/SELL events ------------------
+        # NotificationAgent observes the same stream and emits the user-facing
+        # message via STREAM_NOTIFICATIONS. The frontend renders notifications
+        # from that stream; here we just keep the executions counter alive for
+        # the dashboard stream-stats panel and drop noise (rejected, cancelled).
         if stream == STREAM_EXECUTIONS:
             event_type = str(payload.get(FieldName.TYPE, "")).lower()
             side = str(payload.get(FieldName.SIDE, "")).lower()
             if event_type == "order_filled" and side in (OrderSide.BUY, OrderSide.SELL):
-                return {
-                    **base,
-                    FieldName.TYPE: "trade_notification",
-                    FieldName.SYMBOL: payload.get(FieldName.SYMBOL),
-                    FieldName.SIDE: side,
-                    FieldName.QTY: payload.get(FieldName.QTY),
-                    FieldName.FILL_PRICE: payload.get(FieldName.FILL_PRICE),
-                    FieldName.PNL: payload.get(FieldName.PNL, 0),
-                    FieldName.ORDER_ID: payload.get(FieldName.ORDER_ID),
-                    FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
-                    FieldName.FILLED_AT: payload.get(FieldName.FILLED_AT),
-                    FieldName.SOURCE: payload.get(FieldName.SOURCE),
-                }
-            # Other execution event types (e.g. rejected) are suppressed
+                return {**base, **payload}
             return None
 
         # --- Agent logs: suppress entirely (too noisy for UI) -----------------
