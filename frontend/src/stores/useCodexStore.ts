@@ -243,20 +243,6 @@ function normalizeNumber(value: unknown): number | null {
 const hiddenNotificationTypePrefixes = ['stream:', 'decision.', 'signal.']
 const hiddenNotificationStreamSources = new Set(['agent_logs', 'decisions', 'signals'])
 
-function isTradeIntentNotification(
-  notification: Pick<Notification, 'notification_type'> &
-  Partial<Pick<Notification, 'action' | 'display'>>
-) {
-  const normalizedType = String(notification.notification_type || '').toLowerCase()
-  const action = String(notification.action || '').toLowerCase()
-  const displayKind = String(notification.display?.kind || '').toLowerCase()
-
-  if (action === 'buy' || action === 'sell') return true
-  if (displayKind === 'trade') return true
-  if (normalizedType.startsWith('trade.')) return true
-  return normalizedType === 'decision.buy' || normalizedType === 'decision.sell' || normalizedType === 'signal.buy' || normalizedType === 'signal.sell'
-}
-
 export function isDisplayableNotification(
   notification: Pick<Notification, 'notification_type' | 'message'> & Partial<Pick<Notification, 'stream_source' | 'title'>>
 ): boolean {
@@ -265,8 +251,8 @@ export function isDisplayableNotification(
   const hasCopy = Boolean(String(notification.message || notification.title || '').trim())
 
   if (!hasCopy || !notificationType || notificationType === 'event') return false
-  if (hiddenNotificationTypePrefixes.some((prefix) => notificationType.startsWith(prefix)) && !isTradeIntentNotification(notification)) return false
-  if (hiddenNotificationStreamSources.has(streamSource) && !notificationType.startsWith('trade.') && !isTradeIntentNotification(notification)) return false
+  if (hiddenNotificationTypePrefixes.some((prefix) => notificationType.startsWith(prefix))) return false
+  if (hiddenNotificationStreamSources.has(streamSource) && !notificationType.startsWith('trade.')) return false
 
   return true
 }
