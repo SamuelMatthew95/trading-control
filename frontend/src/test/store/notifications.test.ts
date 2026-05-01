@@ -46,6 +46,8 @@ describe('notifications store', () => {
       symbol: 'AAPL',
       action: 'buy',
     } as never)
-    expect(useCodexStore.getState().notifications).toHaveLength(1)
+    const list = useCodexStore.getState().notifications
+    expect(list).toHaveLength(1)
+    expect(list[0].id.startsWith('notif:')).toBe(true)
   })
 })
