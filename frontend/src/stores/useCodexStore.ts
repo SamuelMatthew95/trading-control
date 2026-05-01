@@ -256,12 +256,12 @@ function buildDeterministicNotificationId(raw: Record<string, unknown>): string 
   ]
     .map((v) => String(v ?? ""))
     .join("|")
-  if (!basis) return "notification:unknown"
+  if (!basis) return "0-unknown"
   let hash = 5381
   for (let i = 0; i < basis.length; i += 1) {
     hash = ((hash << 5) + hash) ^ basis.charCodeAt(i)
   }
-  return `notif:${Math.abs(hash >>> 0).toString(36)}`
+  return `${Math.abs(hash >>> 0)}-det`
 }
 
 function normalizeStoredNotification(input: unknown): Notification | null {

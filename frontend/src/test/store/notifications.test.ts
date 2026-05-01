@@ -48,6 +48,6 @@ describe('notifications store', () => {
     } as never)
     const list = useCodexStore.getState().notifications
     expect(list).toHaveLength(1)
-    expect(list[0].id.startsWith('notif:')).toBe(true)
+    expect(list[0].id).toMatch(/^\d+-/)
   })
 })
