@@ -211,15 +211,21 @@ async def lifespan(app: FastAPI):
         keep_alive_task = asyncio.create_task(_keep_alive(), name="keep-alive")
         app.state.keep_alive_task = keep_alive_task
 
+        grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
+        reflection_agent = ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state)
+        # Inject grader reference so reflection can read the live eval buffer for
+        # quant mistake clusters without an extra DB round-trip.
+        reflection_agent._grade_agent = grade_agent
+
         agents = [
             SignalGenerator(event_bus, dlq_manager, agent_state=agent_state),
             ReasoningAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ExecutionEngine(
                 event_bus, dlq_manager, redis_client, paper_broker, agent_state=agent_state
             ),
-            GradeAgent(event_bus, dlq_manager, agent_state=agent_state),
+            grade_agent,
             ICUpdater(event_bus, dlq_manager, redis_client, agent_state=agent_state),
-            ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state),
+            reflection_agent,
             StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
             NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ChallengerAgent(event_bus, dlq_manager, agent_state=agent_state),
