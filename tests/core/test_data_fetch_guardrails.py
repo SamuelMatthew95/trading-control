@@ -771,6 +771,16 @@ class TestDashboardStateResponseShape:
             "learning_events": [{"id": "g1", "score": 0.8}],
             "proposals": [{"id": "p1", "proposal_type": "risk_limit"}],
             "trade_feed": [{"id": "t1", "symbol": "BTC/USD"}],
+            "notifications": [
+                {
+                    "notification_id": "trade:buy:AAPL:trace-1",
+                    "notification_type": "trade.buy_filled",
+                    "message": "BUY AAPL filled",
+                    "action": "buy",
+                    "symbol": "AAPL",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            ],
             "signals": [],
             "risk_alerts": [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -798,11 +808,16 @@ class TestDashboardStateResponseShape:
             "learning_events",
             "proposals",
             "trade_feed",
+            "notifications",
             "agent_statuses",
             "timestamp",
         }
         missing = frontend_required_keys - result.keys()
         assert not missing, f"Response missing keys required by frontend: {missing}"
+        # Notifications must pass through verbatim so the UI can render trade fills
+        # without round-tripping a separate fetch.
+        assert result["notifications"][0]["notification_type"] == "trade.buy_filled"
+        assert result["notifications"][0]["symbol"] == "AAPL"
 
     @pytest.mark.asyncio
     async def test_orders_list_preserved_in_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
