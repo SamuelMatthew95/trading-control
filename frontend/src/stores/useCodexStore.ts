@@ -226,6 +226,7 @@ type DashboardData = {
   prices?: Record<string, PriceData>
   proposals?: Array<Record<string, unknown>>
   trade_feed?: TradeFeedItem[]
+  notifications?: Array<Record<string, unknown>>
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
   timestamp: string
@@ -242,6 +243,20 @@ function normalizeNumber(value: unknown): number | null {
 const hiddenNotificationTypePrefixes = ['stream:', 'decision.', 'signal.']
 const hiddenNotificationStreamSources = new Set(['agent_logs', 'decisions', 'signals'])
 
+function isTradeIntentNotification(
+  notification: Pick<Notification, 'notification_type'> &
+  Partial<Pick<Notification, 'action' | 'display'>>
+) {
+  const normalizedType = String(notification.notification_type || '').toLowerCase()
+  const action = String(notification.action || '').toLowerCase()
+  const displayKind = String(notification.display?.kind || '').toLowerCase()
+
+  if (action === 'buy' || action === 'sell') return true
+  if (displayKind === 'trade') return true
+  if (normalizedType.startsWith('trade.')) return true
+  return normalizedType === 'decision.buy' || normalizedType === 'decision.sell' || normalizedType === 'signal.buy' || normalizedType === 'signal.sell'
+}
+
 export function isDisplayableNotification(
   notification: Pick<Notification, 'notification_type' | 'message'> & Partial<Pick<Notification, 'stream_source' | 'title'>>
 ): boolean {
@@ -250,8 +265,8 @@ export function isDisplayableNotification(
   const hasCopy = Boolean(String(notification.message || notification.title || '').trim())
 
   if (!hasCopy || !notificationType || notificationType === 'event') return false
-  if (hiddenNotificationTypePrefixes.some((prefix) => notificationType.startsWith(prefix))) return false
-  if (hiddenNotificationStreamSources.has(streamSource) && !notificationType.startsWith('trade.')) return false
+  if (hiddenNotificationTypePrefixes.some((prefix) => notificationType.startsWith(prefix)) && !isTradeIntentNotification(notification)) return false
+  if (hiddenNotificationStreamSources.has(streamSource) && !notificationType.startsWith('trade.') && !isTradeIntentNotification(notification)) return false
 
   return true
 }
@@ -738,6 +753,22 @@ export const useCodexStore = create<CodexState>((set) => ({
         const newTrades = data.trade_feed.filter((t) => t?.id != null && !existingTfIds.has(t.id))
         if (newTrades.length > 0) {
           updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
+        }
+      }
+
+      if (data.notifications && Array.isArray(data.notifications)) {
+        const normalizedNotifications = data.notifications
+          .map(normalizeStoredNotification)
+          .filter((item): item is Notification => item !== null)
+        if (normalizedNotifications.length > 0) {
+          const existingIds = new Set(currentState.notifications.map((n) => n.id))
+          const deduped = normalizedNotifications.filter((n) => !existingIds.has(n.id))
+          if (deduped.length > 0) {
+            updates.notifications = [...deduped, ...currentState.notifications].slice(0, 200)
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem('codex.notifications', JSON.stringify(updates.notifications))
+            }
+          }
         }
       }
 

@@ -34,5 +34,12 @@ describe('notification filtering', () => {
         message: 'New parameter proposal',
       }),
     ).toBe(true)
+    expect(
+      isDisplayableNotification({
+        notification_type: 'decision.buy',
+        stream_source: 'decisions',
+        message: 'BUY BTC/USD',
+      }),
+    ).toBe(true)
   })
 })
