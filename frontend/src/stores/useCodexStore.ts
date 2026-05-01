@@ -82,6 +82,7 @@ export interface Notification {
   id: string
   severity: NotificationSeverity
   title?: string
+  body?: string
   message: string
   notification_type: string
   stream_source?: string
@@ -531,13 +532,18 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
+    const normalizedNotification = {
+      ...notification,
+      message: notification.message ?? notification.body ?? notification.display?.subtitle ?? '',
+      title: notification.title ?? notification.body,
+    }
     const stableId =
-      notification.notification_id ??
-      notification.id ??
-      buildDeterministicNotificationId(notification as unknown as Record<string, unknown>)
+      normalizedNotification.notification_id ??
+      normalizedNotification.id ??
+      buildDeterministicNotificationId(normalizedNotification as unknown as Record<string, unknown>)
     if (state.notifications.some((n) => n.id === stableId)) return state
 
-    const { notification_id: _drop, id: _alsoDrop, ...rest } = notification
+    const { notification_id: _drop, id: _alsoDrop, ...rest } = normalizedNotification
     void _drop
     void _alsoDrop
     const next = [
