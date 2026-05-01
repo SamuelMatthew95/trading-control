@@ -1,6 +1,9 @@
 'use client'
 import { create } from 'zustand'
 import { api } from '@/lib/apiClient'
+import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
+
+export type { NotificationSeverity } from '@/constants/notifications'
 
 export interface AgentLog {
   agent_name: string
@@ -52,8 +55,6 @@ export interface LearningEvent {
   [key: string]: unknown
 }
 
-export type NotificationSeverity = 'CRITICAL' | 'URGENT' | 'WARNING' | 'INFO'
-
 export interface NotificationDisplayItem {
   label: string
   value: string
@@ -81,6 +82,7 @@ export interface Notification {
   id: string
   severity: NotificationSeverity
   title?: string
+  body?: string
   message: string
   notification_type: string
   stream_source?: string
@@ -239,44 +241,55 @@ function normalizeNumber(value: unknown): number | null {
   return Number.isFinite(cast) ? cast : null
 }
 
-const hiddenNotificationTypePrefixes = ['stream:', 'decision.', 'signal.']
-const hiddenNotificationStreamSources = new Set(['agent_logs', 'decisions', 'signals'])
-
-export function isDisplayableNotification(
-  notification: Pick<Notification, 'notification_type' | 'message'> & Partial<Pick<Notification, 'stream_source' | 'title'>>
-): boolean {
-  const notificationType = String(notification.notification_type || '').trim().toLowerCase()
-  const streamSource = String(notification.stream_source || '').trim().toLowerCase()
-  const hasCopy = Boolean(String(notification.message || notification.title || '').trim())
-
-  if (!hasCopy || !notificationType || notificationType === 'event') return false
-  if (hiddenNotificationTypePrefixes.some((prefix) => notificationType.startsWith(prefix))) return false
-  if (hiddenNotificationStreamSources.has(streamSource) && !notificationType.startsWith('trade.')) return false
-
-  return true
+function buildDeterministicNotificationId(raw: Record<string, unknown>): string {
+  const basis = [
+    raw.notification_id,
+    raw.id,
+    raw.trace_id,
+    raw.timestamp,
+    raw.notification_type,
+    raw.title,
+    raw.message,
+    raw.body,
+    raw.symbol,
+    raw.action,
+  ]
+    .map((v) => String(v ?? ""))
+    .join("|")
+  if (!basis) return "0-unknown"
+  let hash = 5381
+  for (let i = 0; i < basis.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ basis.charCodeAt(i)
+  }
+  return `${Math.abs(hash >>> 0)}-det`
 }
 
 function normalizeStoredNotification(input: unknown): Notification | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
-  const severity = String(raw.severity || 'INFO').toUpperCase()
-  const normalizedSeverity: NotificationSeverity =
-    severity === 'CRITICAL' || severity === 'URGENT' || severity === 'WARNING' || severity === 'INFO'
-      ? severity
-      : 'INFO'
+  const severity = String(raw.severity || NOTIFICATION_FALLBACKS.severity).toLowerCase()
+  const normalizedSeverity: NotificationSeverity = (
+    NOTIFICATION_SEVERITIES as readonly string[]
+  ).includes(severity)
+    ? (severity as NotificationSeverity)
+    : NOTIFICATION_FALLBACKS.severity
 
-  const message = String(raw.message || '').trim()
+  const display =
+    raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display)
+      ? (raw.display as NotificationDisplay)
+      : undefined
+  const message = String(raw.message || raw.body || display?.subtitle || '').trim()
   if (!message) return null
 
   // Prefer the backend's stable notification_id so the same fill survives a
   // page reload without being treated as a new notification.
-  const stableId = raw.notification_id ?? raw.id
+  const stableId = raw.notification_id ?? raw.id ?? buildDeterministicNotificationId(raw)
   const notification: Notification = {
-    id: String(stableId || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    id: String(stableId),
     severity: normalizedSeverity,
-    title: raw.title ? String(raw.title) : undefined,
+    title: raw.title ? String(raw.title) : (raw.body ? String(raw.body) : undefined),
     message,
-    notification_type: String(raw.notification_type || 'system'),
+    notification_type: String(raw.notification_type || NOTIFICATION_FALLBACKS.notificationType),
     stream_source: raw.stream_source ? String(raw.stream_source) : undefined,
     action: raw.action ? String(raw.action) : undefined,
     symbol: raw.symbol ? String(raw.symbol) : undefined,
@@ -292,14 +305,11 @@ function normalizeStoredNotification(input: unknown): Notification | null {
       raw.delivery && typeof raw.delivery === 'object' && !Array.isArray(raw.delivery)
         ? (raw.delivery as Record<string, unknown>)
         : undefined,
-    display:
-      raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display)
-        ? (raw.display as NotificationDisplay)
-        : undefined,
+    display,
     timestamp: String(raw.timestamp || new Date().toISOString()),
   }
 
-  return isDisplayableNotification(notification) ? notification : null
+  return notification
 }
 
 // Type for price data from API
@@ -522,28 +532,27 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
-    if (!isDisplayableNotification(notification)) {
-      const cleaned = state.notifications.filter(isDisplayableNotification)
-      if (cleaned.length !== state.notifications.length && typeof window !== 'undefined') {
-        window.localStorage.setItem('codex.notifications', JSON.stringify(cleaned))
-      }
-      return cleaned.length === state.notifications.length ? state : { notifications: cleaned }
+    const resolvedMessage = String(
+      notification.message || notification.body || notification.display?.subtitle || '',
+    ).trim()
+    const normalizedNotification = {
+      ...notification,
+      message: resolvedMessage,
+      title: notification.title ?? notification.body,
     }
+    if (!resolvedMessage) return state
+    const stableId =
+      normalizedNotification.notification_id ??
+      normalizedNotification.id ??
+      buildDeterministicNotificationId(normalizedNotification as unknown as Record<string, unknown>)
+    if (state.notifications.some((n) => n.id === stableId)) return state
 
-    // Prefer the backend's stable notification_id; this lets the same fill
-    // dedupe cleanly across REST hydration, WebSocket broadcast, and reload.
-    const stableId = notification.notification_id ?? notification.id ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const currentNotifications = state.notifications.filter(isDisplayableNotification)
-    if (currentNotifications.some((n) => n.id === stableId)) {
-      return currentNotifications.length === state.notifications.length ? state : { notifications: currentNotifications }
-    }
-
-    const { notification_id: _drop, id: _alsoDrop, ...rest } = notification
+    const { notification_id: _drop, id: _alsoDrop, ...rest } = normalizedNotification
     void _drop
     void _alsoDrop
     const next = [
       { ...rest, id: stableId },
-      ...currentNotifications,
+      ...state.notifications,
     ].slice(0, 200)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('codex.notifications', JSON.stringify(next))

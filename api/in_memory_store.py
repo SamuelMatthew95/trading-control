@@ -19,6 +19,7 @@ from api.constants import (
     FieldName,
     LogType,
 )
+from api.services.notification_summary import compute_notification_summary
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_SIGNAL: {"status": "idle"},
@@ -193,6 +194,8 @@ class InMemoryStore:
             return qty is not None and abs(qty) > 0
 
         now = time.time()
+        notifications = list(self.notifications[-100:])
+        notification_summary = compute_notification_summary(notifications)
         return {
             "orders": list(reversed(self.orders[-50:])),
             "positions": [p for p in self.positions.values() if _has_open_quantity(p)],
@@ -220,7 +223,8 @@ class InMemoryStore:
                 }
                 for name, data in self.agents.items()
             ],
-            "notifications": list(self.notifications[-100:]),
+            "notifications": notifications,
+            "notification_summary": notification_summary,
             "mode": "in_memory",
             "db_health": self.last_health,
             "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode

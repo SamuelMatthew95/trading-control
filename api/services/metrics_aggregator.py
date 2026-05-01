@@ -15,6 +15,7 @@ from ..constants import FieldName, LogType, OrderSide, OrderStatus, PositionSide
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 from ..runtime_state import get_runtime_store
+from .notification_summary import compute_notification_summary
 
 # Health validation thresholds
 STALE_THRESHOLD_SECONDS = 30  # Mark stream as stale if no update in 30s
@@ -760,6 +761,8 @@ class MetricsAggregator:
             except Exception:
                 log_structured("warning", "raw_snapshot_notifications_failed", exc_info=True)
 
+            notification_summary = compute_notification_summary(notifications)
+
             return {
                 "orders": orders,
                 "positions": positions,
@@ -768,6 +771,7 @@ class MetricsAggregator:
                 "proposals": proposals,
                 "trade_feed": trade_feed,
                 "notifications": notifications,
+                "notification_summary": notification_summary,
                 "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -783,6 +787,20 @@ class MetricsAggregator:
                 "proposals": [],
                 "trade_feed": [],
                 "notifications": [],
+                "notification_summary": {
+                    "summary_version": 1,
+                    "counts": {"total": 0, "open": 0, "resolved": 0},
+                    "severity_counts": [
+                        {"severity": "success", "count": 0},
+                        {"severity": "info", "count": 0},
+                        {"severity": "warning", "count": 0},
+                        {"severity": "critical", "count": 0},
+                    ],
+                    "total": 0,
+                    "open": 0,
+                    "resolved": 0,
+                    "by_severity": {"success": 0, "info": 0, "warning": 0, "critical": 0},
+                },
                 "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),

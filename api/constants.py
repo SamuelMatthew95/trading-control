@@ -417,6 +417,7 @@ REDIS_KEY_NOTIFICATION_DEDUP: Final[str] = (
     "notif:dedup:{stream}:{event_type}:{side}:{symbol}:{trace}"
 )
 NOTIFICATION_DEDUP_TTL_SECONDS: Final[int] = 60  # dedup window — 1 minute
+NOTIFICATIONS_STREAM_MAXLEN: Final[int] = 1000
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"

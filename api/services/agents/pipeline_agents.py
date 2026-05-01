@@ -25,6 +25,7 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
     NOTIFICATION_DEDUP_TTL_SECONDS,
+    NOTIFICATIONS_STREAM_MAXLEN,
     REDIS_IC_WEIGHTS_TTL_SECONDS,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
@@ -75,9 +76,7 @@ from api.services.agents.db_helpers import (
     write_grade_to_db,
 )
 from api.services.agents.notification_payloads import (
-    build_execution_message,
     build_trade_notification,
-    build_trade_notification_type,
 )
 from api.services.agents.prompts import (
     FALLBACK_REFLECTION,
@@ -1128,71 +1127,6 @@ class NotificationAgent(MultiStreamAgent):
             parts.append(f"R/R: {rr:.1f}x")
         return " · ".join(parts)
 
-    def _build_message(self, stream: str, event_type: str, data: dict[str, Any]) -> str:
-        if stream == STREAM_EXECUTIONS:
-            return build_execution_message(data)
-        if stream == STREAM_TRADE_PERFORMANCE:
-            return self._msg_trade_performance(data)
-        if stream == STREAM_SIGNALS:
-            return self._msg_signal(data)
-        if stream == STREAM_RISK_ALERTS:
-            return self._msg_risk_alert(data)
-        if stream == STREAM_DECISIONS:
-            return self._msg_decision(data)
-
-        # Generic fallback for all other streams
-        symbol = data.get(FieldName.SYMBOL)
-        action = data.get(FieldName.ACTION) or data.get(FieldName.SIDE)
-        agent_name = data.get(FieldName.AGENT_NAME) or data.get(FieldName.AGENT)
-        grade = data.get(FieldName.GRADE)
-        score = data.get(FieldName.SCORE)
-        reason = data.get(FieldName.REASON)
-
-        details: list[str] = []
-        if symbol:
-            details.append(str(symbol))
-        if action:
-            details.append(str(action))
-        if grade:
-            details.append(f"grade={grade}")
-        if score is not None:
-            details.append(f"score={score}")
-        if agent_name:
-            details.append(f"agent={agent_name}")
-        if reason:
-            details.append(f"reason={reason}")
-
-        if details:
-            return f"{stream}:{event_type} — " + ", ".join(details)
-        return f"{stream}:{event_type}"
-
-    def _build_notification_type(self, stream: str, data: dict[str, Any]) -> str:
-        if stream == STREAM_EXECUTIONS:
-            side = str(data.get(FieldName.SIDE) or data.get(FieldName.ACTION) or "").lower()
-            return (
-                build_trade_notification_type(side)
-                if side in {OrderSide.BUY, OrderSide.SELL}
-                else f"stream:{stream}"
-            )
-        if stream == STREAM_TRADE_PERFORMANCE:
-            pnl = float(data.get(FieldName.PNL) or 0.0)
-            if pnl > 0:
-                return "trade.profit"
-            if pnl < 0:
-                return "trade.loss"
-            return "trade.opened"
-        if stream == STREAM_SIGNALS:
-            sig = str(
-                data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE) or "signal"
-            ).lower()
-            return f"signal.{sig}"
-        if stream == STREAM_RISK_ALERTS:
-            return "risk.alert"
-        if stream == STREAM_DECISIONS:
-            action = str(data.get(FieldName.ACTION) or "").lower()
-            return f"decision.{action}" if action else f"stream:{stream}"
-        return f"stream:{stream}"
-
     # User-facing notifications are restricted to actual executed buy/sell
     # fills. Other streams (signals, decisions, grades, reflections, risk
     # alerts, proposals) are still consumed for internal state (e.g. session
@@ -1283,12 +1217,23 @@ class NotificationAgent(MultiStreamAgent):
                 from api.runtime_state import get_runtime_store
 
                 get_runtime_store().record_notification(notification)
+                log_structured(
+                    "warning",
+                    "notification_persistence_miss_live_only",
+                    stream=stream,
+                    notification_id=notification.get(FieldName.NOTIFICATION_ID),
+                    trace_id=notification.get(FieldName.TRACE_ID),
+                )
         else:
             from api.runtime_state import get_runtime_store
 
             get_runtime_store().record_notification(notification)
 
-        await self.bus.publish(STREAM_NOTIFICATIONS, notification)
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            notification,
+            maxlen=NOTIFICATIONS_STREAM_MAXLEN,
+        )
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
 
         await self._heartbeat(stream, data, event_type=event_type)

@@ -71,6 +71,33 @@ GradeAgent          → agent_grades
 | **StrategyProposer** | Converts reflection hypotheses into concrete proposals requiring explicit approval |
 | **NotificationAgent** | Classifies events by severity (CRITICAL/URGENT/WARNING/INFO) and deduplicates within 60s |
 
+### Notification contract
+
+Notification payloads consumed by the dashboard should be UI-ready and deterministic. The backend decides whether a notification is displayable and emits a stable id for dedup across REST hydration, websocket live updates, and page reloads.
+
+Required display keys:
+- `id` (stable deterministic id)
+- `severity` (`success` | `info` | `warning` | `critical`)
+- `title`
+- `body` (English fallback)
+- `icon`
+- `timestamp` (ISO8601)
+- `metadata` (raw typed values already chosen by backend for direct rendering)
+
+The frontend should render this payload directly and should not apply business filtering, enrichment, or localization logic.
+
+Operational guardrails:
+- Notifications stream writes must be bounded with Redis `MAXLEN` trimming to prevent unbounded growth.
+- If notification DB persistence fails but live broadcast succeeds, emit an explicit warning log including `notification_id` and `trace_id` so hydration gaps are observable.
+
+Dashboard hydration API should also include `notification_summary` computed by backend:
+- `summary_version`
+- `counts`: `total`, `open`, `resolved`
+- `severity_counts`: ordered list of `{ severity, count }`
+- Backward-compatible fields: `total`, `open`, `resolved`, `by_severity`
+This removes counting/filtering logic from the UI and keeps rendering deterministic.
+
+
 ## Repository structure
 
 ```

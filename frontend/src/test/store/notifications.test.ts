@@ -1,38 +1,53 @@
-import { describe, expect, it } from 'vitest'
-import { isDisplayableNotification } from '@/stores/useCodexStore'
+import { useCodexStore } from '@/stores/useCodexStore'
 
-describe('notification filtering', () => {
-  it('rejects legacy raw stream notifications', () => {
-    expect(
-      isDisplayableNotification({
-        notification_type: 'stream:agent_logs',
-        stream_source: 'agent_logs',
-        message: 'agent_logs:agent_log - hold',
-      }),
-    ).toBe(false)
-    expect(
-      isDisplayableNotification({
-        notification_type: 'decision.hold',
-        stream_source: 'decisions',
-        message: 'DECISION - SPY | HOLD',
-      }),
-    ).toBe(false)
+describe('notifications store', () => {
+  beforeEach(() => {
+    useCodexStore.setState({ notifications: [] })
   })
 
-  it('keeps current trade and agent notifications', () => {
-    expect(
-      isDisplayableNotification({
-        notification_type: 'trade.buy_filled',
-        stream_source: 'executions',
-        message: 'BUY BTC/USD filled',
-      }),
-    ).toBe(true)
-    expect(
-      isDisplayableNotification({
-        notification_type: 'proposal',
-        stream_source: 'strategy_proposer',
-        message: 'New parameter proposal',
-      }),
-    ).toBe(true)
+  it('adds ui-ready notifications without frontend filtering', () => {
+    useCodexStore.getState().addNotification({
+      severity: 'info',
+      message: 'hello',
+      notification_type: 'stream:agent_logs',
+      id: 'n1',
+      timestamp: new Date().toISOString(),
+    })
+    expect(useCodexStore.getState().notifications).toHaveLength(1)
+  })
+
+  it('hydrates body-only ui contract payloads', () => {
+    useCodexStore.getState().addNotification({
+      severity: 'success',
+      body: 'Bought 0.5 BTC @ 64000 USD',
+      notification_type: 'trade.buy_filled',
+      id: 'n2',
+      timestamp: new Date().toISOString(),
+    } as never)
+    const [item] = useCodexStore.getState().notifications
+    expect(item.message).toContain('Bought 0.5 BTC')
+  })
+
+  it('uses deterministic fallback id when backend id is missing', () => {
+    const timestamp = new Date().toISOString()
+    useCodexStore.getState().addNotification({
+      severity: 'info',
+      message: 'same payload',
+      notification_type: 'trade.buy_filled',
+      timestamp,
+      symbol: 'AAPL',
+      action: 'buy',
+    } as never)
+    useCodexStore.getState().addNotification({
+      severity: 'info',
+      message: 'same payload',
+      notification_type: 'trade.buy_filled',
+      timestamp,
+      symbol: 'AAPL',
+      action: 'buy',
+    } as never)
+    const list = useCodexStore.getState().notifications
+    expect(list).toHaveLength(1)
+    expect(list[0].id).toMatch(/^\d+-/)
   })
 })
