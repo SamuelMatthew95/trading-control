@@ -251,6 +251,59 @@ class TestRawSnapshotDataSources:
         assert t["signal_trace_id"] == "sig-trace"
 
     @pytest.mark.asyncio
+    async def test_notifications_come_from_events_table(self) -> None:
+        """events rows where event_type='notification.created' must hydrate as notifications.
+
+        Buy/sell trade fills are persisted by SafeWriter.write_notification() into
+        the events table; the dashboard hydrates them via /dashboard/state so they
+        survive a page reload instead of only appearing on the live WebSocket.
+        """
+        ts = datetime(2025, 1, 4, 0, 0, 0, tzinfo=timezone.utc)
+        notif_payload = {
+            "notification_id": "trade:buy:BTC/USD:abc",
+            "severity": "INFO",
+            "notification_type": "trade.buy_filled",
+            "stream_source": "executions",
+            "title": "BUY filled: BTC/USD",
+            "message": "BUY BTC/USD filled | Fill $43,000.00 | Qty 0.05",
+            "action": "buy",
+            "symbol": "BTC/USD",
+            "qty": 0.05,
+            "fill_price": 43000.0,
+            "trace_id": "trace-buy-1",
+        }
+        notif_row = [notif_payload, ts]
+
+        session = _FakeSession(
+            [
+                [],  # orders
+                [],  # positions
+                [
+                    _Row(column_name="id", udt_name="uuid"),
+                    _Row(column_name="created_at", udt_name="timestamptz"),
+                ],  # column introspection
+                [],  # agent_logs
+                [],  # agent_grades
+                # proposals: skipped (no log_type column) — no queue slot consumed
+                [],  # trade_lifecycle
+                [notif_row],  # notifications  <-- the row we care about
+            ]
+        )
+
+        agg = MetricsAggregator(session)
+        result = await agg.get_raw_snapshot()
+
+        assert "notifications" in result
+        assert len(result["notifications"]) == 1
+        n = result["notifications"][0]
+        assert n["notification_type"] == "trade.buy_filled"
+        assert n["action"] == "buy"
+        assert n["symbol"] == "BTC/USD"
+        assert n["message"].startswith("BUY BTC/USD filled")
+        # created_at falls back to timestamp when payload didn't carry one
+        assert n["timestamp"] == ts.isoformat()
+
+    @pytest.mark.asyncio
     async def test_raw_snapshot_returns_required_keys(self) -> None:
         """get_raw_snapshot() must always return the keys the frontend expects."""
         session = _FakeSession(
@@ -277,6 +330,7 @@ class TestRawSnapshotDataSources:
             "learning_events",
             "proposals",
             "trade_feed",
+            "notifications",
             "signals",
             "risk_alerts",
             "timestamp",
@@ -307,6 +361,7 @@ class TestRawSnapshotDataSources:
             "learning_events",
             "proposals",
             "trade_feed",
+            "notifications",
             "signals",
             "risk_alerts",
         ):
