@@ -286,7 +286,7 @@ class WebSocketBroadcaster:
             if isinstance(raw_payload, dict) and raw_payload.get(FieldName.SYMBOL):
                 return {
                     **base,
-                    FieldName.TYPE: FieldName.PRICE_UPDATE,
+                    FieldName.TYPE: "price_update",
                     FieldName.SYMBOL: raw_payload.get(FieldName.SYMBOL),
                     FieldName.PRICE: raw_payload.get(FieldName.PRICE),
                     FieldName.CHANGE: raw_payload.get(FieldName.CHANGE, 0),
