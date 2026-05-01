@@ -1266,15 +1266,27 @@ class NotificationAgent(MultiStreamAgent):
             source=SOURCE_NOTIFICATION,
         )
 
-        try:
-            from api.core.writer.safe_writer import SafeWriter
+        if is_db_available():
+            try:
+                from api.core.writer.safe_writer import SafeWriter
 
-            writer = SafeWriter(AsyncSessionFactory)
-            await writer.write_notification(
-                notification[FieldName.MSG_ID], STREAM_NOTIFICATIONS, notification
-            )
-        except Exception:
-            log_structured("warning", "notification_persist_failed", stream=stream, exc_info=True)
+                writer = SafeWriter(AsyncSessionFactory)
+                await writer.write_notification(
+                    notification[FieldName.MSG_ID], STREAM_NOTIFICATIONS, notification
+                )
+            except Exception:
+                log_structured(
+                    "warning", "notification_persist_failed", stream=stream, exc_info=True
+                )
+                # DB write failed mid-flight — keep the dashboard hydrated by
+                # mirroring to the in-memory store as a best-effort fallback.
+                from api.runtime_state import get_runtime_store
+
+                get_runtime_store().record_notification(notification)
+        else:
+            from api.runtime_state import get_runtime_store
+
+            get_runtime_store().record_notification(notification)
 
         await self.bus.publish(STREAM_NOTIFICATIONS, notification)
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
