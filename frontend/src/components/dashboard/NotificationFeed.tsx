@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   Bell,
   BellRing,
-  CheckCheck,
   Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -141,13 +140,11 @@ function NotificationEmptyState({ message }: { message: string }) {
 export function NotificationFeed({
   notifications,
   wsConnected,
-  onAcknowledge,
 }: {
   notifications: Notification[]
   wsConnected: boolean
-  onAcknowledge: (id: string) => void
 }) {
-  const unread = notifications.filter((notification) => !notification.acknowledged)
+  const lastTimestamp = notifications[0]?.timestamp ?? null
 
   return (
     <div className={cardClass}>
@@ -156,11 +153,11 @@ export function NotificationFeed({
           <Bell className="h-4 w-4 text-slate-500" />
           <p className={sectionTitleClass}>Notifications</p>
         </div>
-        <div className="flex items-center gap-2">
-          {unread.length > 0 && (
-            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{unread.length}</span>
-          )}
+        <div className="flex items-center gap-3">
           <p className={mutedClass}>{notifications.length} total</p>
+          {lastTimestamp && (
+            <p className={mutedClass}>Last: {formatTimestamp(lastTimestamp)}</p>
+          )}
         </div>
       </div>
 
@@ -178,14 +175,11 @@ export function NotificationFeed({
             const badges = normalizeBadges(notification)
             const facts = Array.isArray(display?.facts) ? display.facts : []
             const meta = normalizeMeta(notification)
-            const statusLabel = notification.acknowledged
-              ? 'acknowledged'
-              : displayValue(display?.status_label || notification.state || 'open')
 
             return (
               <article
                 key={notification.id}
-                className={cn('rounded-lg border px-3 py-3 transition-opacity', style.card, notification.acknowledged ? 'opacity-55' : '')}
+                className={cn('rounded-lg border px-3 py-3', style.card)}
               >
                 <div className="flex items-start gap-3">
                   <span className={cn('mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md', style.icon)}>
@@ -232,30 +226,16 @@ export function NotificationFeed({
                       </dl>
                     )}
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold uppercase', style.badge)}>
-                        <span className={cn('h-1.5 w-1.5 rounded-full', notification.acknowledged ? 'bg-emerald-500' : style.dot)} />
-                        {statusLabel}
-                      </span>
-                      {meta.map((item, index) => (
-                        <span key={`${displayValue(item.label)}-${index}`} className={mutedClass}>
-                          {displayValue(item.label)}: {displayValue(item.value)}
-                        </span>
-                      ))}
-                    </div>
+                    {meta.length > 0 && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {meta.map((item, index) => (
+                          <span key={`${displayValue(item.label)}-${index}`} className={mutedClass}>
+                            {displayValue(item.label)}: {displayValue(item.value)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-
-                  {!notification.acknowledged && (
-                    <button
-                      type="button"
-                      onClick={() => onAcknowledge(notification.id)}
-                      className="mt-0.5 shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-500 dark:hover:bg-slate-800"
-                      title="Acknowledge"
-                      aria-label="Acknowledge notification"
-                    >
-                      <CheckCheck className="h-4 w-4" />
-                    </button>
-                  )}
                 </div>
               </article>
             )
