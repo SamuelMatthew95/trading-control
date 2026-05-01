@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from api.constants import FieldName, STREAM_MARKET_EVENTS
+from api.constants import STREAM_MARKET_EVENTS, FieldName
 from api.services.websocket_broadcaster import WebSocketBroadcaster
 
 
