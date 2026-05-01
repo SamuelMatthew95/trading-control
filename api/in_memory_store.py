@@ -19,6 +19,7 @@ from api.constants import (
     FieldName,
     LogType,
 )
+from api.services.notification_summary import compute_notification_summary
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_SIGNAL: {"status": "idle"},
@@ -194,33 +195,7 @@ class InMemoryStore:
 
         now = time.time()
         notifications = list(self.notifications[-100:])
-        notification_summary = {
-            "total": len(notifications),
-            "open": sum(
-                1 for n in notifications if str(n.get("state", "open")).lower() != "resolved"
-            ),
-            "resolved": sum(
-                1 for n in notifications if str(n.get("state", "open")).lower() == "resolved"
-            ),
-            "by_severity": {
-                "success": sum(
-                    1 for n in notifications if str(n.get("severity", "")).lower() == "success"
-                ),
-                "info": sum(
-                    1
-                    for n in notifications
-                    if str(n.get("severity", "")).lower() in {"info", "urgent"}
-                ),
-                "warning": sum(
-                    1 for n in notifications if str(n.get("severity", "")).lower() == "warning"
-                ),
-                "critical": sum(
-                    1
-                    for n in notifications
-                    if str(n.get("severity", "")).lower() in {"critical", "error"}
-                ),
-            },
-        }
+        notification_summary = compute_notification_summary(notifications)
         return {
             "orders": list(reversed(self.orders[-50:])),
             "positions": [p for p in self.positions.values() if _has_open_quantity(p)],

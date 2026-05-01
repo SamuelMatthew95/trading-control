@@ -91,8 +91,10 @@ Operational guardrails:
 - If notification DB persistence fails but live broadcast succeeds, emit an explicit warning log including `notification_id` and `trace_id` so hydration gaps are observable.
 
 Dashboard hydration API should also include `notification_summary` computed by backend:
-- `total`, `open`, `resolved`
-- `by_severity`: `success`, `info`, `warning`, `critical`
+- `summary_version`
+- `counts`: `total`, `open`, `resolved`
+- `severity_counts`: ordered list of `{ severity, count }`
+- Backward-compatible fields: `total`, `open`, `resolved`, `by_severity`
 This removes counting/filtering logic from the UI and keeps rendering deterministic.
 
 

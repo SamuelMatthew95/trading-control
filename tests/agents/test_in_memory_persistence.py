@@ -206,6 +206,9 @@ def test_dashboard_fallback_snapshot_includes_notification_summary():
     assert summary["resolved"] == 1
     assert summary["by_severity"]["success"] == 1
     assert summary["by_severity"]["warning"] == 1
+    assert summary["counts"]["total"] == 2
+    assert summary["counts"]["open"] == 1
+    assert summary["summary_version"] == 1
 
 
 def test_in_memory_store_paired_pnl_payload_matches_expected_shape():

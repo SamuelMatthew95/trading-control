@@ -15,6 +15,7 @@ from ..constants import FieldName, LogType, OrderSide, OrderStatus, PositionSide
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 from ..runtime_state import get_runtime_store
+from .notification_summary import compute_notification_summary
 
 # Health validation thresholds
 STALE_THRESHOLD_SECONDS = 30  # Mark stream as stale if no update in 30s
@@ -760,33 +761,7 @@ class MetricsAggregator:
             except Exception:
                 log_structured("warning", "raw_snapshot_notifications_failed", exc_info=True)
 
-            notification_summary = {
-                "total": len(notifications),
-                "open": sum(
-                    1 for n in notifications if str(n.get("state", "open")).lower() != "resolved"
-                ),
-                "resolved": sum(
-                    1 for n in notifications if str(n.get("state", "open")).lower() == "resolved"
-                ),
-                "by_severity": {
-                    "success": sum(
-                        1 for n in notifications if str(n.get("severity", "")).lower() == "success"
-                    ),
-                    "info": sum(
-                        1
-                        for n in notifications
-                        if str(n.get("severity", "")).lower() in {"info", "urgent"}
-                    ),
-                    "warning": sum(
-                        1 for n in notifications if str(n.get("severity", "")).lower() == "warning"
-                    ),
-                    "critical": sum(
-                        1
-                        for n in notifications
-                        if str(n.get("severity", "")).lower() in {"critical", "error"}
-                    ),
-                },
-            }
+            notification_summary = compute_notification_summary(notifications)
 
             return {
                 "orders": orders,
@@ -813,6 +788,14 @@ class MetricsAggregator:
                 "trade_feed": [],
                 "notifications": [],
                 "notification_summary": {
+                    "summary_version": 1,
+                    "counts": {"total": 0, "open": 0, "resolved": 0},
+                    "severity_counts": [
+                        {"severity": "success", "count": 0},
+                        {"severity": "info", "count": 0},
+                        {"severity": "warning", "count": 0},
+                        {"severity": "critical", "count": 0},
+                    ],
                     "total": 0,
                     "open": 0,
                     "resolved": 0,
