@@ -27,7 +27,6 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     lastMarketSymbol: null,
     wsMessageCount: 0,
     wsLastMessageTimestamp: null,
-    acknowledgeNotification: vi.fn(),
     updateProposalStatus: vi.fn(),
     setTradeFeed: vi.fn(),
     setAgentInstances: vi.fn(),

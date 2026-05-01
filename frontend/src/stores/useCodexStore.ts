@@ -97,7 +97,6 @@ export interface Notification {
   delivery?: Record<string, unknown>
   display?: NotificationDisplay
   timestamp: string
-  acknowledged: boolean
 }
 
 export type ProposalStatus = 'pending' | 'approved' | 'rejected'
@@ -226,6 +225,7 @@ type DashboardData = {
   prices?: Record<string, PriceData>
   proposals?: Array<Record<string, unknown>>
   trade_feed?: TradeFeedItem[]
+  notifications?: Array<Record<string, unknown>>
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
   timestamp: string
@@ -268,8 +268,11 @@ function normalizeStoredNotification(input: unknown): Notification | null {
   const message = String(raw.message || '').trim()
   if (!message) return null
 
+  // Prefer the backend's stable notification_id so the same fill survives a
+  // page reload without being treated as a new notification.
+  const stableId = raw.notification_id ?? raw.id
   const notification: Notification = {
-    id: String(raw.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    id: String(stableId || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
     severity: normalizedSeverity,
     title: raw.title ? String(raw.title) : undefined,
     message,
@@ -294,7 +297,6 @@ function normalizeStoredNotification(input: unknown): Notification | null {
         ? (raw.display as NotificationDisplay)
         : undefined,
     timestamp: String(raw.timestamp || new Date().toISOString()),
-    acknowledged: Boolean(raw.acknowledged),
   }
 
   return isDisplayableNotification(notification) ? notification : null
@@ -352,8 +354,7 @@ type CodexState = {
   updateOrder: (order: Order) => void
   addAgentLog: (log: AgentLog) => void
   addRiskAlert: (alert: Record<string, unknown>) => void
-  addNotification: (notification: Omit<Notification, 'id' | 'acknowledged'>) => void
-  acknowledgeNotification: (id: string) => void
+  addNotification: (notification: Omit<Notification, 'id'> & { id?: string; notification_id?: string }) => void
   addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
   updateProposalStatus: (id: string, status: ProposalStatus) => void
   addLearningEvent: (event: LearningEvent) => void
@@ -529,26 +530,21 @@ export const useCodexStore = create<CodexState>((set) => ({
       return cleaned.length === state.notifications.length ? state : { notifications: cleaned }
     }
 
+    // Prefer the backend's stable notification_id; this lets the same fill
+    // dedupe cleanly across REST hydration, WebSocket broadcast, and reload.
+    const stableId = notification.notification_id ?? notification.id ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const currentNotifications = state.notifications.filter(isDisplayableNotification)
-    const duplicateExists = currentNotifications.some((n) =>
-      n.message === notification.message &&
-      n.notification_type === notification.notification_type &&
-      n.severity === notification.severity &&
-      Math.abs(new Date(n.timestamp).getTime() - new Date(notification.timestamp).getTime()) < 10_000
-    )
-    if (duplicateExists) return currentNotifications.length === state.notifications.length ? state : { notifications: currentNotifications }
+    if (currentNotifications.some((n) => n.id === stableId)) {
+      return currentNotifications.length === state.notifications.length ? state : { notifications: currentNotifications }
+    }
 
+    const { notification_id: _drop, id: _alsoDrop, ...rest } = notification
+    void _drop
+    void _alsoDrop
     const next = [
-      { ...notification, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, acknowledged: false },
+      { ...rest, id: stableId },
       ...currentNotifications,
     ].slice(0, 200)
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('codex.notifications', JSON.stringify(next))
-    }
-    return { notifications: next }
-  }),
-  acknowledgeNotification: (id) => set((state) => {
-    const next = state.notifications.map((n) => n.id === id ? { ...n, acknowledged: true } : n)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('codex.notifications', JSON.stringify(next))
     }
@@ -738,6 +734,30 @@ export const useCodexStore = create<CodexState>((set) => ({
         const newTrades = data.trade_feed.filter((t) => t?.id != null && !existingTfIds.has(t.id))
         if (newTrades.length > 0) {
           updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
+        }
+      }
+
+      // Notifications hydrate from /dashboard/state so buy/sell fills survive
+      // a page reload instead of only appearing on the live WebSocket stream.
+      // Dedup is by Notification.id (backed by the stable notification_id from
+      // the backend), so the REST snapshot and WS broadcast can't double up.
+      if (data.notifications && Array.isArray(data.notifications)) {
+        const normalized = data.notifications
+          .map((n) => normalizeStoredNotification(n))
+          .filter((n): n is Notification => n !== null)
+        if (normalized.length > 0) {
+          const seen = new Set<string>()
+          const merged: Notification[] = []
+          for (const n of [...normalized, ...currentState.notifications]) {
+            if (seen.has(n.id)) continue
+            seen.add(n.id)
+            merged.push(n)
+          }
+          const next = merged.slice(0, 200)
+          updates.notifications = next
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('codex.notifications', JSON.stringify(next))
+          }
         }
       }
 

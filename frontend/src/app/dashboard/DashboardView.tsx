@@ -553,7 +553,6 @@ export function DashboardView({ section }: { section: Section }) {
     wsDiagnostics,
     recentEvents = [],
     agentStatuses = [],
-    acknowledgeNotification,
     updateProposalStatus,
   } = useCodexStore()
 
@@ -1471,7 +1470,11 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Notifications</p>
               <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
-              <p className={mutedClass}>{notifications.filter((n) => !n.acknowledged).length} unread</p>
+              <p className={mutedClass}>
+                {notifications[0]?.timestamp
+                  ? `Last: ${new Date(notifications[0].timestamp).toLocaleTimeString()}`
+                  : 'No activity yet'}
+              </p>
             </div>
           </div>
 
@@ -1608,7 +1611,7 @@ export function DashboardView({ section }: { section: Section }) {
             )}
           </div>
 
-          <NotificationFeed notifications={notifications} wsConnected={wsConnected} onAcknowledge={acknowledgeNotification} />
+          <NotificationFeed notifications={notifications} wsConnected={wsConnected} />
         </div>
       )}
 

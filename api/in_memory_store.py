@@ -81,6 +81,24 @@ class InMemoryStore:
         self.notifications.append(payload)
         return payload
 
+    def record_notification(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Append a full structured notification payload (e.g. trade fill).
+
+        Used as the DB-down fallback for ``NotificationAgent`` so trade
+        notifications still hydrate the dashboard via ``/dashboard/state``
+        when Postgres is unavailable.
+        """
+        entry = dict(payload)
+        entry.setdefault(
+            "id",
+            entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}",
+        )
+        entry.setdefault("timestamp", time.time())
+        self.notifications.append(entry)
+        if len(self.notifications) > 100:
+            self.notifications = self.notifications[-100:]
+        return entry
+
     def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(grade_payload)
         payload.setdefault("timestamp", time.time())

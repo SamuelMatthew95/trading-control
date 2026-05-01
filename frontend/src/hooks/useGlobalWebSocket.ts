@@ -359,6 +359,7 @@ class WebSocketManager {
         const display = this._coerceObject(raw.display)
         const severity = String(raw.severity || 'INFO').toUpperCase()
         store.addNotification({
+          notification_id: typeof raw.notification_id === 'string' ? raw.notification_id : undefined,
           severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
           title: raw.title ? String(raw.title) : undefined,
           message: String(raw.message || raw.summary || ''),
@@ -529,7 +530,7 @@ class WebSocketManager {
     }
     
     // Normalize other array fields safely
-    const arrayFields = ['agent_logs', 'system_metrics', 'signals', 'positions', 'risk_alerts', 'learning_events']
+    const arrayFields = ['agent_logs', 'system_metrics', 'signals', 'positions', 'risk_alerts', 'learning_events', 'notifications']
     for (const field of arrayFields) {
       if (normalized[field] && !Array.isArray(normalized[field])) {
         if (typeof normalized[field] === 'object') {
