@@ -5,10 +5,51 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time as _time
 
 from api.config import settings
 from api.constants import AgentAction, FieldName
 from api.observability import log_structured
+
+_GEMINI_RPM = 15
+_GEMINI_WINDOW = 60.0
+
+
+class _GeminiRateLimiter:
+    """Sliding-window rate limiter enforcing the Gemini free-tier 15 RPM cap.
+
+    acquire() blocks until there is room in the current 60-second window,
+    records the call timestamp, then returns immediately.  Callers must
+    perform their own retry sleeps *outside* this scope so a 429 backoff
+    does not hold a rate-limiter slot while idle.
+
+    The asyncio.Lock is created lazily on the first call to acquire() so it
+    always binds to the running event loop — avoiding the cross-loop
+    RuntimeError that occurs when primitives are built at import time.
+    """
+
+    def __init__(self, rpm: int = _GEMINI_RPM, window: float = _GEMINI_WINDOW) -> None:
+        self._rpm = rpm
+        self._window = window
+        self._call_times: list[float] = []
+        self._lock: asyncio.Lock | None = None
+
+    async def acquire(self) -> None:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            while True:
+                now = _time.monotonic()
+                self._call_times = [t for t in self._call_times if t > now - self._window]
+                if len(self._call_times) < self._rpm:
+                    self._call_times.append(now)
+                    return
+                wait = self._window - (now - self._call_times[0])
+                if wait > 0:
+                    await asyncio.sleep(wait)
+
+
+_gemini_rate_limiter = _GeminiRateLimiter()
 
 SYSTEM_PROMPT = (
     "Return ONLY valid JSON with keys: action, confidence, primary_edge, "
@@ -177,6 +218,8 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
     for attempt in range(retries + 1):
+        # Acquire a rate-limiter slot before each attempt (not held during sleep).
+        await _gemini_rate_limiter.acquire()
         try:
             response = await asyncio.to_thread(
                 model.generate_content,
@@ -292,6 +335,7 @@ async def _call_provider_raw(
         retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
         for attempt in range(retries + 1):
+            await _gemini_rate_limiter.acquire()
             try:
                 response = await asyncio.to_thread(
                     model.generate_content,

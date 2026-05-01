@@ -121,3 +121,35 @@ def test_dashboard_state_reads_correct_redis_keys() -> None:
     dashboard_keys = {REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES}
     agent_keys = {f"agent:status:{n}" for n in ALL_AGENT_NAMES}
     assert dashboard_keys == agent_keys
+
+
+# ---------------------------------------------------------------------------
+# LLM_TIMEOUT_SECONDS — regression: value was raised from 30 → 60
+# ---------------------------------------------------------------------------
+
+
+def test_llm_timeout_seconds_is_sixty() -> None:
+    """LLM_TIMEOUT_SECONDS must equal 60 (raised from 30 to allow slow model responses)."""
+    from api.constants import LLM_TIMEOUT_SECONDS
+
+    assert LLM_TIMEOUT_SECONDS == 60
+
+
+def test_llm_timeout_seconds_greater_than_old_value() -> None:
+    """Documents that LLM_TIMEOUT_SECONDS is intentionally higher than the old value of 30."""
+    from api.constants import LLM_TIMEOUT_SECONDS
+
+    assert LLM_TIMEOUT_SECONDS > 30
+
+
+def test_settings_llm_timeout_matches_constant() -> None:
+    """settings.LLM_TIMEOUT_SECONDS (api/config.py) must match the api/constants.py constant.
+
+    Two callers (pipeline_agents.py, vector_helpers.py) read settings.LLM_TIMEOUT_SECONDS
+    while reasoning_agent.py reads the constants module. If these drift apart, half the
+    LLM call sites will use the wrong timeout — exactly the bug this guardrail prevents.
+    """
+    from api.config import settings
+    from api.constants import LLM_TIMEOUT_SECONDS
+
+    assert settings.LLM_TIMEOUT_SECONDS == LLM_TIMEOUT_SECONDS
