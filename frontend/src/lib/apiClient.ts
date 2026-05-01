@@ -73,12 +73,19 @@ export const API_ENDPOINTS = {
   DASHBOARD_PERFORMANCE_TRENDS: "/dashboard/performance-trends",
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
   
-  // Learning
+  // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
   LEARNING_GRADES: "/dashboard/learning/grades",
   LEARNING_IC_WEIGHTS: "/dashboard/learning/ic-weights",
   LEARNING_REFLECTIONS: "/dashboard/learning/reflections",
   LEARNING_LOOP: "/dashboard/learning/loop",
+
+  // Learning pipeline (real data)
+  LEARNING_TRADES: "/learning/trades",
+  LEARNING_METRICS: "/learning/metrics",
+  LEARNING_REFLECTIONS_V2: "/learning/reflections",
+  LEARNING_STRATEGIES: "/learning/strategies",
+  LEARNING_PIPELINE_STATUS: "/learning/pipeline-status",
   
   // System
   SYSTEM_HEALTH: "/dashboard/system-health",
