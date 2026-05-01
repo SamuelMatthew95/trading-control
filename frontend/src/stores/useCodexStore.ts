@@ -532,11 +532,15 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
+    const resolvedMessage = String(
+      notification.message || notification.body || notification.display?.subtitle || '',
+    ).trim()
     const normalizedNotification = {
       ...notification,
-      message: notification.message ?? notification.body ?? notification.display?.subtitle ?? '',
+      message: resolvedMessage,
       title: notification.title ?? notification.body,
     }
+    if (!resolvedMessage) return state
     const stableId =
       normalizedNotification.notification_id ??
       normalizedNotification.id ??
