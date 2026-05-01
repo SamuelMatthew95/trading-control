@@ -27,4 +27,25 @@ describe('notifications store', () => {
     const [item] = useCodexStore.getState().notifications
     expect(item.message).toContain('Bought 0.5 BTC')
   })
+
+  it('uses deterministic fallback id when backend id is missing', () => {
+    const timestamp = new Date().toISOString()
+    useCodexStore.getState().addNotification({
+      severity: 'info',
+      message: 'same payload',
+      notification_type: 'trade.buy_filled',
+      timestamp,
+      symbol: 'AAPL',
+      action: 'buy',
+    } as never)
+    useCodexStore.getState().addNotification({
+      severity: 'info',
+      message: 'same payload',
+      notification_type: 'trade.buy_filled',
+      timestamp,
+      symbol: 'AAPL',
+      action: 'buy',
+    } as never)
+    expect(useCodexStore.getState().notifications).toHaveLength(1)
+  })
 })

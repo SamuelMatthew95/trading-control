@@ -240,6 +240,24 @@ function normalizeNumber(value: unknown): number | null {
   return Number.isFinite(cast) ? cast : null
 }
 
+function buildDeterministicNotificationId(raw: Record<string, unknown>): string {
+  const basis = [
+    raw.notification_id,
+    raw.id,
+    raw.trace_id,
+    raw.timestamp,
+    raw.notification_type,
+    raw.title,
+    raw.message,
+    raw.body,
+    raw.symbol,
+    raw.action,
+  ]
+    .map((v) => String(v ?? ""))
+    .join("|")
+  return basis || "notification:unknown"
+}
+
 function normalizeStoredNotification(input: unknown): Notification | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
@@ -259,9 +277,9 @@ function normalizeStoredNotification(input: unknown): Notification | null {
 
   // Prefer the backend's stable notification_id so the same fill survives a
   // page reload without being treated as a new notification.
-  const stableId = raw.notification_id ?? raw.id
+  const stableId = raw.notification_id ?? raw.id ?? buildDeterministicNotificationId(raw)
   const notification: Notification = {
-    id: String(stableId || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    id: String(stableId),
     severity: normalizedSeverity,
     title: raw.title ? String(raw.title) : (raw.body ? String(raw.body) : undefined),
     message,
@@ -508,7 +526,10 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
-    const stableId = notification.notification_id ?? notification.id ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const stableId =
+      notification.notification_id ??
+      notification.id ??
+      buildDeterministicNotificationId(notification as unknown as Record<string, unknown>)
     if (state.notifications.some((n) => n.id === stableId)) return state
 
     const { notification_id: _drop, id: _alsoDrop, ...rest } = notification
