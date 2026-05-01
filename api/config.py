@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
     LLM_FALLBACK_MODE: str = "skip_reasoning"
     BROKER_MODE: str = "paper"
-    LLM_TIMEOUT_SECONDS: int = 15
+    LLM_TIMEOUT_SECONDS: int = 60
     LLM_MAX_RETRIES: int = 2
     REFLECTION_TRADE_THRESHOLD: int = 20
     MAX_CONSUMER_LAG_ALERT: int = 5_000
