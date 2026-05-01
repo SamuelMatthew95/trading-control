@@ -726,6 +726,40 @@ class MetricsAggregator:
             except Exception:
                 log_structured("warning", "raw_snapshot_trade_feed_failed", exc_info=True)
 
+            # Recent notifications (last 50) — persisted by SafeWriter.write_notification
+            # as event rows. The UI hydrates from this so buy/sell fills survive a page
+            # reload instead of only appearing on the live WebSocket stream.
+            notifications: list[dict[str, Any]] = []
+            try:
+                notif_result = await self.session.execute(
+                    text("""
+                        SELECT data, created_at
+                        FROM events
+                        WHERE event_type = 'notification.created'
+                        ORDER BY created_at DESC
+                        LIMIT 50
+                    """)
+                )
+                for row in notif_result:
+                    payload = row[0]
+                    if isinstance(payload, str):
+                        import json as _json
+
+                        try:
+                            payload = _json.loads(payload)
+                        except Exception:
+                            payload = {}
+                    if not isinstance(payload, dict):
+                        continue
+                    entry = dict(payload)
+                    entry.setdefault(
+                        "timestamp",
+                        row[1].isoformat() if row[1] else None,
+                    )
+                    notifications.append(entry)
+            except Exception:
+                log_structured("warning", "raw_snapshot_notifications_failed", exc_info=True)
+
             return {
                 "orders": orders,
                 "positions": positions,
@@ -733,6 +767,7 @@ class MetricsAggregator:
                 "learning_events": learning_events,
                 "proposals": proposals,
                 "trade_feed": trade_feed,
+                "notifications": notifications,
                 "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -747,6 +782,7 @@ class MetricsAggregator:
                 "learning_events": [],
                 "proposals": [],
                 "trade_feed": [],
+                "notifications": [],
                 "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
