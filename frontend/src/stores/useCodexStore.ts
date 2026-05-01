@@ -3,6 +3,8 @@ import { create } from 'zustand'
 import { api } from '@/lib/apiClient'
 import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
 
+export type { NotificationSeverity } from '@/constants/notifications'
+
 export interface AgentLog {
   agent_name: string
   message?: string
