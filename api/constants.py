@@ -297,6 +297,7 @@ class FieldName(StrEnum):
     PATTERNS = "patterns"
     RECOMMENDATIONS = "recommendations"
     REFLECTION_ID = "reflection_id"
+    RISK_REWARD = "risk_reward"
     RULES = "rules"
     SCORE_TREND = "score_trend"
     SIGNAL_ALIGNMENT = "signal_alignment"
