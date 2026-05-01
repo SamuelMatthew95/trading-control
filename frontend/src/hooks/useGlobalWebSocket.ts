@@ -359,6 +359,7 @@ class WebSocketManager {
         const display = this._coerceObject(raw.display)
         const severity = String(raw.severity || 'INFO').toUpperCase()
         store.addNotification({
+          notification_id: typeof raw.notification_id === 'string' ? raw.notification_id : undefined,
           severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
           title: raw.title ? String(raw.title) : undefined,
           message: String(raw.message || raw.summary || ''),
