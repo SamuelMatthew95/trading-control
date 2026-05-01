@@ -10,6 +10,9 @@ from api.config import settings
 from api.constants import AgentAction, FieldName
 from api.observability import log_structured
 
+# Limits concurrent Gemini calls to 2 to stay within the 15 RPM free-tier limit.
+_gemini_semaphore = asyncio.Semaphore(2)
+
 SYSTEM_PROMPT = (
     "Return ONLY valid JSON with keys: action, confidence, primary_edge, "
     "risk_factors, size_pct, stop_atr_x, rr_ratio, latency_ms, cost_usd, "
@@ -176,30 +179,31 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     model = genai.GenerativeModel("gemini-2.0-flash")
     retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
-    for attempt in range(retries + 1):
-        try:
-            response = await asyncio.to_thread(
-                model.generate_content,
-                f"{SYSTEM_PROMPT}\n\n{prompt}",
-            )
-            text = response.text or ""
-            usage = getattr(response, "usage_metadata", None)
-            tokens = int(getattr(usage, "total_token_count", 0) or 0)
-            return _parse_response(text, trace_id, 0.0), tokens, 0.0
-        except Exception as exc:
-            if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                suggested = _extract_gemini_retry_delay(exc)
-                delay = min(suggested, 120.0) if suggested is not None else 2**attempt
-                log_structured(
-                    "warning",
-                    "gemini_rate_limit_retry",
-                    attempt=attempt + 1,
-                    backoff_seconds=delay,
-                    trace_id=trace_id,
+    async with _gemini_semaphore:
+        for attempt in range(retries + 1):
+            try:
+                response = await asyncio.to_thread(
+                    model.generate_content,
+                    f"{SYSTEM_PROMPT}\n\n{prompt}",
                 )
-                await asyncio.sleep(delay)
-                continue
-            raise
+                text = response.text or ""
+                usage = getattr(response, "usage_metadata", None)
+                tokens = int(getattr(usage, "total_token_count", 0) or 0)
+                return _parse_response(text, trace_id, 0.0), tokens, 0.0
+            except Exception as exc:
+                if _is_gemini_rate_limit_error(exc) and attempt < retries:
+                    suggested = _extract_gemini_retry_delay(exc)
+                    delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                    log_structured(
+                        "warning",
+                        "gemini_rate_limit_retry",
+                        attempt=attempt + 1,
+                        backoff_seconds=delay,
+                        trace_id=trace_id,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
     raise RuntimeError("gemini_call_failed_without_exception")
 
 
@@ -291,30 +295,31 @@ async def _call_provider_raw(
         model = genai.GenerativeModel("gemini-2.0-flash")
         retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
-        for attempt in range(retries + 1):
-            try:
-                response = await asyncio.to_thread(
-                    model.generate_content,
-                    f"{system_prompt}\n\n{prompt}",
-                )
-                text = response.text or ""
-                usage = getattr(response, "usage_metadata", None)
-                tokens = int(getattr(usage, "total_token_count", 0) or 0)
-                return text, tokens, 0.0
-            except Exception as exc:
-                if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                    suggested = _extract_gemini_retry_delay(exc)
-                    delay = min(suggested, 120.0) if suggested is not None else 2**attempt
-                    log_structured(
-                        "warning",
-                        "gemini_rate_limit_retry",
-                        attempt=attempt + 1,
-                        backoff_seconds=delay,
-                        trace_id=trace_id,
+        async with _gemini_semaphore:
+            for attempt in range(retries + 1):
+                try:
+                    response = await asyncio.to_thread(
+                        model.generate_content,
+                        f"{system_prompt}\n\n{prompt}",
                     )
-                    await asyncio.sleep(delay)
-                    continue
-                raise
+                    text = response.text or ""
+                    usage = getattr(response, "usage_metadata", None)
+                    tokens = int(getattr(usage, "total_token_count", 0) or 0)
+                    return text, tokens, 0.0
+                except Exception as exc:
+                    if _is_gemini_rate_limit_error(exc) and attempt < retries:
+                        suggested = _extract_gemini_retry_delay(exc)
+                        delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                        log_structured(
+                            "warning",
+                            "gemini_rate_limit_retry",
+                            attempt=attempt + 1,
+                            backoff_seconds=delay,
+                            trace_id=trace_id,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise
         raise RuntimeError("gemini_raw_call_failed_without_exception")
 
     raise RuntimeError(f"unknown_provider: '{provider}'")
