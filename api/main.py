@@ -32,6 +32,7 @@ from api.redis_inspector import router as debug_redis_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
+from api.routes.learning import router as learning_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
@@ -337,6 +338,8 @@ app.include_router(debug_redis_router, prefix="/api")
 # whether NEXT_PUBLIC_API_URL includes "/api" or not (matches health_router pattern)
 app.include_router(dashboard_v2_router)
 app.include_router(dashboard_v2_router, prefix="/api")
+app.include_router(learning_router)
+app.include_router(learning_router, prefix="/api")
 app.include_router(ws_router)
 
 
