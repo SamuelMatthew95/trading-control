@@ -59,6 +59,8 @@ class EventPipeline:
         self._task: asyncio.Task[None] | None = None
         self._recent_events: deque[dict[str, Any]] = deque(maxlen=200)
         self._recent_failures: deque[dict[str, Any]] = deque(maxlen=200)
+        self._processed_msg_ids: deque[str] = deque(maxlen=5000)
+        self._processed_msg_id_set: set[str] = set()
         self._last_error: str | None = None
         self.safe_writer = SafeWriter(AsyncSessionFactory)
         # Pipeline uses its own consumer group so it never competes with agent workers.
@@ -204,6 +206,19 @@ class EventPipeline:
         msg_id: str,
         ts: str,
     ) -> None:
+        if msg_id in self._processed_msg_id_set:
+            await self.bus.acknowledge(stream, self._group, redis_id)
+            log_structured(
+                "info",
+                "pipeline_event_deduplicated",
+                event_name="pipeline_event_deduplicated",
+                msg_id=msg_id,
+                event_type=event_type,
+                timestamp=ts,
+                stream=stream,
+            )
+            return
+
         log_structured(
             "info",
             "pipeline_event_received",
@@ -281,17 +296,9 @@ class EventPipeline:
         )
 
         await self.broadcaster.broadcast(outbound)
-        log_structured(
-            "info",
-            "websocket_broadcast",
-            event_name="websocket_broadcast",
-            msg_id=msg_id,
-            event_type=event_type,
-            timestamp=ts,
-            stream=stream,
-        )
 
         await self.bus.acknowledge(stream, self._group, redis_id)
+        self._remember_processed_msg_id(msg_id)
         log_structured(
             "info",
             "pipeline_event_acked",
@@ -302,6 +309,15 @@ class EventPipeline:
             stream=stream,
         )
         self._recent_events.appendleft(outbound)
+
+    def _remember_processed_msg_id(self, msg_id: str) -> None:
+        if msg_id in self._processed_msg_id_set:
+            return
+        if len(self._processed_msg_ids) == self._processed_msg_ids.maxlen:
+            stale = self._processed_msg_ids.popleft()
+            self._processed_msg_id_set.discard(stale)
+        self._processed_msg_ids.append(msg_id)
+        self._processed_msg_id_set.add(msg_id)
 
     async def _persist_event(self, stream: str, msg_id: str, event: dict[str, Any]) -> None:
         # Route is selected before any write attempt — no exception-driven fallbacks.

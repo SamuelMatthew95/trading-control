@@ -1459,14 +1459,14 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
             </div>
             <div className={cardClass}>
-              <p className={sectionTitleClass}>Tracked Agents</p>
-              <p className={valueClass}>{sanitizeValue(realAgents.length)}</p>
-              <p className={mutedClass}>Discovered from heartbeats, instances, and logs</p>
+              <p className={sectionTitleClass}>Active Agents</p>
+              <p className={valueClass}>{sanitizeValue(realAgents.filter((agent) => agent.status === 'Live').length)}</p>
+              <p className={mutedClass}>Live heartbeat &lt; 5s</p>
             </div>
             <div className={cardClass}>
-              <p className={sectionTitleClass}>Agent Events</p>
+              <p className={sectionTitleClass}>Pipeline Events</p>
               <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
-              <p className={mutedClass}>Total events received</p>
+              <p className={mutedClass}>Processed events (runtime)</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Notifications</p>
@@ -1476,7 +1476,7 @@ export function DashboardView({ section }: { section: Section }) {
           </div>
 
           <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-2')}>Data Wiring</p>
+            <p className={cn(sectionTitleClass, 'mb-2')}>System Diagnostics</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <p className={mutedClass}>
                 Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>

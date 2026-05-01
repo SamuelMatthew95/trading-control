@@ -323,7 +323,7 @@ class WebSocketManager {
         const change = Number.isFinite(price) ? price - previousPrice : 0
         if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
         store.trackMarketTick(symbol)
-      } else if (msg.type === 'price_update' && msg.symbol && msg.price) {
+      } else if ((msg.type === 'PRICE_UPDATE' || msg.type === 'price_update') && msg.symbol && msg.price) {
         // Handle price updates from background worker
         const price = Number(msg.price)
         const symbol = msg.symbol
@@ -604,7 +604,7 @@ class WebSocketManager {
     const map: Record<string, string> = {
       buy: 'signal', sell: 'signal', purchase: 'signal', trade: 'signal', order: 'signal',
       execution: 'order', execute: 'order', fill: 'order',
-      market_tick: 'tick', price_update: 'tick', quote: 'tick',
+      market_tick: 'tick', price_update: 'tick', PRICE_UPDATE: 'tick', quote: 'tick',
       analysis: 'analysis', reasoning: 'analysis',
       grading: 'grade', assessment: 'grade',
       learning: 'learning', training: 'learning',
