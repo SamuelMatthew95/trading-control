@@ -17,7 +17,13 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import SOURCE_DB_HELPERS, SOURCE_EXECUTION, FieldName, GradeType, LogType
+from api.constants import (
+    SOURCE_DB_HELPERS,
+    SOURCE_EXECUTION,
+    FieldName,
+    GradeType,
+    LogType,
+)
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
@@ -252,6 +258,156 @@ async def get_last_reflection() -> dict[str, Any]:
     except Exception:
         log_structured("error", "get_last_reflection_failed", exc_info=True)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Learning pipeline persistence
+# ---------------------------------------------------------------------------
+
+
+async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
+    """Insert a per-trade evaluation row.
+
+    Memory mode: writes to InMemoryStore.trade_evaluations.
+    DB mode: INSERT into trade_evaluations table (idempotent on trade_eval_id).
+    """
+    if not is_db_available():
+        get_runtime_store().add_trade_evaluation(trade_eval)
+        return
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO trade_evaluations (
+                        id, trade_id, symbol, side,
+                        pnl, return_pct,
+                        entry_quality, exit_quality, timing_score, signal_alignment,
+                        risk_reward, overall_score, grade, confidence,
+                        mistakes, strengths,
+                        source, schema_version
+                    ) VALUES (
+                        gen_random_uuid(), :trade_id, :symbol, :side,
+                        :pnl, :return_pct,
+                        :entry_quality, :exit_quality, :timing_score, :signal_alignment,
+                        :risk_reward, :overall_score, :grade, :confidence,
+                        CAST(:mistakes AS JSONB), CAST(:strengths AS JSONB),
+                        :source, :schema_version
+                    )
+                    ON CONFLICT DO NOTHING
+                """),
+                {
+                    "trade_id": str(trade_eval.get(FieldName.TRADE_EVAL_ID) or ""),
+                    "symbol": trade_eval.get(FieldName.SYMBOL),
+                    "side": trade_eval.get(FieldName.SIDE),
+                    "pnl": trade_eval.get(FieldName.PNL),
+                    "return_pct": trade_eval.get(FieldName.PNL_PERCENT),
+                    "entry_quality": trade_eval.get(FieldName.ENTRY_QUALITY),
+                    "exit_quality": trade_eval.get(FieldName.EXIT_QUALITY),
+                    "timing_score": trade_eval.get(FieldName.TIMING_SCORE),
+                    "signal_alignment": trade_eval.get(FieldName.SIGNAL_ALIGNMENT),
+                    "risk_reward": trade_eval.get(FieldName.RISK_REWARD),
+                    "overall_score": trade_eval.get(FieldName.OVERALL_SCORE),
+                    "grade": trade_eval.get(FieldName.GRADE),
+                    "confidence": trade_eval.get(FieldName.CONFIDENCE),
+                    "mistakes": json.dumps(trade_eval.get(FieldName.MISTAKES) or []),
+                    "strengths": json.dumps(trade_eval.get(FieldName.STRENGTHS) or []),
+                    "source": SOURCE_DB_HELPERS,
+                    "schema_version": DB_SCHEMA_VERSION,
+                },
+            )
+            await session.commit()
+    except Exception:
+        log_structured("warning", "trade_evaluation_persist_failed", exc_info=True)
+        # Fall back to memory so data is not lost
+        get_runtime_store().add_trade_evaluation(trade_eval)
+
+
+async def persist_reflection_record(reflection: dict[str, Any]) -> None:
+    """Insert a reflection analysis row.
+
+    Memory mode: writes to InMemoryStore.reflections.
+    DB mode: INSERT into reflections table.
+    """
+    if not is_db_available():
+        get_runtime_store().add_reflection(reflection)
+        return
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO reflections (
+                        id, patterns, mistake_clusters, recommendations,
+                        trades_analyzed, win_rate, avg_return, confidence,
+                        source, schema_version
+                    ) VALUES (
+                        gen_random_uuid(),
+                        CAST(:patterns AS JSONB),
+                        CAST(:mistake_clusters AS JSONB),
+                        CAST(:recommendations AS JSONB),
+                        :trades_analyzed, :win_rate, :avg_return, :confidence,
+                        :source, :schema_version
+                    )
+                """),
+                {
+                    "patterns": json.dumps(reflection.get(FieldName.PATTERNS) or []),
+                    "mistake_clusters": json.dumps(
+                        reflection.get(FieldName.MISTAKE_CLUSTERS) or []
+                    ),
+                    "recommendations": json.dumps(reflection.get(FieldName.RECOMMENDATIONS) or []),
+                    "trades_analyzed": reflection.get(FieldName.TRADES_ANALYZED),
+                    "win_rate": reflection.get(FieldName.WIN_RATE),
+                    "avg_return": reflection.get(FieldName.AVG_RETURN),
+                    "confidence": reflection.get(FieldName.CONFIDENCE),
+                    "source": SOURCE_DB_HELPERS,
+                    "schema_version": DB_SCHEMA_VERSION,
+                },
+            )
+            await session.commit()
+    except Exception:
+        log_structured("warning", "reflection_record_persist_failed", exc_info=True)
+        get_runtime_store().add_reflection(reflection)
+
+
+async def persist_strategy_record(strategy: dict[str, Any]) -> None:
+    """Insert a strategy proposal row.
+
+    Memory mode: writes to InMemoryStore.strategies.
+    DB mode: INSERT into strategies table.
+    """
+    if not is_db_available():
+        get_runtime_store().add_strategy(strategy)
+        return
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO strategies (
+                        id, rules, description, expected_improvement, status,
+                        reflection_id, source, schema_version
+                    ) VALUES (
+                        gen_random_uuid(),
+                        CAST(:rules AS JSONB),
+                        :description,
+                        :expected_improvement,
+                        :status,
+                        :reflection_id,
+                        :source, :schema_version
+                    )
+                """),
+                {
+                    "rules": json.dumps(strategy.get(FieldName.RULES) or {}),
+                    "description": strategy.get("description"),
+                    "expected_improvement": strategy.get(FieldName.EXPECTED_IMPROVEMENT),
+                    "status": strategy.get(FieldName.STATUS, "pending"),
+                    "reflection_id": strategy.get(FieldName.REFLECTION_ID),
+                    "source": SOURCE_DB_HELPERS,
+                    "schema_version": DB_SCHEMA_VERSION,
+                },
+            )
+            await session.commit()
+    except Exception:
+        log_structured("warning", "strategy_record_persist_failed", exc_info=True)
+        get_runtime_store().add_strategy(strategy)
 
 
 # ---------------------------------------------------------------------------
