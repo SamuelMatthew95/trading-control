@@ -319,6 +319,44 @@ async def test_execution_without_buy_or_sell_side_is_dropped(notification_agent,
     assert notifications_calls == []
 
 
+@pytest.mark.asyncio
+async def test_in_memory_fallback_records_trade_notification(notification_agent, mock_bus):
+    """When the DB is unavailable, trade fills must still hydrate the dashboard.
+
+    Regression for: notifications only appearing on the live WebSocket and
+    vanishing on page reload because the in-memory store had no record of them.
+    """
+    from api.runtime_state import get_runtime_store
+
+    # Conftest's autouse fixture already sets is_db_available() to False, so
+    # the agent should route the persist through InMemoryStore.record_notification
+    # instead of SafeWriter.
+    event = {
+        "type": "order_filled",
+        "side": "buy",
+        "symbol": "BTC/USD",
+        "qty": 0.5,
+        "price": 43000.0,
+        "fill_price": 43050.0,
+        "trace_id": "trace-mem-1",
+    }
+
+    await notification_agent.process("executions", "id-mem-1", event)
+
+    snapshot = get_runtime_store().dashboard_fallback_snapshot()
+    notifications = snapshot["notifications"]
+    assert len(notifications) == 1
+    n = notifications[0]
+    assert n["notification_type"] == "trade.buy_filled"
+    assert n["symbol"] == "BTC/USD"
+    assert n["action"] == "buy"
+    assert n["fill_price"] == 43050.0
+
+    # The bus broadcast still fires so live subscribers see the fill too.
+    notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
+    assert len(notifications_calls) == 1
+
+
 def test_build_message_includes_key_context(notification_agent):
     message = notification_agent._build_message(
         "agent_grades",
