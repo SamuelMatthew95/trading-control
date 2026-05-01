@@ -760,6 +760,34 @@ class MetricsAggregator:
             except Exception:
                 log_structured("warning", "raw_snapshot_notifications_failed", exc_info=True)
 
+            notification_summary = {
+                "total": len(notifications),
+                "open": sum(
+                    1 for n in notifications if str(n.get("state", "open")).lower() != "resolved"
+                ),
+                "resolved": sum(
+                    1 for n in notifications if str(n.get("state", "open")).lower() == "resolved"
+                ),
+                "by_severity": {
+                    "success": sum(
+                        1 for n in notifications if str(n.get("severity", "")).lower() == "success"
+                    ),
+                    "info": sum(
+                        1
+                        for n in notifications
+                        if str(n.get("severity", "")).lower() in {"info", "urgent"}
+                    ),
+                    "warning": sum(
+                        1 for n in notifications if str(n.get("severity", "")).lower() == "warning"
+                    ),
+                    "critical": sum(
+                        1
+                        for n in notifications
+                        if str(n.get("severity", "")).lower() in {"critical", "error"}
+                    ),
+                },
+            }
+
             return {
                 "orders": orders,
                 "positions": positions,
@@ -768,6 +796,7 @@ class MetricsAggregator:
                 "proposals": proposals,
                 "trade_feed": trade_feed,
                 "notifications": notifications,
+                "notification_summary": notification_summary,
                 "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -783,6 +812,12 @@ class MetricsAggregator:
                 "proposals": [],
                 "trade_feed": [],
                 "notifications": [],
+                "notification_summary": {
+                    "total": 0,
+                    "open": 0,
+                    "resolved": 0,
+                    "by_severity": {"success": 0, "info": 0, "warning": 0, "critical": 0},
+                },
                 "signals": [],
                 "risk_alerts": [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),

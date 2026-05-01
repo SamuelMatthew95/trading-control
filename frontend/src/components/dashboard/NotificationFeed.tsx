@@ -11,7 +11,8 @@ import {
   Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { Notification, NotificationDisplayBadge, NotificationDisplayItem } from '@/stores/useCodexStore'
+import type { Notification } from '@/stores/useCodexStore'
+import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 
 const cardClass =
   'rounded-lg border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
@@ -106,27 +107,8 @@ function displayValue(value: unknown, fallback = '--'): string {
 }
 
 function formatTimestamp(value?: string | null): string {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
-  return date.toLocaleTimeString()
-}
-
-function normalizeBadges(notification: Notification): NotificationDisplayBadge[] {
-  if (Array.isArray(notification.display?.badges) && notification.display.badges.length > 0) {
-    return notification.display.badges
-  }
-  return [{ label: notification.severity, tone: notification.severity.toLowerCase() }]
-}
-
-function normalizeMeta(notification: Notification): NotificationDisplayItem[] {
-  if (Array.isArray(notification.display?.meta) && notification.display.meta.length > 0) {
-    return notification.display.meta
-  }
-  const meta: NotificationDisplayItem[] = [{ label: 'Type', value: notification.notification_type }]
-  if (notification.stream_source) meta.push({ label: 'Source', value: notification.stream_source })
-  if (notification.trace_id) meta.push({ label: 'Trace', value: notification.trace_id.slice(0, 8) })
-  return meta
+  if (!value) return NOTIFICATION_FALLBACKS.emptyTimestamp
+  return value
 }
 
 function NotificationEmptyState({ message }: { message: string }) {
@@ -169,12 +151,12 @@ export function NotificationFeed({
             const display = notification.display
             const tone = normalizeTone(display?.tone || notification.severity)
             const style = toneStyles[tone]
-            const Icon = iconByName[display?.icon || 'bell'] || BellRing
+            const Icon = iconByName[display?.icon || NOTIFICATION_FALLBACKS.icon] || BellRing
             const title = displayValue(display?.title || notification.title || notification.notification_type, 'Notification')
             const subtitle = displayValue(display?.subtitle || notification.message, 'No message')
-            const badges = normalizeBadges(notification)
+            const badges = Array.isArray(display?.badges) ? display.badges : []
             const facts = Array.isArray(display?.facts) ? display.facts : []
-            const meta = normalizeMeta(notification)
+            const meta = Array.isArray(display?.meta) ? display.meta : []
 
             return (
               <article

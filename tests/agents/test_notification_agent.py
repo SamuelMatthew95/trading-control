@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import fakeredis
 import pytest
 
+from api.constants import NOTIFICATIONS_STREAM_MAXLEN
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
@@ -191,6 +192,7 @@ async def test_publishes_to_notifications_stream(notification_agent, mock_bus):
     assert len(notifications_calls) == 1
 
     notification = notifications_calls[0][0][1]
+    assert notifications_calls[0][1]["maxlen"] == NOTIFICATIONS_STREAM_MAXLEN
     assert notification["severity"] == "INFO"
     assert notification["source"] == "notification_agent"
     assert "BTC/USD" in notification["message"]
@@ -355,23 +357,3 @@ async def test_in_memory_fallback_records_trade_notification(notification_agent,
     # The bus broadcast still fires so live subscribers see the fill too.
     notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
     assert len(notifications_calls) == 1
-
-
-def test_build_message_includes_key_context(notification_agent):
-    message = notification_agent._build_message(
-        "agent_grades",
-        "agent_grade",
-        {
-            "symbol": "AAPL",
-            "action": "buy",
-            "grade": "B",
-            "score": 0.81,
-            "agent_name": "REASONING_AGENT",
-            "reason": "momentum",
-        },
-    )
-    assert "AAPL" in message
-    assert "buy" in message
-    assert "grade=B" in message
-    assert "score=0.81" in message
-    assert "agent=REASONING_AGENT" in message

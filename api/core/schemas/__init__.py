@@ -124,3 +124,15 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Service health status")
     timestamp: str = Field(..., description="Health check timestamp")
     services: dict[str, str] = Field(..., description="Individual service statuses")
+
+
+class NotificationDisplay(BaseModel):
+    """UI-ready notification contract emitted by the notification pipeline."""
+
+    id: str
+    severity: str
+    title: str
+    body: str
+    icon: str
+    timestamp: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)

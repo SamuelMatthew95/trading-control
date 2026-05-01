@@ -193,6 +193,21 @@ def test_dashboard_fallback_snapshot_skips_malformed_position_qty():
     assert "BAD" not in symbols
 
 
+def test_dashboard_fallback_snapshot_includes_notification_summary():
+    store = InMemoryStore()
+    store.record_notification({"severity": "success", "state": "open", "message": "a"})
+    store.record_notification({"severity": "warning", "state": "resolved", "message": "b"})
+
+    snapshot = store.dashboard_fallback_snapshot()
+    summary = snapshot["notification_summary"]
+
+    assert summary["total"] == 2
+    assert summary["open"] == 1
+    assert summary["resolved"] == 1
+    assert summary["by_severity"]["success"] == 1
+    assert summary["by_severity"]["warning"] == 1
+
+
 def test_in_memory_store_paired_pnl_payload_matches_expected_shape():
     store = InMemoryStore()
     store.add_order({"symbol": "BTC/USD", "pnl": 120.0})

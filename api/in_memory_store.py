@@ -193,6 +193,34 @@ class InMemoryStore:
             return qty is not None and abs(qty) > 0
 
         now = time.time()
+        notifications = list(self.notifications[-100:])
+        notification_summary = {
+            "total": len(notifications),
+            "open": sum(
+                1 for n in notifications if str(n.get("state", "open")).lower() != "resolved"
+            ),
+            "resolved": sum(
+                1 for n in notifications if str(n.get("state", "open")).lower() == "resolved"
+            ),
+            "by_severity": {
+                "success": sum(
+                    1 for n in notifications if str(n.get("severity", "")).lower() == "success"
+                ),
+                "info": sum(
+                    1
+                    for n in notifications
+                    if str(n.get("severity", "")).lower() in {"info", "urgent"}
+                ),
+                "warning": sum(
+                    1 for n in notifications if str(n.get("severity", "")).lower() == "warning"
+                ),
+                "critical": sum(
+                    1
+                    for n in notifications
+                    if str(n.get("severity", "")).lower() in {"critical", "error"}
+                ),
+            },
+        }
         return {
             "orders": list(reversed(self.orders[-50:])),
             "positions": [p for p in self.positions.values() if _has_open_quantity(p)],
@@ -220,7 +248,8 @@ class InMemoryStore:
                 }
                 for name, data in self.agents.items()
             ],
-            "notifications": list(self.notifications[-100:]),
+            "notifications": notifications,
+            "notification_summary": notification_summary,
             "mode": "in_memory",
             "db_health": self.last_health,
             "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode
