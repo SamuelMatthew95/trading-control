@@ -226,6 +226,7 @@ type DashboardData = {
   prices?: Record<string, PriceData>
   proposals?: Array<Record<string, unknown>>
   trade_feed?: TradeFeedItem[]
+  notifications?: Array<Record<string, unknown>>
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
   timestamp: string
@@ -738,6 +739,35 @@ export const useCodexStore = create<CodexState>((set) => ({
         const newTrades = data.trade_feed.filter((t) => t?.id != null && !existingTfIds.has(t.id))
         if (newTrades.length > 0) {
           updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
+        }
+      }
+
+      // Notifications hydrate from /dashboard/state so buy/sell fills survive
+      // a page reload instead of only appearing on the live WebSocket stream.
+      if (data.notifications && Array.isArray(data.notifications)) {
+        const normalized = data.notifications
+          .map((n) => normalizeStoredNotification(n))
+          .filter((n): n is Notification => n !== null)
+        if (normalized.length > 0) {
+          const seen = new Set<string>()
+          const merged: Notification[] = []
+          const dedupKey = (n: Notification): string => {
+            const raw = n as unknown as Record<string, unknown>
+            return String(raw.notification_id ?? n.id)
+          }
+          for (const list of [normalized, currentState.notifications]) {
+            for (const n of list) {
+              const key = dedupKey(n)
+              if (seen.has(key)) continue
+              seen.add(key)
+              merged.push(n)
+            }
+          }
+          const next = merged.slice(0, 100)
+          updates.notifications = next
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('codex.notifications', JSON.stringify(next))
+          }
         }
       }
 
