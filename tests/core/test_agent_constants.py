@@ -140,3 +140,16 @@ def test_llm_timeout_seconds_greater_than_old_value() -> None:
     from api.constants import LLM_TIMEOUT_SECONDS
 
     assert LLM_TIMEOUT_SECONDS > 30
+
+
+def test_settings_llm_timeout_matches_constant() -> None:
+    """settings.LLM_TIMEOUT_SECONDS (api/config.py) must match the api/constants.py constant.
+
+    Two callers (pipeline_agents.py, vector_helpers.py) read settings.LLM_TIMEOUT_SECONDS
+    while reasoning_agent.py reads the constants module. If these drift apart, half the
+    LLM call sites will use the wrong timeout — exactly the bug this guardrail prevents.
+    """
+    from api.config import settings
+    from api.constants import LLM_TIMEOUT_SECONDS
+
+    assert settings.LLM_TIMEOUT_SECONDS == LLM_TIMEOUT_SECONDS
