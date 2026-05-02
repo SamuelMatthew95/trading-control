@@ -78,6 +78,12 @@ class LLMMetricsCollector:
         cutoff = now - window_seconds
 
         with self._lock:
+            # Roll the daily counter forward if the date changed since the last
+            # call — ensures snapshot() is accurate even during idle periods.
+            today = self._today()
+            if today != self._daily_date:
+                self._daily_date = today
+                self._daily_calls = 0
             window = [r for r in self._records if r.ts >= cutoff]
             recent_10 = list(self._records)[-10:]
             total_calls = self._total_calls
