@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from threading import Lock
 
-from api.constants import LLM_METRICS_MAX_RECORDS, LLM_METRICS_WINDOW_SECONDS, LLMCallResult
+from api.constants import (
+    LLM_CALL_DELAY_MS,
+    LLM_METRICS_MAX_RECORDS,
+    LLM_METRICS_WINDOW_SECONDS,
+    LLMCallResult,
+)
 
 
 @dataclass
@@ -27,6 +32,8 @@ class LLMMetricsCollector:
         self._total_calls: int = 0
         self._daily_calls: int = 0
         self._daily_date: str = ""
+        # GradeAgent writes here when it detects rate-limiting; None = use default
+        self._dynamic_delay_ms: int | None = None
 
     def _today(self) -> str:
         return date.today().isoformat()
@@ -40,6 +47,18 @@ class LLMMetricsCollector:
             self._records.append(CallRecord(result=result, latency_ms=latency_ms))
             self._total_calls += 1
             self._daily_calls += 1
+
+    def set_call_delay_ms(self, ms: int) -> None:
+        """GradeAgent calls this to raise the inter-call delay when rate-limiting occurs."""
+        with self._lock:
+            self._dynamic_delay_ms = max(0, ms)
+
+    def get_call_delay_ms(self) -> int:
+        """Return the active call delay: dynamic value if set, else the compiled default."""
+        with self._lock:
+            return (
+                self._dynamic_delay_ms if self._dynamic_delay_ms is not None else LLM_CALL_DELAY_MS
+            )
 
     def record_success(self, latency_ms: float) -> None:
         self._record(LLMCallResult.SUCCESS, latency_ms)
@@ -63,6 +82,10 @@ class LLMMetricsCollector:
             recent_10 = list(self._records)[-10:]
             total_calls = self._total_calls
             daily_calls = self._daily_calls
+            effective_delay_ms = (
+                self._dynamic_delay_ms if self._dynamic_delay_ms is not None else LLM_CALL_DELAY_MS
+            )
+            grade_adjusted = self._dynamic_delay_ms is not None
 
         successes = [r for r in window if r.result == LLMCallResult.SUCCESS]
         total_w = len(window)
@@ -81,6 +104,8 @@ class LLMMetricsCollector:
             "error_count": sum(1 for r in window if r.result == LLMCallResult.ERROR),
             "total_calls_lifetime": total_calls,
             "daily_calls": daily_calls,
+            "effective_delay_ms": effective_delay_ms,
+            "grade_adjusted_delay": grade_adjusted,
             "recent_results": [
                 {
                     "result": r.result,
