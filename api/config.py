@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GEMINI_API_KEY: str | None = Field(default=None)
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
 
     # Alpaca - use paper trading keys from alpaca.markets
     ALPACA_API_KEY: str = ""

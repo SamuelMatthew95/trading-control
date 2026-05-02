@@ -214,7 +214,7 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     import google.generativeai as genai
 
     genai.configure(api_key=_get_gemini_api_key())
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel(getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite"))
     retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
     for attempt in range(retries + 1):
@@ -331,7 +331,7 @@ async def _call_provider_raw(
         import google.generativeai as genai
 
         genai.configure(api_key=_get_gemini_api_key())
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel(getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite"))
         retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
         for attempt in range(retries + 1):
