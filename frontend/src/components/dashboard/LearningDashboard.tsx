@@ -705,7 +705,6 @@ export function LearningDashboard() {
   const [tradesMode, setTradesMode] = useState('memory')
   const [metrics, setMetrics] = useState<LearningMetrics | null>(null)
   const [reflections, setReflections] = useState<Reflection[]>([])
-  const [reflectionsTotal, setReflectionsTotal] = useState(0)
   const [reflectionsMode, setReflectionsMode] = useState('memory')
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [strategiesTotal, setStrategiesTotal] = useState(0)
@@ -739,7 +738,7 @@ export function LearningDashboard() {
 
     if (t) { setTrades(t.trades); setTradesTotal(t.total); setTradesMode(t.mode) }
     if (m) setMetrics(m)
-    if (r) { setReflections(r.reflections); setReflectionsTotal(r.total); setReflectionsMode(r.mode) }
+    if (r) { setReflections(r.reflections); setReflectionsMode(r.mode) }
     if (s) { setStrategies(s.strategies); setStrategiesTotal(s.total); setStrategiesMode(s.mode) }
     if (p) setPipeline(p)
     setErrors(errs)
