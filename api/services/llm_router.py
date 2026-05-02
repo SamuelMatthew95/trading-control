@@ -10,6 +10,7 @@ import time as _time
 from api.config import settings
 from api.constants import AgentAction, FieldName
 from api.observability import log_structured
+from api.services.llm_metrics import llm_metrics
 
 _GEMINI_RPM = 15
 _GEMINI_WINDOW = 60.0
@@ -364,6 +365,35 @@ async def _call_provider_raw(
     raise RuntimeError(f"unknown_provider: '{provider}'")
 
 
+def _is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "429" in msg
+        or "rate limit" in msg
+        or "ratelimit" in msg
+        or "quota" in msg
+        or "resource exhausted" in msg
+        or "too many requests" in msg
+    )
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "timeout" in msg or "timed out" in msg or "deadline" in msg
+
+
+async def _inter_call_delay() -> None:
+    """Sleep the active inter-call delay.
+
+    GradeAgent can raise this dynamically (via llm_metrics.set_call_delay_ms)
+    when it detects sustained rate-limiting; the change takes effect on the
+    next call without any restart.
+    """
+    delay_ms = llm_metrics.get_call_delay_ms()
+    if delay_ms > 0:
+        await asyncio.sleep(delay_ms / 1000.0)
+
+
 async def call_llm_with_system(
     prompt: str, system_prompt: str, trace_id: str
 ) -> tuple[str, int, float]:
@@ -376,16 +406,26 @@ async def call_llm_with_system(
     api_key = _get_provider_key(provider)
     if not api_key:
         raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+    await _inter_call_delay()
+    t0 = _time.monotonic()
     try:
         log_structured("info", "Calling LLM with custom prompt", provider=provider)
         result = await _call_provider_raw(provider, prompt, system_prompt, trace_id)
-        log_structured("info", "LLM custom call succeeded", provider=provider)
+        latency_ms = (_time.monotonic() - t0) * 1000
+        llm_metrics.record_success(latency_ms=latency_ms)
+        log_structured(
+            "info", "LLM custom call succeeded", provider=provider, latency_ms=round(latency_ms)
+        )
         return result
     except Exception as exc:
-        error_str = str(exc).lower()
-        if "rate" in error_str or "429" in error_str or "limit" in error_str:
+        if _is_rate_limit_error(exc):
+            llm_metrics.record_rate_limit()
             log_structured("warning", "LLM rate limit hit", provider=provider, exc_info=True)
+        elif _is_timeout_error(exc):
+            llm_metrics.record_timeout()
+            log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
         else:
+            llm_metrics.record_error()
             log_structured("warning", "LLM custom call failed", provider=provider, exc_info=True)
         raise
 
@@ -403,15 +443,23 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     api_key = _get_provider_key(provider)
     if not api_key:
         raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+    await _inter_call_delay()
+    t0 = _time.monotonic()
     try:
         log_structured("info", "Calling LLM", provider=provider)
         result = await _PROVIDERS[provider](prompt, trace_id)
-        log_structured("info", "LLM succeeded", provider=provider)
+        latency_ms = (_time.monotonic() - t0) * 1000
+        llm_metrics.record_success(latency_ms=latency_ms)
+        log_structured("info", "LLM succeeded", provider=provider, latency_ms=round(latency_ms))
         return result
     except Exception as exc:
-        error_str = str(exc).lower()
-        if "rate" in error_str or "429" in error_str or "limit" in error_str:
+        if _is_rate_limit_error(exc):
+            llm_metrics.record_rate_limit()
             log_structured("warning", "LLM rate limit hit", provider=provider, exc_info=True)
+        elif _is_timeout_error(exc):
+            llm_metrics.record_timeout()
+            log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
         else:
+            llm_metrics.record_error()
             log_structured("warning", "LLM call failed", provider=provider, exc_info=True)
         raise

@@ -7,6 +7,7 @@ import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
+import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import {
   Activity,
@@ -142,6 +143,12 @@ function displayAgentName(rawName: string): string {
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 const AGENT_LIVE_THRESHOLD_MS = 10_000
 const AGENT_STALE_THRESHOLD_MS = 120_000
+// Per-agent overrides: Reasoning Agent can take 60-90s per LLM call.
+const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
+  REASONING_AGENT: 90_000,
+}
+const getLiveThresholdMs = (agentKey: string): number =>
+  AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
 
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
@@ -247,11 +254,19 @@ const PROPOSAL_TYPE_LABEL: Record<string, string> = {
   parameter_change: 'Param Change',
   code_change: 'Code Change',
   regime_adjustment: 'Regime Adjust',
+  signal_weight_reduction: 'Weight Reduction',
+  agent_suspension: 'Suspension',
+  agent_retirement: 'Retirement',
+  new_agent: 'New Agent',
 }
 const PROPOSAL_TYPE_STYLE: Record<string, string> = {
   parameter_change: 'bg-slate-500/10 text-slate-500',
   code_change: 'bg-slate-500/10 text-slate-500',
   regime_adjustment: 'bg-amber-500/15 text-amber-500',
+  signal_weight_reduction: 'bg-amber-500/15 text-amber-500',
+  agent_suspension: 'bg-rose-500/15 text-rose-500',
+  agent_retirement: 'bg-rose-600/15 text-rose-600',
+  new_agent: 'bg-emerald-500/15 text-emerald-500',
 }
 
 function ProposalsFeed({
@@ -882,9 +897,10 @@ export function DashboardView({ section }: { section: Section }) {
     }, {})
 
     const now = Date.now()
-    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
+    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([agentKey, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
+      const liveThreshold = getLiveThresholdMs(agentKey)
+      const status: AgentSummary['status'] = ageMs <= liveThreshold ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return {
         name: data.displayName,
@@ -904,7 +920,7 @@ export function DashboardView({ section }: { section: Section }) {
       const statusDate = parseHeartbeatTimestamp(status)
       const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
       const eventCount = status.event_count ?? 0
-      const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
+      const mappedStatus: AgentSummary['status'] = ageMs <= getLiveThresholdMs(agentKey) ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       const lastSeen = [existing?.lastSeen, statusDate]
         .filter((d): d is Date => d instanceof Date)
@@ -1478,8 +1494,28 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           </div>
 
+          <LLMHealthPanel />
+
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-2')}>System Diagnostics</p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
+                  isInMemoryMode
+                    ? 'bg-amber-400/10 text-amber-500'
+                    : 'bg-emerald-500/10 text-emerald-500',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block h-2 w-2 rounded-full',
+                    isInMemoryMode ? 'bg-amber-400' : 'bg-emerald-500',
+                  )}
+                />
+                {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
+              </span>
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <p className={mutedClass}>
                 Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
@@ -1700,19 +1736,40 @@ export function DashboardView({ section }: { section: Section }) {
                 <table className="min-w-full">
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-800">
-                      {['Grade', 'Score', 'Time'].map((h) => (
+                      {['Grade', 'Score', 'LLM Health', 'Rate Lim', 'Delay', 'Time'].map((h) => (
                         <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {cleanGradeHistory.map((g, i) => (
-                      <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
-                        <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
-                      </tr>
-                    ))}
+                    {cleanGradeHistory.map((g, i) => {
+                      const m = (g as Record<string, unknown>).metrics as Record<string, number> | undefined
+                      const llmHealth = m?.llm_health_score
+                      const rateLim = m?.llm_rate_limited
+                      const delayMs = m?.llm_effective_delay_ms
+                      return (
+                        <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
+                          <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
+                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums">
+                            {llmHealth != null ? (
+                              <span className={llmHealth >= 0.8 ? 'text-emerald-500' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-500'}>
+                                {(llmHealth * 100).toFixed(0)}%
+                              </span>
+                            ) : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums">
+                            {rateLim != null ? (
+                              <span className={rateLim > 0 ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}>{rateLim}</span>
+                            ) : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                            {delayMs != null ? `${delayMs}ms` : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

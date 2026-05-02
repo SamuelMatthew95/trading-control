@@ -12,7 +12,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
 from api.constants import FieldName
@@ -33,6 +32,7 @@ from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
 from api.routes.learning import router as learning_router
+from api.routes.llm_health import router as llm_health_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
@@ -103,55 +103,53 @@ async def lifespan(app: FastAPI):
     agent_state = AgentStateRegistry()
 
     try:
-        # Try to initialize database
-        try:
-            await init_database()
-            db_startup_ok = await test_database_connection()
-            if db_startup_ok:
-                async with engine.connect() as connection:
-                    await connection.execute(text("SELECT 1"))
-                app.state.db_available = True
-                set_db_available(True)
-                app.state.in_memory_store.last_health = "db_ok"
-                log_structured("info", "database_initialized_successfully")
-            else:
-                # Database connection failed
-                set_db_available(False)
-                app.state.in_memory_store.last_health = "db_down"
-                app.state.in_memory_store.add_notification(
-                    "Database connection failed. Running in in-memory fallback mode.",
-                    level="warning",
-                    notification_type="startup",
+        # Try to initialize database with exponential-backoff retry (2s, 4s, 8s)
+        _db_ok = False
+        _db_delays = [2, 4, 8]
+        for _attempt, _delay in enumerate([0] + _db_delays, start=1):
+            if _delay > 0:
+                log_structured(
+                    "info",
+                    "database_init_retry",
+                    attempt=_attempt,
+                    backoff_seconds=_delay,
                 )
-                # Dispose engine to prevent retry storms
-                try:
-                    engine.dispose()
-                except Exception:
-                    pass  # Best effort cleanup
+                await asyncio.sleep(_delay)
+            try:
+                await init_database()
+                if await test_database_connection():
+                    _db_ok = True
+                    break
+            except Exception:
                 log_structured(
                     "warning",
-                    "database_connection_failed_using_memory",
-                    event_name="database_connection_failed_using_memory",
+                    "database_init_attempt_failed",
+                    attempt=_attempt,
+                    max_attempts=len(_db_delays) + 1,
+                    exc_info=True,
                 )
-        except Exception as e:
-            # Database initialization failed
+
+        if _db_ok:
+            app.state.db_available = True
+            set_db_available(True)
+            app.state.in_memory_store.last_health = "db_ok"
+            log_structured("info", "database_initialized_successfully")
+        else:
             set_db_available(False)
             app.state.in_memory_store.last_health = "db_down"
             app.state.in_memory_store.add_notification(
-                f"Database initialization failed: {str(e)}. Running in in-memory fallback mode.",
+                "Database connection failed after retries. Running in in-memory fallback mode.",
                 level="warning",
                 notification_type="startup",
             )
-            # Dispose engine to prevent retry storms
             try:
                 engine.dispose()
             except Exception:
-                pass  # Best effort cleanup
+                pass
             log_structured(
                 "warning",
-                "database_initialization_failed_using_memory",
-                event_name="database_initialization_failed_using_memory",
-                exc_info=True,
+                "database_connection_failed_using_memory",
+                event_name="database_connection_failed_using_memory",
             )
 
         redis_client = await get_redis()
@@ -340,6 +338,8 @@ app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
+app.include_router(llm_health_router)
+app.include_router(llm_health_router, prefix="/api")
 # Register dashboard at both root and /api prefix so it works regardless of
 # whether NEXT_PUBLIC_API_URL includes "/api" or not (matches health_router pattern)
 app.include_router(dashboard_v2_router)

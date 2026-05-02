@@ -136,6 +136,13 @@ class ProposalStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class LLMCallResult(StrEnum):
+    SUCCESS = "success"
+    RATE_LIMITED = "rate_limited"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+
+
 class LogType(StrEnum):
     REASONING_SUMMARY = "reasoning_summary"
     GRADE = "grade"
@@ -407,6 +414,8 @@ REDIS_KEY_ORDER_DEDUP: Final[str] = "order:dedup:{idempotency_key}"
 ORDER_DEDUP_TTL_SECONDS: Final[int] = 86400  # 24h — covers any realistic replay window
 REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
+# Dynamic call delay written by GradeAgent when rate-limiting is detected
+REDIS_KEY_LLM_CALL_DELAY_MS: Final[str] = "llm:call_delay_ms"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
@@ -494,6 +503,18 @@ LLM_TIMEOUT_SECONDS: Final[int] = 60
 LLM_MAX_RETRIES: Final[int] = 3
 ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
 ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
+# Minimum delay between sequential LLM calls to avoid burst rate-limiting (ms)
+LLM_CALL_DELAY_MS: Final[int] = 200
+# GradeAgent bumps the call delay by this amount each time it detects rate-limiting
+LLM_DELAY_ADJUSTMENT_STEP_MS: Final[int] = 250
+# Hard cap on dynamic call delay
+LLM_DELAY_MAX_MS: Final[int] = 2000
+# How many rate-limits in the metrics window before GradeAgent acts
+LLM_RATE_LIMIT_GRADE_THRESHOLD: Final[int] = 3
+# Sliding window for LLM metrics (seconds) — how far back we look for success rate
+LLM_METRICS_WINDOW_SECONDS: Final[int] = 300  # 5 minutes
+# Max call records kept in the in-memory metrics ring buffer
+LLM_METRICS_MAX_RECORDS: Final[int] = 200
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
 PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
 SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence

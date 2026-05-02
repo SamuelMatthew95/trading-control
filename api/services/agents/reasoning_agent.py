@@ -397,8 +397,27 @@ class ReasoningAgent(BaseStreamConsumer):
                 },
                 default=str,
             )
+            log_structured(
+                "debug",
+                "llm_prompt_sent",
+                trace_id=trace_id,
+                call_type="critique",
+                prompt_chars=len(critique_prompt),
+                prompt_preview=critique_prompt[:400],
+                system_prompt_preview=REASONING_CRITIQUE_PROMPT[:200],
+            )
             raw_text, tokens, cost = await call_llm_with_system(
                 critique_prompt, REASONING_CRITIQUE_PROMPT, trace_id
+            )
+            log_structured(
+                "debug",
+                "llm_response_received",
+                trace_id=trace_id,
+                call_type="critique",
+                tokens=tokens,
+                cost_usd=cost,
+                response_chars=len(str(raw_text)),
+                response_raw=str(raw_text)[:600],
             )
             cleaned = raw_text.strip()
             if cleaned.startswith("```"):
@@ -410,6 +429,15 @@ class ReasoningAgent(BaseStreamConsumer):
                 if cleaned.rstrip().endswith("```"):
                     cleaned = cleaned.rstrip()[:-3].strip()
             critique = json.loads(cleaned)
+            log_structured(
+                "debug",
+                "llm_response_parsed",
+                trace_id=trace_id,
+                call_type="critique",
+                justified=critique.get("justified"),
+                recommended_action=critique.get("recommended_action"),
+                concerns=critique.get("concerns", []),
+            )
 
             log_structured(
                 "info",
@@ -470,8 +498,27 @@ class ReasoningAgent(BaseStreamConsumer):
             },
             default=str,
         )
+        log_structured(
+            "debug",
+            "llm_prompt_sent",
+            trace_id=trace_id,
+            call_type="decision",
+            prompt_chars=len(prompt),
+            prompt_preview=prompt[:400],
+            system_prompt_preview=ADAPTIVE_TRADING_SYSTEM_PROMPT[:200],
+        )
         raw_text, tokens, cost_usd = await call_llm_with_system(
             prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id
+        )
+        log_structured(
+            "debug",
+            "llm_response_received",
+            trace_id=trace_id,
+            call_type="decision",
+            tokens=tokens,
+            cost_usd=cost_usd,
+            response_chars=len(str(raw_text)),
+            response_raw=str(raw_text)[:600],
         )
         if isinstance(raw_text, dict):
             return raw_text, tokens, cost_usd
@@ -489,7 +536,24 @@ class ReasoningAgent(BaseStreamConsumer):
             parsed = json.loads(cleaned)
             if not isinstance(parsed, dict):
                 raise json.JSONDecodeError("LLM JSON must be an object", cleaned, 0)
+            log_structured(
+                "debug",
+                "llm_response_parsed",
+                trace_id=trace_id,
+                call_type="decision",
+                action=parsed.get(FieldName.ACTION),
+                confidence=parsed.get(FieldName.CONFIDENCE),
+                primary_edge=str(parsed.get(FieldName.PRIMARY_EDGE, ""))[:120],
+                risk_factors=parsed.get(FieldName.RISK_FACTORS, []),
+            )
         except json.JSONDecodeError:
+            log_structured(
+                "warning",
+                "llm_response_invalid_json",
+                trace_id=trace_id,
+                call_type="decision",
+                cleaned_preview=cleaned[:300],
+            )
             parsed = {
                 "action": AgentAction.HOLD,
                 "confidence": 0.0,

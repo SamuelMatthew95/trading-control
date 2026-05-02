@@ -24,6 +24,10 @@ from api.constants import (
     AGENT_NOTIFICATION,
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
+    LLM_CALL_DELAY_MS,
+    LLM_DELAY_ADJUSTMENT_STEP_MS,
+    LLM_DELAY_MAX_MS,
+    LLM_RATE_LIMIT_GRADE_THRESHOLD,
     NOTIFICATION_DEDUP_TTL_SECONDS,
     NOTIFICATIONS_STREAM_MAXLEN,
     REDIS_IC_WEIGHTS_TTL_SECONDS,
@@ -102,6 +106,7 @@ from api.services.agents.trade_scorer import (
     compute_recommendations,
     score_trade,
 )
+from api.services.llm_metrics import llm_metrics as _llm_metrics
 
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
@@ -132,6 +137,10 @@ class GradeAgent(MultiStreamAgent):
         self._consecutive_low_grades = 0
         # Per-trade evaluation buffer for ReflectionAgent to consume
         self._eval_buffer: deque[dict] = deque(maxlen=200)
+        # Tracks the rate_limited_count seen at the last delay adjustment so we
+        # only ratchet up when *new* 429s appear, not just because old ones are
+        # still inside the 5-minute sliding window.
+        self._last_rl_count_at_adjustment: int = 0
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -176,6 +185,7 @@ class GradeAgent(MultiStreamAgent):
             ic = await self._information_coefficient(lookback_n)
             cost_eff = await self._cost_efficiency(lookback_n)
             latency = await self._latency_score()
+            llm_health, llm_snap = self._llm_health_score()
         except Exception:
             log_structured("error", "grade_metric_computation_failed", exc_info=True)
             return
@@ -198,14 +208,15 @@ class GradeAgent(MultiStreamAgent):
             FieldName.MSG_ID: str(uuid.uuid4()),
             FieldName.TYPE: "agent_grade",
             FieldName.SOURCE: SOURCE_GRADE,
-            "agent": SOURCE_REASONING,
+            FieldName.AGENT: SOURCE_REASONING,
             "agent_name": AGENT_GRADE,
             FieldName.TRACE_ID: trace_id,
             "grade": grade,
             FieldName.SCORE: score,
             "confidence_score": round(score * 100, 2),
             "reasoning": (
-                f"accuracy={accuracy:.3f}, ic={ic:.3f}, cost_eff={cost_eff:.3f}, latency={latency:.3f}"
+                f"accuracy={accuracy:.3f}, ic={ic:.3f}, cost_eff={cost_eff:.3f}, "
+                f"latency={latency:.3f}, llm_health={llm_health:.3f}"
             ),
             "score_pct": round(score * 100, 1),
             FieldName.METRICS: {
@@ -215,17 +226,32 @@ class GradeAgent(MultiStreamAgent):
                 "cost_efficiency": round(cost_eff, 4),
                 "cost_normalized": round(cost_norm, 4),
                 "latency_score": round(latency, 4),
+                "llm_health_score": llm_health,
+                "llm_rate_limited": llm_snap.get("rate_limited_count", 0),
+                "llm_timeout_count": llm_snap.get("timeout_count", 0),
+                "llm_success_rate_pct": round(llm_snap.get("success_rate_pct", 100.0), 1),
+                "llm_effective_delay_ms": llm_snap.get("effective_delay_ms", LLM_CALL_DELAY_MS),
             },
             "fills_graded": self._fills,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         }
 
         await self.bus.publish(STREAM_AGENT_GRADES, payload)
-        log_structured("info", "grade_computed", grade=grade, score=score, fills=self._fills, ic=ic)
+        log_structured(
+            "info",
+            "grade_computed",
+            grade=grade,
+            score=score,
+            fills=self._fills,
+            ic=ic,
+            llm_health=llm_health,
+            llm_rate_limited=llm_snap.get("rate_limited_count", 0),
+        )
 
         await write_agent_log(trace_id, LogType.GRADE, payload)
         await write_grade_to_db(trace_id, payload[FieldName.SCORE_PCT], payload[FieldName.METRICS])
         await self._take_grade_action(grade, payload)
+        await self._adjust_llm_call_rate(llm_snap)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
         # Write heartbeat with last grade score for dashboard display
@@ -250,8 +276,6 @@ class GradeAgent(MultiStreamAgent):
         if not is_db_available():
             return
         try:
-            from sqlalchemy import text as _text
-
             from api.database import AsyncSessionFactory
             from api.services.agents.db_helpers import upsert_trade_lifecycle
 
@@ -261,7 +285,7 @@ class GradeAgent(MultiStreamAgent):
             )
             async with AsyncSessionFactory() as _sess:
                 row = await _sess.execute(
-                    _text("""
+                    text("""
                         SELECT execution_trace_id FROM trade_lifecycle
                         WHERE status = 'filled' AND grade IS NULL
                         ORDER BY created_at DESC LIMIT 1
@@ -365,6 +389,73 @@ class GradeAgent(MultiStreamAgent):
                 return max(0.0, 1.0 - (float(p95) / timeout_ms))
         except Exception:
             return 0.8
+
+    def _llm_health_score(self) -> tuple[float, dict[str, Any]]:
+        """Read live LLM metrics and return (health_score [0,1], snapshot).
+
+        Health degrades with rate limits and timeouts on top of the raw
+        success rate, so even a high success_rate is penalised when the
+        window contains many blocked calls.
+        """
+        snap = _llm_metrics.snapshot()
+        success_rate = snap.get("success_rate_pct", 100.0) / 100.0
+        rate_limited = snap.get("rate_limited_count", 0)
+        timeout_count = snap.get("timeout_count", 0)
+        penalty = min(1.0, rate_limited * 0.10 + timeout_count * 0.15)
+        health = round(max(0.0, success_rate - penalty), 4)
+        return health, snap
+
+    async def _adjust_llm_call_rate(self, llm_snap: dict) -> None:
+        """Raise the inter-call delay only when new rate-limited calls appear.
+
+        Called every grading cycle. The 5-minute sliding window can keep a
+        burst above the threshold for minutes after the burst ends, so we gate
+        on whether rate_limited_count has *increased* since the last time we
+        adjusted — preventing repeated ratcheting from a single burst.
+        """
+        rate_limited = llm_snap.get("rate_limited_count", 0)
+        if rate_limited < LLM_RATE_LIMIT_GRADE_THRESHOLD:
+            # Count dropped below threshold; reset so a future burst can act.
+            self._last_rl_count_at_adjustment = 0
+            return
+
+        if rate_limited <= self._last_rl_count_at_adjustment:
+            return  # no new 429s since last adjustment — window still draining
+
+        current_delay = _llm_metrics.get_call_delay_ms()
+        new_delay = min(current_delay + LLM_DELAY_ADJUSTMENT_STEP_MS, LLM_DELAY_MAX_MS)
+        self._last_rl_count_at_adjustment = rate_limited
+        if new_delay == current_delay:
+            return  # already at cap
+
+        _llm_metrics.set_call_delay_ms(new_delay)
+        log_structured(
+            "info",
+            "grade_agent_raised_llm_delay",
+            from_ms=current_delay,
+            to_ms=new_delay,
+            rate_limited_count=rate_limited,
+        )
+        await self.bus.publish(
+            STREAM_PROPOSALS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_GRADE,
+                FieldName.TYPE: "proposal",
+                "proposal_type": ProposalType.PARAMETER_CHANGE,
+                "content": {
+                    "parameter": "LLM_CALL_DELAY_MS",
+                    "previous_value": current_delay,
+                    "new_value": new_delay,
+                    "reason": (
+                        f"GradeAgent detected {rate_limited} rate-limited calls "
+                        f"in the last 5-minute window (threshold={LLM_RATE_LIMIT_GRADE_THRESHOLD})"
+                    ),
+                    "auto_applied": True,
+                },
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def _take_grade_action(self, grade: str, payload: dict[str, Any]) -> None:
         """Publish notifications and proposals based on grade threshold."""
