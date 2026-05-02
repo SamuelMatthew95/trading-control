@@ -31,17 +31,14 @@ async def llm_health() -> dict[str, Any]:
     status = _llm_status(snap["success_rate_pct"], snap["total_in_window"])
 
     provider = getattr(settings, "LLM_PROVIDER", "unknown").lower()
-    model_name: str
-    if provider == "gemini":
-        model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite")
-    elif provider == "groq":
-        model_name = getattr(settings, "GROQ_MODEL", "unknown")
-    elif provider == "anthropic":
-        model_name = getattr(settings, "ANTHROPIC_MODEL", "unknown")
-    elif provider == "openai":
-        model_name = getattr(settings, "OPENAI_MODEL", "unknown")
-    else:
-        model_name = "unknown"
+    _model_setting = {
+        "gemini": ("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+        "groq": ("GROQ_MODEL", "unknown"),
+        "anthropic": ("ANTHROPIC_MODEL", "unknown"),
+        "openai": ("OPENAI_MODEL", "unknown"),
+    }
+    _attr, _default = _model_setting.get(provider, ("", "unknown"))
+    model_name: str = getattr(settings, _attr, _default) if _attr else "unknown"
 
     return {
         "status": status,
