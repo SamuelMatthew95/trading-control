@@ -12,7 +12,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import text
 
 from api.config import get_cors_origins, parse_csv_env, settings
 from api.constants import FieldName
@@ -119,8 +118,6 @@ async def lifespan(app: FastAPI):
             try:
                 await init_database()
                 if await test_database_connection():
-                    async with engine.connect() as connection:
-                        await connection.execute(text("SELECT 1"))
                     _db_ok = True
                     break
             except Exception:
