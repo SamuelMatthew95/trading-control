@@ -8,7 +8,7 @@ import re
 import time as _time
 
 from api.config import settings
-from api.constants import LLM_CALL_DELAY_MS, AgentAction, FieldName
+from api.constants import AgentAction, FieldName
 from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
 
@@ -383,8 +383,13 @@ def _is_timeout_error(exc: Exception) -> bool:
 
 
 async def _inter_call_delay() -> None:
-    """Sleep a configurable delay to avoid rapid-fire bursting against rate limits."""
-    delay_ms = int(getattr(settings, "LLM_CALL_DELAY_MS", LLM_CALL_DELAY_MS))
+    """Sleep the active inter-call delay.
+
+    GradeAgent can raise this dynamically (via llm_metrics.set_call_delay_ms)
+    when it detects sustained rate-limiting; the change takes effect on the
+    next call without any restart.
+    """
+    delay_ms = llm_metrics.get_call_delay_ms()
     if delay_ms > 0:
         await asyncio.sleep(delay_ms / 1000.0)
 
