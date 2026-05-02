@@ -113,7 +113,12 @@ function CallDot({ call }: { call: CallRecord }) {
   )
 }
 
-export function LLMHealthPanel({ isDark }: { isDark?: boolean }) {
+const CARD = 'rounded-xl border border-slate-200 bg-white p-4 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100'
+const MUTED = 'text-xs text-slate-500 dark:text-slate-400'
+const LABEL = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
+const VALUE = 'font-mono text-slate-700 dark:text-slate-300'
+
+export function LLMHealthPanel() {
   const [data, setData] = useState<LLMHealthData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -140,25 +145,19 @@ export function LLMHealthPanel({ isDark }: { isDark?: boolean }) {
     }
   }, [])
 
-  const card = isDark
-    ? 'border-slate-700 bg-slate-900/80 text-slate-100'
-    : 'border-slate-200 bg-white text-slate-900'
-  const muted = isDark ? 'text-slate-400' : 'text-slate-500'
-  const label = 'text-xs font-semibold uppercase tracking-widest font-sans ' + (isDark ? 'text-slate-400' : 'text-slate-500')
-
   if (error) {
     return (
-      <div className={`rounded-xl border p-4 ${card}`}>
-        <p className={label}>LLM Health</p>
-        <p className={`mt-2 text-sm ${muted}`}>Metrics unavailable</p>
+      <div className={CARD}>
+        <p className={LABEL}>LLM Health</p>
+        <p className={`mt-2 text-sm ${MUTED}`}>Metrics unavailable</p>
       </div>
     )
   }
 
   if (!data) {
     return (
-      <div className={`rounded-xl border p-4 ${card}`}>
-        <p className={label}>LLM Health</p>
+      <div className={CARD}>
+        <p className={LABEL}>LLM Health</p>
         <div className="mt-2 space-y-2">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-3 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
@@ -171,20 +170,20 @@ export function LLMHealthPanel({ isDark }: { isDark?: boolean }) {
   const windowMin = Math.round(data.window_seconds / 60)
 
   return (
-    <div className={`rounded-xl border p-4 ${card}`}>
+    <div className={CARD}>
       <div className="mb-3 flex items-center justify-between">
-        <p className={label}>LLM Health</p>
+        <p className={LABEL}>LLM Health</p>
         <StatusDot status={data.status} />
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <span className={muted}>
-          Model: <span className="font-mono text-slate-700 dark:text-slate-300">{data.model}</span>
+        <span className={MUTED}>
+          Model: <span className={VALUE}>{data.model}</span>
         </span>
-        <span className={muted}>
-          Provider: <span className="font-mono text-slate-700 dark:text-slate-300">{data.provider}</span>
+        <span className={MUTED}>
+          Provider: <span className={VALUE}>{data.provider}</span>
         </span>
-        <span className={muted}>
+        <span className={MUTED}>
           Success Rate:{' '}
           <span
             className={
@@ -197,43 +196,38 @@ export function LLMHealthPanel({ isDark }: { isDark?: boolean }) {
           >
             {data.success_rate_pct.toFixed(0)}%
           </span>{' '}
-          <span className={muted}>
+          <span className={MUTED}>
             ({data.success_count}/{data.total_in_window} last {windowMin}m)
           </span>
         </span>
-        <span className={muted}>
-          Avg Latency:{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-300">
-            {data.avg_latency_ms > 0 ? `${data.avg_latency_ms.toFixed(0)}ms` : '--'}
-          </span>
+        <span className={MUTED}>
+          Avg Latency: <span className={VALUE}>{data.avg_latency_ms > 0 ? `${data.avg_latency_ms.toFixed(0)}ms` : '--'}</span>
         </span>
-        <span className={muted}>
+        <span className={MUTED}>
           Rate Limited:{' '}
-          <span className={data.rate_limited_count > 0 ? 'font-semibold text-amber-400' : 'text-slate-700 dark:text-slate-300'}>
+          <span className={data.rate_limited_count > 0 ? 'font-semibold text-amber-400' : VALUE}>
             {data.rate_limited_count}
           </span>{' '}
-          <span className={muted}>(last {windowMin}m)</span>
+          <span className={MUTED}>(last {windowMin}m)</span>
         </span>
-        <span className={muted}>
+        <span className={MUTED}>
           Timeouts:{' '}
-          <span className={data.timeout_count > 0 ? 'font-semibold text-rose-500' : 'text-slate-700 dark:text-slate-300'}>
+          <span className={data.timeout_count > 0 ? 'font-semibold text-rose-500' : VALUE}>
             {data.timeout_count}
           </span>{' '}
-          <span className={muted}>(last {windowMin}m)</span>
+          <span className={MUTED}>(last {windowMin}m)</span>
         </span>
-        <span className={muted}>
-          Daily Calls:{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-300">{data.daily_calls}</span>
+        <span className={MUTED}>
+          Daily Calls: <span className={VALUE}>{data.daily_calls}</span>
         </span>
-        <span className={muted}>
-          Lifetime:{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-300">{data.total_calls_lifetime}</span>
+        <span className={MUTED}>
+          Lifetime: <span className={VALUE}>{data.total_calls_lifetime}</span>
         </span>
       </div>
 
       {data.recent_results.length > 0 && (
         <div>
-          <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-widest ${muted}`}>
+          <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-widest ${MUTED}`}>
             Last {data.recent_results.length} calls
           </p>
           <div className="flex flex-wrap gap-1">
