@@ -367,7 +367,14 @@ async def _call_provider_raw(
 
 def _is_rate_limit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
-    return "rate" in msg or "429" in msg or "limit" in msg or "quota" in msg
+    return (
+        "429" in msg
+        or "rate limit" in msg
+        or "ratelimit" in msg
+        or "quota" in msg
+        or "resource exhausted" in msg
+        or "too many requests" in msg
+    )
 
 
 def _is_timeout_error(exc: Exception) -> bool:
