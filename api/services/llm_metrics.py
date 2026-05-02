@@ -32,18 +32,20 @@ class LLMMetricsCollector:
         self._total_calls: int = 0
         self._daily_calls: int = 0
         self._daily_date: str = ""
-        # GradeAgent writes here when it detects rate-limiting; None = use default
         self._dynamic_delay_ms: int | None = None
 
     def _today(self) -> str:
         return date.today().isoformat()
 
+    def _refresh_daily_date(self) -> None:
+        today = self._today()
+        if today != self._daily_date:
+            self._daily_date = today
+            self._daily_calls = 0
+
     def _record(self, result: LLMCallResult, latency_ms: float = 0.0) -> None:
         with self._lock:
-            today = self._today()
-            if today != self._daily_date:
-                self._daily_date = today
-                self._daily_calls = 0
+            self._refresh_daily_date()
             self._records.append(CallRecord(result=result, latency_ms=latency_ms))
             self._total_calls += 1
             self._daily_calls += 1
@@ -78,12 +80,7 @@ class LLMMetricsCollector:
         cutoff = now - window_seconds
 
         with self._lock:
-            # Roll the daily counter forward if the date changed since the last
-            # call — ensures snapshot() is accurate even during idle periods.
-            today = self._today()
-            if today != self._daily_date:
-                self._daily_date = today
-                self._daily_calls = 0
+            self._refresh_daily_date()
             window = [r for r in self._records if r.ts >= cutoff]
             recent_10 = list(self._records)[-10:]
             total_calls = self._total_calls
