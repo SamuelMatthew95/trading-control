@@ -8,6 +8,7 @@ and must never touch the DB session factory.  These tests verify:
 3. set_db_available(False) does not affect the response — no DB is touched.
 4. Recorded metrics appear correctly in the snapshot.
 5. daily_calls resets to 0 when the date rolls over between snapshot() calls.
+6. GradeAgent._adjust_llm_call_rate only bumps delay when new 429s appear.
 """
 
 from __future__ import annotations
@@ -124,3 +125,109 @@ def test_snapshot_delay_fields_present():
     snap2 = col.snapshot()
     assert snap2["effective_delay_ms"] == 500
     assert snap2["grade_adjusted_delay"] is True
+
+
+# ---------------------------------------------------------------------------
+# 7  _adjust_llm_call_rate: single burst must not ratchet on repeat cycles
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adjust_llm_call_rate_no_repeat_ratchet():
+    """A burst of 3+ RL calls must only bump the delay ONCE per burst.
+
+    If subsequent grading cycles observe the same window count (old events
+    still inside the 5-minute window, no new 429s), the delay must not keep
+    increasing to the cap.
+    """
+    import unittest.mock as mock
+
+    from api.events.bus import EventBus
+    from api.events.dlq import DLQManager
+    from api.services.agents.pipeline_agents import GradeAgent
+    from api.services.llm_metrics import LLMMetricsCollector
+
+    # Isolated metrics collector so we don't pollute the module singleton
+    isolated = LLMMetricsCollector()
+    isolated.record_rate_limit()
+    isolated.record_rate_limit()
+    isolated.record_rate_limit()  # count = 3, at threshold
+    snap = isolated.snapshot()
+    assert snap["rate_limited_count"] == 3
+
+    bus = mock.AsyncMock(spec=EventBus)
+    dlq = mock.AsyncMock(spec=DLQManager)
+    agent = GradeAgent(bus=bus, dlq=dlq)
+
+    base_delay = isolated.get_call_delay_ms()
+
+    # First call — count exceeded threshold and is higher than last recorded (0)
+    # Patch the module-level singleton inside pipeline_agents
+    import api.services.agents.pipeline_agents as _pa
+
+    original = _pa._llm_metrics
+    _pa._llm_metrics = isolated
+    try:
+        await agent._adjust_llm_call_rate(snap)
+        delay_after_first = isolated.get_call_delay_ms()
+        assert delay_after_first > base_delay, "delay must increase on first burst"
+
+        # Second call with the SAME snapshot (no new 429s, window still draining)
+        await agent._adjust_llm_call_rate(snap)
+        delay_after_second = isolated.get_call_delay_ms()
+        assert delay_after_second == delay_after_first, (
+            "delay must NOT increase again when rate_limited_count has not grown"
+        )
+
+        # Third call — still the same snapshot
+        await agent._adjust_llm_call_rate(snap)
+        assert isolated.get_call_delay_ms() == delay_after_first, (
+            "repeated cycles with identical snapshot must not ratchet to cap"
+        )
+    finally:
+        _pa._llm_metrics = original
+
+
+@pytest.mark.asyncio
+async def test_adjust_llm_call_rate_new_burst_after_reset():
+    """After count drops below threshold (reset), a new burst triggers again."""
+    import unittest.mock as mock
+
+    from api.events.bus import EventBus
+    from api.events.dlq import DLQManager
+    from api.services.agents.pipeline_agents import GradeAgent
+    from api.services.llm_metrics import LLMMetricsCollector
+    import api.services.agents.pipeline_agents as _pa
+
+    isolated = LLMMetricsCollector()
+    bus = mock.AsyncMock(spec=EventBus)
+    dlq = mock.AsyncMock(spec=DLQManager)
+    agent = GradeAgent(bus=bus, dlq=dlq)
+
+    original = _pa._llm_metrics
+    _pa._llm_metrics = isolated
+    try:
+        # First burst: 3 rate limits → bump once
+        for _ in range(3):
+            isolated.record_rate_limit()
+        snap_burst1 = isolated.snapshot()
+        await agent._adjust_llm_call_rate(snap_burst1)
+        delay_after_burst1 = isolated.get_call_delay_ms()
+
+        # Window drains — count falls below threshold; pass a zero-count snap
+        snap_quiet = {"rate_limited_count": 0}
+        await agent._adjust_llm_call_rate(snap_quiet)
+        # _last_rl_count_at_adjustment should reset to 0
+
+        # Second burst: 4 new rate limits → should bump again
+        for _ in range(4):
+            isolated.record_rate_limit()
+        snap_burst2 = isolated.snapshot()
+        await agent._adjust_llm_call_rate(snap_burst2)
+        delay_after_burst2 = isolated.get_call_delay_ms()
+
+        assert delay_after_burst2 > delay_after_burst1, (
+            "a new burst after the window drains must bump the delay again"
+        )
+    finally:
+        _pa._llm_metrics = original
