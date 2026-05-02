@@ -122,6 +122,12 @@ const MUTED = 'text-xs text-slate-500 dark:text-slate-400'
 const LABEL = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const VALUE = 'font-mono text-slate-700 dark:text-slate-300'
 
+function successRateColor(pct: number): string {
+  if (pct >= 80) return 'font-semibold text-emerald-500'
+  if (pct >= 50) return 'font-semibold text-amber-400'
+  return 'font-semibold text-rose-500'
+}
+
 function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted: boolean }) {
   const color = gradeAdjusted
     ? delayMs >= 1000
@@ -205,15 +211,7 @@ export function LLMHealthPanel() {
 
         <span className={MUTED}>
           Success Rate:{' '}
-          <span
-            className={
-              data.success_rate_pct >= 80
-                ? 'font-semibold text-emerald-500'
-                : data.success_rate_pct >= 50
-                  ? 'font-semibold text-amber-400'
-                  : 'font-semibold text-rose-500'
-            }
-          >
+          <span className={successRateColor(data.success_rate_pct)}>
             {data.success_rate_pct.toFixed(0)}%
           </span>{' '}
           <span className={MUTED}>
