@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import date
 from threading import Lock
 
 from api.constants import LLM_METRICS_MAX_RECORDS, LLM_METRICS_WINDOW_SECONDS, LLMCallResult
@@ -28,8 +29,6 @@ class LLMMetricsCollector:
         self._daily_date: str = ""
 
     def _today(self) -> str:
-        from datetime import date
-
         return date.today().isoformat()
 
     def _record(self, result: LLMCallResult, latency_ms: float = 0.0) -> None:
