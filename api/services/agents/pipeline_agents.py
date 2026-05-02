@@ -137,6 +137,10 @@ class GradeAgent(MultiStreamAgent):
         self._consecutive_low_grades = 0
         # Per-trade evaluation buffer for ReflectionAgent to consume
         self._eval_buffer: deque[dict] = deque(maxlen=200)
+        # Tracks the rate_limited_count seen at the last delay adjustment so we
+        # only ratchet up when *new* 429s appear, not just because old ones are
+        # still inside the 5-minute sliding window.
+        self._last_rl_count_at_adjustment: int = 0
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -404,20 +408,25 @@ class GradeAgent(MultiStreamAgent):
         return health, snap
 
     async def _adjust_llm_call_rate(self, llm_snap: dict) -> None:
-        """Raise the inter-call delay if rate-limiting is persistent.
+        """Raise the inter-call delay only when new rate-limited calls appear.
 
-        This is called every grading cycle. When the window contains more
-        rate-limited calls than LLM_RATE_LIMIT_GRADE_THRESHOLD the delay is
-        bumped by LLM_DELAY_ADJUSTMENT_STEP_MS (capped at LLM_DELAY_MAX_MS)
-        and a PARAMETER_CHANGE proposal is published so the operator can see
-        the adjustment in the dashboard.
+        Called every grading cycle. The 5-minute sliding window can keep a
+        burst above the threshold for minutes after the burst ends, so we gate
+        on whether rate_limited_count has *increased* since the last time we
+        adjusted — preventing repeated ratcheting from a single burst.
         """
         rate_limited = llm_snap.get("rate_limited_count", 0)
         if rate_limited < LLM_RATE_LIMIT_GRADE_THRESHOLD:
+            # Count dropped below threshold; reset so a future burst can act.
+            self._last_rl_count_at_adjustment = 0
             return
+
+        if rate_limited <= self._last_rl_count_at_adjustment:
+            return  # no new 429s since last adjustment — window still draining
 
         current_delay = _llm_metrics.get_call_delay_ms()
         new_delay = min(current_delay + LLM_DELAY_ADJUSTMENT_STEP_MS, LLM_DELAY_MAX_MS)
+        self._last_rl_count_at_adjustment = rate_limited
         if new_delay == current_delay:
             return  # already at cap
 
