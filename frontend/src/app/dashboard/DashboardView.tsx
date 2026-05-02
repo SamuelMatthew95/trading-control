@@ -6,7 +6,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
-import { LearningLoopPanel } from '@/components/dashboard/LearningLoopPanel'
+import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import {
   Activity,
@@ -1870,12 +1870,8 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           </div>
 
-          {/* Why is the P&L always negative? Look here. The Learning Loop
-              panel surfaces (a) what grade GradeAgent gave the strategy,
-              (b) whether ProposalApplier has actually applied any of the
-              "reduce / suspend / retire" proposals, and (c) which
-              symbol+signal_type combos are losing money. */}
-          <LearningLoopPanel />
+          {/* Learning Pipeline — real scored trades, quant reflections, strategies */}
+          <LearningDashboard />
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>

@@ -285,6 +285,27 @@ class FieldName(StrEnum):
     UPDATED_AT = "updated_at"
     WEIGHT_SCALE = "weight_scale"
     SUSPENDED_UNTIL = "suspended_until"
+    # --- Learning pipeline fields ---
+    AVG_RETURN = "avg_return"
+    CONSISTENCY = "consistency"
+    ENTRY_QUALITY = "entry_quality"
+    EXIT_QUALITY = "exit_quality"
+    EXPECTED_IMPROVEMENT = "expected_improvement"
+    MISTAKE_CLUSTERS = "mistake_clusters"
+    MISTAKES = "mistakes"
+    OVERALL_SCORE = "overall_score"
+    PATTERNS = "patterns"
+    RECOMMENDATIONS = "recommendations"
+    REFLECTION_ID = "reflection_id"
+    RISK_REWARD = "risk_reward"
+    RULES = "rules"
+    SCORE_TREND = "score_trend"
+    SIGNAL_ALIGNMENT = "signal_alignment"
+    STRENGTHS = "strengths"
+    TIMING_SCORE = "timing_score"
+    TRADE_EVAL_ID = "trade_eval_id"
+    TRADES_ANALYZED = "trades_analyzed"
+    WIN_RATE = "win_rate"
 
 
 class StatusValue(StrEnum):

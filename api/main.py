@@ -32,6 +32,7 @@ from api.redis_inspector import router as debug_redis_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
+from api.routes.learning import router as learning_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
@@ -210,15 +211,21 @@ async def lifespan(app: FastAPI):
         keep_alive_task = asyncio.create_task(_keep_alive(), name="keep-alive")
         app.state.keep_alive_task = keep_alive_task
 
+        grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
+        reflection_agent = ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state)
+        # Inject grader reference so reflection can read the live eval buffer for
+        # quant mistake clusters without an extra DB round-trip.
+        reflection_agent._grade_agent = grade_agent
+
         agents = [
             SignalGenerator(event_bus, dlq_manager, agent_state=agent_state),
             ReasoningAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ExecutionEngine(
                 event_bus, dlq_manager, redis_client, paper_broker, agent_state=agent_state
             ),
-            GradeAgent(event_bus, dlq_manager, agent_state=agent_state),
+            grade_agent,
             ICUpdater(event_bus, dlq_manager, redis_client, agent_state=agent_state),
-            ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state),
+            reflection_agent,
             StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
             NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
             ChallengerAgent(event_bus, dlq_manager, agent_state=agent_state),
@@ -337,6 +344,8 @@ app.include_router(debug_redis_router, prefix="/api")
 # whether NEXT_PUBLIC_API_URL includes "/api" or not (matches health_router pattern)
 app.include_router(dashboard_v2_router)
 app.include_router(dashboard_v2_router, prefix="/api")
+app.include_router(learning_router)
+app.include_router(learning_router, prefix="/api")
 app.include_router(ws_router)
 
 

@@ -50,6 +50,10 @@ class InMemoryStore:
     positions: dict[str, dict[str, Any]] = field(default_factory=dict)
     trade_feed: list[dict[str, Any]] = field(default_factory=list)
     last_health: str = "unknown"
+    # Learning pipeline collections
+    trade_evaluations: list[dict[str, Any]] = field(default_factory=list)
+    reflections: list[dict[str, Any]] = field(default_factory=list)
+    strategies: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
@@ -187,6 +191,46 @@ class InMemoryStore:
         if len(self.trade_feed) > 500:
             self.trade_feed = self.trade_feed[-500:]
         return payload
+
+    # ------------------------------------------------------------------
+    # Learning pipeline collections
+    # ------------------------------------------------------------------
+
+    def add_trade_evaluation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = dict(payload)
+        entry.setdefault("created_at", time.time())
+        self.trade_evaluations.append(entry)
+        if len(self.trade_evaluations) > 500:
+            self.trade_evaluations = self.trade_evaluations[-500:]
+        return entry
+
+    def get_trade_evaluations(self, limit: int = 50) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        return list(reversed(self.trade_evaluations[-safe_limit:]))
+
+    def add_reflection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = dict(payload)
+        entry.setdefault("created_at", time.time())
+        self.reflections.append(entry)
+        if len(self.reflections) > 100:
+            self.reflections = self.reflections[-100:]
+        return entry
+
+    def get_reflections(self, limit: int = 10) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 50))
+        return list(reversed(self.reflections[-safe_limit:]))
+
+    def add_strategy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = dict(payload)
+        entry.setdefault("created_at", time.time())
+        self.strategies.append(entry)
+        if len(self.strategies) > 100:
+            self.strategies = self.strategies[-100:]
+        return entry
+
+    def get_strategies(self, limit: int = 10) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 50))
+        return list(reversed(self.strategies[-safe_limit:]))
 
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
         def _has_open_quantity(position: dict[str, Any]) -> bool:

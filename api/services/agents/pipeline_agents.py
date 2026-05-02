@@ -72,6 +72,9 @@ from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import (
     persist_factor_ic,
     persist_proposal,
+    persist_reflection_record,
+    persist_strategy_record,
+    persist_trade_evaluation,
     write_agent_log,
     write_grade_to_db,
 )
@@ -91,6 +94,13 @@ from api.services.agents.scoring import (
     normalize_ic,
     score_to_grade,
     spearman_correlation,
+)
+from api.services.agents.trade_scorer import (
+    compute_learning_metrics,
+    compute_mistake_clusters,
+    compute_patterns,
+    compute_recommendations,
+    score_trade,
 )
 
 # ---------------------------------------------------------------------------
@@ -120,14 +130,18 @@ class GradeAgent(MultiStreamAgent):
         self._pnl_buffer: deque[float] = deque(maxlen=100)
         self._confidence_buffer: deque[float] = deque(maxlen=100)
         self._consecutive_low_grades = 0
+        # Per-trade evaluation buffer for ReflectionAgent to consume
+        self._eval_buffer: deque[dict] = deque(maxlen=200)
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
+            await self._score_and_persist_trade(data)
         elif stream == STREAM_TRADE_PERFORMANCE:
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
+            await self._score_and_persist_trade(data)
         elif stream == STREAM_EXECUTIONS:
             self._confidence_buffer.append(float(data.get(FieldName.CONFIDENCE) or 0.5))
 
@@ -136,6 +150,22 @@ class GradeAgent(MultiStreamAgent):
             return
 
         await self._compute_and_publish_grade()
+
+    async def _score_and_persist_trade(self, data: dict[str, Any]) -> None:
+        """Score one completed trade deterministically and persist the evaluation."""
+        try:
+            evaluation = score_trade(data)
+            self._eval_buffer.append(evaluation)
+            await persist_trade_evaluation(evaluation)
+            log_structured(
+                "debug",
+                "trade_scored",
+                trade_id=evaluation.get(FieldName.TRADE_EVAL_ID),
+                grade=evaluation.get(FieldName.GRADE),
+                overall_score=evaluation.get(FieldName.OVERALL_SCORE),
+            )
+        except Exception:
+            log_structured("warning", "trade_score_failed", exc_info=True)
 
     async def _compute_and_publish_grade(self) -> None:
         trace_id = f"grade_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
@@ -600,6 +630,8 @@ class ReflectionAgent(MultiStreamAgent):
         self._recent_fills: deque[dict[str, Any]] = deque(maxlen=50)
         self._recent_grades: deque[dict[str, Any]] = deque(maxlen=20)
         self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
+        # Holds the GradeAgent eval_buffer reference injected at startup (optional)
+        self._grade_agent: GradeAgent | None = None
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
@@ -727,6 +759,9 @@ class ReflectionAgent(MultiStreamAgent):
             except Exception:
                 log_structured("warning", "reflection_refinement_failed", exc_info=True)
 
+        # Quant layer: compute mistake clusters from trade evaluations
+        quant = self._compute_quant_reflection()
+
         reflection_payload: dict[str, Any] = {
             "msg_id": str(uuid.uuid4()),
             "source": SOURCE_REFLECTION,
@@ -735,10 +770,19 @@ class ReflectionAgent(MultiStreamAgent):
             "fills_analyzed": self._fills,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **reflection_data,
+            # Merge quant fields — these override any LLM-generated equivalents
+            FieldName.PATTERNS: quant[FieldName.PATTERNS],
+            FieldName.MISTAKE_CLUSTERS: quant[FieldName.MISTAKE_CLUSTERS],
+            FieldName.RECOMMENDATIONS: quant[FieldName.RECOMMENDATIONS],
+            FieldName.TRADES_ANALYZED: quant[FieldName.TRADES_ANALYZED],
+            FieldName.WIN_RATE: quant[FieldName.WIN_RATE],
+            FieldName.AVG_RETURN: quant[FieldName.AVG_RETURN],
+            FieldName.CONFIDENCE: quant[FieldName.CONFIDENCE],
         }
 
         await self.bus.publish(STREAM_REFLECTION_OUTPUTS, reflection_payload)
         await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
+        await persist_reflection_record(reflection_payload)
         await self.bus.publish(
             STREAM_NOTIFICATIONS,
             {
@@ -764,6 +808,53 @@ class ReflectionAgent(MultiStreamAgent):
                 )
             except Exception:
                 log_structured("warning", "reflection_heartbeat_failed", exc_info=True)
+
+    def _compute_quant_reflection(self) -> dict[str, Any]:
+        """Deterministic quant analysis of recent trade evaluations.
+
+        Uses the GradeAgent's eval_buffer if available (injected at startup),
+        otherwise falls back to computing from InMemoryStore or recent_fills data.
+        """
+        evaluations: list[dict[str, Any]] = []
+
+        # Prefer live eval buffer from GradeAgent
+        if self._grade_agent is not None:
+            evaluations = list(self._grade_agent._eval_buffer)
+
+        # If no evals yet, fall back to in-memory store
+        if not evaluations:
+            from api.runtime_state import get_runtime_store
+            from api.runtime_state import is_db_available as _is_db_available
+
+            if not _is_db_available():
+                evaluations = get_runtime_store().get_trade_evaluations(50)
+
+        if not evaluations:
+            # Synthesize minimal evaluations from recent fills as last resort
+            for fill in list(self._recent_fills):
+                from api.services.agents.trade_scorer import score_trade as _st
+
+                try:
+                    evaluations.append(_st(fill))
+                except Exception:
+                    pass
+
+        patterns = compute_patterns(evaluations)
+        clusters = compute_mistake_clusters(evaluations)
+        recommendations = compute_recommendations(clusters, patterns)
+        metrics = compute_learning_metrics(evaluations)
+
+        return {
+            FieldName.PATTERNS: patterns,
+            FieldName.MISTAKE_CLUSTERS: clusters,
+            FieldName.RECOMMENDATIONS: recommendations,
+            FieldName.TRADES_ANALYZED: len(evaluations),
+            FieldName.WIN_RATE: metrics.get(FieldName.WIN_RATE, 0.0),
+            FieldName.AVG_RETURN: metrics.get(FieldName.AVG_RETURN, 0.0),
+            FieldName.CONFIDENCE: round(
+                0.5 + min(len(evaluations), 50) / 100.0, 2
+            ),  # confidence grows with sample size
+        }
 
     def _build_prompt(self) -> str:
         recent_fills = list(self._recent_fills)[-20:]
@@ -875,6 +966,18 @@ class StrategyProposer(MultiStreamAgent):
 
             await self.bus.publish(STREAM_PROPOSALS, proposal)
             await persist_proposal(proposal)
+            # Also persist to typed strategies table for learning dashboard
+            await persist_strategy_record(
+                {
+                    FieldName.RULES: proposal.get(FieldName.CONTENT, {}),
+                    "description": hypothesis.get("description", ""),
+                    FieldName.EXPECTED_IMPROVEMENT: float(
+                        hypothesis.get(FieldName.CONFIDENCE) or 0
+                    ),
+                    FieldName.STATUS: "pending",
+                    FieldName.REFLECTION_ID: data.get(FieldName.TRACE_ID),
+                }
+            )
             await self.bus.publish(
                 STREAM_NOTIFICATIONS,
                 {
