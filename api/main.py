@@ -338,6 +338,7 @@ app.include_router(health_router)
 app.include_router(health_router, prefix="/api")
 app.include_router(dlq_router, prefix="/api")
 app.include_router(debug_redis_router, prefix="/api")
+app.include_router(llm_health_router)
 app.include_router(llm_health_router, prefix="/api")
 # Register dashboard at both root and /api prefix so it works regardless of
 # whether NEXT_PUBLIC_API_URL includes "/api" or not (matches health_router pattern)
