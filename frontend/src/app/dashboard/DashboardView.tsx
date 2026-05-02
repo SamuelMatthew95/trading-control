@@ -7,6 +7,7 @@ import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
+import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import {
   Activity,
@@ -142,6 +143,12 @@ function displayAgentName(rawName: string): string {
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 const AGENT_LIVE_THRESHOLD_MS = 10_000
 const AGENT_STALE_THRESHOLD_MS = 120_000
+// Per-agent overrides: Reasoning Agent can take 60-90s per LLM call.
+const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
+  REASONING_AGENT: 90_000,
+}
+const getLiveThresholdMs = (agentKey: string): number =>
+  AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
 
 function toFiniteNumber(value: unknown): number | null {
   const cast = typeof value === 'number' ? value : Number(value)
@@ -882,9 +889,10 @@ export function DashboardView({ section }: { section: Section }) {
     }, {})
 
     const now = Date.now()
-    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
+    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([agentKey, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
+      const liveThreshold = getLiveThresholdMs(agentKey)
+      const status: AgentSummary['status'] = ageMs <= liveThreshold ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return {
         name: data.displayName,
@@ -904,7 +912,7 @@ export function DashboardView({ section }: { section: Section }) {
       const statusDate = parseHeartbeatTimestamp(status)
       const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
       const eventCount = status.event_count ?? 0
-      const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
+      const mappedStatus: AgentSummary['status'] = ageMs <= getLiveThresholdMs(agentKey) ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       const lastSeen = [existing?.lastSeen, statusDate]
         .filter((d): d is Date => d instanceof Date)
@@ -1480,6 +1488,34 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-2')}>System Diagnostics</p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
+                  isInMemoryMode
+                    ? 'bg-amber-400/10 text-amber-500'
+                    : agentInstances.length > 0
+                      ? 'bg-emerald-500/10 text-emerald-500'
+                      : 'bg-rose-500/10 text-rose-500',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block h-2 w-2 rounded-full',
+                    isInMemoryMode
+                      ? 'bg-amber-400'
+                      : agentInstances.length > 0
+                        ? 'bg-emerald-500'
+                        : 'bg-rose-500',
+                  )}
+                />
+                {isInMemoryMode
+                  ? 'DB: In-Memory Fallback'
+                  : agentInstances.length > 0
+                    ? 'DB: Connected'
+                    : 'DB: Disconnected'}
+              </span>
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <p className={mutedClass}>
                 Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
@@ -1516,6 +1552,8 @@ export function DashboardView({ section }: { section: Section }) {
               ))}
             </div>
           </div>
+
+          <LLMHealthPanel />
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
