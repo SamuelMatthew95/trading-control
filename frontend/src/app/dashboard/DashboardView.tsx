@@ -254,11 +254,19 @@ const PROPOSAL_TYPE_LABEL: Record<string, string> = {
   parameter_change: 'Param Change',
   code_change: 'Code Change',
   regime_adjustment: 'Regime Adjust',
+  signal_weight_reduction: 'Weight Reduction',
+  agent_suspension: 'Suspension',
+  agent_retirement: 'Retirement',
+  new_agent: 'New Agent',
 }
 const PROPOSAL_TYPE_STYLE: Record<string, string> = {
   parameter_change: 'bg-slate-500/10 text-slate-500',
   code_change: 'bg-slate-500/10 text-slate-500',
   regime_adjustment: 'bg-amber-500/15 text-amber-500',
+  signal_weight_reduction: 'bg-amber-500/15 text-amber-500',
+  agent_suspension: 'bg-rose-500/15 text-rose-500',
+  agent_retirement: 'bg-rose-600/15 text-rose-600',
+  new_agent: 'bg-emerald-500/15 text-emerald-500',
 }
 
 function ProposalsFeed({
@@ -1486,6 +1494,8 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           </div>
 
+          <LLMHealthPanel />
+
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-2')}>System Diagnostics</p>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1552,8 +1562,6 @@ export function DashboardView({ section }: { section: Section }) {
               ))}
             </div>
           </div>
-
-          <LLMHealthPanel />
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
@@ -1738,19 +1746,40 @@ export function DashboardView({ section }: { section: Section }) {
                 <table className="min-w-full">
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-800">
-                      {['Grade', 'Score', 'Time'].map((h) => (
+                      {['Grade', 'Score', 'LLM Health', 'Rate Lim', 'Delay', 'Time'].map((h) => (
                         <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {cleanGradeHistory.map((g, i) => (
-                      <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
-                        <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
-                        <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
-                      </tr>
-                    ))}
+                    {cleanGradeHistory.map((g, i) => {
+                      const m = (g as Record<string, unknown>).metrics as Record<string, number> | undefined
+                      const llmHealth = m?.llm_health_score
+                      const rateLim = m?.llm_rate_limited
+                      const delayMs = m?.llm_effective_delay_ms
+                      return (
+                        <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
+                          <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
+                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums">
+                            {llmHealth != null ? (
+                              <span className={llmHealth >= 0.8 ? 'text-emerald-500' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-500'}>
+                                {(llmHealth * 100).toFixed(0)}%
+                              </span>
+                            ) : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums">
+                            {rateLim != null ? (
+                              <span className={rateLim > 0 ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}>{rateLim}</span>
+                            ) : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                            {delayMs != null ? `${delayMs}ms` : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
