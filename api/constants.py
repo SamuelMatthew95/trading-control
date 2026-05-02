@@ -136,6 +136,13 @@ class ProposalStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class LLMCallResult(StrEnum):
+    SUCCESS = "success"
+    RATE_LIMITED = "rate_limited"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+
+
 class LogType(StrEnum):
     REASONING_SUMMARY = "reasoning_summary"
     GRADE = "grade"
@@ -494,6 +501,12 @@ LLM_TIMEOUT_SECONDS: Final[int] = 60
 LLM_MAX_RETRIES: Final[int] = 3
 ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
 ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
+# Minimum delay between sequential LLM calls to avoid burst rate-limiting (ms)
+LLM_CALL_DELAY_MS: Final[int] = 200
+# Sliding window for LLM metrics (seconds) — how far back we look for success rate
+LLM_METRICS_WINDOW_SECONDS: Final[int] = 300  # 5 minutes
+# Max call records kept in the in-memory metrics ring buffer
+LLM_METRICS_MAX_RECORDS: Final[int] = 200
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
 PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
 SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence
