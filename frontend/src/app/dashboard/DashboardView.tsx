@@ -1504,26 +1504,16 @@ export function DashboardView({ section }: { section: Section }) {
                   'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
                   isInMemoryMode
                     ? 'bg-amber-400/10 text-amber-500'
-                    : agentInstances.length > 0
-                      ? 'bg-emerald-500/10 text-emerald-500'
-                      : 'bg-rose-500/10 text-rose-500',
+                    : 'bg-emerald-500/10 text-emerald-500',
                 )}
               >
                 <span
                   className={cn(
                     'inline-block h-2 w-2 rounded-full',
-                    isInMemoryMode
-                      ? 'bg-amber-400'
-                      : agentInstances.length > 0
-                        ? 'bg-emerald-500'
-                        : 'bg-rose-500',
+                    isInMemoryMode ? 'bg-amber-400' : 'bg-emerald-500',
                   )}
                 />
-                {isInMemoryMode
-                  ? 'DB: In-Memory Fallback'
-                  : agentInstances.length > 0
-                    ? 'DB: Connected'
-                    : 'DB: Disconnected'}
+                {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
               </span>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
