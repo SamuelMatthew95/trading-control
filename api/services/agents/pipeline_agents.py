@@ -208,7 +208,7 @@ class GradeAgent(MultiStreamAgent):
             FieldName.MSG_ID: str(uuid.uuid4()),
             FieldName.TYPE: "agent_grade",
             FieldName.SOURCE: SOURCE_GRADE,
-            "agent": SOURCE_REASONING,
+            FieldName.AGENT: SOURCE_REASONING,
             "agent_name": AGENT_GRADE,
             FieldName.TRACE_ID: trace_id,
             "grade": grade,
@@ -276,8 +276,6 @@ class GradeAgent(MultiStreamAgent):
         if not is_db_available():
             return
         try:
-            from sqlalchemy import text as _text
-
             from api.database import AsyncSessionFactory
             from api.services.agents.db_helpers import upsert_trade_lifecycle
 
@@ -287,7 +285,7 @@ class GradeAgent(MultiStreamAgent):
             )
             async with AsyncSessionFactory() as _sess:
                 row = await _sess.execute(
-                    _text("""
+                    text("""
                         SELECT execution_trace_id FROM trade_lifecycle
                         WHERE status = 'filled' AND grade IS NULL
                         ORDER BY created_at DESC LIMIT 1
@@ -392,7 +390,7 @@ class GradeAgent(MultiStreamAgent):
         except Exception:
             return 0.8
 
-    def _llm_health_score(self) -> tuple[float, dict]:
+    def _llm_health_score(self) -> tuple[float, dict[str, Any]]:
         """Read live LLM metrics and return (health_score [0,1], snapshot).
 
         Health degrades with rate limits and timeouts on top of the raw
