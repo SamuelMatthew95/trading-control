@@ -97,6 +97,9 @@ export const API_ENDPOINTS = {
   // Events
   EVENTS_RECENT: "/dashboard/events/recent",
   EVENTS_HISTORY: "/dashboard/history/events",
+
+  // LLM
+  LLM_HEALTH: "/llm/health",
 } as const;
 
 /**
