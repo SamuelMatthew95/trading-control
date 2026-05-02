@@ -64,7 +64,7 @@ async def test_llm_health_memory_mode(client: AsyncClient):
         data = r.json()
         assert data["status"] in ("live", "degraded", "down", "unknown")
     finally:
-        set_db_available(False)  # leave clean for subsequent tests
+        set_db_available(True)
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +193,11 @@ async def test_adjust_llm_call_rate_new_burst_after_reset():
     """After count drops below threshold (reset), a new burst triggers again."""
     import unittest.mock as mock
 
+    import api.services.agents.pipeline_agents as _pa
     from api.events.bus import EventBus
     from api.events.dlq import DLQManager
     from api.services.agents.pipeline_agents import GradeAgent
     from api.services.llm_metrics import LLMMetricsCollector
-    import api.services.agents.pipeline_agents as _pa
 
     isolated = LLMMetricsCollector()
     bus = mock.AsyncMock(spec=EventBus)
@@ -214,10 +214,10 @@ async def test_adjust_llm_call_rate_new_burst_after_reset():
         await agent._adjust_llm_call_rate(snap_burst1)
         delay_after_burst1 = isolated.get_call_delay_ms()
 
-        # Window drains — count falls below threshold; pass a zero-count snap
-        snap_quiet = {"rate_limited_count": 0}
-        await agent._adjust_llm_call_rate(snap_quiet)
-        # _last_rl_count_at_adjustment should reset to 0
+        # Simulate the window draining: pass a snapshot with count below threshold.
+        # We pass a minimal dict because _adjust_llm_call_rate only reads rate_limited_count.
+        await agent._adjust_llm_call_rate({"rate_limited_count": 0})
+        # _last_rl_count_at_adjustment resets to 0 so the next burst can trigger again.
 
         # Second burst: 4 new rate limits → should bump again
         for _ in range(4):
