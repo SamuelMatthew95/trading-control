@@ -5,6 +5,8 @@ import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/use
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { SectionCard, TraceButton } from '@/components/dashboard/SectionCard'
+import { sanitizeValue, formatTimestamp } from '@/utils/a11yFormatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
@@ -20,13 +22,6 @@ import {
   Zap,
 } from 'lucide-react'
 import type { Proposal } from '@/stores/useCodexStore'
-
-const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
-  if (value === undefined || value === null || value === '') return 'Not available';
-  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return 'Not available';
-  if (typeof value === 'boolean') return value ? 'True' : 'False';
-  return String(value);
-};
 
 const toSanitizeInput = (value: unknown): string | number | boolean | null | undefined => {
   if (value === null || value === undefined) return value
@@ -75,13 +70,6 @@ const formatTimeAgo = (date: Date): string => {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 };
-
-const formatTimestamp = (value?: string | null): string => {
-  if (!value) return 'No timestamp available'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'No timestamp available'
-  return date.toLocaleTimeString()
-}
 
 const formatAgeFromMs = (ageMs: number | null): string => {
   if (ageMs == null || ageMs < 0 || !Number.isFinite(ageMs)) return '--'
@@ -1308,11 +1296,7 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'trading' && (
         <div className="space-y-4">
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className={sectionTitleClass}>Trade Feed</h2>
-              <p className={mutedClass}>{tradeFeed.length} fills</p>
-            </div>
+          <SectionCard title="Trade Feed" right={<p className={mutedClass}>{tradeFeed.length} fills</p>} className={cardClass}>
             {tradeFeed.length === 0 ? (
               <EmptyState message="No orders today" />
             ) : (
@@ -1358,12 +1342,7 @@ export function DashboardView({ section }: { section: Section }) {
                           </span>
                         )}
                         {trade.execution_trace_id && (
-                          <button
-                            onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                           aria-label={`Open execution trace ${trade.execution_trace_id}`}>
-                            View trace {trade.execution_trace_id.slice(0, 8)}
-                          </button>
+                          <TraceButton traceId={trade.execution_trace_id} onOpen={setActiveTraceId} context="execution" />
                         )}
                       </div>
                     </div>
@@ -1371,19 +1350,16 @@ export function DashboardView({ section }: { section: Section }) {
                 })}
               </div>
             )}
-          </div>
+          </SectionCard>
 
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className={sectionTitleClass}>Agent Thought Stream</h2>
+          <SectionCard title="Agent Thought Stream" right={
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
                 <span className={mutedClass}>LIVE</span>
                 <button type="button" className="rounded border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => setLiveAnnouncementsPaused((v) => !v)} aria-pressed={liveAnnouncementsPaused}>
                   {liveAnnouncementsPaused ? 'Resume updates' : 'Pause updates'}
                 </button>
-              </div>
-            </div>
+              </div>}>
             {agentLogs.length === 0 ? (
               <EmptyState message="No active agents" />
             ) : (
@@ -1399,12 +1375,7 @@ export function DashboardView({ section }: { section: Section }) {
                           <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
-                            <button
-                              onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                             aria-label={`Open agent log trace ${log.trace_id as string}`}>
-                              View trace {(log.trace_id as string).slice(0, 8)}
-                            </button>
+                            <TraceButton traceId={log.trace_id as string} onOpen={setActiveTraceId} context="agent log" />
                           ) : null}
                         </div>
                         <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
@@ -1415,12 +1386,9 @@ export function DashboardView({ section }: { section: Section }) {
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-slate-900" />
               </div>
             )}
-          </div>
+          </SectionCard>
 
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className={sectionTitleClass}>Open Positions</h2>
-            </div>
+          <SectionCard title="Open Positions" className={cardClass}>
             <div className="overflow-x-auto">
               <table className="min-w-full" role="table">
                 <caption className="sr-only">Open positions with quantity, pricing, and profit and loss</caption>
@@ -1466,7 +1434,7 @@ export function DashboardView({ section }: { section: Section }) {
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
         </div>
       )}
 
