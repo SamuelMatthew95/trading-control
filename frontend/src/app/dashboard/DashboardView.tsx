@@ -1,14 +1,20 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { formatSignedCurrency, formatSignedPercent } from '@/lib/format/terminal'
+import { StatusChip } from '@/components/primitives/StatusChip'
+import { AccessibleTime, SectionCard, TraceButton } from '@/components/dashboard/SectionCard'
+import { LiveUpdateControl } from '@/components/dashboard/LiveUpdateControl'
+import { sanitizeValue, formatTimestamp, FALLBACK_TEXT } from '@/utils/displayFormatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
+import { DashboardEmptyState as EmptyState, PriceCardSkeleton } from '@/components/dashboard/DashboardShared'
 import {
   Activity,
   Brain,
@@ -20,13 +26,6 @@ import {
   Zap,
 } from 'lucide-react'
 import type { Proposal } from '@/stores/useCodexStore'
-
-const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
-  if (value === undefined || value === null || value === '') return '--';
-  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
-  if (typeof value === 'boolean') return value ? 'True' : 'False';
-  return String(value);
-};
 
 const toSanitizeInput = (value: unknown): string | number | boolean | null | undefined => {
   if (value === null || value === undefined) return value
@@ -44,7 +43,7 @@ const FALLBACK_LABELS: Record<string, string> = {
 }
 const formatAgentMessage = (raw: unknown): string => {
   const text = sanitizeValue(toSanitizeInput(raw))
-  if (text === '--') return 'N/A'
+  if (text === FALLBACK_TEXT.missingValue) return 'N/A'
   if (text.startsWith('fallback:')) {
     const mode = text.slice('fallback:'.length)
     return FALLBACK_LABELS[mode] ?? 'LLM unavailable'
@@ -75,13 +74,6 @@ const formatTimeAgo = (date: Date): string => {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 };
-
-const formatTimestamp = (value?: string | null): string => {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
-  return date.toLocaleTimeString()
-}
 
 const formatAgeFromMs = (ageMs: number | null): string => {
   if (ageMs == null || ageMs < 0 || !Number.isFinite(ageMs)) return '--'
@@ -229,27 +221,6 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
   return toFiniteNumber(match?.value)
 }
 
-function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
-  return (
-    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-400">{message}</p>
-    </div>
-  )
-}
-
-function PriceCardSkeleton() {
-  return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <div className="mb-1 h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-1 h-6 w-24 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-2 flex items-center justify-between">
-        <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-        <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      </div>
-    </div>
-  )
-}
-
 const PROPOSAL_TYPE_LABEL: Record<string, string> = {
   parameter_change: 'Param Change',
   code_change: 'Code Change',
@@ -278,7 +249,7 @@ function ProposalsFeed({
 }) {
   const pending = proposals.filter((p) => p.status === 'pending')
   return (
-    <div className={cardClass}>
+    <section className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-slate-500" />
@@ -320,7 +291,7 @@ function ProposalsFeed({
                 <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
               </div>
               <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
-                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
+                {sanitizeValue(proposal.content) === FALLBACK_TEXT.missingValue ? 'No description' : proposal.content}
               </p>
               {proposal.status === 'pending' && proposal.requires_approval && (
                 <div className="flex items-center gap-2">
@@ -344,7 +315,7 @@ function ProposalsFeed({
           ))}
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -382,7 +353,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
       >
         <div className="mb-4 flex items-center justify-between">
           <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
+          <button aria-label="Close trace details" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
         </div>
         {loading && <p className={mutedClass}>Loading…</p>}
         {error && <p className="text-rose-500 text-sm">{error}</p>}
@@ -572,6 +543,7 @@ export function DashboardView({ section }: { section: Section }) {
   } = useCodexStore()
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
+  const [liveAnnouncementsPaused, setLiveAnnouncementsPaused] = useState(false)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [icWeights, setIcWeights] = useState<Record<string, number>>({})
   const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
@@ -887,7 +859,7 @@ export function DashboardView({ section }: { section: Section }) {
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
       const name = sanitizeValue(log?.agent_name || log?.agent)
-      if (name === '--') return acc
+      if (name === FALLBACK_TEXT.missingValue) return acc
       const agentKey = canonicalAgentKey(name)
       const safeDate = parseTimestamp(log?.timestamp || log?.created_at)
       const existing = acc[agentKey] ?? { displayName: name, count: 0, lastSeen: null }
@@ -1220,7 +1192,7 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
           </div>
 
-          <div className={cardClass}>
+          <section className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Live Market Prices</p>
               <div className="flex items-center gap-2">
@@ -1289,29 +1261,25 @@ export function DashboardView({ section }: { section: Section }) {
                         {hasData ? formatUSD(price) : '--'}
                       </p>
                       <div className="mt-2 flex items-center justify-between">
-                        <p className={cn('text-xs font-mono tabular-nums', 
+                        <p className={cn('text-xs font-mono tabular-nums',
                           change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500'
                         )}>
-                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
+                          {change == null || !hasData ? 'No price delta available' : `${isPositive ? 'Gain' : 'Loss'} ${formatUSD(Math.abs(change))}`}
                         </p>
-                        <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
+                        <p className={mutedClass}><AccessibleTime value={(priceData?.updatedAt as string | null) ?? null} /></p>
                       </div>
                     </div>
                   )
                 })
               )}
             </div>
-          </div>
+          </section>
         </div>
       )}
 
       {section === 'trading' && (
         <div className="space-y-4">
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Trade Feed</p>
-              <p className={mutedClass}>{tradeFeed.length} fills</p>
-            </div>
+          <SectionCard title="Trade Feed" right={<p className={mutedClass}>{tradeFeed.length} fills</p>} className={cardClass}>
             {tradeFeed.length === 0 ? (
               <EmptyState message="No orders today" />
             ) : (
@@ -1335,9 +1303,7 @@ export function DashboardView({ section }: { section: Section }) {
                   return (
                     <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-500')}>
-                          {isBuy ? 'BUY' : 'SELL'}
-                        </span>
+                        <StatusChip status={isBuy ? 'BUY' : 'SELL'} />
                         <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
                         <span className={mutedClass}>
                           {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
@@ -1346,7 +1312,7 @@ export function DashboardView({ section }: { section: Section }) {
                       <div className="flex items-center gap-2 shrink-0">
                         {pnl != null ? (
                           <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
+                            {formatSignedCurrency(pnl)}{pnlPct != null ? ` (${formatSignedPercent(pnlPct, 1)})` : ''}
                           </span>
                         ) : (
                           <span className={mutedClass}>--</span>
@@ -1357,12 +1323,7 @@ export function DashboardView({ section }: { section: Section }) {
                           </span>
                         )}
                         {trade.execution_trace_id && (
-                          <button
-                            onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                          >
-                            trace:{trade.execution_trace_id.slice(0, 8)}…
-                          </button>
+                          <TraceButton traceId={trade.execution_trace_id} onOpen={setActiveTraceId} context="execution" />
                         )}
                       </div>
                     </div>
@@ -1370,20 +1331,14 @@ export function DashboardView({ section }: { section: Section }) {
                 })}
               </div>
             )}
-          </div>
+          </SectionCard>
 
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Agent Thought Stream</p>
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                <span className={mutedClass}>LIVE</span>
-              </div>
-            </div>
+          <SectionCard title="Agent Thought Stream" right={
+              <LiveUpdateControl paused={liveAnnouncementsPaused} onToggle={() => setLiveAnnouncementsPaused((v) => !v)} />}>
             {agentLogs.length === 0 ? (
               <EmptyState message="No active agents" />
             ) : (
-              <div className="relative max-h-80 overflow-y-auto">
+              <div className="relative max-h-80 overflow-y-auto" role="log" aria-live={liveAnnouncementsPaused ? "off" : "polite"} aria-label="Agent thought stream">
                 <div className="space-y-2">
                   {agentLogs.slice(-10).reverse().map((log, index) => {
                     const confidence = toFiniteNumber(log?.confidence)
@@ -1392,18 +1347,14 @@ export function DashboardView({ section }: { section: Section }) {
                     return (
                       <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
+                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
                           <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
-                            <button
-                              onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                            >
-                              trace:{(log.trace_id as string).slice(0, 8)}…
-                            </button>
+                            <TraceButton traceId={log.trace_id as string} onOpen={setActiveTraceId} context="agent log" />
                           ) : null}
                         </div>
                         <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
+                        <p className={mutedClass}><AccessibleTime value={typeof log?.timestamp === 'string' ? log.timestamp : null} /></p>
                       </div>
                     )
                   })}
@@ -1411,18 +1362,16 @@ export function DashboardView({ section }: { section: Section }) {
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-slate-900" />
               </div>
             )}
-          </div>
+          </SectionCard>
 
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Open Positions</p>
-            </div>
+          <SectionCard title="Open Positions" className={cardClass}>
             <div className="overflow-x-auto">
-              <table className="min-w-full">
+              <table className="min-w-full" role="table">
+                <caption className="sr-only">Open positions with quantity, pricing, and profit and loss</caption>
                 <thead>
                   <tr className="border-b border-slate-200 pb-2 dark:border-slate-800">
                     {['Symbol', 'Side', 'Qty', 'Entry Price', 'Current Price', 'P&L', 'P&L %'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                      <th key={head} scope="col" className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1461,7 +1410,7 @@ export function DashboardView({ section }: { section: Section }) {
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
         </div>
       )}
 
@@ -1471,7 +1420,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Market Ticks</p>
               <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
-              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
+              <p className={mutedClass}>Last symbol processed: {lastMarketSymbol ?? 'No symbol processed yet'}</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Active Agents</p>
@@ -1556,11 +1505,12 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
             <div className="overflow-x-auto">
-              <table className="min-w-full">
+              <table className="min-w-full" role="table">
+                <caption className="sr-only">Agent status by source, event counts, and last seen time</caption>
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800">
                     {['Agent', 'Status', 'Source', 'Events', 'Last Seen'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                      <th key={head} scope="col" className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1574,25 +1524,15 @@ export function DashboardView({ section }: { section: Section }) {
                       <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
                         <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
-                          <span className="inline-flex items-center gap-2">
-                            <span className={cn(
-                              'h-2 w-2 rounded-full',
-                              agent.status === 'Live'
-                                ? 'bg-emerald-300'
-                                : agent.status === 'Stale'
-                                  ? 'bg-amber-300'
-                                  : agent.status === 'Error'
-                                    ? 'bg-rose-300'
-                                    : 'bg-slate-400',
-                            )} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
-                          </span>
+                          <StatusChip status={agent.status} />
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
                           rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}
                         </td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                          {agent.lastSeen ? <AccessibleTime value={agent.lastSeen.toISOString()} fallback="No heartbeat timestamp available" /> : 'No heartbeat timestamp available'}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -2107,8 +2047,11 @@ export function DashboardView({ section }: { section: Section }) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
-      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+        <h1 className="text-lg font-bold tracking-wide text-slate-900 dark:text-slate-100">{section.charAt(0).toUpperCase() + section.slice(1)} Dashboard</h1>
         <div
+          role="status"
+          aria-live="polite"
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
             systemStatus === 'trading'
@@ -2123,7 +2066,7 @@ export function DashboardView({ section }: { section: Section }) {
           System Status: {systemStatus}
         </div>
         {contentBySection}
-      </main>
+      </div>
 
       {activeTraceId && (
         <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
