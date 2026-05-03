@@ -9,7 +9,7 @@ import { formatSignedCurrency, formatSignedPercent } from '@/lib/format/terminal
 import { StatusChip } from '@/components/primitives/StatusChip'
 import { AccessibleTime, SectionCard, TraceButton } from '@/components/dashboard/SectionCard'
 import { LiveUpdateControl } from '@/components/dashboard/LiveUpdateControl'
-import { sanitizeValue, formatTimestamp, FALLBACK_TEXT } from '@/utils/a11yFormatters'
+import { sanitizeValue, formatTimestamp, FALLBACK_TEXT } from '@/utils/displayFormatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'

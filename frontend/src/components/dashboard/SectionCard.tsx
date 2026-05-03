@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { FALLBACK_TEXT } from '@/utils/a11yFormatters'
+import { FALLBACK_TEXT } from '@/utils/displayFormatters'
 
 export function SectionCard({
   title,
