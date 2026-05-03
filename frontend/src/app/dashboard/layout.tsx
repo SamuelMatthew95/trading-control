@@ -126,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   'flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
                     ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
-                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                    : 'border-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -203,7 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                         {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
                       </AlertDialogTitle>
-                      <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-300">
+                      <AlertDialogDescription className="text-sm font-sans text-slate-700 dark:text-slate-300">
                         {killSwitchActive ? 'This will resume signal processing and order placement.' : 'This will halt all signal processing and order placement.'}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
