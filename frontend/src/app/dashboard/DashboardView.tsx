@@ -5,6 +5,8 @@ import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/use
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { formatSignedCurrency, formatSignedPercent } from '@/lib/format/terminal'
+import { StatusChip } from '@/components/primitives/StatusChip'
 import { AccessibleTime, SectionCard, TraceButton } from '@/components/dashboard/SectionCard'
 import { LiveUpdateControl } from '@/components/dashboard/LiveUpdateControl'
 import { sanitizeValue, formatTimestamp } from '@/utils/a11yFormatters'
@@ -1321,9 +1323,7 @@ export function DashboardView({ section }: { section: Section }) {
                   return (
                     <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-500')}>
-                          {isBuy ? 'BUY' : 'SELL'}
-                        </span>
+                        <StatusChip status={isBuy ? 'BUY' : 'SELL'} />
                         <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
                         <span className={mutedClass}>
                           {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
@@ -1332,7 +1332,7 @@ export function DashboardView({ section }: { section: Section }) {
                       <div className="flex items-center gap-2 shrink-0">
                         {pnl != null ? (
                           <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
+                            {formatSignedCurrency(pnl)}{pnlPct != null ? ` (${formatSignedPercent(pnlPct, 1)})` : ''}
                           </span>
                         ) : (
                           <span className={mutedClass}>--</span>
@@ -1544,19 +1544,7 @@ export function DashboardView({ section }: { section: Section }) {
                       <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
                         <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
-                          <span className="inline-flex items-center gap-2">
-                            <span className={cn(
-                              'h-2 w-2 rounded-full',
-                              agent.status === 'Live'
-                                ? 'bg-emerald-300'
-                                : agent.status === 'Stale'
-                                  ? 'bg-amber-300'
-                                  : agent.status === 'Error'
-                                    ? 'bg-rose-300'
-                                    : 'bg-slate-400',
-                            )} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
-                          </span>
+                          <StatusChip status={agent.status} />
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
