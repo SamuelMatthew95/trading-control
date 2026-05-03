@@ -38,7 +38,15 @@ async def test_llm_health_root_path(client: AsyncClient):
     r = await client.get("/llm/health")
     assert r.status_code == 200
     data = r.json()
-    for key in ("status", "provider", "model", "timestamp", "success_rate_pct", "daily_calls"):
+    for key in (
+        "status",
+        "provider",
+        "model",
+        "model_var",
+        "timestamp",
+        "success_rate_pct",
+        "daily_calls",
+    ):
         assert key in data, f"missing key: {key}"
 
 

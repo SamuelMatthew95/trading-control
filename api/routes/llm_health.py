@@ -32,7 +32,7 @@ async def llm_health() -> dict[str, Any]:
 
     provider = getattr(settings, "LLM_PROVIDER", "unknown").lower()
     _model_setting = {
-        "gemini": ("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+        "gemini": ("GEMINI_MODEL", settings.GEMINI_MODEL),
         "groq": ("GROQ_MODEL", "unknown"),
         "anthropic": ("ANTHROPIC_MODEL", "unknown"),
         "openai": ("OPENAI_MODEL", "unknown"),
@@ -44,6 +44,7 @@ async def llm_health() -> dict[str, Any]:
         "status": status,
         "provider": provider,
         "model": model_name,
+        "model_var": _attr if _attr else "unknown",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         **snap,
     }
