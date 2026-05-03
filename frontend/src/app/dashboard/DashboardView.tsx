@@ -1425,7 +1425,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Active Agents</p>
               <p className={valueClass}>{sanitizeValue(realAgents.filter((agent) => agent.status === 'Live').length)}</p>
-              <p className={mutedClass}>Live heartbeat within 5 seconds</p>
+              <p className={mutedClass}>Live heartbeat &lt; 5s</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Pipeline Events</p>

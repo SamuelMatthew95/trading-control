@@ -50,7 +50,7 @@ export function TraceButton({
       aria-label={`Open ${context} trace ${traceId}`}
       className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
     >
-      View trace {traceId.slice(0, 8)}
+      trace:{traceId.slice(0, 8)}
     </button>
   )
 }

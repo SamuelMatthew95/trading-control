@@ -5,13 +5,13 @@ describe('state tone helpers', () => {
     expect(getStateTone(state)).not.toBe(UNKNOWN_TONE)
   })
 
-  test.each(['IDLE','OFFLINE','CLOSED'])('maps %s to neutral tone', (state) => {
-    expect(getStateTone(state)).toBe(UNKNOWN_TONE)
+  test.each(['IDLE','OFFLINE','CLOSED'])('maps %s to known neutral tone', (state) => {
+    expect(getStateTone(state)).toBe('bg-slate-500/10 text-slate-500')
   })
 
   test('unknown fallback', () => {
     expect(getStateTone('mystery')).toBe(UNKNOWN_TONE)
-    expect(getStateLabel('')).toBe('UNKNOWN')
+    expect(getStateLabel('')).toBe('Unknown')
   })
 
   test('pnl tone and trade side tone', () => {

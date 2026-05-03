@@ -16,7 +16,7 @@ export const STATE_TONE: Record<string, string> = {
   sell: 'bg-rose-500/10 text-rose-600',
 }
 
-export const UNKNOWN_TONE = 'bg-slate-500/10 text-slate-500'
+export const UNKNOWN_TONE = 'bg-slate-400/10 text-slate-400'
 
 export function getStateTone(state: string): string {
   return STATE_TONE[state.toLowerCase()] ?? UNKNOWN_TONE
@@ -24,7 +24,10 @@ export function getStateTone(state: string): string {
 
 export function getStateLabel(state: string): string {
   const v = state.trim()
-  return v ? v.toUpperCase() : 'UNKNOWN'
+  if (!v) return 'Unknown'
+  const upper = v.toUpperCase()
+  if (upper === 'BUY' || upper === 'SELL') return upper
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()
 }
 
 export function getPnlTone(value: number | null | undefined): string {
