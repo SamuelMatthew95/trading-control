@@ -232,7 +232,7 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
 function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
   return (
     <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-700">{message}</p>
+      <p className="text-sm font-sans text-slate-900">{message}</p>
     </div>
   )
 }
@@ -264,9 +264,9 @@ const PROPOSAL_TYPE_STYLE: Record<string, string> = {
   code_change: 'bg-slate-500/20 text-slate-800',
   regime_adjustment: 'bg-amber-500/15 text-amber-500',
   signal_weight_reduction: 'bg-amber-500/15 text-amber-500',
-  agent_suspension: 'bg-rose-500/15 text-rose-800',
+  agent_suspension: 'bg-rose-500/15 text-rose-950',
   agent_retirement: 'bg-rose-600/15 text-rose-600',
-  new_agent: 'bg-emerald-500/15 text-emerald-800',
+  new_agent: 'bg-emerald-500/15 text-emerald-950',
 }
 
 function ProposalsFeed({
@@ -313,20 +313,20 @@ function ProposalsFeed({
                   </span>
                 )}
                 {proposal.status !== 'pending' && (
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-800' : 'bg-rose-500/15 text-rose-800')}>
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-950' : 'bg-rose-500/15 text-rose-950')}>
                     {proposal.status}
                   </span>
                 )}
                 <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
               </div>
-              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
+              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-900 dark:text-slate-300">
                 {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
               </p>
               {proposal.status === 'pending' && proposal.requires_approval && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => onUpdateStatus(proposal.id, 'approved')}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-950 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
                   >
                     <ThumbsUp className="h-3 w-3" />
                     Approve
@@ -381,11 +381,11 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
-          <button onClick={onClose} className="text-slate-700 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
+          <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-900 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
+          <button onClick={onClose} className="text-slate-900 hover:text-slate-900 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
         </div>
         {loading && <p className={mutedClass}>Loading…</p>}
-        {error && <p className="text-rose-800 text-sm">{error}</p>}
+        {error && <p className="text-rose-950 text-sm">{error}</p>}
         {data && (
           <div className="space-y-4">
             {data.agent_runs.length > 0 && (
@@ -393,7 +393,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
                 <div className="space-y-1">
                   {data.agent_runs.map((r, i) => (
-                    <div key={`${traceId}-run-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                    <div key={`${traceId}-run-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-slate-300">
                       <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
                       {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
                       {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
@@ -407,7 +407,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
                 <div className="space-y-1">
                   {data.agent_logs.map((lg, i) => (
-                    <div key={`${traceId}-log-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                    <div key={`${traceId}-log-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-slate-300">
                       <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
                       {' · '}{String(lg.created_at ?? '')}
                     </div>
@@ -421,9 +421,9 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_grades.map((g, i) => {
                     const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
-                    const scoreColor = score == null ? 'text-slate-700' : score >= 70 ? 'text-emerald-800' : score >= 40 ? 'text-amber-500' : 'text-rose-800'
+                    const scoreColor = score == null ? 'text-slate-900' : score >= 70 ? 'text-emerald-950' : score >= 40 ? 'text-amber-500' : 'text-rose-950'
                     return (
-                      <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                      <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-slate-300 flex items-center gap-2">
                         <span>{String(g.grade_type ?? '--')}</span>
                         <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
                       </div>
@@ -504,9 +504,9 @@ function ProposalsSection() {
                     </span>
                     {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
                   </div>
-                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
+                  <p className="text-sm text-slate-900 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
                   {p.reflection_trace_id && (
-                    <p className="text-[10px] font-mono text-slate-700 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
+                    <p className="text-[10px] font-bold font-mono text-slate-900 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
                   )}
                 </div>
                 {isPending ? (
@@ -524,7 +524,7 @@ function ProposalsSection() {
                   </div>
                 ) : (
                   <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
-                    isApproved ? 'bg-emerald-500/15 text-emerald-800' : 'bg-slate-500/20 text-slate-800'
+                    isApproved ? 'bg-emerald-500/15 text-emerald-950' : 'bg-slate-500/20 text-slate-800'
                   )}>{p.status}</span>
                 )}
               </div>
@@ -1125,7 +1125,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
-                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-800" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-800" /> : <span className="h-4 w-4" />}
+                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-950" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-950" /> : <span className="h-4 w-4" />}
                 </div>
                 <p className={valueClass}>{item.value}</p>
               </div>
@@ -1142,7 +1142,7 @@ export function DashboardView({ section }: { section: Section }) {
                     ? signedUSD(resolvedPerformanceSummary.total_pnl)
                     : '--',
                   colorClass: resolvedPerformanceSummary != null
-                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-800' : 'text-rose-800'
+                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-950' : 'text-rose-950'
                     : 'text-slate-900 dark:text-slate-100',
                 },
                 {
@@ -1153,12 +1153,12 @@ export function DashboardView({ section }: { section: Section }) {
                 {
                   label: 'Best Trade',
                   value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.best_trade) : '--',
-                  colorClass: 'text-emerald-800',
+                  colorClass: 'text-emerald-950',
                 },
                 {
                   label: 'Worst Trade',
                   value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.worst_trade) : '--',
-                  colorClass: 'text-rose-800',
+                  colorClass: 'text-rose-950',
                 },
               ].map((cell) => (
                 <div key={cell.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -1201,7 +1201,7 @@ export function DashboardView({ section }: { section: Section }) {
                           <span className={cn('text-xs font-sans font-medium',
                             agent.status === 'Live' ? 'text-emerald-600' : 
                             agent.status === 'Stale' ? 'text-amber-300' :
-                            agent.status === 'Error' ? 'text-rose-300' : 'text-slate-700'
+                            agent.status === 'Error' ? 'text-rose-300' : 'text-slate-900'
                           )}>{agent.status}</span>
                         </div>
                       </div>
@@ -1252,7 +1252,7 @@ export function DashboardView({ section }: { section: Section }) {
                     return (
                       <div className="flex items-center gap-2">
                         <div className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-amber-500')} />
-                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-800' : 'text-amber-500')}>
+                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-950' : 'text-amber-500')}>
                           {isLive ? 'Live' : 'Stale'}
                         </span>
                       </div>
@@ -1290,7 +1290,7 @@ export function DashboardView({ section }: { section: Section }) {
                       </p>
                       <div className="mt-2 flex items-center justify-between">
                         <p className={cn('text-xs font-mono tabular-nums', 
-                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-800' : 'text-rose-800'
+                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-950' : 'text-rose-950'
                         )}>
                           {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
                         </p>
@@ -1326,16 +1326,16 @@ export function DashboardView({ section }: { section: Section }) {
 
                   const GRADE_STYLE: Record<string, string> = {
                     A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-                    B: 'bg-slate-500/10 text-slate-700 dark:text-slate-300',
+                    B: 'bg-slate-500/10 text-slate-900 dark:text-slate-300',
                     C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-                    D: 'bg-rose-500/15 text-rose-800',
-                    F: 'bg-rose-500/15 text-rose-800',
+                    D: 'bg-rose-500/15 text-rose-950',
+                    F: 'bg-rose-500/15 text-rose-950',
                   }
 
                   return (
                     <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-800')}>
+                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-950')}>
                           {isBuy ? 'BUY' : 'SELL'}
                         </span>
                         <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
@@ -1345,7 +1345,7 @@ export function DashboardView({ section }: { section: Section }) {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {pnl != null ? (
-                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-800' : 'text-rose-800')}>
+                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-950' : 'text-rose-950')}>
                             {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
                           </span>
                         ) : (
@@ -1359,7 +1359,7 @@ export function DashboardView({ section }: { section: Section }) {
                         {trade.execution_trace_id && (
                           <button
                             onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 transition-colors"
                           >
                             trace:{trade.execution_trace_id.slice(0, 8)}…
                           </button>
@@ -1388,7 +1388,7 @@ export function DashboardView({ section }: { section: Section }) {
                   {agentLogs.slice(-10).reverse().map((log, index) => {
                     const confidence = toFiniteNumber(log?.confidence)
                     const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
-                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-800' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-700' : 'bg-slate-500/20 text-slate-800'
+                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-950' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-700' : 'bg-slate-500/20 text-slate-800'
                     return (
                       <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
@@ -1397,13 +1397,13 @@ export function DashboardView({ section }: { section: Section }) {
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
                             <button
                               onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
+                              className="rounded px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 transition-colors"
                             >
                               trace:{(log.trace_id as string).slice(0, 8)}…
                             </button>
                           ) : null}
                         </div>
-                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
+                        <p className="text-sm font-sans leading-relaxed text-slate-900 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
                       </div>
                     )
                   })}
@@ -1441,17 +1441,17 @@ export function DashboardView({ section }: { section: Section }) {
                         <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
                           <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
                           <td className="px-2 py-2">
-                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-800' : 'bg-rose-500/15 text-rose-800')}>
+                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-950' : 'bg-rose-500/15 text-rose-950')}>
                               {side === '--' ? 'N/A' : side}
                             </span>
                           </td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
-                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-800' : 'text-rose-800')}>
+                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-950' : 'text-rose-950')}>
                             {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
                           </td>
-                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-800' : 'text-rose-800')}>
+                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-950' : 'text-rose-950')}>
                             {pnlPct == null ? '--' : `${sanitizeValue(pnlPct.toFixed(2))}%`}
                           </td>
                         </tr>
@@ -1504,7 +1504,7 @@ export function DashboardView({ section }: { section: Section }) {
                   'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
                   isInMemoryMode
                     ? 'bg-amber-400/10 text-amber-500'
-                    : 'bg-emerald-500/10 text-emerald-800',
+                    : 'bg-emerald-500/10 text-emerald-950',
                 )}
               >
                 <span
@@ -1518,15 +1518,15 @@ export function DashboardView({ section }: { section: Section }) {
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <p className={mutedClass}>
-                Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
+                Heartbeats (in-memory/Redis): <span className="font-mono text-slate-900 dark:text-slate-200">{agentStatuses.length}</span>
                 <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
               </p>
               <p className={mutedClass}>
-                Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
+                Lifecycle rows (DB): <span className="font-mono text-slate-900 dark:text-slate-200">{agentInstances.length}</span>
                 <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
               </p>
               <p className={mutedClass}>
-                Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
+                Agent logs (DB/WS): <span className="font-mono text-slate-900 dark:text-slate-200">{agentLogs.length}</span>
                 <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
               </p>
             </div>
@@ -1541,9 +1541,9 @@ export function DashboardView({ section }: { section: Section }) {
                   className={cn(
                     'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                     apiRow.value === 'ok'
-                      ? 'bg-emerald-500/10 text-emerald-800'
+                      ? 'bg-emerald-500/10 text-emerald-950'
                       : apiRow.value === 'error'
-                        ? 'bg-rose-500/10 text-rose-800'
+                        ? 'bg-rose-500/10 text-rose-950'
                         : 'bg-slate-500/20 text-slate-800',
                   )}
                 >
@@ -1585,10 +1585,10 @@ export function DashboardView({ section }: { section: Section }) {
                                     ? 'bg-rose-300'
                                     : 'bg-slate-400',
                             )} />
-                            <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
+                            <span className="text-slate-900 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
+                        <td className="px-2 py-2 text-xs font-sans text-slate-900 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
                           rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}
                         </td>
@@ -1628,7 +1628,7 @@ export function DashboardView({ section }: { section: Section }) {
                       return (
                         <tr key={inst.id} className="border-t border-slate-200 dark:border-slate-800">
                           <td className="px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-100">{inst.instance_key}</td>
-                          <td className="px-2 py-1.5 text-xs font-sans text-slate-700 dark:text-slate-400">{inst.pool_name}</td>
+                          <td className="px-2 py-1.5 text-xs font-sans text-slate-900 dark:text-slate-400">{inst.pool_name}</td>
                           <td className="px-2 py-1.5 text-xs font-sans">
                             <span className="inline-flex items-center gap-1.5">
                               <span className={cn('h-2 w-2 rounded-full', isActive ? 'bg-emerald-500' : 'bg-slate-400')} />
@@ -1636,7 +1636,7 @@ export function DashboardView({ section }: { section: Section }) {
                             </span>
                           </td>
                           <td className="px-2 py-1.5 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-100">{inst.event_count}</td>
-                          <td className="px-2 py-1.5 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{formatUptime(inst.uptime_seconds)}</td>
+                          <td className="px-2 py-1.5 text-xs font-mono tabular-nums text-slate-900 dark:text-slate-300">{formatUptime(inst.uptime_seconds)}</td>
                           <td className="px-2 py-1.5 text-xs font-mono text-slate-500">{formatTimestamp(inst.started_at)}</td>
                         </tr>
                       )
@@ -1663,16 +1663,16 @@ export function DashboardView({ section }: { section: Section }) {
                     className={cn(
                       'mt-1 text-xs font-semibold uppercase tracking-wide',
                       stage.status === 'Active'
-                        ? 'text-emerald-800'
+                        ? 'text-emerald-950'
                         : stage.status === 'Error'
-                          ? 'text-rose-800'
+                          ? 'text-rose-950'
                           : 'text-slate-500',
                     )}
                   >
                     {stage.status}
                   </p>
                   <p className="mt-1 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{stage.count}</p>
-                  <p className="mt-1 text-[11px] font-mono text-slate-500">
+                  <p className="mt-1 text-[11px] font-bold font-mono text-slate-500">
                     {stage.lastRun ? `last ${formatTimeAgoSafe(stage.lastRun)}` : 'No runs yet'}
                   </p>
                 </div>
@@ -1699,7 +1699,7 @@ export function DashboardView({ section }: { section: Section }) {
 
           <ProposalsFeed proposals={proposals} onUpdateStatus={updateProposalStatus} />
           {proposals.length === 0 && (
-            <div className="rounded-lg border border-slate-200 bg-slate-100/50 p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+            <div className="rounded-lg border border-slate-200 bg-slate-100/50 p-3 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
               No strategy proposals yet. Reflection pipeline may be idle, disconnected, or awaiting graded trades.
             </div>
           )}
@@ -1715,12 +1715,12 @@ export function DashboardView({ section }: { section: Section }) {
                   const w = typeof weight === 'number' && Number.isFinite(weight) ? Math.max(0, Math.min(1, weight)) : 0
                   return (
                     <div key={factor} className="flex items-center justify-between">
-                      <span className="text-sm font-sans text-slate-700 dark:text-slate-400">{factor}</span>
+                      <span className="text-sm font-sans text-slate-900 dark:text-slate-400">{factor}</span>
                       <div className="flex items-center gap-2">
                         <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
                           <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.round(w * 100)}%` }} />
                         </div>
-                        <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(w * 100).toFixed(1)}%</span>
+                        <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-900 dark:text-slate-300">{(w * 100).toFixed(1)}%</span>
                       </div>
                     </div>
                   )
@@ -1750,10 +1750,10 @@ export function DashboardView({ section }: { section: Section }) {
                       return (
                         <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
                           <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
-                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
+                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
                           <td className="px-2 py-2 text-xs font-mono tabular-nums">
                             {llmHealth != null ? (
-                              <span className={llmHealth >= 0.8 ? 'text-emerald-800' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-800'}>
+                              <span className={llmHealth >= 0.8 ? 'text-emerald-950' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-950'}>
                                 {(llmHealth * 100).toFixed(0)}%
                               </span>
                             ) : '--'}
@@ -1763,7 +1763,7 @@ export function DashboardView({ section }: { section: Section }) {
                               <span className={rateLim > 0 ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}>{rateLim}</span>
                             ) : '--'}
                           </td>
-                          <td className="px-2 py-2 text-xs font-mono tabular-nums text-slate-700 dark:text-slate-400">
+                          <td className="px-2 py-2 text-xs font-mono tabular-nums text-slate-900 dark:text-slate-400">
                             {delayMs != null ? `${delayMs}ms` : '--'}
                           </td>
                           <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
@@ -1787,19 +1787,19 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
-                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-800' : 'text-rose-800')}>
+                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-950' : 'text-rose-950')}>
                   {resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Best Day</p>
-                <p className="text-sm font-mono tabular-nums text-emerald-800">
+                <p className="text-sm font-mono tabular-nums text-emerald-950">
                   {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${signedUSD(learningSummary.bestDay[1])})` : 'N/A'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Worst Day</p>
-                <p className="text-sm font-mono tabular-nums text-rose-800">
+                <p className="text-sm font-mono tabular-nums text-rose-950">
                   {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${signedUSD(learningSummary.worstDay[1])})` : 'N/A'}
                 </p>
               </div>
@@ -1810,13 +1810,13 @@ export function DashboardView({ section }: { section: Section }) {
             <p className={cn(sectionTitleClass, 'mb-2')}>Learning Runtime Notes</p>
             <p className={mutedClass}>
               Reflection agent status:{' '}
-              <span className="font-mono text-slate-700 dark:text-slate-200">
+              <span className="font-mono text-slate-900 dark:text-slate-200">
                 {realAgents.find((agent) => canonicalAgentKey(agent.name) === 'REFLECTION_AGENT')?.status ?? 'Unknown'}
               </span>
             </p>
             <p className={cn(mutedClass, 'mt-1')}>
               Last grade timestamp:{' '}
-              <span className="font-mono text-slate-700 dark:text-slate-200">
+              <span className="font-mono text-slate-900 dark:text-slate-200">
                 {cleanGradeHistory[0]?.timestamp ? formatTimestamp(cleanGradeHistory[0].timestamp) : 'No grades yet'}
               </span>
             </p>
@@ -1841,7 +1841,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Pipeline status</p>
-                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-800' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-800')}>{pipelineStatus}</p>
+                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-950' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-950')}>{pipelineStatus}</p>
               </div>
             </div>
           </div>
@@ -1887,10 +1887,10 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>WebSocket</p>
-                <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-800' : 'text-rose-800')}>
+                <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-950' : 'text-rose-950')}>
                   {wsConnected ? '● Connected' : '● Disconnected'}
                 </p>
-                <p className="mt-1 break-all text-[10px] font-mono text-slate-700">
+                <p className="mt-1 break-all text-[10px] font-bold font-mono text-slate-900">
                   {typeof window !== 'undefined'
                     ? (process.env.NEXT_PUBLIC_WS_URL
                         ? process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
@@ -1902,13 +1902,13 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>API Base</p>
-                <p className="mt-1 break-all text-xs font-mono text-slate-700 dark:text-slate-300">
+                <p className="mt-1 break-all text-xs font-mono text-slate-900 dark:text-slate-300">
                   {process.env.NEXT_PUBLIC_API_URL ?? '/api (fallback)'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Prices / REST</p>
-                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-800' : pricesFetched ? 'text-amber-500' : 'text-slate-700')}>
+                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-950' : pricesFetched ? 'text-amber-500' : 'text-slate-900')}>
                   {Object.keys(prices).length > 0 ? `● ${Object.keys(prices).length} symbols` : pricesFetched ? '● Fetched – poller offline?' : '● Waiting…'}
                 </p>
               </div>
@@ -1922,7 +1922,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Last error</p>
-                <p className="text-xs font-mono text-slate-700 dark:text-slate-300">{wsDiagnostics.lastError ?? 'None'}</p>
+                <p className="text-xs font-mono text-slate-900 dark:text-slate-300">{wsDiagnostics.lastError ?? 'None'}</p>
               </div>
             </div>
           </div>
@@ -1979,7 +1979,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Connection</p>
-                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-800' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
+                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-950' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Messages Received</p>
@@ -2004,7 +2004,7 @@ export function DashboardView({ section }: { section: Section }) {
                       className={cn(
                         'rounded px-2 py-0.5 text-xs font-semibold',
                         event.stream === 'market_ticks'
-                          ? 'bg-emerald-500/15 text-emerald-800'
+                          ? 'bg-emerald-500/15 text-emerald-950'
                           : event.stream === 'signals'
                             ? 'bg-slate-500/20 text-slate-800'
                             : event.stream === 'orders'
@@ -2056,7 +2056,7 @@ export function DashboardView({ section }: { section: Section }) {
                   <div className="space-y-1">
                     {persistedCounts.slice(0, 8).map((row) => (
                       <div key={row.stream} className="flex items-center justify-between text-xs font-mono">
-                        <span className="text-slate-700 dark:text-slate-300">{row.stream}</span>
+                        <span className="text-slate-900 dark:text-slate-300">{row.stream}</span>
                         <span className="text-slate-900 dark:text-slate-100">{row.processed_count}</span>
                       </div>
                     ))}
@@ -2071,7 +2071,7 @@ export function DashboardView({ section }: { section: Section }) {
                   <div className="space-y-1">
                     {persistedEvents.slice(0, 8).map((evt) => (
                       <div key={evt.id} className="flex items-center justify-between text-xs font-mono">
-                        <span className="text-slate-700 dark:text-slate-300">{sanitizeValue(evt.kind)}</span>
+                        <span className="text-slate-900 dark:text-slate-300">{sanitizeValue(evt.kind)}</span>
                         <span className="text-slate-500">{formatTimestamp(evt.created_at)}</span>
                       </div>
                     ))}
@@ -2092,7 +2092,7 @@ export function DashboardView({ section }: { section: Section }) {
                       className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-xs font-mono hover:bg-slate-100 dark:hover:bg-slate-800"
                       onClick={() => log.trace_id && setActiveTraceId(log.trace_id)}
                     >
-                      <span className="text-slate-700 dark:text-slate-300">{sanitizeValue(log.kind)}</span>
+                      <span className="text-slate-900 dark:text-slate-300">{sanitizeValue(log.kind)}</span>
                       <span className="text-slate-500">{formatTimestamp(log.created_at)}</span>
                     </button>
                   ))}
@@ -2112,12 +2112,12 @@ export function DashboardView({ section }: { section: Section }) {
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
             systemStatus === 'trading'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-600'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-600'
               : systemStatus === 'booting'
                 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
                 : systemStatus === 'error'
-                  ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
-                  : 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                  ? 'border-rose-200 bg-rose-50 text-rose-950 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
+                  : 'border-slate-200 bg-slate-100 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
           )}
         >
           System Status: {systemStatus}

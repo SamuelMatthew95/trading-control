@@ -126,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   'flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
                     ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
-                    : 'border-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                    : 'border-transparent text-slate-900 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -161,7 +161,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-1 justify-end">
               <div className="flex items-center gap-3">
                 <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 dark:border-slate-800 dark:bg-slate-900 sm:flex">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-900 dark:text-slate-300">
                     Total P&L
                   </span>
                   <span
@@ -180,7 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <ThemeToggle />
                 <span
                   className={cn(
-                    'text-[11px] font-mono uppercase tracking-[0.04em]',
+                    'text-[11px] font-bold font-mono uppercase tracking-[0.04em]',
                     systemStatus === 'trading'
                       ? 'text-emerald-500'
                       : systemStatus === 'booting'
@@ -203,14 +203,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                         {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
                       </AlertDialogTitle>
-                      <AlertDialogDescription className="text-sm font-sans text-slate-700 dark:text-slate-300">
+                      <AlertDialogDescription className="text-sm font-sans text-slate-900 dark:text-slate-300">
                         {killSwitchActive ? 'This will resume signal processing and order placement.' : 'This will halt all signal processing and order placement.'}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel className="font-mono text-[11px] uppercase tracking-[0.04em]">Cancel</AlertDialogCancel>
+                      <AlertDialogCancel className="font-mono text-[11px] font-bold uppercase tracking-[0.04em]">Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        className="h-7 rounded-[4px] border border-slate-200 bg-slate-100 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-950 hover:bg-slate-200 disabled:opacity-50"
+                        className="h-7 rounded-[4px] border border-slate-200 bg-slate-100 px-3 font-mono text-[11px] font-bold uppercase tracking-[0.04em] text-slate-950 hover:bg-slate-200 disabled:opacity-50"
                         disabled={killSwitchPending}
                         onClick={() => handleKillSwitch(!killSwitchActive)}
                       >
