@@ -1,7 +1,7 @@
 import { getPnlTone, getStateLabel, getStateTone, getTradeSideTone, UNKNOWN_TONE } from '@/lib/status/stateTone'
 
 describe('state tone helpers', () => {
-  test.each(['ACTIVE','DEGRADED','ERROR','OPEN','PENDING','FILLED','REJECTED','BUY','SELL'])('supports %s', (state) => {
+  test.each(['ACTIVE','STALE','DEGRADED','ERROR','OPEN','PENDING','FILLED','REJECTED','BUY','SELL'])('supports %s', (state) => {
     expect(getStateTone(state)).not.toBe(UNKNOWN_TONE)
   })
 

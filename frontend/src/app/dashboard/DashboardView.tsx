@@ -9,7 +9,7 @@ import { formatSignedCurrency, formatSignedPercent } from '@/lib/format/terminal
 import { StatusChip } from '@/components/primitives/StatusChip'
 import { AccessibleTime, SectionCard, TraceButton } from '@/components/dashboard/SectionCard'
 import { LiveUpdateControl } from '@/components/dashboard/LiveUpdateControl'
-import { sanitizeValue, formatTimestamp } from '@/utils/a11yFormatters'
+import { sanitizeValue, formatTimestamp, FALLBACK_TEXT } from '@/utils/a11yFormatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
@@ -43,7 +43,7 @@ const FALLBACK_LABELS: Record<string, string> = {
 }
 const formatAgentMessage = (raw: unknown): string => {
   const text = sanitizeValue(toSanitizeInput(raw))
-  if (text === '--') return 'N/A'
+  if (text === FALLBACK_TEXT.missingValue) return 'N/A'
   if (text.startsWith('fallback:')) {
     const mode = text.slice('fallback:'.length)
     return FALLBACK_LABELS[mode] ?? 'LLM unavailable'
@@ -291,7 +291,7 @@ function ProposalsFeed({
                 <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
               </div>
               <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
-                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
+                {sanitizeValue(proposal.content) === FALLBACK_TEXT.missingValue ? 'No description' : proposal.content}
               </p>
               {proposal.status === 'pending' && proposal.requires_approval && (
                 <div className="flex items-center gap-2">
@@ -859,7 +859,7 @@ export function DashboardView({ section }: { section: Section }) {
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
       const name = sanitizeValue(log?.agent_name || log?.agent)
-      if (name === '--') return acc
+      if (name === FALLBACK_TEXT.missingValue) return acc
       const agentKey = canonicalAgentKey(name)
       const safeDate = parseTimestamp(log?.timestamp || log?.created_at)
       const existing = acc[agentKey] ?? { displayName: name, count: 0, lastSeen: null }

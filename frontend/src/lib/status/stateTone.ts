@@ -1,6 +1,7 @@
 export const STATE_TONE: Record<string, string> = {
   active: 'bg-emerald-500/10 text-emerald-600',
   live: 'bg-emerald-500/10 text-emerald-600',
+  stale: 'bg-amber-500/10 text-amber-600',
   idle: 'bg-slate-500/10 text-slate-500',
   waiting: 'bg-amber-500/10 text-amber-600',
   pending: 'bg-amber-500/10 text-amber-600',
