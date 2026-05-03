@@ -204,6 +204,11 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     )
 
 
+def _is_gemini_model_not_found_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "404" in message or "not found" in message or "model not found" in message
+
+
 def _get_gemini_api_key() -> str:
     api_key = (_get_provider_key("gemini") or "").strip()
     if not api_key:
@@ -211,11 +216,17 @@ def _get_gemini_api_key() -> str:
     return api_key
 
 
-async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    import google.generativeai as genai
+def _get_gemini_sdk():
+    from google import genai
+    from google.genai import errors as genai_errors
 
-    genai.configure(api_key=_get_gemini_api_key())
-    model = genai.GenerativeModel(getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite"))
+    return genai, genai_errors
+
+
+async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
+    genai, genai_errors = _get_gemini_sdk()
+    client = genai.Client(api_key=_get_gemini_api_key())
+    model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite")
     retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
     for attempt in range(retries + 1):
@@ -223,13 +234,31 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         await _gemini_rate_limiter.acquire()
         try:
             response = await asyncio.to_thread(
-                model.generate_content,
-                f"{SYSTEM_PROMPT}\n\n{prompt}",
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
             )
             text = response.text or ""
             usage = getattr(response, "usage_metadata", None)
             tokens = int(getattr(usage, "total_token_count", 0) or 0)
             return _parse_response(text, trace_id, 0.0), tokens, 0.0
+        except genai_errors.ClientError as exc:
+            if _is_gemini_model_not_found_error(exc):
+                raise RuntimeError(f"gemini_model_not_found: {model_name}") from exc
+            if _is_gemini_rate_limit_error(exc) and attempt < retries:
+                suggested = _extract_gemini_retry_delay(exc)
+                delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                log_structured(
+                    "warning",
+                    "gemini_rate_limit_retry",
+                    attempt=attempt + 1,
+                    backoff_seconds=delay,
+                    trace_id=trace_id,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise
         except Exception as exc:
             if _is_gemini_rate_limit_error(exc) and attempt < retries:
                 suggested = _extract_gemini_retry_delay(exc)
@@ -329,23 +358,40 @@ async def _call_provider_raw(
         return text, tokens, round(tokens * 0.0000006, 6)
 
     if provider == "gemini":
-        import google.generativeai as genai
-
-        genai.configure(api_key=_get_gemini_api_key())
-        model = genai.GenerativeModel(getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite"))
+        genai, genai_errors = _get_gemini_sdk()
+        client = genai.Client(api_key=_get_gemini_api_key())
+        model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite")
         retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
         for attempt in range(retries + 1):
             await _gemini_rate_limiter.acquire()
             try:
                 response = await asyncio.to_thread(
-                    model.generate_content,
-                    f"{system_prompt}\n\n{prompt}",
+                    client.models.generate_content,
+                    model=model_name,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(system_instruction=system_prompt),
                 )
                 text = response.text or ""
                 usage = getattr(response, "usage_metadata", None)
                 tokens = int(getattr(usage, "total_token_count", 0) or 0)
                 return text, tokens, 0.0
+            except genai_errors.ClientError as exc:
+                if _is_gemini_model_not_found_error(exc):
+                    raise RuntimeError(f"gemini_model_not_found: {model_name}") from exc
+                if _is_gemini_rate_limit_error(exc) and attempt < retries:
+                    suggested = _extract_gemini_retry_delay(exc)
+                    delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                    log_structured(
+                        "warning",
+                        "gemini_rate_limit_retry",
+                        attempt=attempt + 1,
+                        backoff_seconds=delay,
+                        trace_id=trace_id,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
             except Exception as exc:
                 if _is_gemini_rate_limit_error(exc) and attempt < retries:
                     suggested = _extract_gemini_retry_delay(exc)
