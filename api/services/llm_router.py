@@ -194,6 +194,14 @@ def _extract_gemini_retry_delay(exc: Exception) -> float | None:
     return None
 
 
+def _gemini_backoff_delay(exc: Exception, attempt: int) -> float:
+    """Deterministic backoff delay (no jitter/randomness)."""
+    suggested = _extract_gemini_retry_delay(exc)
+    if suggested is not None:
+        return min(suggested, 120.0)
+    return float(2**attempt)
+
+
 def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return (
@@ -247,8 +255,7 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
             if _is_gemini_model_not_found_error(exc):
                 raise RuntimeError(f"gemini_model_not_found: {model_name}") from exc
             if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                suggested = _extract_gemini_retry_delay(exc)
-                delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                delay = _gemini_backoff_delay(exc, attempt)
                 log_structured(
                     "warning",
                     "gemini_rate_limit_retry",
@@ -261,8 +268,7 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
             raise
         except Exception as exc:
             if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                suggested = _extract_gemini_retry_delay(exc)
-                delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                delay = _gemini_backoff_delay(exc, attempt)
                 log_structured(
                     "warning",
                     "gemini_rate_limit_retry",
@@ -380,8 +386,7 @@ async def _call_provider_raw(
                 if _is_gemini_model_not_found_error(exc):
                     raise RuntimeError(f"gemini_model_not_found: {model_name}") from exc
                 if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                    suggested = _extract_gemini_retry_delay(exc)
-                    delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                    delay = _gemini_backoff_delay(exc, attempt)
                     log_structured(
                         "warning",
                         "gemini_rate_limit_retry",
@@ -394,8 +399,7 @@ async def _call_provider_raw(
                 raise
             except Exception as exc:
                 if _is_gemini_rate_limit_error(exc) and attempt < retries:
-                    suggested = _extract_gemini_retry_delay(exc)
-                    delay = min(suggested, 120.0) if suggested is not None else 2**attempt
+                    delay = _gemini_backoff_delay(exc, attempt)
                     log_structured(
                         "warning",
                         "gemini_rate_limit_retry",
