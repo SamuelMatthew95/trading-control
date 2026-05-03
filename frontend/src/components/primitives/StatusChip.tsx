@@ -1,3 +1,3 @@
 import { cn } from '@/lib/utils'
-const toneByStatus: Record<string, string> = { active:'bg-emerald-500/10 text-emerald-600', live:'bg-emerald-500/10 text-emerald-600', idle:'bg-slate-500/10 text-slate-500', waiting:'bg-amber-500/10 text-amber-600', pending:'bg-amber-500/10 text-amber-600', error:'bg-rose-500/10 text-rose-600', degraded:'bg-amber-500/10 text-amber-600', offline:'bg-slate-500/10 text-slate-500', buy:'bg-emerald-500/10 text-emerald-600', sell:'bg-rose-500/10 text-rose-600' }
-export function StatusChip({ status }: { status: string }) { const key=status.toLowerCase(); return <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', toneByStatus[key] ?? 'bg-slate-500/10 text-slate-500')}>{status}</span> }
+import { STATE_TONE } from '@/lib/status/stateTone'
+export function StatusChip({ status }: { status: string }) { const key=status.toLowerCase(); return <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', STATE_TONE[key] ?? 'bg-slate-500/10 text-slate-500')}>{status}</span> }
