@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosedError
 
 from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
@@ -176,12 +177,28 @@ async def dashboard_ws(websocket: WebSocket) -> None:
         try:
             snapshot = await _build_snapshot(redis_client)
             await websocket.send_json(snapshot)
+        except (ConnectionClosedError, WebSocketDisconnect, RuntimeError):
+            log_structured(
+                "debug",
+                "ws_client_gone_before_snapshot",
+                event_name="ws_client_gone_before_snapshot",
+            )
+            await broadcaster.remove_connection(websocket)
+            return
         except Exception:
             log_structured("warning", "ws_initial_snapshot_failed", exc_info=True)
 
     try:
         db_snapshot = await _build_db_snapshot(redis_client)
         await websocket.send_json(db_snapshot)
+    except (ConnectionClosedError, WebSocketDisconnect, RuntimeError):
+        log_structured(
+            "debug",
+            "ws_client_gone_before_db_snapshot",
+            event_name="ws_client_gone_before_db_snapshot",
+        )
+        await broadcaster.remove_connection(websocket)
+        return
     except Exception:
         log_structured("warning", "ws_db_snapshot_failed", exc_info=True)
 

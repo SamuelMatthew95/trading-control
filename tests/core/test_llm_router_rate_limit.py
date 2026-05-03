@@ -44,6 +44,15 @@ def _make_fake_response(text: str = '{"action": "hold"}'):
     return resp
 
 
+def _make_fake_gemini_sdk():
+    fake_genai = MagicMock()
+    fake_genai.Client.return_value = MagicMock(models=MagicMock(generate_content=MagicMock()))
+    fake_genai.types.GenerateContentConfig = MagicMock()
+    fake_errors = MagicMock()
+    fake_errors.ClientError = Exception
+    return fake_genai, fake_errors
+
+
 @pytest.mark.asyncio
 async def test_call_gemini_success_no_sleep():
     """Success on first try — asyncio.sleep never called."""
@@ -51,7 +60,7 @@ async def test_call_gemini_success_no_sleep():
 
     with (
         patch("api.services.llm_router._get_gemini_api_key", return_value="fake-key"),
-        patch.dict("sys.modules", {"google.generativeai": MagicMock()}),
+        patch("api.services.llm_router._get_gemini_sdk", return_value=_make_fake_gemini_sdk()),
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", new_callable=AsyncMock) as mock_thread,
     ):
@@ -75,7 +84,7 @@ async def test_call_gemini_rate_limit_then_success():
 
     with (
         patch("api.services.llm_router._get_gemini_api_key", return_value="fake-key"),
-        patch.dict("sys.modules", {"google.generativeai": MagicMock()}),
+        patch("api.services.llm_router._get_gemini_sdk", return_value=_make_fake_gemini_sdk()),
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", mock_thread),
         patch("api.services.llm_router.settings") as mock_settings,
@@ -99,7 +108,7 @@ async def test_call_gemini_rate_limit_all_retries_raises():
 
     with (
         patch("api.services.llm_router._get_gemini_api_key", return_value="fake-key"),
-        patch.dict("sys.modules", {"google.generativeai": MagicMock()}),
+        patch("api.services.llm_router._get_gemini_sdk", return_value=_make_fake_gemini_sdk()),
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", AsyncMock(side_effect=rate_exc)),
         patch("api.services.llm_router.settings") as mock_settings,
@@ -125,7 +134,7 @@ async def test_call_gemini_no_hint_falls_back_to_exponential():
 
     with (
         patch("api.services.llm_router._get_gemini_api_key", return_value="fake-key"),
-        patch.dict("sys.modules", {"google.generativeai": MagicMock()}),
+        patch("api.services.llm_router._get_gemini_sdk", return_value=_make_fake_gemini_sdk()),
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", mock_thread),
         patch("api.services.llm_router.settings") as mock_settings,
@@ -151,7 +160,7 @@ async def test_call_gemini_delay_capped_at_120():
 
     with (
         patch("api.services.llm_router._get_gemini_api_key", return_value="fake-key"),
-        patch.dict("sys.modules", {"google.generativeai": MagicMock()}),
+        patch("api.services.llm_router._get_gemini_sdk", return_value=_make_fake_gemini_sdk()),
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", mock_thread),
         patch("api.services.llm_router.settings") as mock_settings,
@@ -181,7 +190,7 @@ async def test_call_provider_raw_gemini_rate_limit_then_success():
 
     with (
         patch("api.services.llm_router._get_gemini_api_key", return_value="fake-key"),
-        patch.dict("sys.modules", {"google.generativeai": MagicMock()}),
+        patch("api.services.llm_router._get_gemini_sdk", return_value=_make_fake_gemini_sdk()),
         patch("api.services.llm_router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch("api.services.llm_router.asyncio.to_thread", mock_thread),
         patch("api.services.llm_router.settings") as mock_settings,
