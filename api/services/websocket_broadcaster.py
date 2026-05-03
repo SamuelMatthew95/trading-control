@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
+from websockets.exceptions import ConnectionClosedError
 
 from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
@@ -404,10 +406,22 @@ class WebSocketBroadcaster:
         ts = str(data.get(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat()))
 
         disconnected: list[WebSocket] = []
-        for websocket in self._connections:
+        for websocket in list(self._connections):
             try:
                 await websocket.send_json(data)
                 self._messages_sent += 1
+            except (ConnectionClosedError, WebSocketDisconnect, RuntimeError) as exc:
+                self._last_error = str(exc)
+                disconnected.append(websocket)
+                log_structured(
+                    "warning",
+                    "ws_client_disconnected",
+                    event_name="ws_client_disconnected",
+                    msg_id=msg_id,
+                    event_type=event_type,
+                    timestamp=ts,
+                    reason=str(exc),
+                )
             except Exception as exc:  # noqa: BLE001
                 self._last_error = str(exc)
                 disconnected.append(websocket)
