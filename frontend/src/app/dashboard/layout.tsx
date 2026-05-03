@@ -23,13 +23,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import '@/styles/dashboard.css'
+import { DASHBOARD_ROUTES } from '@/lib/constants/routes'
 
 const NAV = [
-  { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
-  { href: '/dashboard/trading', label: 'Trading', Icon: CandlestickChart },
-  { href: '/dashboard/agents', label: 'Agents', Icon: Bot },
-  { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
-  { href: '/dashboard/system', label: 'System', Icon: Settings2 },
+  { href: DASHBOARD_ROUTES.overview, label: 'Overview', Icon: LayoutDashboard },
+  { href: DASHBOARD_ROUTES.trading, label: 'Trading', Icon: CandlestickChart },
+  { href: DASHBOARD_ROUTES.agents, label: 'Agents', Icon: Bot },
+  { href: DASHBOARD_ROUTES.learning, label: 'Learning', Icon: TrendingUp },
+  { href: DASHBOARD_ROUTES.system, label: 'System', Icon: Settings2 },
 ]
 
 const formatUSD = (value?: number | null): string => {

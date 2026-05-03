@@ -1,29 +1,24 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { FALLBACK_TEXT } from '@/utils/displayFormatters'
+import { SectionHeader, TerminalCard } from '@/components/primitives/TerminalCard'
 
 export function SectionCard({
   title,
   right,
   children,
   className,
-  titleAs = 'h2',
 }: {
   title: string
   right?: ReactNode
   children: ReactNode
   className?: string
-  titleAs?: 'h2' | 'h3'
 }) {
-  const Heading = titleAs
   return (
-    <section className={cn('rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-5', className)}>
-      <header className="mb-3 flex items-center justify-between gap-2">
-        <Heading className="text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400">{title}</Heading>
-        {right}
-      </header>
+    <TerminalCard className={cn('p-4 sm:p-5', className)}>
+      <SectionHeader title={title} meta={right} />
       {children}
-    </section>
+    </TerminalCard>
   )
 }
 
