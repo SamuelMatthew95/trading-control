@@ -22,8 +22,8 @@ import {
 import type { Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
-  if (value === undefined || value === null || value === '') return '--';
-  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
+  if (value === undefined || value === null || value === '') return 'Not available';
+  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return 'Not available';
   if (typeof value === 'boolean') return value ? 'True' : 'False';
   return String(value);
 };
@@ -77,9 +77,9 @@ const formatTimeAgo = (date: Date): string => {
 };
 
 const formatTimestamp = (value?: string | null): string => {
-  if (!value) return '--'
+  if (!value) return 'No timestamp available'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
+  if (Number.isNaN(date.getTime())) return 'No timestamp available'
   return date.toLocaleTimeString()
 }
 
@@ -278,7 +278,7 @@ function ProposalsFeed({
 }) {
   const pending = proposals.filter((p) => p.status === 'pending')
   return (
-    <div className={cardClass}>
+    <section className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-slate-500" />
@@ -572,6 +572,7 @@ export function DashboardView({ section }: { section: Section }) {
   } = useCodexStore()
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
+  const [liveAnnouncementsPaused, setLiveAnnouncementsPaused] = useState(false)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
   const [icWeights, setIcWeights] = useState<Record<string, number>>({})
   const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
@@ -1217,10 +1218,10 @@ export function DashboardView({ section }: { section: Section }) {
                   ))}
                 </div>
               )}
-            </div>
+            </section>
           </div>
 
-          <div className={cardClass}>
+          <section className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Live Market Prices</p>
               <div className="flex items-center gap-2">
@@ -1301,7 +1302,7 @@ export function DashboardView({ section }: { section: Section }) {
                 })
               )}
             </div>
-          </div>
+          </section>
         </div>
       )}
 
@@ -1309,7 +1310,7 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Trade Feed</p>
+              <h2 className={sectionTitleClass}>Trade Feed</h2>
               <p className={mutedClass}>{tradeFeed.length} fills</p>
             </div>
             {tradeFeed.length === 0 ? (
@@ -1360,8 +1361,8 @@ export function DashboardView({ section }: { section: Section }) {
                           <button
                             onClick={() => setActiveTraceId(trade.execution_trace_id!)}
                             className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                          >
-                            trace:{trade.execution_trace_id.slice(0, 8)}…
+                           aria-label={`Open execution trace ${trade.execution_trace_id}`}>
+                            View trace {trade.execution_trace_id.slice(0, 8)}
                           </button>
                         )}
                       </div>
@@ -1374,16 +1375,19 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Agent Thought Stream</p>
+              <h2 className={sectionTitleClass}>Agent Thought Stream</h2>
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
                 <span className={mutedClass}>LIVE</span>
+                <button type="button" className="rounded border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => setLiveAnnouncementsPaused((v) => !v)} aria-pressed={liveAnnouncementsPaused}>
+                  {liveAnnouncementsPaused ? 'Resume updates' : 'Pause updates'}
+                </button>
               </div>
             </div>
             {agentLogs.length === 0 ? (
               <EmptyState message="No active agents" />
             ) : (
-              <div className="relative max-h-80 overflow-y-auto">
+              <div className="relative max-h-80 overflow-y-auto" role="log" aria-live={liveAnnouncementsPaused ? "off" : "polite"} aria-label="Agent thought stream">
                 <div className="space-y-2">
                   {agentLogs.slice(-10).reverse().map((log, index) => {
                     const confidence = toFiniteNumber(log?.confidence)
@@ -1398,8 +1402,8 @@ export function DashboardView({ section }: { section: Section }) {
                             <button
                               onClick={() => setActiveTraceId(log.trace_id as string)}
                               className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                            >
-                              trace:{(log.trace_id as string).slice(0, 8)}…
+                             aria-label={`Open agent log trace ${log.trace_id as string}`}>
+                              View trace {(log.trace_id as string).slice(0, 8)}
                             </button>
                           ) : null}
                         </div>
@@ -1415,14 +1419,15 @@ export function DashboardView({ section }: { section: Section }) {
 
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Open Positions</p>
+              <h2 className={sectionTitleClass}>Open Positions</h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full">
+              <table className="min-w-full" role="table">
+                <caption className="sr-only">Open positions with quantity, pricing, and profit and loss</caption>
                 <thead>
                   <tr className="border-b border-slate-200 pb-2 dark:border-slate-800">
                     {['Symbol', 'Side', 'Qty', 'Entry Price', 'Current Price', 'P&L', 'P&L %'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                      <th key={head} scope="col" className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1556,11 +1561,12 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
             <div className="overflow-x-auto">
-              <table className="min-w-full">
+              <table className="min-w-full" role="table">
+                <caption className="sr-only">Agent status by source, event counts, and last seen time</caption>
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800">
                     {['Agent', 'Status', 'Source', 'Events', 'Last Seen'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
+                      <th key={head} scope="col" className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
                     ))}
                   </tr>
                 </thead>
@@ -2107,7 +2113,8 @@ export function DashboardView({ section }: { section: Section }) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
-      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+        <h1 className="text-lg font-bold tracking-wide text-slate-900 dark:text-slate-100">{section.charAt(0).toUpperCase() + section.slice(1)} Dashboard</h1>
         <div
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
@@ -2123,7 +2130,7 @@ export function DashboardView({ section }: { section: Section }) {
           System Status: {systemStatus}
         </div>
         {contentBySection}
-      </main>
+      </div>
 
       {activeTraceId && (
         <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
