@@ -264,9 +264,9 @@ const PROPOSAL_TYPE_STYLE: Record<string, string> = {
   code_change: 'bg-slate-500/20 text-slate-800',
   regime_adjustment: 'bg-amber-500/15 text-amber-500',
   signal_weight_reduction: 'bg-amber-500/15 text-amber-500',
-  agent_suspension: 'bg-rose-500/15 text-rose-950',
+  agent_suspension: 'bg-rose-500/15 text-rose-950 dark:text-rose-300',
   agent_retirement: 'bg-rose-600/15 text-rose-600',
-  new_agent: 'bg-emerald-500/15 text-emerald-950',
+  new_agent: 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-300',
 }
 
 function ProposalsFeed({
@@ -313,7 +313,7 @@ function ProposalsFeed({
                   </span>
                 )}
                 {proposal.status !== 'pending' && (
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-950' : 'bg-rose-500/15 text-rose-950')}>
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-950 dark:text-rose-300')}>
                     {proposal.status}
                   </span>
                 )}
@@ -326,7 +326,7 @@ function ProposalsFeed({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => onUpdateStatus(proposal.id, 'approved')}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-950 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-950 dark:text-emerald-300 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
                   >
                     <ThumbsUp className="h-3 w-3" />
                     Approve
@@ -385,7 +385,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
           <button onClick={onClose} className="text-slate-900 hover:text-slate-900 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
         </div>
         {loading && <p className={mutedClass}>Loading…</p>}
-        {error && <p className="text-rose-950 text-sm">{error}</p>}
+        {error && <p className="text-rose-950 dark:text-rose-300 text-sm">{error}</p>}
         {data && (
           <div className="space-y-4">
             {data.agent_runs.length > 0 && (
@@ -421,7 +421,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_grades.map((g, i) => {
                     const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
-                    const scoreColor = score == null ? 'text-slate-900' : score >= 70 ? 'text-emerald-950' : score >= 40 ? 'text-amber-500' : 'text-rose-950'
+                    const scoreColor = score == null ? 'text-slate-900' : score >= 70 ? 'text-emerald-950 dark:text-emerald-300' : score >= 40 ? 'text-amber-500' : 'text-rose-950 dark:text-rose-300'
                     return (
                       <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-slate-300 flex items-center gap-2">
                         <span>{String(g.grade_type ?? '--')}</span>
@@ -506,7 +506,7 @@ function ProposalsSection() {
                   </div>
                   <p className="text-sm text-slate-900 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
                   {p.reflection_trace_id && (
-                    <p className="text-[10px] font-bold font-mono text-slate-900 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
+                    <p className="text-[10px] font-bold font-mono text-slate-900 dark:text-slate-300 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
                   )}
                 </div>
                 {isPending ? (
@@ -524,7 +524,7 @@ function ProposalsSection() {
                   </div>
                 ) : (
                   <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
-                    isApproved ? 'bg-emerald-500/15 text-emerald-950' : 'bg-slate-500/20 text-slate-800'
+                    isApproved ? 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-300' : 'bg-slate-500/20 text-slate-800'
                   )}>{p.status}</span>
                 )}
               </div>
@@ -1125,7 +1125,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
-                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-950" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-950" /> : <span className="h-4 w-4" />}
+                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-950 dark:text-emerald-300" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-950 dark:text-rose-300" /> : <span className="h-4 w-4" />}
                 </div>
                 <p className={valueClass}>{item.value}</p>
               </div>
@@ -1142,7 +1142,7 @@ export function DashboardView({ section }: { section: Section }) {
                     ? signedUSD(resolvedPerformanceSummary.total_pnl)
                     : '--',
                   colorClass: resolvedPerformanceSummary != null
-                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-950' : 'text-rose-950'
+                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300'
                     : 'text-slate-900 dark:text-slate-100',
                 },
                 {
@@ -1153,12 +1153,12 @@ export function DashboardView({ section }: { section: Section }) {
                 {
                   label: 'Best Trade',
                   value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.best_trade) : '--',
-                  colorClass: 'text-emerald-950',
+                  colorClass: 'text-emerald-950 dark:text-emerald-300',
                 },
                 {
                   label: 'Worst Trade',
                   value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.worst_trade) : '--',
-                  colorClass: 'text-rose-950',
+                  colorClass: 'text-rose-950 dark:text-rose-300',
                 },
               ].map((cell) => (
                 <div key={cell.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -1252,7 +1252,7 @@ export function DashboardView({ section }: { section: Section }) {
                     return (
                       <div className="flex items-center gap-2">
                         <div className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-amber-500')} />
-                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-950' : 'text-amber-500')}>
+                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-950 dark:text-emerald-300' : 'text-amber-500')}>
                           {isLive ? 'Live' : 'Stale'}
                         </span>
                       </div>
@@ -1290,7 +1290,7 @@ export function DashboardView({ section }: { section: Section }) {
                       </p>
                       <div className="mt-2 flex items-center justify-between">
                         <p className={cn('text-xs font-mono tabular-nums', 
-                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-950' : 'text-rose-950'
+                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300'
                         )}>
                           {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
                         </p>
@@ -1328,14 +1328,14 @@ export function DashboardView({ section }: { section: Section }) {
                     A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
                     B: 'bg-slate-500/10 text-slate-900 dark:text-slate-300',
                     C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-                    D: 'bg-rose-500/15 text-rose-950',
-                    F: 'bg-rose-500/15 text-rose-950',
+                    D: 'bg-rose-500/15 text-rose-950 dark:text-rose-300',
+                    F: 'bg-rose-500/15 text-rose-950 dark:text-rose-300',
                   }
 
                   return (
                     <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-950')}>
+                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-950 dark:text-rose-300')}>
                           {isBuy ? 'BUY' : 'SELL'}
                         </span>
                         <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
@@ -1345,7 +1345,7 @@ export function DashboardView({ section }: { section: Section }) {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {pnl != null ? (
-                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-950' : 'text-rose-950')}>
+                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300')}>
                             {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
                           </span>
                         ) : (
@@ -1359,7 +1359,7 @@ export function DashboardView({ section }: { section: Section }) {
                         {trade.execution_trace_id && (
                           <button
                             onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 transition-colors"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-700 dark:text-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 transition-colors"
                           >
                             trace:{trade.execution_trace_id.slice(0, 8)}…
                           </button>
@@ -1388,7 +1388,7 @@ export function DashboardView({ section }: { section: Section }) {
                   {agentLogs.slice(-10).reverse().map((log, index) => {
                     const confidence = toFiniteNumber(log?.confidence)
                     const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
-                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-950' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-700' : 'bg-slate-500/20 text-slate-800'
+                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-300' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-700' : 'bg-slate-500/20 text-slate-800'
                     return (
                       <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
@@ -1397,7 +1397,7 @@ export function DashboardView({ section }: { section: Section }) {
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
                             <button
                               onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 transition-colors"
+                              className="rounded px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-700 dark:text-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 transition-colors"
                             >
                               trace:{(log.trace_id as string).slice(0, 8)}…
                             </button>
@@ -1441,17 +1441,17 @@ export function DashboardView({ section }: { section: Section }) {
                         <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
                           <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
                           <td className="px-2 py-2">
-                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-950' : 'bg-rose-500/15 text-rose-950')}>
+                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-950 dark:text-rose-300')}>
                               {side === '--' ? 'N/A' : side}
                             </span>
                           </td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
-                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-950' : 'text-rose-950')}>
+                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300')}>
                             {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
                           </td>
-                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-950' : 'text-rose-950')}>
+                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300')}>
                             {pnlPct == null ? '--' : `${sanitizeValue(pnlPct.toFixed(2))}%`}
                           </td>
                         </tr>
@@ -1504,7 +1504,7 @@ export function DashboardView({ section }: { section: Section }) {
                   'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
                   isInMemoryMode
                     ? 'bg-amber-400/10 text-amber-500'
-                    : 'bg-emerald-500/10 text-emerald-950',
+                    : 'bg-emerald-500/10 text-emerald-950 dark:text-emerald-300',
                 )}
               >
                 <span
@@ -1541,9 +1541,9 @@ export function DashboardView({ section }: { section: Section }) {
                   className={cn(
                     'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                     apiRow.value === 'ok'
-                      ? 'bg-emerald-500/10 text-emerald-950'
+                      ? 'bg-emerald-500/10 text-emerald-950 dark:text-emerald-300'
                       : apiRow.value === 'error'
-                        ? 'bg-rose-500/10 text-rose-950'
+                        ? 'bg-rose-500/10 text-rose-950 dark:text-rose-300'
                         : 'bg-slate-500/20 text-slate-800',
                   )}
                 >
@@ -1663,9 +1663,9 @@ export function DashboardView({ section }: { section: Section }) {
                     className={cn(
                       'mt-1 text-xs font-semibold uppercase tracking-wide',
                       stage.status === 'Active'
-                        ? 'text-emerald-950'
+                        ? 'text-emerald-950 dark:text-emerald-300'
                         : stage.status === 'Error'
-                          ? 'text-rose-950'
+                          ? 'text-rose-950 dark:text-rose-300'
                           : 'text-slate-500',
                     )}
                   >
@@ -1753,7 +1753,7 @@ export function DashboardView({ section }: { section: Section }) {
                           <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
                           <td className="px-2 py-2 text-xs font-mono tabular-nums">
                             {llmHealth != null ? (
-                              <span className={llmHealth >= 0.8 ? 'text-emerald-950' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-950'}>
+                              <span className={llmHealth >= 0.8 ? 'text-emerald-950 dark:text-emerald-300' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-950 dark:text-rose-300'}>
                                 {(llmHealth * 100).toFixed(0)}%
                               </span>
                             ) : '--'}
@@ -1787,19 +1787,19 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Total P&L</p>
-                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-950' : 'text-rose-950')}>
+                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300')}>
                   {resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Best Day</p>
-                <p className="text-sm font-mono tabular-nums text-emerald-950">
+                <p className="text-sm font-mono tabular-nums text-emerald-950 dark:text-emerald-300">
                   {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${signedUSD(learningSummary.bestDay[1])})` : 'N/A'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Worst Day</p>
-                <p className="text-sm font-mono tabular-nums text-rose-950">
+                <p className="text-sm font-mono tabular-nums text-rose-950 dark:text-rose-300">
                   {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${signedUSD(learningSummary.worstDay[1])})` : 'N/A'}
                 </p>
               </div>
@@ -1841,7 +1841,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Pipeline status</p>
-                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-950' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-950')}>{pipelineStatus}</p>
+                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-950 dark:text-emerald-300' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-950 dark:text-rose-300')}>{pipelineStatus}</p>
               </div>
             </div>
           </div>
@@ -1887,7 +1887,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>WebSocket</p>
-                <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-950' : 'text-rose-950')}>
+                <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-950 dark:text-emerald-300' : 'text-rose-950 dark:text-rose-300')}>
                   {wsConnected ? '● Connected' : '● Disconnected'}
                 </p>
                 <p className="mt-1 break-all text-[10px] font-bold font-mono text-slate-900">
@@ -1908,7 +1908,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Prices / REST</p>
-                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-950' : pricesFetched ? 'text-amber-500' : 'text-slate-900')}>
+                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-950 dark:text-emerald-300' : pricesFetched ? 'text-amber-500' : 'text-slate-900')}>
                   {Object.keys(prices).length > 0 ? `● ${Object.keys(prices).length} symbols` : pricesFetched ? '● Fetched – poller offline?' : '● Waiting…'}
                 </p>
               </div>
@@ -1979,7 +1979,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Connection</p>
-                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-950' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
+                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-950 dark:text-emerald-300' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Messages Received</p>
@@ -2004,7 +2004,7 @@ export function DashboardView({ section }: { section: Section }) {
                       className={cn(
                         'rounded px-2 py-0.5 text-xs font-semibold',
                         event.stream === 'market_ticks'
-                          ? 'bg-emerald-500/15 text-emerald-950'
+                          ? 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-300'
                           : event.stream === 'signals'
                             ? 'bg-slate-500/20 text-slate-800'
                             : event.stream === 'orders'
@@ -2112,11 +2112,11 @@ export function DashboardView({ section }: { section: Section }) {
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
             systemStatus === 'trading'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-600'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:text-emerald-300 dark:border-emerald-900/40 dark:bg-emerald-950/30'
               : systemStatus === 'booting'
                 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
                 : systemStatus === 'error'
-                  ? 'border-rose-200 bg-rose-50 text-rose-950 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
+                  ? 'border-rose-200 bg-rose-50 text-rose-950 dark:text-rose-300 dark:border-rose-900/40 dark:bg-rose-950/30'
                   : 'border-slate-200 bg-slate-100 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
           )}
         >
