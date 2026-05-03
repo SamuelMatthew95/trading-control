@@ -161,7 +161,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-1 justify-end">
               <div className="flex items-center gap-3">
                 <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 dark:border-slate-800 dark:bg-slate-900 sm:flex">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                     Total P&L
                   </span>
                   <span

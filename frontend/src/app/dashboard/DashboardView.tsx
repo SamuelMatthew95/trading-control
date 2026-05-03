@@ -304,7 +304,7 @@ function ProposalsFeed({
               )}
             >
               <div className="mb-2 flex items-center gap-2 flex-wrap">
-                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-600')}>
+                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-700')}>
                   {PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type}
                 </span>
                 {proposal.confidence != null && (
@@ -326,7 +326,7 @@ function ProposalsFeed({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => onUpdateStatus(proposal.id, 'approved')}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
                   >
                     <ThumbsUp className="h-3 w-3" />
                     Approve
@@ -524,7 +524,7 @@ function ProposalsSection() {
                   </div>
                 ) : (
                   <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
-                    isApproved ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-500'
+                    isApproved ? 'bg-emerald-500/15 text-emerald-800' : 'bg-slate-500/15 text-slate-700'
                   )}>{p.status}</span>
                 )}
               </div>
@@ -1352,7 +1352,7 @@ export function DashboardView({ section }: { section: Section }) {
                           <span className={mutedClass}>--</span>
                         )}
                         {trade.grade && (
-                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', GRADE_STYLE[trade.grade] ?? 'bg-slate-500/15 text-slate-500')}>
+                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', GRADE_STYLE[trade.grade] ?? 'bg-slate-500/15 text-slate-700')}>
                             {trade.grade}
                           </span>
                         )}
@@ -1388,7 +1388,7 @@ export function DashboardView({ section }: { section: Section }) {
                   {agentLogs.slice(-10).reverse().map((log, index) => {
                     const confidence = toFiniteNumber(log?.confidence)
                     const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
-                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-700' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
+                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-800' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-700' : 'bg-slate-500/15 text-slate-700'
                     return (
                       <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
@@ -1504,7 +1504,7 @@ export function DashboardView({ section }: { section: Section }) {
                   'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
                   isInMemoryMode
                     ? 'bg-amber-400/10 text-amber-500'
-                    : 'bg-emerald-500/10 text-emerald-700',
+                    : 'bg-emerald-500/10 text-emerald-800',
                 )}
               >
                 <span
@@ -1541,7 +1541,7 @@ export function DashboardView({ section }: { section: Section }) {
                   className={cn(
                     'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                     apiRow.value === 'ok'
-                      ? 'bg-emerald-500/10 text-emerald-700'
+                      ? 'bg-emerald-500/10 text-emerald-800'
                       : apiRow.value === 'error'
                         ? 'bg-rose-500/10 text-rose-700'
                         : 'bg-slate-500/10 text-slate-500',
@@ -2009,7 +2009,7 @@ export function DashboardView({ section }: { section: Section }) {
                             ? 'bg-slate-500/10 text-slate-500'
                             : event.stream === 'orders'
                               ? 'bg-amber-500/15 text-amber-500'
-                              : 'bg-slate-500/15 text-slate-600'
+                              : 'bg-slate-500/15 text-slate-700'
                       )}
                     >
                       {event.stream}
