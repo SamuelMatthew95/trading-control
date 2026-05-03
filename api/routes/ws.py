@@ -183,6 +183,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                 "ws_client_gone_before_snapshot",
                 event_name="ws_client_gone_before_snapshot",
             )
+            await broadcaster.remove_connection(websocket)
             return
         except Exception:
             log_structured("warning", "ws_initial_snapshot_failed", exc_info=True)
@@ -196,6 +197,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             "ws_client_gone_before_db_snapshot",
             event_name="ws_client_gone_before_db_snapshot",
         )
+        await broadcaster.remove_connection(websocket)
         return
     except Exception:
         log_structured("warning", "ws_db_snapshot_failed", exc_info=True)
