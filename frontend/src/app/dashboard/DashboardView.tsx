@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
@@ -14,6 +14,7 @@ import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
+import { DashboardEmptyState as EmptyState, PriceCardSkeleton } from '@/components/dashboard/DashboardShared'
 import {
   Activity,
   Brain,
@@ -218,27 +219,6 @@ function pickHigherPriorityStatus(
 function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
   const match = systemMetrics.find((metric) => metric?.metric_name === metricName)
   return toFiniteNumber(match?.value)
-}
-
-function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
-  return (
-    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-400">{message}</p>
-    </div>
-  )
-}
-
-function PriceCardSkeleton() {
-  return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <div className="mb-1 h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-1 h-6 w-24 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-2 flex items-center justify-between">
-        <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-        <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      </div>
-    </div>
-  )
 }
 
 const PROPOSAL_TYPE_LABEL: Record<string, string> = {
