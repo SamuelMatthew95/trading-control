@@ -495,17 +495,17 @@ MAX_BACKOFF_SECONDS: Final[int] = 60
 LARGE_ORDER_THRESHOLD: Final[float] = 10.0  # qty threshold for VWAP slicing (e.g. 10 BTC)
 VECTOR_SEARCH_LIMIT: Final[int] = 5
 STRATEGY_MAP_REFRESH_SECONDS: Final[int] = 300
-IC_LOOKBACK_DAYS: Final[int] = 30
+IC_LOOKBACK_DAYS: Final[int] = int(settings.IC_LOOKBACK_DAYS)
 SCORE_BUY_THRESHOLD: Final[float] = 0.6
 SCORE_SELL_THRESHOLD: Final[float] = 0.4
 REFLECTION_BONUS_PER_FACTOR: Final[float] = 0.05
-REFLECTION_TRADE_THRESHOLD: Final[int] = 50
+REFLECTION_TRADE_THRESHOLD: Final[int] = int(settings.REFLECTION_TRADE_THRESHOLD)
 LLM_MODEL: Final[str] = "claude-sonnet-4-20250514"
 
 LLM_TIMEOUT_SECONDS: Final[int] = int(settings.LLM_TIMEOUT_SECONDS)
-LLM_MAX_RETRIES: Final[int] = 3
-ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
-ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
+LLM_MAX_RETRIES: Final[int] = int(settings.LLM_MAX_RETRIES)
+ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = int(settings.ANTHROPIC_DAILY_TOKEN_BUDGET)
+ANTHROPIC_COST_ALERT_USD: Final[float] = float(settings.ANTHROPIC_COST_ALERT_USD)
 # Minimum delay between sequential LLM calls to avoid burst rate-limiting (ms)
 LLM_CALL_DELAY_MS: Final[int] = 200
 # GradeAgent bumps the call delay by this amount each time it detects rate-limiting
