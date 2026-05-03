@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
     LLM_FALLBACK_MODE: str = "skip_reasoning"
     BROKER_MODE: str = "paper"
-    LLM_TIMEOUT_SECONDS: int = 60
+    LLM_TIMEOUT_SECONDS: int = 90
     LLM_MAX_RETRIES: int = 2
     REFLECTION_TRADE_THRESHOLD: int = 20
     MAX_CONSUMER_LAG_ALERT: int = 5_000
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GEMINI_API_KEY: str | None = Field(default=None)
-    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
+    GEMINI_MODEL: str = "gemini-1.5-flash"
 
     # Alpaca - use paper trading keys from alpaca.markets
     ALPACA_API_KEY: str = ""

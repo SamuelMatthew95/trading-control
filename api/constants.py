@@ -7,6 +7,8 @@ Use the StrEnum classes for all string comparisons in domain logic — no bare s
 import sys
 from typing import Final
 
+from api.config import settings
+
 if sys.version_info >= (3, 11):
     from enum import StrEnum
 else:
@@ -499,7 +501,8 @@ SCORE_SELL_THRESHOLD: Final[float] = 0.4
 REFLECTION_BONUS_PER_FACTOR: Final[float] = 0.05
 REFLECTION_TRADE_THRESHOLD: Final[int] = 50
 LLM_MODEL: Final[str] = "claude-sonnet-4-20250514"
-LLM_TIMEOUT_SECONDS: Final[int] = 60
+
+LLM_TIMEOUT_SECONDS: Final[int] = int(settings.LLM_TIMEOUT_SECONDS)
 LLM_MAX_RETRIES: Final[int] = 3
 ANTHROPIC_DAILY_TOKEN_BUDGET: Final[int] = 1_000_000  # $1M daily
 ANTHROPIC_COST_ALERT_USD: Final[float] = 500.0  # Alert at $500
