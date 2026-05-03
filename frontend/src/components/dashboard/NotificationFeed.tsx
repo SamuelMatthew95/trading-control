@@ -13,6 +13,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { Notification } from '@/stores/useCodexStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
+import { AccessibleTime } from '@/components/dashboard/SectionCard'
 
 const cardClass =
   'rounded-lg border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
@@ -146,7 +147,7 @@ export function NotificationFeed({
       {notifications.length === 0 ? (
         <NotificationEmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
       ) : (
-        <div className="max-h-72 space-y-2 overflow-y-auto">
+        <div className="max-h-72 space-y-2 overflow-y-auto" role="log" aria-live="polite" aria-label="Notification stream">
           {notifications.map((notification) => {
             const display = notification.display
             const tone = normalizeTone(display?.tone || notification.severity)
@@ -161,6 +162,7 @@ export function NotificationFeed({
             return (
               <article
                 key={notification.id}
+                role={tone === 'critical' || tone === 'urgent' ? 'alert' : undefined}
                 className={cn('rounded-lg border px-3 py-3', style.card)}
               >
                 <div className="flex items-start gap-3">
@@ -182,7 +184,7 @@ export function NotificationFeed({
                         )
                       })}
                       <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
-                      <span className={cn(mutedClass, 'shrink-0')}>{formatTimestamp(notification.timestamp)}</span>
+                      <span className={cn(mutedClass, 'shrink-0')}><AccessibleTime value={notification.timestamp} fallback={NOTIFICATION_FALLBACKS.emptyTimestamp} /></span>
                     </div>
 
                     <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{subtitle}</p>

@@ -61,7 +61,7 @@ export function SignalsSidebar() {
     <aside className="fixed right-0 top-0 z-20 h-full w-72 overflow-y-auto border-l border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-sans font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">Signals</h3>
-        <button className="min-h-11 min-w-11 rounded-lg text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800" onClick={() => setOpen(false)}>×</button>
+        <button aria-label="Close signals sidebar" className="min-h-11 min-w-11 rounded-lg text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800" onClick={() => setOpen(false)}>×</button>
       </div>
       {(['urgent', 'review', 'info'] as const).map((priority) => (
         <section key={priority} className="mb-4">
