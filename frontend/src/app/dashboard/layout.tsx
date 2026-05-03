@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import '@/styles/dashboard.css'
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
@@ -102,6 +103,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <a href="#dashboard-main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[100] focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:text-slate-900">
+        Skip to main content
+      </a>
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-900 md:static md:translate-x-0',
@@ -121,6 +125,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Link
                 key={href}
                 href={href}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => setSidebarOpen(false)}
                 className={cn(
                   'flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
@@ -151,11 +156,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-1 items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation menu"
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 md:hidden"
               >
                 <Menu className="h-4 w-4" />
               </button>
-              <span className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-white">Trading Console</span>
+                <span className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-white">Trading Console</span>
             </div>
 
             <div className="flex flex-1 justify-end">
@@ -194,7 +200,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant={killSwitchActive ? 'destructive' : 'outline'} shortcut={killSwitchActive ? 'ESC' : '⏎'}>
+                    <Button
+                      variant={killSwitchActive ? 'destructive' : 'outline'}
+                      aria-pressed={killSwitchActive}
+                      aria-label={`Kill switch is ${killSwitchActive ? 'on' : 'off'}. Activate dialog to ${killSwitchActive ? 'deactivate' : 'activate'} kill switch`}
+                    >
                       {killSwitchActive ? 'Kill Switch On' : 'Kill Switch Off'}
                     </Button>
                   </AlertDialogTrigger>
@@ -214,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         disabled={killSwitchPending}
                         onClick={() => handleKillSwitch(!killSwitchActive)}
                       >
-                        {killSwitchPending ? 'Working…' : killSwitchActive ? 'Deactivate ⏎' : 'Activate ⏎'}
+                        {killSwitchPending ? 'Working…' : killSwitchActive ? 'Deactivate' : 'Activate'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -231,7 +241,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <div id="dashboard-main-content" className="flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   )
