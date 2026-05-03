@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { AccessibleTime } from '@/components/dashboard/SectionCard'
 
 type LatestGrade = {
   trace_id: string
@@ -110,7 +111,7 @@ export function LearningLoopPanel() {
           <span className="text-xs font-mono text-rose-500">err: {error}</span>
         ) : (
           <span className="text-xs text-slate-400">
-            {state?.timestamp ? new Date(state.timestamp).toLocaleTimeString() : '--'}
+            <AccessibleTime value={state?.timestamp ?? null} />
           </span>
         )}
       </div>
@@ -190,7 +191,7 @@ export function LearningLoopPanel() {
                       )}
                     </td>
                     <td className="p-2 text-slate-500">
-                      {p.timestamp ? new Date(p.timestamp).toLocaleTimeString() : '--'}
+                      <AccessibleTime value={p.timestamp ?? null} />
                     </td>
                   </tr>
                 ))}

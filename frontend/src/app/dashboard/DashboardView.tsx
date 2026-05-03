@@ -371,7 +371,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
       >
         <div className="mb-4 flex items-center justify-between">
           <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
+          <button aria-label="Close trace details" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
         </div>
         {loading && <p className={mutedClass}>Loading…</p>}
         {error && <p className="text-rose-500 text-sm">{error}</p>}
@@ -1440,12 +1440,12 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Market Ticks</p>
               <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
-              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
+              <p className={mutedClass}>Last symbol processed: {lastMarketSymbol ?? 'No symbol processed yet'}</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Active Agents</p>
               <p className={valueClass}>{sanitizeValue(realAgents.filter((agent) => agent.status === 'Live').length)}</p>
-              <p className={mutedClass}>Live heartbeat &lt; 5s</p>
+              <p className={mutedClass}>Live heartbeat within 5 seconds</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Pipeline Events</p>
@@ -1562,7 +1562,9 @@ export function DashboardView({ section }: { section: Section }) {
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
                           rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}
                         </td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                          {agent.lastSeen ? <AccessibleTime value={agent.lastSeen.toISOString()} fallback="No heartbeat timestamp available" /> : 'No heartbeat timestamp available'}
+                        </td>
                       </tr>
                     ))
                   )}
