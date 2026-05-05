@@ -95,6 +95,17 @@ def test_snapshot_reflects_recorded_calls():
     assert snap["avg_latency_ms"] == round((123.0 + 456.0) / 2)
 
 
+def test_snapshot_includes_last_error_details():
+    col = LLMMetricsCollector(max_records=50)
+    col.record_error(message="missing_api_key: set GEMINI_API_KEY in environment", kind="config")
+    snap = col.snapshot()
+
+    assert "last_error" in snap
+    assert snap["last_error"]["kind"] == "config"
+    assert "missing_api_key" in (snap["last_error"]["message"] or "")
+    assert snap["last_error"]["at"]
+
+
 # ---------------------------------------------------------------------------
 # 5  daily_calls rolls over to 0 when date changes without new calls
 # ---------------------------------------------------------------------------

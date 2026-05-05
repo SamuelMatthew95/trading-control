@@ -27,6 +27,12 @@ interface CallRecord {
 }
 
 interface LLMHealthData {
+  last_error?: {
+    kind: string | null
+    message: string | null
+    at: string | null
+  }
+
   status: LLMStatus
   provider: string
   model: string
@@ -250,6 +256,12 @@ export function LLMHealthPanel() {
           Lifetime: <span className={VALUE}>{data.total_calls_lifetime}</span>
         </span>
       </div>
+
+      {data.last_error?.message && (
+        <div className="mb-3 rounded-lg border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+          Last error: <span className="font-mono">{data.last_error.message}</span>
+        </div>
+      )}
 
       {/* GradeAgent call-rate adjustment banner */}
       <div
