@@ -1487,9 +1487,12 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={sectionTitleClass}>Notifications</p>
               <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
               <p className={mutedClass}>
-                {notifications[0]?.timestamp
-                  ? `Last: ${new Date(notifications[0].timestamp).toLocaleTimeString()}`
-                  : 'No activity yet'}
+                {(() => {
+                  const lastNotificationTime = parseTimestamp(notifications[0]?.timestamp)
+                  return lastNotificationTime
+                    ? `Last: ${lastNotificationTime.toLocaleTimeString()}`
+                    : 'No activity yet'
+                })()}
               </p>
             </div>
           </div>

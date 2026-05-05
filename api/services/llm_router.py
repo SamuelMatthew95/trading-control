@@ -468,7 +468,9 @@ async def call_llm_with_system(
     provider = settings.LLM_PROVIDER.lower().strip()
     api_key = _get_provider_key(provider)
     if not api_key:
-        raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+        msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
+        llm_metrics.record_error(message=msg, kind="config")
+        raise RuntimeError(msg)
     await _inter_call_delay()
     t0 = _time.monotonic()
     try:
@@ -488,7 +490,7 @@ async def call_llm_with_system(
             llm_metrics.record_timeout()
             log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
         else:
-            llm_metrics.record_error()
+            llm_metrics.record_error(message=str(exc), kind="provider_error")
             log_structured("warning", "LLM custom call failed", provider=provider, exc_info=True)
         raise
 
@@ -505,7 +507,9 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         raise RuntimeError(f"unknown_provider: '{provider}' - supported: {list(_PROVIDERS.keys())}")
     api_key = _get_provider_key(provider)
     if not api_key:
-        raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+        msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
+        llm_metrics.record_error(message=msg, kind="config")
+        raise RuntimeError(msg)
     await _inter_call_delay()
     t0 = _time.monotonic()
     try:
@@ -523,6 +527,6 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
             llm_metrics.record_timeout()
             log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
         else:
-            llm_metrics.record_error()
+            llm_metrics.record_error(message=str(exc), kind="provider_error")
             log_structured("warning", "LLM call failed", provider=provider, exc_info=True)
         raise

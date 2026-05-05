@@ -173,6 +173,26 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
 
+  it('falls back when latest notification timestamp is invalid', () => {
+    mockStore.notifications = [
+      {
+        id: 'notif-invalid-ts',
+        severity: 'INFO',
+        title: 'Bad timestamp event',
+        message: 'Timestamp malformed',
+        notification_type: 'system.test',
+        stream_source: 'runtime',
+        timestamp: 'not-a-date',
+      },
+    ]
+
+    render(<DashboardView section="agents" />)
+
+    expect(screen.getByText('No activity yet')).toBeInTheDocument()
+    expect(screen.queryByText(/Last:\s*Invalid Date/i)).not.toBeInTheDocument()
+  })
+
+
   it('renders buy trade notifications with trade fields', () => {
     mockStore.notifications = [
       {

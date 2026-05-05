@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from threading import Lock
 
 from api.constants import (
@@ -33,6 +33,9 @@ class LLMMetricsCollector:
         self._daily_calls: int = 0
         self._daily_date: str = ""
         self._dynamic_delay_ms: int | None = None
+        self._last_error_message: str | None = None
+        self._last_error_kind: str | None = None
+        self._last_error_at: str | None = None
 
     def _today(self) -> str:
         return date.today().isoformat()
@@ -71,8 +74,12 @@ class LLMMetricsCollector:
     def record_timeout(self) -> None:
         self._record(LLMCallResult.TIMEOUT)
 
-    def record_error(self) -> None:
+    def record_error(self, *, message: str | None = None, kind: str = "error") -> None:
         self._record(LLMCallResult.ERROR)
+        with self._lock:
+            self._last_error_kind = kind
+            self._last_error_message = (message or "").strip()[:240] or None
+            self._last_error_at = datetime.now(timezone.utc).isoformat()
 
     def snapshot(self, window_seconds: int = LLM_METRICS_WINDOW_SECONDS) -> dict:
         """Metrics snapshot for the last *window_seconds* seconds."""
@@ -89,6 +96,9 @@ class LLMMetricsCollector:
                 self._dynamic_delay_ms if self._dynamic_delay_ms is not None else LLM_CALL_DELAY_MS
             )
             grade_adjusted = self._dynamic_delay_ms is not None
+            last_error_kind = self._last_error_kind
+            last_error_message = self._last_error_message
+            last_error_at = self._last_error_at
 
         successes = [r for r in window if r.result == LLMCallResult.SUCCESS]
         total_w = len(window)
@@ -109,6 +119,11 @@ class LLMMetricsCollector:
             "daily_calls": daily_calls,
             "effective_delay_ms": effective_delay_ms,
             "grade_adjusted_delay": grade_adjusted,
+            "last_error": {
+                "kind": last_error_kind,
+                "message": last_error_message,
+                "at": last_error_at,
+            },
             "recent_results": [
                 {
                     "result": r.result,
