@@ -448,6 +448,10 @@ async def get_dashboard_state() -> dict[str, Any]:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
 
         data.setdefault("mode", runtime_mode())
+        db_up = is_db_available()
+        data["degraded_mode"] = not db_up
+        if not db_up:
+            data["degraded_reason"] = "db_unavailable"
         # Expose whether the configured LLM provider has an API key so the
         # frontend can surface a "rule-based mode" banner instead of silently
         # showing no reasoning decisions.
@@ -629,16 +633,21 @@ async def get_flow_status() -> dict[str, Any]:
     try:
         if not is_db_available():
             store = get_runtime_store()
+            mem_runs = len(store.agent_runs)
             return {
                 "api_version": DASHBOARD_API_VERSION,
                 "db_schema_version": DB_SCHEMA_VERSION,
+                "degraded_mode": True,
+                "degraded_reason": "db_unavailable",
                 "counts": {
-                    "agent_runs": len(store.agent_runs),
+                    "agent_runs": mem_runs,
                     "agent_logs": len(store.event_history),
                     "agent_grades": len(store.grade_history),
                     "orders": 0,
                     "trade_lifecycle": 0,
                 },
+                "realtime_event_count": mem_runs,
+                "persisted_event_count": 0,
                 "trace_coverage": {"trace_id": None},
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "in_memory",
@@ -707,26 +716,35 @@ async def get_flow_status() -> dict[str, Any]:
                     or 0
                 )
 
+        counts = {k: int(v or 0) for k, v in dict(counts_row).items()}
         return {
             "api_version": DASHBOARD_API_VERSION,
             "db_schema_version": DB_SCHEMA_VERSION,
-            "counts": {k: int(v or 0) for k, v in dict(counts_row).items()},
+            "degraded_mode": False,
+            "counts": counts,
+            "realtime_event_count": counts.get("agent_runs", 0),
+            "persisted_event_count": counts.get("agent_logs", 0),
             "trace_coverage": trace_coverage,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("warning", "flow_status_db_unavailable", exc_info=True)
         store = get_runtime_store()
+        mem_runs = len(store.agent_runs)
         return {
             "api_version": DASHBOARD_API_VERSION,
             "db_schema_version": DB_SCHEMA_VERSION,
+            "degraded_mode": True,
+            "degraded_reason": "db_unavailable",
             "counts": {
-                "agent_runs": len(store.agent_runs),
+                "agent_runs": mem_runs,
                 "agent_logs": len(store.event_history),
                 "agent_grades": len(store.grade_history),
                 "orders": 0,
                 "trade_lifecycle": 0,
             },
+            "realtime_event_count": mem_runs,
+            "persisted_event_count": 0,
             "trace_coverage": {"trace_id": None},
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
@@ -847,6 +865,8 @@ async def get_agents_status() -> dict[str, Any]:
 
         return {
             "agents": agents,
+            "degraded_mode": not is_db_available(),
+            **({"degraded_reason": "db_unavailable"} if not is_db_available() else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -866,6 +886,8 @@ async def get_agents_status() -> dict[str, Any]:
         ]
         return {
             "agents": agents,
+            "degraded_mode": True,
+            "degraded_reason": "redis_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -2108,9 +2130,18 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
     Each row shows what happened end-to-end: filled price, P&L, grade, and
     whether a reflection has been written.  The frontend displays these as a
     clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
+
+    When ``count`` is 0 the response includes ``empty_reason`` to explain why:
+    - ``db_degraded``            — DB unavailable; in-memory store also has no fills
+    - ``no_orders_executed``     — DB reachable but orders table is empty
+    - ``lifecycle_not_persisted``— orders exist but no trade_lifecycle rows yet
+    - ``no_executable_intents``  — decisions were gated (HOLD/score/market) by EE
     """
     if not is_db_available():
-        return _in_memory_trade_feed_payload(limit, session_id=session_id)
+        payload = _in_memory_trade_feed_payload(limit, session_id=session_id)
+        if payload["count"] == 0:
+            payload["empty_reason"] = "db_degraded"
+        return payload
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -2220,6 +2251,30 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
             if fallback["count"] > 0:
                 return fallback
+
+            # Diagnose why trade feed is empty so the UI can explain it
+            empty_reason = "no_executable_intents"
+            try:
+                async with AsyncSessionFactory() as diag_session:
+                    order_count = (
+                        await diag_session.execute(text("SELECT COUNT(*) FROM orders"))
+                    ).scalar() or 0
+                    lifecycle_count = (
+                        await diag_session.execute(text("SELECT COUNT(*) FROM trade_lifecycle"))
+                    ).scalar() or 0
+                if order_count == 0:
+                    empty_reason = "no_orders_executed"
+                elif lifecycle_count == 0:
+                    empty_reason = "lifecycle_not_persisted"
+            except Exception:
+                pass  # keep default reason
+
+            return {
+                "trades": [],
+                "count": 0,
+                "empty_reason": empty_reason,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
 
         return {
             "trades": trades,
