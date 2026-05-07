@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import suppress
 from typing import Any
 
@@ -11,6 +12,8 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
+
+_IDLE_HEARTBEAT_INTERVAL = 60  # seconds between "alive but waiting" heartbeats
 
 
 class MultiStreamAgent:
@@ -161,10 +164,35 @@ class MultiStreamAgent:
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         raise NotImplementedError
 
+    async def _write_alive_heartbeat(self, status: str = "idle:waiting") -> None:
+        """Write a heartbeat even when no stream events arrive.
+
+        Uses ``_state_name`` as the agent key so the dashboard always shows
+        the correct agent name. Silently skips if ``_state_name`` is unset or
+        if Redis is unavailable.
+        """
+        if not self._state_name:
+            return
+        try:
+            from api.redis_client import get_redis as _get_redis
+            from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
+
+            redis = await _get_redis()
+            await _write_heartbeat(redis, self._state_name, f"agent:{status}")
+        except Exception:
+            pass
+
     async def _run(self) -> None:
         if self.agent_state and self._state_name:
             self.agent_state.transition(self._state_name, "active", task="polling")
+        # Write startup heartbeat so the dashboard sees the agent immediately.
+        await self._write_alive_heartbeat("idle:starting")
+        _last_heartbeat = time.monotonic()
         while self._running:
+            now = time.monotonic()
+            if now - _last_heartbeat >= _IDLE_HEARTBEAT_INTERVAL:
+                await self._write_alive_heartbeat("idle:waiting")
+                _last_heartbeat = now
             for stream in self.streams:
                 messages = await self.bus.consume(
                     stream,
