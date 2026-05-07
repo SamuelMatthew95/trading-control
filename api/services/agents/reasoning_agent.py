@@ -233,6 +233,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 },
             )
 
+        _edge = str(summary.get(FieldName.PRIMARY_EDGE) or "")
+        _action = str(summary.get(FieldName.ACTION) or "hold")
+        _conf = float(summary.get(FieldName.CONFIDENCE) or 0.0)
         await self.bus.publish(
             STREAM_AGENT_LOGS,
             {
@@ -240,8 +243,12 @@ class ReasoningAgent(BaseStreamConsumer):
                 "msg_id": str(uuid.uuid4()),
                 "source": SOURCE_REASONING,
                 "agent_name": AGENT_REASONING,
-                "confidence_score": float(summary.get(FieldName.CONFIDENCE) or 0.0) * 100.0,
-                "reasoning": str(summary.get(FieldName.PRIMARY_EDGE) or "reasoning decision"),
+                "confidence_score": _conf * 100.0,
+                "reasoning": _edge or "reasoning decision",
+                # Explicit message for thought stream — frontend reads log.message first
+                "message": f"{_action.upper()} ({_conf:.0%}) — {_edge}"
+                if _edge
+                else f"{_action.upper()} ({_conf:.0%})",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 **summary,
             },
