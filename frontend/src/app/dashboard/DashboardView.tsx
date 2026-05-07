@@ -591,6 +591,7 @@ export function DashboardView({ section }: { section: Section }) {
     eventHistory: 'pending',
   })
   const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
+  const [tradeFeedEmptyReason, setTradeFeedEmptyReason] = useState<string | null>(null)
   // null = not yet fetched, true/false = fetched from /dashboard/state
   const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('')
@@ -748,6 +749,7 @@ export function DashboardView({ section }: { section: Section }) {
           const trades = d.trades ?? []
           console.info('[Dashboard] Trade feed —', trades.length, 'trades')
           useCodexStore.getState().setTradeFeed(trades)
+          setTradeFeedEmptyReason(trades.length === 0 ? (d.empty_reason ?? null) : null)
         } else {
           console.warn('[Dashboard] /dashboard/trade-feed responded', r.status)
         }
@@ -1313,7 +1315,13 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={mutedClass}>{tradeFeed.length} fills</p>
             </div>
             {tradeFeed.length === 0 ? (
-              <EmptyState message="No orders today" />
+              <EmptyState message={
+                tradeFeedEmptyReason === 'db_degraded' ? 'DB unavailable — no fills persisted yet' :
+                tradeFeedEmptyReason === 'no_orders_executed' ? 'No orders executed yet — score gate holding all decisions' :
+                tradeFeedEmptyReason === 'lifecycle_not_persisted' ? 'Orders placed but lifecycle not yet written' :
+                tradeFeedEmptyReason === 'no_executable_intents' ? 'No executable decisions — LLM in fallback mode' :
+                'No fills yet'
+              } />
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-1">
                 {tradeFeed.slice(0, 50).map((trade) => {
@@ -1429,7 +1437,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No orders today" /></td>
+                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No open positions" /></td>
                     </tr>
                   ) : (
                     positions.map((position, index) => {
@@ -1593,7 +1601,11 @@ export function DashboardView({ section }: { section: Section }) {
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                          rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}
+                          {agent.realtimeCount > 0 || agent.persistedCount > 0 ? (
+                            <>rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}</>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-600">—</span>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
                       </tr>
