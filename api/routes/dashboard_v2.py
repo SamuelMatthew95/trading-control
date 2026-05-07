@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from api.config import settings
 from api.constants import (
+    AGENT_EXECUTION,
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
@@ -863,8 +864,22 @@ async def get_agents_status() -> dict[str, Any]:
                         existing[FieldName.STATUS] = "STALE"
                         existing[FieldName.LAST_EVENT] = "missing_last_seen_at"
 
+        # Pipeline health summary: signal / decision stream lengths + EE last status
+        pipeline_health: dict[str, Any] = {}
+        try:
+            pipeline_health["signal_stream_length"] = await redis_client.xlen(STREAM_SIGNALS)
+            pipeline_health["decision_stream_length"] = await redis_client.xlen(STREAM_DECISIONS)
+            _ee_raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
+            if _ee_raw:
+                _ee = json.loads(_ee_raw)
+                pipeline_health["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
+                pipeline_health["ee_decisions_evaluated"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
+        except Exception:
+            pass
+
         return {
             "agents": agents,
+            "pipeline_health": pipeline_health,
             "degraded_mode": not is_db_available(),
             **({"degraded_reason": "db_unavailable"} if not is_db_available() else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -2269,10 +2284,30 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             except Exception:
                 pass  # keep default reason
 
+            # Fetch upstream pipeline counts so the UI can show the pipeline
+            # is healthy even when no fills have occurred yet.
+            upstream: dict[str, Any] = {
+                "signal_events": 0,
+                "decisions_evaluated": 0,
+                "ee_last_status": None,
+            }
+            try:
+                _redis = await get_redis()
+                upstream["signal_events"] = await _redis.xlen(STREAM_SIGNALS)
+                upstream["decisions_evaluated"] = await _redis.xlen(STREAM_DECISIONS)
+                _ee_raw = await _redis.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
+                if _ee_raw:
+                    _ee = json.loads(_ee_raw)
+                    upstream["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
+                    upstream["ee_event_count"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
+            except Exception:
+                pass
+
             return {
                 "trades": [],
                 "count": 0,
                 "empty_reason": empty_reason,
+                "upstream_activity": upstream,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
