@@ -68,6 +68,8 @@ class ReasoningAgent(BaseStreamConsumer):
     to STREAM_DECISIONS. The ExecutionEngine is the sole authority for BUY/SELL orders.
     """
 
+    _heartbeat_agent_name = AGENT_REASONING
+
     def __init__(
         self,
         bus: EventBus,
