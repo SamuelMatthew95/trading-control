@@ -56,6 +56,8 @@ _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
 
 class ExecutionEngine(BaseStreamConsumer):
+    _heartbeat_agent_name = AGENT_EXECUTION
+
     def __init__(
         self,
         bus: EventBus,
@@ -76,8 +78,10 @@ class ExecutionEngine(BaseStreamConsumer):
         self.redis = redis_client
         self.broker = broker
         self.agent_state = agent_state
+        self._decisions_evaluated: int = 0  # total decisions received (holds + gated + executed)
 
     async def process(self, data: dict[str, Any]) -> None:
+        self._decisions_evaluated += 1
         if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
         # Learning-loop circuit breaker — set by ProposalApplier when GradeAgent
@@ -483,6 +487,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 self.redis,
                 _STATE_NAME,
                 f"order_filled:{symbol} side={side} fill_price={fill_price}",
+                self._decisions_evaluated,
             )
         except Exception:
             log_structured("warning", "execution_heartbeat_failed", exc_info=True)
@@ -505,6 +510,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 self.redis,
                 _STATE_NAME,
                 f"decision:{symbol} {exec_status}",
+                self._decisions_evaluated,
                 extra={"exec_status": exec_status, "last_trace_id": trace_id},
             )
         except Exception:
@@ -818,6 +824,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 self.redis,
                 _STATE_NAME,
                 f"order_filled_memory:{symbol} side={side} fill_price={fill_price}",
+                self._decisions_evaluated,
             )
         except Exception:
             log_structured("warning", "execution_heartbeat_failed_memory", exc_info=True)
@@ -938,12 +945,14 @@ class ExecutionEngine(BaseStreamConsumer):
         self,
         signal_confidence: float,
         reasoning_score: float,
-        historical_perf: float = 0.5,
+        historical_perf: float = 0.6,
     ) -> float:
         """Weighted execution score used as a gate before submitting orders.
 
         Weights: signal 50%, reasoning 30%, historical performance 20%.
-        ``historical_perf`` defaults to 0.5 (neutral) when unavailable.
+        ``historical_perf`` defaults to 0.6 (slight optimism for new systems with
+        no trading history — allows MOMENTUM-tier signals, score=0.55, to clear
+        the 0.55 gate: 0.55*0.5 + 0.55*0.3 + 0.6*0.2 = 0.56 > 0.55).
         """
         return (signal_confidence * 0.50) + (reasoning_score * 0.30) + (historical_perf * 0.20)
 
