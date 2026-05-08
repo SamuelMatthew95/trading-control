@@ -13,7 +13,7 @@ from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.main import app
 from api.routes import learning as learning_module
-from api.routes.learning import _grade_from_score, _grade_record_to_trade, _mem_grades_as_trades
+from api.routes.learning import _grade_from_score, _grade_record_to_trade, _iso, _mem_grades_as_trades
 from api.runtime_state import set_db_available, set_runtime_store
 
 
@@ -26,6 +26,24 @@ async def client():
 # ---------------------------------------------------------------------------
 # Helper unit tests
 # ---------------------------------------------------------------------------
+
+
+def test_iso_handles_unix_float():
+    """_iso converts time.time() floats to proper ISO strings, not raw stringified floats."""
+    ts = 1700000000.123
+    result = _iso(ts)
+    assert result is not None
+    assert "T" in result  # proper ISO 8601 format
+    assert "." not in result.split("T")[0]  # date part is not a raw float
+
+
+def test_iso_handles_none():
+    assert _iso(None) is None
+
+
+def test_iso_handles_string_passthrough():
+    s = "2024-01-15T10:30:00+00:00"
+    assert _iso(s) == s
 
 
 def test_grade_from_score_boundaries():
@@ -182,6 +200,39 @@ async def test_list_trades_db_down_pagination(client):
     data = resp.json()
     assert len(data["trades"]) == 2
     assert data["total"] == 5
+
+
+@pytest.mark.asyncio
+async def test_list_trades_db_down_trade_evals_full_count(client):
+    """total reflects all 300 trade_evaluations, not capped at 200."""
+    store = InMemoryStore()
+    for i in range(300):
+        store.add_trade_evaluation(
+            {FieldName.TRADE_EVAL_ID: f"e{i}", FieldName.OVERALL_SCORE: 0.7, "created_at": time.time()}
+        )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades?limit=10&offset=0")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 300  # not capped at 200
+    assert len(data["trades"]) == 10
+
+
+@pytest.mark.asyncio
+async def test_list_trades_db_down_timestamps_are_iso(client):
+    """time.time() float timestamps are converted to ISO 8601 strings in responses."""
+    store = InMemoryStore()
+    store.add_grade({"trace_id": "t1", "score": 0.75, "timestamp": time.time()})
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades")
+    data = resp.json()
+    ts = data["trades"][0].get("created_at")
+    assert ts is not None
+    assert "T" in ts  # ISO 8601 contains a T separator
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +409,40 @@ async def test_strategies_db_down_with_data(client):
     data = resp.json()
     assert len(data["strategies"]) == 1
     assert data["strategies"][0][FieldName.STATUS] == "proposed"
+
+
+def test_store_add_strategy_generates_id():
+    """add_strategy auto-generates id so strategies have unique React keys."""
+    store = InMemoryStore()
+    s = store.add_strategy({FieldName.STATUS: "pending"})
+    assert "id" in s
+    assert len(s["id"]) == 36  # UUID4 format
+
+
+def test_store_add_reflection_generates_id():
+    """add_reflection auto-generates id for consistency."""
+    store = InMemoryStore()
+    r = store.add_reflection({FieldName.PATTERNS: []})
+    assert "id" in r
+    assert len(r["id"]) == 36
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_down_finds_beyond_200_in_grade_history(client):
+    """Detail endpoint searches all grade_history, not just first 200."""
+    store = InMemoryStore()
+    # Push 250 grades so the target is beyond the 200-entry page
+    for i in range(250):
+        store.add_grade({"trace_id": f"g{i}", "score": 0.70, "timestamp": time.time()})
+    # The 0th grade added will be at position 249 in grade_history (oldest first)
+    # grade_history[0] = g0 — it will be at offset 249 in reversed list
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades/g0")  # oldest = beyond position 200
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["trade"][FieldName.TRADE_EVAL_ID] == "g0"
 
 
 # ---------------------------------------------------------------------------
