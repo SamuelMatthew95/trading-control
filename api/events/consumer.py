@@ -50,6 +50,7 @@ class BaseStreamConsumer(ABC):
         self._backoff = 1  # Exponential backoff state
         self._max_backoff = 10  # Maximum backoff in seconds
         self._instance_id: str | None = None
+        self._events_processed: int = 0
 
     async def _write_alive_heartbeat(self, status: str = "idle:waiting") -> None:
         """Write a keep-alive heartbeat using the agent name declared in the subclass.
@@ -63,7 +64,12 @@ class BaseStreamConsumer(ABC):
         try:
             from api.services.agent_heartbeat import write_heartbeat as _hb
 
-            await _hb(self.bus.redis, self._heartbeat_agent_name, f"agent:{status}")
+            await _hb(
+                self.bus.redis,
+                self._heartbeat_agent_name,
+                f"agent:{status}",
+                event_count=self._events_processed,
+            )
         except Exception:
             pass
 
@@ -433,6 +439,7 @@ class BaseStreamConsumer(ABC):
         try:
             await self._process_with_timeout(data)
             await self.bus.acknowledge(self.stream, self.group, msg_id)
+            self._events_processed += 1
             if self.agent_state:
                 self.agent_state.record_event(self.consumer, task=f"acked:{self.stream}")
                 self.agent_state.transition(self.consumer, "active", task=f"polling:{self.stream}")
