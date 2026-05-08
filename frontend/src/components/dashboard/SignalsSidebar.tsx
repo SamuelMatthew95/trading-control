@@ -1,59 +1,31 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api } from '@/lib/apiClient'
+import { useMemo, useState } from 'react'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Button } from '@/components/ui/button'
+import { useSignals } from '@/hooks/useSignals'
 
-type Signal = {
-  id: string
-  priority: 'urgent' | 'review' | 'info'
-  message: string
-  action_label: string
-  action_type: 'flag' | 'reinforce' | 'view_run' | 'dismiss'
-}
+const PRIORITIES = ['urgent', 'review', 'info'] as const
 
 export function SignalsSidebar() {
   const [open, setOpen] = useState(true)
-  const [items, setItems] = useState<Signal[]>([])
+  const { items, dismiss } = useSignals()
 
-  const load = useCallback(async () => {
-    const response = await fetch(api('/signals'))
-    if (!response.ok) return
-    const data = await response.json()
-    setItems(data.items || [])
-  }, [])
-
-  useEffect(() => {
-    load().catch((err) => console.warn('[Signals] Failed to load:', err))
-    const timer = setInterval(() => load().catch((err) => console.warn('[Signals] Failed to load:', err)), 60000)
-    return () => clearInterval(timer)
-  }, [load])
-
-  const dismiss = async (id: string) => {
-    // Read from the closure at click time. dismiss() is only ever called from a
-    // synchronous click handler, so `items` is the current render's state here.
-    // On failure re-insert just this one signal rather than restoring the whole
-    // snapshot, preserving any signals that loaded() added during the await.
-    const dismissed = items.find((s) => s.id === id)
-    setItems((current) => current.filter((s) => s.id !== id))
-    const rollback = () => {
-      if (dismissed) setItems((current) => [dismissed, ...current])
-    }
-    try {
-      // fetch only rejects on network errors; HTTP 4xx/5xx must be detected
-      // explicitly via response.ok or the optimistic remove leaks UI state.
-      const response = await fetch(api(`/signals/${id}/dismiss`), { method: 'POST' })
-      if (!response.ok) rollback()
-    } catch {
-      rollback()
-    }
-  }
+  const groupedSignals = useMemo(() => {
+    return PRIORITIES.map((priority) => ({
+      priority,
+      items: items.filter((signal) => signal.priority === priority),
+    }))
+  }, [items])
 
   if (!open) {
     return (
-      <button
-        className="fixed right-2 top-1/2 z-20 min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-xs font-sans font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+      <Button
+        className="fixed right-2 top-1/2 z-20"
+        variant="outline"
+        size="sm"
         onClick={() => setOpen(true)}
       >
         Signals
-      </button>
+      </Button>
     )
   }
 
@@ -63,20 +35,21 @@ export function SignalsSidebar() {
         <h3 className="text-sm font-sans font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">Signals</h3>
         <button className="min-h-11 min-w-11 rounded-lg text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800" onClick={() => setOpen(false)}>×</button>
       </div>
-      {(['urgent', 'review', 'info'] as const).map((priority) => (
-        <section key={priority} className="mb-4">
-          <h4 className="mb-2 text-xs font-sans font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{priority}</h4>
-          {items.filter((signal) => signal.priority === priority).map((signal) => (
-            <div key={signal.id} className="mb-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{signal.message}</p>
-              <button
-                className="mt-2 min-h-11 rounded-lg border border-slate-200 px-3 text-xs font-sans font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                onClick={() => dismiss(signal.id)}
-              >
-                {signal.action_label}
-              </button>
-            </div>
-          ))}
+      {groupedSignals.map((group) => (
+        <section key={group.priority} className="mb-4">
+          <h4 className="mb-2 text-xs font-sans font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{group.priority}</h4>
+          {group.items.length === 0 ? (
+            <EmptyState message={`No ${group.priority} signals`} />
+          ) : (
+            group.items.map((signal) => (
+              <div key={signal.id} className="mb-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+                <p className="text-sm font-sans text-slate-700 dark:text-slate-300">{signal.message}</p>
+                <Button className="mt-2" variant="outline" size="sm" onClick={() => dismiss(signal.id)}>
+                  {signal.action_label}
+                </Button>
+              </div>
+            ))
+          )}
         </section>
       ))}
     </aside>
