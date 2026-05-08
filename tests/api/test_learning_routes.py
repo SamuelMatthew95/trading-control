@@ -675,7 +675,7 @@ async def test_trade_detail_db_up_bridges_when_trade_evals_table_inaccessible(cl
             sql = str(stmt)
             if "trade_evaluations" in sql:
                 # Simulate table not existing during partial migration
-                raise Exception("relation \"trade_evaluations\" does not exist")
+                raise Exception('relation "trade_evaluations" does not exist')
             if "agent_grades" in sql and "WHERE trace_id" in sql:
                 return _Result([("missing-te-id", 65.0, None)])
             return _Result([])
