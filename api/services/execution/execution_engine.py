@@ -81,9 +81,11 @@ class ExecutionEngine(BaseStreamConsumer):
         self._decisions_evaluated: int = 0  # total decisions received (holds + gated + executed)
 
     async def process(self, data: dict[str, Any]) -> None:
-        self._decisions_evaluated += 1
+        # Check kill switch BEFORE incrementing so that retried messages (which are
+        # not acked when KillSwitchActive is raised) don't inflate the counter.
         if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
+        self._decisions_evaluated += 1
         # Learning-loop circuit breaker — set by ProposalApplier when GradeAgent
         # publishes a Grade F retirement proposal. Distinct from the manual
         # kill switch so the dashboard can distinguish "operator paused" from
