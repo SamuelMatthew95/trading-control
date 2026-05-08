@@ -644,6 +644,61 @@ async def test_trade_detail_db_up_finds_in_agent_grades_bridge(client, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_trade_detail_db_up_bridges_when_trade_evals_table_inaccessible(client, monkeypatch):
+    """DB-up: 500 must not be raised when trade_evaluations is inaccessible (partial migration).
+
+    The detail endpoint must still reach the agent_grades bridge even when the
+    initial SELECT FROM trade_evaluations raises (e.g., table not yet created).
+    """
+
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalar(self):
+            return self._rows[0][0] if self._rows else None
+
+        def first(self):
+            return self._rows[0] if self._rows else None
+
+        def all(self):
+            return self._rows
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def execute(self, stmt, *params):
+            sql = str(stmt)
+            if "trade_evaluations" in sql:
+                # Simulate table not existing during partial migration
+                raise Exception("relation \"trade_evaluations\" does not exist")
+            if "agent_grades" in sql and "WHERE trace_id" in sql:
+                return _Result([("missing-te-id", 65.0, None)])
+            return _Result([])
+
+    class _Fac:
+        def __call__(self):
+            return _Session()
+
+    monkeypatch.setattr(learning_module, "is_db_available", lambda: True)
+    import api.database as _db_mod
+
+    monkeypatch.setattr(_db_mod, "AsyncSessionFactory", _Fac())
+
+    resp = await client.get("/learning/trades/missing-te-id")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mode"] == "db"
+    assert data["trade"][FieldName.TRADE_EVAL_ID] == "missing-te-id"
+    # 65.0 normalizes to 0.65 → grade C
+    assert data["trade"][FieldName.OVERALL_SCORE] == pytest.approx(0.65, rel=1e-3)
+
+
+@pytest.mark.asyncio
 async def test_trade_detail_db_down_returns_newest_on_duplicate_trace(client):
     """DB-down: when the same trace_id is graded twice, detail returns the newest score."""
     store = InMemoryStore()

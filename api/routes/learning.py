@@ -304,20 +304,27 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         from api.database import AsyncSessionFactory
 
         async with AsyncSessionFactory() as session:
-            row = await session.execute(
-                text("""
-                    SELECT id, trade_id, symbol, side, pnl, return_pct,
-                           entry_quality, exit_quality, timing_score, signal_alignment,
-                           risk_reward, overall_score, grade, confidence,
-                           mistakes, strengths, created_at
-                    FROM trade_evaluations
-                    WHERE trade_id = :trade_id
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                """),
-                {"trade_id": trade_id},
-            )
-            r = row.first()
+            # trade_evaluations may not exist during a partial migration; guard
+            # each query independently so the agent_grades bridge always runs.
+            r = None
+            te_accessible = True
+            try:
+                row = await session.execute(
+                    text("""
+                        SELECT id, trade_id, symbol, side, pnl, return_pct,
+                               entry_quality, exit_quality, timing_score, signal_alignment,
+                               risk_reward, overall_score, grade, confidence,
+                               mistakes, strengths, created_at
+                        FROM trade_evaluations
+                        WHERE trade_id = :trade_id
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """),
+                    {"trade_id": trade_id},
+                )
+                r = row.first()
+            except Exception:
+                te_accessible = False
             if r is not None:
                 return {
                     "trade": {
@@ -341,13 +348,14 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                     },
                     "mode": "db",
                 }
-            # trade_evaluations miss — IDs may come from the agent_grades bridge
-            te_empty = False
-            try:
-                cnt = await session.execute(text("SELECT COUNT(*) FROM trade_evaluations"))
-                te_empty = int(cnt.scalar() or 0) == 0
-            except Exception:
-                te_empty = True
+            # trade_evaluations miss or inaccessible — IDs may come from the agent_grades bridge
+            te_empty = not te_accessible
+            if te_accessible:
+                try:
+                    cnt = await session.execute(text("SELECT COUNT(*) FROM trade_evaluations"))
+                    te_empty = int(cnt.scalar() or 0) == 0
+                except Exception:
+                    te_empty = True
             if te_empty:
                 ag_row = await session.execute(
                     text("""
