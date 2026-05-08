@@ -396,7 +396,7 @@ async def persist_strategy_record(strategy: dict[str, Any]) -> None:
                 """),
                 {
                     "rules": json.dumps(strategy.get(FieldName.RULES) or {}),
-                    "description": strategy.get("description"),
+                    "description": strategy.get(FieldName.DESCRIPTION),
                     "expected_improvement": strategy.get(FieldName.EXPECTED_IMPROVEMENT),
                     "status": strategy.get(FieldName.STATUS, "pending"),
                     "reflection_id": strategy.get(FieldName.REFLECTION_ID),

@@ -1080,7 +1080,7 @@ class StrategyProposer(MultiStreamAgent):
                         "msg_id": str(uuid.uuid4()),
                         "source": SOURCE_STRATEGY_PROPOSER,
                         "type": "pr_request",
-                        "title": f"Strategy rule proposal: {hypothesis.get('description', '')[:80]}",
+                        "title": f"Strategy rule proposal: {hypothesis.get(FieldName.DESCRIPTION, '')[:80]}",
                         "body": json.dumps(
                             {
                                 "hypothesis": hypothesis,
@@ -1099,7 +1099,7 @@ class StrategyProposer(MultiStreamAgent):
             await persist_strategy_record(
                 {
                     FieldName.RULES: proposal.get(FieldName.CONTENT, {}),
-                    "description": hypothesis.get("description", ""),
+                    "description": hypothesis.get(FieldName.DESCRIPTION, ""),
                     FieldName.EXPECTED_IMPROVEMENT: float(
                         hypothesis.get(FieldName.CONFIDENCE) or 0
                     ),
@@ -1118,7 +1118,7 @@ class StrategyProposer(MultiStreamAgent):
                     "message": (
                         f"New {proposal[FieldName.PROPOSAL_TYPE]} proposal "
                         f"(confidence={float(hypothesis.get(FieldName.CONFIDENCE) or 0):.0%}): "
-                        f"{hypothesis.get('description', '')[:100]}"
+                        f"{hypothesis.get(FieldName.DESCRIPTION, '')[:100]}"
                     ),
                     "timestamp": now_iso,
                 },
@@ -1201,7 +1201,7 @@ class StrategyProposer(MultiStreamAgent):
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
     ) -> dict[str, Any]:
         hyp_type = str(hypothesis.get(FieldName.TYPE) or "parameter").lower()
-        description = str(hypothesis.get("description") or "")
+        description = str(hypothesis.get(FieldName.DESCRIPTION) or "")
         confidence = float(hypothesis.get(FieldName.CONFIDENCE) or 0)
 
         base = {
