@@ -1,27 +1,24 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/ui/empty-state'
+import { formatCurrency, formatSignedCurrency, formatTimeAgo, formatTimestamp, sanitizeValue } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
+import { dashboardStyles } from '@/components/dashboard/dashboardStyles'
+import { StatCard } from '@/components/ui/stat-card'
 import {
   Brain,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
-
-const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
-  if (value === undefined || value === null || value === '') return '--';
-  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
-  if (typeof value === 'boolean') return value ? 'True' : 'False';
-  return String(value);
-};
 
 const toSanitizeInput = (value: unknown): string | number | boolean | null | undefined => {
   if (value === null || value === undefined) return value
@@ -47,37 +44,6 @@ const formatAgentMessage = (raw: unknown): string => {
   return text
 }
 
-const formatUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
-  return `$${Math.abs(value).toFixed(2)}`;
-};
-
-// Renders a signed USD value with leading sign — BUT never produces "-$0.00".
-// Zero (or near-zero rounding to zero) is always rendered without a sign.
-const signedUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '--';
-  const abs = Math.abs(value);
-  if (abs < 0.005) return '$0.00';
-  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`;
-};
-
-const formatTimeAgo = (date: Date): string => {
-  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-};
-
-const formatTimestamp = (value?: string | null): string => {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
-  return date.toLocaleTimeString()
-}
-
 const formatAgeFromMs = (ageMs: number | null): string => {
   if (ageMs == null || ageMs < 0 || !Number.isFinite(ageMs)) return '--'
   const sec = Math.floor(ageMs / 1000)
@@ -93,10 +59,10 @@ const formatWiringAge = (ageMs: number | null): string => {
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
 }
 
-const cardClass = 'rounded-xl border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
-const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
-const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
-const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
+const cardClass = dashboardStyles.card
+const sectionTitleClass = dashboardStyles.sectionTitle
+const mutedClass = dashboardStyles.mutedText
+const valueClass = dashboardStyles.metricValue
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
 
@@ -222,14 +188,6 @@ function pickHigherPriorityStatus(
 function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
   const match = systemMetrics.find((metric) => metric?.metric_name === metricName)
   return toFiniteNumber(match?.value)
-}
-
-function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
-  return (
-    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-500 dark:text-slate-400">{message}</p>
-    </div>
-  )
 }
 
 function PriceCardSkeleton() {
@@ -905,7 +863,7 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { title: 'Daily P&L', value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
+              { title: 'Daily P&L', value: summary.hasOrders ? formatSignedCurrency(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
               { title: 'Win Rate', value: summary.winRate == null || !Number.isFinite(summary.winRate) ? '--' : `${summary.winRate.toFixed(2)}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
               { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
               { title: 'Daily Change %', value: `${typeof summary.dailyChange === 'number' && Number.isFinite(summary.dailyChange) ? summary.dailyChange.toFixed(2) : '0.00'}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
@@ -927,7 +885,7 @@ export function DashboardView({ section }: { section: Section }) {
                 {
                   label: 'Total P&L',
                   value: resolvedPerformanceSummary != null
-                    ? signedUSD(resolvedPerformanceSummary.total_pnl)
+                    ? formatSignedCurrency(resolvedPerformanceSummary.total_pnl)
                     : '--',
                   colorClass: resolvedPerformanceSummary != null
                     ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
@@ -940,12 +898,12 @@ export function DashboardView({ section }: { section: Section }) {
                 },
                 {
                   label: 'Best Trade',
-                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.best_trade) : '--',
+                  value: resolvedPerformanceSummary != null ? formatSignedCurrency(resolvedPerformanceSummary.best_trade) : '--',
                   colorClass: 'text-emerald-500',
                 },
                 {
                   label: 'Worst Trade',
-                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.worst_trade) : '--',
+                  value: resolvedPerformanceSummary != null ? formatSignedCurrency(resolvedPerformanceSummary.worst_trade) : '--',
                   colorClass: 'text-rose-500',
                 },
               ].map((cell) => (
@@ -1080,13 +1038,13 @@ export function DashboardView({ section }: { section: Section }) {
                         <div className={cn('h-2 w-2 rounded-full', hasData ? 'bg-emerald-500' : 'bg-slate-500')} />
                       </div>
                       <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                        {hasData ? formatUSD(price) : '--'}
+                        {hasData ? formatCurrency(price) : '--'}
                       </p>
                       <div className="mt-2 flex items-center justify-between">
                         <p className={cn('text-xs font-mono tabular-nums', 
                           change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500'
                         )}>
-                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
+                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatCurrency(Math.abs(change))}`}
                         </p>
                         <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
                       </div>
@@ -1150,13 +1108,13 @@ export function DashboardView({ section }: { section: Section }) {
                         </span>
                         <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
                         <span className={mutedClass}>
-                          {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
+                          {qty != null ? qty : '--'} @ {exitPrice != null ? formatCurrency(exitPrice) : '--'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {pnl != null ? (
                           <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
+                            {isPnlPositive ? '+' : '-'}{formatCurrency(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
                           </span>
                         ) : (
                           <span className={mutedClass}>--</span>
@@ -1281,10 +1239,10 @@ export function DashboardView({ section }: { section: Section }) {
                             </span>
                           </td>
                           <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatCurrency(toFiniteNumber(position?.entry_price))}</td>
+                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatCurrency(toFiniteNumber(position?.current_price))}</td>
                           <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
+                            {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatCurrency(pnl)}`}
                           </td>
                           <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
                             {pnlPct == null ? '--' : `${sanitizeValue(pnlPct.toFixed(2))}%`}
@@ -1601,22 +1559,22 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{formatUSD(realizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{formatUSD(unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{formatUSD(realizedPnl + unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? formatUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Trades</p><p className="text-sm font-mono">{totalTrades}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{pnlWinRate.toFixed(1)}%</p></div>
+              <StatCard label="Realized" value={formatCurrency(realizedPnl)} />
+              <StatCard label="Unrealized" value={formatCurrency(unrealizedPnl)} />
+              <StatCard label="Session" value={formatCurrency(realizedPnl + unrealizedPnl)} />
+              <StatCard label="Total (DB)" value={resolvedPerformanceSummary ? formatCurrency(resolvedPerformanceSummary.total_pnl) : '--'} />
+              <StatCard label="Trades" value={totalTrades} />
+              <StatCard label="Win rate" value={`${pnlWinRate.toFixed(1)}%`} />
             </div>
           </div>
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Handoff</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signals (stream)</p><p className="text-sm font-mono">{signalsCount}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Orders</p><p className="text-sm font-mono">{ordersCount}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Executions</p><p className="text-sm font-mono">{executionsCount}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signal Agent (RT)</p><p className="text-sm font-mono">{signalAgentRealtimeCount}</p></div>
+              <StatCard label="Signals (stream)" value={signalsCount} />
+              <StatCard label="Orders" value={ordersCount} />
+              <StatCard label="Executions" value={executionsCount} />
+              <StatCard label="Signal Agent (RT)" value={signalAgentRealtimeCount} />
             </div>
             <p className={cn(mutedClass, 'mt-2')}>
               Reasoning: <span className="font-mono">{reasoningAgentStatus}</span> → Execution: <span className="font-mono">{executionAgentStatus}</span>
