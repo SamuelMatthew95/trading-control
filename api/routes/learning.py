@@ -64,6 +64,9 @@ def _iso(ts: Any) -> str | None:
         return None
     if isinstance(ts, datetime):
         return ts.isoformat()
+    if isinstance(ts, (int, float)):
+        # InMemoryStore defaults to time.time() (Unix epoch float)
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
     return str(ts)
 
 
@@ -183,11 +186,14 @@ async def list_trade_evaluations(
 
     if not is_db_available():
         store = get_runtime_store()
-        all_evals = store.get_trade_evaluations(200)
-        if not all_evals:
-            all_evals, _ = _mem_grades_as_trades(store, 200, 0)
-        total = len(all_evals)
-        page = all_evals[offset : offset + limit]
+        # Access the full list directly — get_trade_evaluations() caps at 200
+        all_evals = list(reversed(store.trade_evaluations))
+        if all_evals:
+            total = len(all_evals)
+            page = all_evals[offset : offset + limit]
+        else:
+            # No trade_evaluations yet — bridge from grade_history with correct pagination
+            page, total = _mem_grades_as_trades(store, limit, offset)
         return {
             "trades": page,
             "total": total,
@@ -275,12 +281,21 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         for ev in reversed(store.trade_evaluations):
             if str(ev.get(FieldName.TRADE_EVAL_ID)) == trade_id:
                 return {"trade": ev, "mode": "memory"}
-        # trade_evaluations empty — IDs may come from the grade_history bridge
+        # trade_evaluations empty — IDs may come from the grade_history bridge;
+        # search the full list directly to avoid the 200-entry cap of _mem_grades_as_trades
         if not store.trade_evaluations:
-            bridged, _ = _mem_grades_as_trades(store, 200, 0)
-            for ev in bridged:
-                if str(ev.get(FieldName.TRADE_EVAL_ID)) == trade_id:
-                    return {"trade": ev, "mode": "memory"}
+            for g in store.grade_history:
+                if str(g.get(FieldName.TRACE_ID) or "") == trade_id:
+                    raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
+                    score = raw / 100.0 if raw > 1.0 else raw
+                    return {
+                        "trade": _grade_record_to_trade(
+                            score=score,
+                            trade_id=trade_id,
+                            created_at=g.get(FieldName.TIMESTAMP),
+                        ),
+                        "mode": "memory",
+                    }
         raise HTTPException(status_code=404, detail="Trade evaluation not found")
 
     try:
