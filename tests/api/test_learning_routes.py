@@ -444,3 +444,91 @@ async def test_list_trades_db_empty_falls_back_to_agent_grades(client, monkeypat
     assert data["total"] == 2
     assert data["trades"][0][FieldName.TRADE_EVAL_ID] == "trace-1"
     assert data["trades"][0][FieldName.GRADE] == "B"
+
+
+# ---------------------------------------------------------------------------
+# GET /learning/trades/{trade_id} — fallback detail paths
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_down_finds_in_grade_history(client):
+    """DB-down: detail endpoint falls back to grade_history when trade_evaluations is empty."""
+    store = InMemoryStore()
+    store.add_grade({"trace_id": "grade-abc", "score": 0.80, "timestamp": time.time()})
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades/grade-abc")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mode"] == "memory"
+    assert data["trade"][FieldName.TRADE_EVAL_ID] == "grade-abc"
+    assert data["trade"][FieldName.GRADE] == "B"
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_down_404_when_not_found(client):
+    """DB-down: returns 404 when ID is not in trade_evaluations or grade_history."""
+    store = InMemoryStore()
+    store.add_grade({"trace_id": "other-id", "score": 0.70, "timestamp": time.time()})
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades/nonexistent-id")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_up_finds_in_agent_grades_bridge(client, monkeypatch):
+    """DB-up: detail endpoint bridges to agent_grades when trade_evaluations is empty."""
+
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalar(self):
+            return self._rows[0][0] if self._rows else None
+
+        def first(self):
+            return self._rows[0] if self._rows else None
+
+        def all(self):
+            return self._rows
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def execute(self, stmt, *params):
+            sql = str(stmt)
+            if "trade_evaluations" in sql and "WHERE trade_id" in sql:
+                # Primary lookup — no matching row
+                return _Result([])
+            if "COUNT" in sql and "trade_evaluations" in sql:
+                # trade_evaluations is empty
+                return _Result([(0,)])
+            if "agent_grades" in sql and "WHERE trace_id" in sql:
+                return _Result([("trace-xyz", 75.0, None)])
+            return _Result([])
+
+    class _Fac:
+        def __call__(self):
+            return _Session()
+
+    monkeypatch.setattr(learning_module, "is_db_available", lambda: True)
+    import api.database as _db_mod
+
+    monkeypatch.setattr(_db_mod, "AsyncSessionFactory", _Fac())
+
+    resp = await client.get("/learning/trades/trace-xyz")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mode"] == "db"
+    assert data["trade"][FieldName.TRADE_EVAL_ID] == "trace-xyz"
+    # 75.0 normalizes to 0.75 → grade B
+    assert data["trade"][FieldName.OVERALL_SCORE] == pytest.approx(0.75, rel=1e-3)
+    assert data["trade"][FieldName.GRADE] == "B"
