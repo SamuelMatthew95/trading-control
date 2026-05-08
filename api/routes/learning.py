@@ -696,7 +696,10 @@ async def get_pipeline_status() -> dict[str, Any]:
                 # trade_evaluations still empty — use agent_grades count so the
                 # scoring stage reflects GradeAgent activity that has already run.
                 ag_row = await session.execute(
-                    text("SELECT COUNT(*), MAX(created_at) FROM agent_grades")
+                    text(
+                        "SELECT COUNT(*), MAX(created_at) FROM agent_grades"
+                        " WHERE grade_type = 'overall'"
+                    )
                 )
                 eval_count, eval_last = ag_row.first() or (0, None)
 
