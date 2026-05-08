@@ -240,7 +240,7 @@ def compute_mistake_clusters(
         avg_impact = round(sum(pnls) / len(pnls), 4) if pnls else 0.0
         clusters.append(
             {
-                "type": mistake_type,
+                FieldName.TYPE: mistake_type,
                 "frequency": frequency,
                 "impact": avg_impact,
                 "count": len(pnls),
@@ -315,7 +315,7 @@ def compute_recommendations(
     for cluster in mistake_clusters:
         if cluster["frequency"] < 0.15:
             continue
-        rec = mapping.get(cluster["type"])
+        rec = mapping.get(cluster[FieldName.TYPE])
         if rec and rec not in seen:
             recs.append(rec)
             seen.add(rec)
@@ -332,7 +332,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
             FieldName.AVG_RETURN: 0.0,
             FieldName.SHARPE_RATIO: 0.0,
             FieldName.MAX_DRAWDOWN: 0.0,
-            "avg_score": 0.0,
+            FieldName.AVG_SCORE: 0.0,
             FieldName.SCORE_TREND: "insufficient_data",
             FieldName.CONSISTENCY: 0.0,
         }
@@ -394,7 +394,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
         FieldName.AVG_RETURN: round(avg_return, 4),
         FieldName.SHARPE_RATIO: round(sharpe, 4),
         FieldName.MAX_DRAWDOWN: round(-max_dd, 4),
-        "avg_score": round(avg_score, 4),
+        FieldName.AVG_SCORE: round(avg_score, 4),
         FieldName.SCORE_TREND: score_trend,
         FieldName.CONSISTENCY: round(consistency, 4),
     }
