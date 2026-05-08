@@ -733,3 +733,86 @@ async def test_metrics_db_down_grade_history_chronological_order(client):
     data = resp.json()
     # With improving scores the trend must not be "declining"
     assert data.get("score_trend") in ("improving", "stable")
+
+
+@pytest.mark.asyncio
+async def test_list_trades_db_down_excludes_accuracy_grades(client):
+    """DB-down: accuracy grades from SignalGenerator must not appear in /learning/trades."""
+    from api.constants import GradeType
+
+    store = InMemoryStore()
+    now = time.time()
+    # One real trade grade (no grade_type set — GradeAgent memory path)
+    store.add_grade({"trace_id": "trade-grade", "score": 0.80, "timestamp": now})
+    # One accuracy grade from SignalGenerator
+    store.add_grade(
+        {
+            "trace_id": "signal-grade",
+            "grade_type": GradeType.ACCURACY,
+            "score": 0.90,
+            "timestamp": now,
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Only the trade grade must be visible; the accuracy grade must be excluded
+    assert data["total"] == 1
+    ids = [t[FieldName.TRADE_EVAL_ID] for t in data["trades"]]
+    assert "trade-grade" in ids
+    assert "signal-grade" not in ids
+
+
+@pytest.mark.asyncio
+async def test_metrics_db_down_excludes_accuracy_grades(client):
+    """DB-down metrics: accuracy grades from SignalGenerator must not skew metrics."""
+    from api.constants import GradeType
+
+    store = InMemoryStore()
+    now = time.time()
+    # Three real trade grades at score 0.80
+    for i in range(3):
+        store.add_grade({"trace_id": f"trade-{i}", "score": 0.80, "timestamp": now})
+    # One accuracy grade with a very different score — must not affect avg_score
+    store.add_grade(
+        {
+            "trace_id": "signal-acc",
+            "grade_type": GradeType.ACCURACY,
+            "score": 0.10,
+            "timestamp": now,
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/metrics")
+    assert resp.status_code == 200
+    data = resp.json()
+    # avg_score must reflect only the three 0.80 grades
+    assert data.get("avg_score", 0) == pytest.approx(0.80, abs=0.05)
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_down_excludes_accuracy_grade(client):
+    """DB-down detail: accuracy-typed grade must not be returned for a trade_id lookup."""
+    from api.constants import GradeType
+
+    store = InMemoryStore()
+    now = time.time()
+    # Only an accuracy grade exists for this trace_id — must return 404
+    store.add_grade(
+        {
+            "trace_id": "signal-only",
+            "grade_type": GradeType.ACCURACY,
+            "score": 0.90,
+            "timestamp": now,
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades/signal-only")
+    assert resp.status_code == 404

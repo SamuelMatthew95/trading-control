@@ -25,7 +25,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.constants import FieldName
+from api.constants import FieldName, GradeType
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agents.trade_scorer import compute_learning_metrics
@@ -115,7 +115,14 @@ def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dic
     """
     # Access grade_history directly to respect the full 500-entry store limit.
     # get_grades() caps at 200, which under-reports total during extended DB outages.
-    all_grades = list(reversed(store.grade_history))
+    # Filter to overall/untyped grades only — SignalGenerator writes GradeType.ACCURACY
+    # entries into the same store; including those would inflate totals and mix in
+    # signal-scoring rows that are unrelated to trade evaluations.
+    all_grades = [
+        g
+        for g in reversed(store.grade_history)
+        if g.get(FieldName.GRADE_TYPE) in (None, GradeType.OVERALL)
+    ]
     total = len(all_grades)
     page = all_grades[offset : offset + limit]
     trades = []
@@ -143,7 +150,9 @@ async def _db_grades_as_trades(
     yet.  agent_grades holds GradeAgent's aggregate scores which are the
     best available evidence until proper trade evaluations exist.
     """
-    count_row = await session.execute(text("SELECT COUNT(*) FROM agent_grades"))
+    count_row = await session.execute(
+        text("SELECT COUNT(*) FROM agent_grades WHERE grade_type = 'overall'")
+    )
     total = int(count_row.scalar() or 0)
     if total == 0:
         return [], 0
@@ -151,6 +160,7 @@ async def _db_grades_as_trades(
         text("""
             SELECT trace_id, score, created_at
             FROM agent_grades
+            WHERE grade_type = 'overall'
             ORDER BY created_at DESC
             LIMIT :limit OFFSET :offset
         """),
@@ -285,6 +295,8 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         # search the full list directly to avoid the 200-entry cap of _mem_grades_as_trades
         if not store.trade_evaluations:
             for g in reversed(store.grade_history):
+                if g.get(FieldName.GRADE_TYPE) not in (None, GradeType.OVERALL):
+                    continue
                 if str(g.get(FieldName.TRACE_ID) or "") == trade_id:
                     raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
                     score = raw / 100.0 if raw > 1.0 else raw
@@ -362,6 +374,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                         SELECT trace_id, score, created_at
                         FROM agent_grades
                         WHERE trace_id = :trade_id
+                          AND grade_type = 'overall'
                         ORDER BY created_at DESC
                         LIMIT 1
                     """),
@@ -405,7 +418,10 @@ async def get_learning_metrics() -> dict[str, Any]:
         if not evaluations:
             # Grade-bridged records have pnl=None, making win_rate/avg_return/sharpe
             # all zero.  Synthesize PnL from overall_score — same as the DB-up bridge.
+            # Filter to overall/untyped grades to exclude SignalGenerator accuracy entries.
             for g in store.grade_history:
+                if g.get(FieldName.GRADE_TYPE) not in (None, GradeType.OVERALL):
+                    continue
                 raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
                 score_n = raw / 100.0 if raw > 1.0 else raw
                 evaluations.append(
@@ -449,6 +465,7 @@ async def get_learning_metrics() -> dict[str, Any]:
                     text("""
                         SELECT score, created_at
                         FROM agent_grades
+                        WHERE grade_type = 'overall'
                         ORDER BY created_at ASC
                         LIMIT 500
                     """)
@@ -616,7 +633,12 @@ async def get_pipeline_status() -> dict[str, Any]:
 
     if not is_db_available():
         store = get_runtime_store()
-        scoring_source = store.trade_evaluations or store.grade_history
+        overall_grades = [
+            g
+            for g in store.grade_history
+            if g.get(FieldName.GRADE_TYPE) in (None, GradeType.OVERALL)
+        ]
+        scoring_source = store.trade_evaluations or overall_grades
         return {
             "mode": mode,
             FieldName.TIMESTAMP: now,
