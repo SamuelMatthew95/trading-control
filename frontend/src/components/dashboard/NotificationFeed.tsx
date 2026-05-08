@@ -15,7 +15,7 @@ import type { Notification } from '@/stores/useCodexStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 
 const cardClass =
-  'rounded-lg border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
+  'rounded-lg border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 
@@ -113,7 +113,7 @@ function formatTimestamp(value?: string | null): string {
 
 function NotificationEmptyState({ message }: { message: string }) {
   return (
-    <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm text-slate-400 dark:border-slate-800">
+    <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
       {message}
     </div>
   )
