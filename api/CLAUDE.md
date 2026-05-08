@@ -74,3 +74,37 @@ reference `FieldName.FOO` everywhere you read/write that payload key.
 - `api/services/agent_heartbeat.py` — shared heartbeat (Redis + Postgres)
 - `api/services/safe_writer.py` — idempotent DB writes
 - `api/observability.py` — `log_structured()` only, no `logger.*`
+
+## Learning Endpoints — DB-Down State (InMemoryStore)
+
+`/learning/*` endpoints operate in two modes controlled by `is_db_available()`.
+
+### DB up
+Queries hit PostgreSQL: `trade_evaluations`, `reflections`, `strategies`.
+If `trade_evaluations` is empty (migration ran, no `STREAM_TRADE_COMPLETED`
+events yet), `agent_grades` is bridged into the same response shape via
+`_db_grades_as_trades(session, text, limit, offset)`.
+
+### DB down — InMemoryStore IS the state
+`InMemoryStore` is the authoritative store, not a degraded fallback.
+Agents write to it continuously while the DB is unavailable:
+
+| Agent | Writes to InMemoryStore |
+|-------|------------------------|
+| GradeAgent | `store.add_grade(payload)` → `grade_history` |
+| LearningPipeline | `store.add_trade_evaluation(payload)` → `trade_evaluations` |
+| ReflectionAgent | `store.add_reflection(payload)` → `reflections` |
+| StrategyProposer | `store.add_strategy(payload)` → `strategies` |
+
+If `trade_evaluations` is empty in memory mode (GradeAgent ran but no
+`STREAM_TRADE_COMPLETED` events processed yet), `grade_history` is bridged
+via `_mem_grades_as_trades(store, limit, offset)` so the UI shows real data.
+
+### Response `mode` field
+Every `/learning/*` response includes `"mode": "db"` or `"mode": "memory"`.
+The UI uses this to surface a banner when running in DB-down mode.
+
+### Rules
+- Never call `_mem_grades_as_trades` from the DB-up path — it reads InMemoryStore.
+- Never call `_db_grades_as_trades` from the DB-down path — it executes SQL.
+- Both helpers return `(list[dict], int)` — same shape, swappable.
