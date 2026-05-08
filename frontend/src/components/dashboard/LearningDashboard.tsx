@@ -419,7 +419,7 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
     {
       label: 'Max Drawdown',
       value: fmtPct(metrics.max_drawdown * 100, 1),
-      color: 'text-rose-400',
+      color: 'text-rose-600 dark:text-rose-400',
     },
     {
       label: 'Avg Score',
