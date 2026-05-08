@@ -82,7 +82,7 @@ def _grade_from_score(score: float) -> str:
 def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) -> dict[str, Any]:
     """Convert a raw grade score into the trade_evaluation response shape."""
     return {
-        "id": "",
+        "id": trade_id,
         FieldName.TRADE_EVAL_ID: trade_id,
         FieldName.SYMBOL: None,
         FieldName.SIDE: None,
@@ -98,7 +98,7 @@ def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) 
         FieldName.CONFIDENCE: None,
         FieldName.MISTAKES: [],
         FieldName.STRENGTHS: [],
-        "created_at": _iso(created_at),
+        FieldName.CREATED_AT: _iso(created_at),
     }
 
 
@@ -115,9 +115,9 @@ def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dic
     page = all_grades[offset : offset + limit]
     trades = [
         _grade_record_to_trade(
-            score=float(g.get("score") or g.get("score_pct", 0) / 100),
-            trade_id=str(g.get("trace_id") or ""),
-            created_at=g.get("timestamp"),
+            score=float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0) / 100),
+            trade_id=str(g.get(FieldName.TRACE_ID) or ""),
+            created_at=g.get(FieldName.TIMESTAMP),
         )
         for g in page
     ]
@@ -242,7 +242,7 @@ async def list_trade_evaluations(
                     FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
                     FieldName.MISTAKES: _as_list(r[14]),
                     FieldName.STRENGTHS: _as_list(r[15]),
-                    "created_at": _iso(r[16]),
+                    FieldName.CREATED_AT: _iso(r[16]),
                 }
                 for r in rows.all()
             ]
@@ -307,7 +307,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                     FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
                     FieldName.MISTAKES: _as_list(r[14]),
                     FieldName.STRENGTHS: _as_list(r[15]),
-                    "created_at": _iso(r[16]),
+                    FieldName.CREATED_AT: _iso(r[16]),
                 },
                 "mode": "db",
             }
@@ -339,7 +339,11 @@ async def get_learning_metrics() -> dict[str, Any]:
             grade_evals, _ = _mem_grades_as_trades(store, 200, 0)
             evaluations = grade_evals
         metrics = compute_learning_metrics(evaluations)
-        return {**metrics, "mode": mode, "timestamp": datetime.now(timezone.utc).isoformat()}
+        return {
+            **metrics,
+            "mode": mode,
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        }
 
     try:
         from sqlalchemy import text
@@ -394,7 +398,11 @@ async def get_learning_metrics() -> dict[str, Any]:
                 ]
 
         metrics = compute_learning_metrics(evaluations)
-        return {**metrics, "mode": mode, "timestamp": datetime.now(timezone.utc).isoformat()}
+        return {
+            **metrics,
+            "mode": mode,
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        }
     except Exception:
         log_structured("error", "learning_metrics_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
@@ -449,7 +457,7 @@ async def list_reflections(
                     FieldName.WIN_RATE: float(r[5]) if r[5] is not None else None,
                     FieldName.AVG_RETURN: float(r[6]) if r[6] is not None else None,
                     FieldName.CONFIDENCE: float(r[7]) if r[7] is not None else None,
-                    "created_at": _iso(r[8]),
+                    FieldName.CREATED_AT: _iso(r[8]),
                 }
                 for r in rows.all()
             ]
@@ -502,11 +510,11 @@ async def list_strategies(
                 {
                     "id": str(r[0]),
                     FieldName.RULES: _as_dict(r[1]),
-                    "description": r[2],
+                    FieldName.DESCRIPTION: r[2],
                     FieldName.EXPECTED_IMPROVEMENT: float(r[3]) if r[3] is not None else None,
                     FieldName.STATUS: r[4],
                     FieldName.REFLECTION_ID: r[5],
-                    "created_at": _iso(r[6]),
+                    FieldName.CREATED_AT: _iso(r[6]),
                 }
                 for r in rows.all()
             ]
@@ -532,29 +540,31 @@ async def get_pipeline_status() -> dict[str, Any]:
         scoring_source = store.trade_evaluations or store.grade_history
         return {
             "mode": mode,
-            "timestamp": now,
+            FieldName.TIMESTAMP: now,
             "stages": {
                 "scoring": {
-                    "status": "active" if scoring_source else "idle",
+                    FieldName.STATUS: "active" if scoring_source else "idle",
                     "jobs_processed": len(scoring_source),
                     "last_run": _iso(
-                        scoring_source[-1].get("created_at") if scoring_source else None
+                        scoring_source[-1].get(FieldName.CREATED_AT) if scoring_source else None
                     ),
                     "error_count": 0,
                 },
                 "reflection": {
-                    "status": "active" if store.reflections else "idle",
+                    FieldName.STATUS: "active" if store.reflections else "idle",
                     "jobs_processed": len(store.reflections),
                     "last_run": _iso(
-                        store.reflections[-1].get("created_at") if store.reflections else None
+                        store.reflections[-1].get(FieldName.CREATED_AT)
+                        if store.reflections
+                        else None
                     ),
                     "error_count": 0,
                 },
                 "strategy_proposer": {
-                    "status": "active" if store.strategies else "idle",
+                    FieldName.STATUS: "active" if store.strategies else "idle",
                     "jobs_processed": len(store.strategies),
                     "last_run": _iso(
-                        store.strategies[-1].get("created_at") if store.strategies else None
+                        store.strategies[-1].get(FieldName.CREATED_AT) if store.strategies else None
                     ),
                     "error_count": 0,
                 },
@@ -602,22 +612,22 @@ async def get_pipeline_status() -> dict[str, Any]:
 
         return {
             "mode": mode,
-            "timestamp": now,
+            FieldName.TIMESTAMP: now,
             "stages": {
                 "scoring": {
-                    "status": "active" if eval_count else "idle",
+                    FieldName.STATUS: "active" if eval_count else "idle",
                     "jobs_processed": int(eval_count or 0),
                     "last_run": _iso(eval_last),
                     "error_count": 0,
                 },
                 "reflection": {
-                    "status": "active" if ref_count else "idle",
+                    FieldName.STATUS: "active" if ref_count else "idle",
                     "jobs_processed": int(ref_count or 0),
                     "last_run": _iso(ref_last),
                     "error_count": 0,
                 },
                 "strategy_proposer": {
-                    "status": "active" if strat_count else "idle",
+                    FieldName.STATUS: "active" if strat_count else "idle",
                     "jobs_processed": int(strat_count or 0),
                     "last_run": _iso(strat_last),
                     "error_count": 0,
