@@ -1,29 +1,26 @@
-import { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
-export function MetricCard({
-  label,
-  value,
-  hint,
-  icon,
-  isDark,
-}: {
+import { MetricTile } from '@/components/terminal'
+
+interface MetricCardProps {
   label: string
   value: string
-  hint?: string
-  icon: ReactNode
-  isDark: boolean
-}) {
-  const card = isDark ? 'border-slate-800 bg-slate-900 text-slate-100' : 'border-slate-200 bg-white text-slate-900'
-  const muted = isDark ? 'text-slate-400' : 'text-slate-500'
+  hint?: ReactNode
+  icon?: ReactNode
+}
 
-  return (
-    <div className={`rounded-xl border p-4 sm:p-5 transition-colors ${card}`}>
-      <div className={`mb-2 flex items-center justify-between ${muted}`}>
-        <span className="text-xs font-sans font-semibold uppercase tracking-wider">{label}</span>
-        {icon}
-      </div>
-      <div className="text-2xl font-black font-mono tabular-nums">{value}</div>
-      {hint ? <p className={`mt-1 text-xs font-sans ${muted}`}>{hint}</p> : null}
-    </div>
-  )
+/**
+ * Backwards-compatible wrapper around the shared MetricTile primitive.
+ * The legacy `isDark` prop is no longer needed — Tailwind's `dark:` variants
+ * handle theming, and lib/constants/ui already encodes the operator-grade
+ * typography. Renders any pre-built icon node by wrapping it in a tiny adapter
+ * so MetricTile's `icon` prop (which expects a component, not an element)
+ * stays the canonical contract.
+ */
+export function MetricCard({ label, value, hint, icon }: MetricCardProps) {
+  const IconAdapter: ComponentType<{ className?: string }> | undefined = icon
+    ? ({ className }: { className?: string }) => <span className={className}>{icon}</span>
+    : undefined
+
+  return <MetricTile label={label} value={value} hint={hint} icon={IconAdapter} />
 }
