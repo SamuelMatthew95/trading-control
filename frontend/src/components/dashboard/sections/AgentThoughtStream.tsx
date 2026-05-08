@@ -3,7 +3,7 @@
 import { TerminalCard, SectionHeader, EmptyState, StateIndicator } from '@/components/terminal'
 import { cn } from '@/lib/utils'
 import { TONE_CLASSES, toneForRatio } from '@/lib/state'
-import { toFiniteNumber } from '@/lib/format'
+import { toFiniteNumber, formatTimeAgo, parseTimestamp } from '@/lib/format'
 import { UI_TEXT } from '@/lib/constants/ui'
 import { AGENT_LOG_MAX_ROWS } from '@/lib/constants/trading'
 import {
@@ -29,12 +29,14 @@ const FALLBACK_LABELS: Record<string, string> = {
   use_last_reflection: 'Rule-based fallback: reused last reflection',
 }
 
+const FALLBACK_VALUES = new Set(Object.values(FALLBACK_LABELS))
+
+// ── Pure helpers ──────────────────────────────────────────────────────────
+
 /**
- * Translate `fallback:<mode>` markers WHEREVER they appear in the message.
- * The reasoning agent emits both bare markers ("fallback:skip_reasoning")
- * and embedded forms ("HOLD (30%) — fallback:skip_reasoning"). The previous
- * implementation only handled the prefix form, so embedded markers leaked
- * raw to the UI.
+ * Translate `fallback:<mode>` markers anywhere in the message. The reasoning
+ * agent emits both bare ("fallback:skip_reasoning") and embedded
+ * ("HOLD (30%) — fallback:skip_reasoning") forms.
  */
 function formatAgentMessage(raw: unknown): string {
   if (raw == null || raw === '') return ''
@@ -57,42 +59,104 @@ function readLogMessage(log: AgentLog): string {
   return formatAgentMessage(log?.message ?? log?.summary ?? log?.primary_edge)
 }
 
-function buildConfidenceText(confidence: number | null): string {
-  if (confidence == null) return '—'
-  return (confidence * 100).toFixed(0)
+function readTimestamp(log: AgentLog): Date | null {
+  return parseTimestamp(log?.timestamp ?? log?.created_at)
 }
 
-function buildLogKey(log: AgentLog, agentLabel: string, index: number): string {
-  if (log?.id != null) return String(log.id)
-  return `${agentLabel}-${log?.timestamp ?? ''}-${index}`
+function isFallbackMessage(message: string): boolean {
+  return FALLBACK_VALUES.has(message) || message.startsWith('LLM unavailable')
+}
+
+// ── Aggregation ───────────────────────────────────────────────────────────
+
+interface ThoughtRow {
+  agent: string
+  message: string
+  /** Latest confidence value seen for this (agent, message) group. */
+  confidence: number | null
+  /** Latest trace_id for this group — used for the trace button. */
+  traceId: string | null
+  /** Latest timestamp seen — used for the time-ago label. */
+  lastSeen: Date | null
+  /** How many duplicate logs collapsed into this row. */
+  count: number
+}
+
+interface ThoughtStreamView {
+  rows: ThoughtRow[]
+  fallbackCount: number
 }
 
 /**
- * Drop logs that carry no real signal:
- *   - missing/blank agent_name (renders as "N/A")
- *   - empty message after fallback translation
- * And dedupe per (trace_id, message) so the reasoning agent's parallel
- * "decision" + "summary" writes for the same trace don't both render.
- * Keeps the FIRST occurrence (newest, since we reverse before this runs).
+ * Collapse incoming agent logs into distinct (agent, message) thoughts.
+ *
+ * The reasoning agent often emits identical "Rule-based fallback decision"
+ * lines for every signal when the LLM is unavailable. Showing five copies
+ * of the same string is noise — collapse to one row with a `×N` badge so
+ * the operator can see *that* fallbacks are happening *and how many* in
+ * one glance.
+ *
+ * Returns the deduped rows plus a separate fallbackCount so the UI can
+ * surface a single banner instead of repeating the same fallback message.
  */
-function visibleLogs(logs: AgentLog[]): AgentLog[] {
-  const recent = logs.slice(-AGENT_LOG_MAX_ROWS * 2).slice().reverse()
-  const seen = new Set<string>()
-  const out: AgentLog[] = []
+function buildThoughtView(logs: AgentLog[]): ThoughtStreamView {
+  const recent = logs.slice(-AGENT_LOG_MAX_ROWS * 4).slice().reverse()
+  const groups = new Map<string, ThoughtRow>()
+  let fallbackCount = 0
+
   for (const log of recent) {
-    const agentName = readAgentName(log)
-    if (!agentName) continue
+    const agent = readAgentName(log)
+    if (!agent) continue
     const message = readLogMessage(log)
     if (!message) continue
-    const traceId = readTraceId(log) ?? ''
-    const dedupeKey = `${traceId}|${message}`
-    if (seen.has(dedupeKey)) continue
-    seen.add(dedupeKey)
-    out.push(log)
-    if (out.length >= AGENT_LOG_MAX_ROWS) break
+    if (isFallbackMessage(message)) {
+      fallbackCount += 1
+      continue
+    }
+
+    const key = `${agent}|${message}`
+    const existing = groups.get(key)
+    const confidence = toFiniteNumber(log?.confidence)
+    const traceId = readTraceId(log)
+    const ts = readTimestamp(log)
+
+    if (!existing) {
+      groups.set(key, {
+        agent,
+        message,
+        confidence,
+        traceId,
+        lastSeen: ts,
+        count: 1,
+      })
+      continue
+    }
+    existing.count += 1
+    // Keep the most recent confidence/trace/timestamp seen for this thought.
+    if (ts && (!existing.lastSeen || ts > existing.lastSeen)) {
+      existing.lastSeen = ts
+      existing.confidence = confidence ?? existing.confidence
+      existing.traceId = traceId ?? existing.traceId
+    }
   }
-  return out
+
+  const rows = Array.from(groups.values())
+    .sort((a, b) => {
+      const aTs = a.lastSeen?.getTime() ?? 0
+      const bTs = b.lastSeen?.getTime() ?? 0
+      return bTs - aTs
+    })
+    .slice(0, AGENT_LOG_MAX_ROWS)
+
+  return { rows, fallbackCount }
 }
+
+function buildConfidenceText(confidence: number | null): string {
+  if (confidence == null) return '—'
+  return `${(confidence * 100).toFixed(0)}%`
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────
 
 function TraceLinkButton(props: { traceId: string; onTraceClick: (id: string) => void }) {
   const { traceId, onTraceClick } = props
@@ -104,53 +168,84 @@ function TraceLinkButton(props: { traceId: string; onTraceClick: (id: string) =>
   )
 }
 
-interface AgentLogRowProps {
-  log: AgentLog
-  index: number
+const LOG_ROW_HEADER = cn('mb-1', ROW_WRAP)
+const REPEAT_BADGE = cn(SCORE_CHIP, 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300')
+
+interface ThoughtRowViewProps {
+  row: ThoughtRow
   onTraceClick: (traceId: string) => void
 }
 
-const LOG_ROW_HEADER = cn('mb-1', ROW_WRAP)
-
-function AgentLogRow(props: AgentLogRowProps) {
-  const { log, index, onTraceClick } = props
-  const confidence = toFiniteNumber(log?.confidence)
-  const tone = toneForRatio(confidence)
-  const agentLabel = readAgentName(log)
-  const traceId = readTraceId(log)
+function ThoughtRowView(props: ThoughtRowViewProps) {
+  const { row, onTraceClick } = props
+  const tone = toneForRatio(row.confidence)
   return (
-    <div key={buildLogKey(log, agentLabel, index)} className={cn(ROW_DIVIDER_SKIP_FIRST, 'py-2')}>
+    <div className={cn(ROW_DIVIDER_SKIP_FIRST, 'py-2')}>
       <div className={LOG_ROW_HEADER}>
-        <p className={ROW_TITLE_BOLD}>{agentLabel}</p>
+        <p className={ROW_TITLE_BOLD}>{row.agent}</p>
         <span className={cn(SCORE_CHIP, TONE_CLASSES[tone].soft)}>
-          {buildConfidenceText(confidence)}%
+          {buildConfidenceText(row.confidence)}
         </span>
-        {traceId ? <TraceLinkButton traceId={traceId} onTraceClick={onTraceClick} /> : null}
+        {row.count > 1 ? <span className={REPEAT_BADGE}>×{row.count}</span> : null}
+        {row.lastSeen ? (
+          <span className={UI_TEXT.muted}>{formatTimeAgo(row.lastSeen)}</span>
+        ) : null}
+        {row.traceId ? (
+          <TraceLinkButton traceId={row.traceId} onTraceClick={onTraceClick} />
+        ) : null}
       </div>
-      <p className={cn(UI_TEXT.body, 'leading-relaxed')}>{readLogMessage(log)}</p>
+      <p className={cn(UI_TEXT.body, 'leading-relaxed')}>{row.message}</p>
     </div>
   )
 }
 
+interface FallbackBannerProps {
+  count: number
+}
+
+function FallbackBanner(props: FallbackBannerProps) {
+  if (props.count === 0) return null
+  const label =
+    props.count === 1
+      ? '1 rule-based decision (LLM unavailable)'
+      : `${props.count} rule-based decisions (LLM unavailable)`
+  return (
+    <div
+      className={cn(
+        ROW_DIVIDER_SKIP_FIRST,
+        'flex items-center gap-2 py-2 text-sm',
+        TONE_CLASSES.warn.text,
+      )}
+    >
+      <span className={cn('h-2 w-2 rounded-full', TONE_CLASSES.warn.bg)} aria-hidden />
+      {label}
+    </div>
+  )
+}
+
+// ── Top-level ─────────────────────────────────────────────────────────────
+
 export function AgentThoughtStream(props: AgentThoughtStreamProps) {
   const { logs, onTraceClick } = props
-  const rows = visibleLogs(logs)
+  const view = buildThoughtView(logs)
+  const isEmpty = view.rows.length === 0 && view.fallbackCount === 0
+
   return (
     <TerminalCard>
       <SectionHeader
         title="Agent Thought Stream"
         right={<StateIndicator tone="pos" label="Live" pulse />}
       />
-      {rows.length === 0 ? (
+      {isEmpty ? (
         <EmptyState message="No active agents" />
       ) : (
         <div className={SCROLL_LIST_AGENT_LOG}>
           <div className={STACK_TIGHT}>
-            {rows.map((log, index) => (
-              <AgentLogRow
-                key={buildLogKey(log, readAgentName(log), index)}
-                log={log}
-                index={index}
+            <FallbackBanner count={view.fallbackCount} />
+            {view.rows.map((row) => (
+              <ThoughtRowView
+                key={`${row.agent}|${row.message}`}
+                row={row}
                 onTraceClick={onTraceClick}
               />
             ))}

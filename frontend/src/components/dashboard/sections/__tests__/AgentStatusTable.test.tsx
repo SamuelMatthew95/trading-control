@@ -16,38 +16,49 @@ function makeAgent(overrides: Partial<AgentSummary>): AgentSummary {
   }
 }
 
-describe('AgentStatusTable', () => {
-  it('shows em-dash when both rt and db counts are zero', () => {
+describe('AgentStatusTable — events column', () => {
+  it('shows "no events" when both rt and db counts are zero', () => {
     render(
       <AgentStatusTable
         agents={[makeAgent({ realtimeCount: 0, persistedCount: 0 })]}
         showEmpty={false}
       />,
     )
-    // Both the events column and the last-seen column collapse to "—"
-    // when there's no signal at all; assert at least one is present and
-    // the noisy `rt:0 · db:0` form is gone.
-    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
-    expect(screen.queryByText('rt:0 · db:0')).not.toBeInTheDocument()
+    expect(screen.getByText('no events')).toBeInTheDocument()
+    // Old jargon must not return.
+    expect(screen.queryByText(/rt:\d/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/db:\d/)).not.toBeInTheDocument()
   })
 
-  it('shows the rt:X · db:Y format when at least one count is non-zero', () => {
+  it('shows "1 event" for a singular count', () => {
     render(
       <AgentStatusTable
-        agents={[makeAgent({ realtimeCount: 5, persistedCount: 3 })]}
+        agents={[makeAgent({ realtimeCount: 1, persistedCount: 0 })]}
         showEmpty={false}
       />,
     )
-    expect(screen.getByText('rt:5 · db:3')).toBeInTheDocument()
+    expect(screen.getByText('1 event')).toBeInTheDocument()
   })
 
-  it('shows the rt:X · db:0 format when only realtime is non-zero', () => {
+  it('uses the LARGER of rt/db (avoids double-counting overlapping streams)', () => {
     render(
       <AgentStatusTable
-        agents={[makeAgent({ realtimeCount: 5, persistedCount: 0 })]}
+        agents={[makeAgent({ realtimeCount: 24624, persistedCount: 24612 })]}
         showEmpty={false}
       />,
     )
-    expect(screen.getByText('rt:5 · db:0')).toBeInTheDocument()
+    expect(screen.getByText('24,624 events')).toBeInTheDocument()
+    // It must not be the sum.
+    expect(screen.queryByText('49,236 events')).not.toBeInTheDocument()
+  })
+
+  it('formats large counts with thousand separators', () => {
+    render(
+      <AgentStatusTable
+        agents={[makeAgent({ realtimeCount: 1234, persistedCount: 0 })]}
+        showEmpty={false}
+      />,
+    )
+    expect(screen.getByText('1,234 events')).toBeInTheDocument()
   })
 })

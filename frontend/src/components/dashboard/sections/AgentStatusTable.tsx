@@ -28,13 +28,19 @@ interface AgentStatusTableProps {
 }
 
 /**
- * Collapse the noise case of `rt:0 · db:0` (an agent that has registered
- * a heartbeat but never produced an event) to a single em-dash so the
- * table reads "no events" at a glance instead of "two zeros".
+ * Plain-English event count.
+ *
+ * `realtimeCount` (heartbeats / WebSocket) and `persistedCount` (agent_instances
+ * table) are two views of the same event stream, so the truthful "how many
+ * events has this agent processed" number is the larger of the two. The old
+ * `rt:X · db:Y` jargon was confusing and double-counted active agents like
+ * Signal Agent (`rt:24624 · db:24612`) where the two columns are nearly equal.
  */
 function eventCountText(agent: AgentSummary): string {
-  if (agent.realtimeCount === 0 && agent.persistedCount === 0) return '—'
-  return `rt:${agent.realtimeCount} · db:${agent.persistedCount}`
+  const total = Math.max(agent.realtimeCount, agent.persistedCount)
+  if (total === 0) return 'no events'
+  if (total === 1) return '1 event'
+  return `${total.toLocaleString('en-US')} events`
 }
 
 function lastSeenText(agent: AgentSummary): string {

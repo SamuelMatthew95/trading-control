@@ -25,13 +25,21 @@ function lastSeenLabel(lastSeen: Date | null): string {
   return formatTimeAgo(lastSeen)
 }
 
+/**
+ * realtimeCount and persistedCount are two views of the same event stream
+ * (heartbeats vs the agent_instances table). Use the larger of the two so
+ * we don't double-count agents like Signal Agent that report nearly equal
+ * numbers from both sources.
+ */
 function totalEvents(agent: AgentSummary): number {
-  return agent.realtimeCount + agent.persistedCount
+  return Math.max(agent.realtimeCount, agent.persistedCount)
 }
 
 function eventsLabel(agent: AgentSummary): string {
   const total = totalEvents(agent)
-  return total === 0 ? 'no events' : `${total} events`
+  if (total === 0) return 'no events'
+  if (total === 1) return '1 event'
+  return `${total.toLocaleString('en-US')} events`
 }
 
 function AgentMatrixTile(props: { agent: AgentSummary }) {
