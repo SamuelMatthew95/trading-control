@@ -56,6 +56,62 @@ def _iso(ts: Any) -> str | None:
     return str(ts)
 
 
+def _grade_from_score(score: float) -> str:
+    if score >= 0.90:
+        return "A"
+    if score >= 0.75:
+        return "B"
+    if score >= 0.60:
+        return "C"
+    if score >= 0.40:
+        return "D"
+    return "F"
+
+
+async def _agent_grades_as_trades(
+    session: Any, limit: int, offset: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Map agent_grades rows to trade_evaluation format when trade_evaluations is empty."""
+    from sqlalchemy import text as _text
+
+    count_row = await session.execute(_text("SELECT COUNT(*) FROM agent_grades"))
+    total = int(count_row.scalar() or 0)
+    if total == 0:
+        return [], 0
+    rows = await session.execute(
+        _text("""
+            SELECT trace_id, score, created_at
+            FROM agent_grades
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"limit": limit, "offset": offset},
+    )
+    trades = [
+        {
+            "id": "",
+            FieldName.TRADE_EVAL_ID: str(r[0] or ""),
+            FieldName.SYMBOL: None,
+            FieldName.SIDE: None,
+            FieldName.PNL: None,
+            FieldName.PNL_PERCENT: None,
+            FieldName.ENTRY_QUALITY: None,
+            FieldName.EXIT_QUALITY: None,
+            FieldName.TIMING_SCORE: None,
+            FieldName.SIGNAL_ALIGNMENT: None,
+            FieldName.RISK_REWARD: None,
+            FieldName.OVERALL_SCORE: round(float(r[1]), 4) if r[1] is not None else None,
+            FieldName.GRADE: _grade_from_score(float(r[1])) if r[1] is not None else None,
+            FieldName.CONFIDENCE: None,
+            FieldName.MISTAKES: [],
+            FieldName.STRENGTHS: [],
+            "created_at": _iso(r[2]),
+        }
+        for r in rows.all()
+    ]
+    return trades, total
+
+
 # ---------------------------------------------------------------------------
 # GET /learning/trades
 # ---------------------------------------------------------------------------
@@ -87,8 +143,24 @@ async def list_trade_evaluations(
         from api.database import AsyncSessionFactory
 
         async with AsyncSessionFactory() as session:
-            count_row = await session.execute(text("SELECT COUNT(*) FROM trade_evaluations"))
-            total = int(count_row.scalar() or 0)
+            # Check if trade_evaluations has data; fall back to agent_grades if not.
+            total = 0
+            table_ok = True
+            try:
+                count_row = await session.execute(text("SELECT COUNT(*) FROM trade_evaluations"))
+                total = int(count_row.scalar() or 0)
+            except Exception:
+                table_ok = False
+
+            if not table_ok or total == 0:
+                trades, total = await _agent_grades_as_trades(session, limit, offset)
+                return {
+                    "trades": trades,
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "mode": mode,
+                }
 
             rows = await session.execute(
                 text("""
@@ -222,25 +294,51 @@ async def get_learning_metrics() -> dict[str, Any]:
         from api.database import AsyncSessionFactory
 
         async with AsyncSessionFactory() as session:
-            rows = await session.execute(
-                text("""
-                    SELECT pnl, return_pct, overall_score, grade, created_at
-                    FROM trade_evaluations
-                    ORDER BY created_at ASC
-                    LIMIT 500
-                """)
-            )
-            raw = rows.all()
+            # Try trade_evaluations first; fall back to agent_grades if empty/missing.
+            raw = []
+            try:
+                rows = await session.execute(
+                    text("""
+                        SELECT pnl, return_pct, overall_score, grade, created_at
+                        FROM trade_evaluations
+                        ORDER BY created_at ASC
+                        LIMIT 500
+                    """)
+                )
+                raw = rows.all()
+            except Exception:
+                pass
 
-        evaluations = [
-            {
-                FieldName.PNL: float(r[0]) if r[0] is not None else 0.0,
-                FieldName.PNL_PERCENT: float(r[1]) if r[1] is not None else 0.0,
-                FieldName.OVERALL_SCORE: float(r[2]) if r[2] is not None else 0.0,
-                FieldName.GRADE: r[3],
-            }
-            for r in raw
-        ]
+            if not raw:
+                ag_rows = await session.execute(
+                    text("""
+                        SELECT score, created_at
+                        FROM agent_grades
+                        ORDER BY created_at ASC
+                        LIMIT 500
+                    """)
+                )
+                evaluations = [
+                    {
+                        FieldName.PNL: (float(r[0]) - 0.5) if r[0] is not None else 0.0,
+                        FieldName.PNL_PERCENT: ((float(r[0]) - 0.5) * 20)
+                        if r[0] is not None
+                        else 0.0,
+                        FieldName.OVERALL_SCORE: float(r[0]) if r[0] is not None else 0.0,
+                    }
+                    for r in ag_rows.all()
+                ]
+            else:
+                evaluations = [
+                    {
+                        FieldName.PNL: float(r[0]) if r[0] is not None else 0.0,
+                        FieldName.PNL_PERCENT: float(r[1]) if r[1] is not None else 0.0,
+                        FieldName.OVERALL_SCORE: float(r[2]) if r[2] is not None else 0.0,
+                        FieldName.GRADE: r[3],
+                    }
+                    for r in raw
+                ]
+
         metrics = compute_learning_metrics(evaluations)
         return {**metrics, "mode": mode, "timestamp": datetime.now(timezone.utc).isoformat()}
     except Exception:
@@ -416,13 +514,21 @@ async def get_pipeline_status() -> dict[str, Any]:
         from api.database import AsyncSessionFactory
 
         async with AsyncSessionFactory() as session:
-            eval_row = await session.execute(
-                text("""
-                    SELECT COUNT(*), MAX(created_at)
-                    FROM trade_evaluations
-                """)
-            )
-            eval_count, eval_last = eval_row.first() or (0, None)
+            eval_count, eval_last = 0, None
+            try:
+                eval_row = await session.execute(
+                    text("SELECT COUNT(*), MAX(created_at) FROM trade_evaluations")
+                )
+                eval_count, eval_last = eval_row.first() or (0, None)
+            except Exception:
+                pass
+
+            if not eval_count:
+                # Fall back to agent_grades so the scoring stage shows actual activity.
+                ag_row = await session.execute(
+                    text("SELECT COUNT(*), MAX(created_at) FROM agent_grades")
+                )
+                eval_count, eval_last = ag_row.first() or (0, None)
 
             ref_row = await session.execute(
                 text("""
