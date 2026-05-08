@@ -4,6 +4,7 @@ When the trade feed is empty (no executed trades in DB), the response must inclu
 an ``upstream_activity`` dict showing pipeline context: signal/decision stream lengths
 and the execution engine's last known heartbeat status.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,10 +18,7 @@ from api.constants import (
     STREAM_SIGNALS,
     FieldName,
 )
-from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
-from api.runtime_state import set_db_available, set_runtime_store
-
 
 # ---------------------------------------------------------------------------
 # Session / DB helpers (mirrors patterns from test_dashboard_v2_resilience.py)

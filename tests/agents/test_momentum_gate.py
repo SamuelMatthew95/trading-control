@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.constants import AGENT_EXECUTION, EXECUTION_DECISION_THRESHOLD
+from api.constants import EXECUTION_DECISION_THRESHOLD
 from api.services.execution.execution_engine import ExecutionEngine
 
 pytestmark = pytest.mark.asyncio
