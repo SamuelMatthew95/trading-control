@@ -113,23 +113,23 @@ const REFRESH_MS = 15_000
 
 const gradeColor = (grade: string | null): string => {
   switch (grade) {
-    case 'A': return 'text-emerald-500'
-    case 'B': return 'text-green-400'
-    case 'C': return 'text-amber-500'
-    case 'D': return 'text-orange-500'
-    case 'F': return 'text-rose-500'
-    default: return 'text-slate-400'
+    case 'A': return 'text-emerald-600 dark:text-emerald-500'
+    case 'B': return 'text-green-600 dark:text-green-400'
+    case 'C': return 'text-amber-600 dark:text-amber-500'
+    case 'D': return 'text-orange-600 dark:text-orange-500'
+    case 'F': return 'text-rose-600 dark:text-rose-500'
+    default: return 'text-slate-500 dark:text-slate-400'
   }
 }
 
 const gradeBg = (grade: string | null): string => {
   switch (grade) {
-    case 'A': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-    case 'B': return 'bg-green-500/10 text-green-400 border-green-500/30'
-    case 'C': return 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-    case 'D': return 'bg-orange-500/10 text-orange-400 border-orange-500/30'
-    case 'F': return 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-    default: return 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+    case 'A': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
+    case 'B': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30'
+    case 'C': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
+    case 'D': return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/30'
+    case 'F': return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30'
+    default: return 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-500/10 dark:text-slate-400 dark:border-slate-500/30'
   }
 }
 
@@ -166,11 +166,11 @@ const trendIcon = (trend: string): string => {
 const trendColor = (trend: string): string => {
   if (trend === 'improving') return 'text-emerald-500'
   if (trend === 'declining') return 'text-rose-500'
-  return 'text-slate-400'
+  return 'text-slate-500 dark:text-slate-400'
 }
 
 const stageColor = (status: string): string =>
-  status === 'active' ? 'text-emerald-500' : status === 'failed' ? 'text-rose-500' : 'text-slate-400'
+  status === 'active' ? 'text-emerald-600 dark:text-emerald-500' : status === 'failed' ? 'text-rose-600 dark:text-rose-500' : 'text-slate-500 dark:text-slate-400'
 
 // ScoreBar — a horizontal bar showing a [0,1] score
 function ScoreBar({ value, color }: { value: number | null; color?: string }) {
@@ -189,13 +189,13 @@ function ScoreBar({ value, color }: { value: number | null; color?: string }) {
 // Panel wrapper
 function Panel({ title, children, badge }: { title: string; children: React.ReactNode; badge?: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <div className="rounded-xl border border-slate-300 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-3 flex items-center gap-2">
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
           {title}
         </p>
         {badge && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
+          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-mono text-slate-600 dark:bg-slate-800 dark:text-slate-500">
             {badge}
           </span>
         )}
@@ -208,7 +208,7 @@ function Panel({ title, children, badge }: { title: string; children: React.Reac
 function ModeBanner({ mode }: { mode: string }) {
   if (mode === 'db') return null
   return (
-    <div className="mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400">
+    <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400">
       Running in memory mode — data is transient and will reset on restart
     </div>
   )
@@ -239,13 +239,13 @@ function TradeDetailModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+        className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <p className="text-lg font-bold text-slate-100">
-              {trade.symbol ?? '--'} <span className="text-slate-400">{trade.side?.toUpperCase()}</span>
+            <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              {trade.symbol ?? '--'} <span className="text-slate-500 dark:text-slate-400">{trade.side?.toUpperCase()}</span>
             </p>
             <p className="text-xs text-slate-500">{fmtTime(trade.created_at)}</p>
           </div>
@@ -253,20 +253,20 @@ function TradeDetailModal({
             <span className={`text-3xl font-black font-mono ${gradeColor(trade.grade)}`}>
               {trade.grade ?? '--'}
             </span>
-            <p className="text-xs font-mono text-slate-400">{fmtScore(trade.overall_score)}</p>
+            <p className="text-xs font-mono text-slate-500 dark:text-slate-400">{fmtScore(trade.overall_score)}</p>
           </div>
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-3 text-xs font-mono">
           <div>
             <p className="text-slate-500">P&L</p>
-            <p className={`font-bold ${(trade.pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <p className={`font-bold ${(trade.pnl ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
               {fmtUSD(trade.pnl)}
             </p>
           </div>
           <div>
             <p className="text-slate-500">Return</p>
-            <p className={`font-bold ${(trade.pnl_percent ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <p className={`font-bold ${(trade.pnl_percent ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
               {fmtPct(trade.pnl_percent)}
             </p>
           </div>
@@ -276,7 +276,7 @@ function TradeDetailModal({
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Score Breakdown</p>
           {dims.map((d) => (
             <div key={d.key}>
-              <p className="mb-0.5 text-xs text-slate-400">{d.label}</p>
+              <p className="mb-0.5 text-xs text-slate-500 dark:text-slate-400">{d.label}</p>
               <ScoreBar value={trade[d.key] as number | null} />
             </div>
           ))}
@@ -284,10 +284,10 @@ function TradeDetailModal({
 
         {trade.mistakes.length > 0 && (
           <div className="mb-3">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-rose-400">Mistakes</p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">Mistakes</p>
             <div className="flex flex-wrap gap-1">
               {trade.mistakes.map((m) => (
-                <span key={m} className="rounded bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-xs text-rose-400">
+                <span key={m} className="rounded bg-rose-50 border border-rose-200 px-2 py-0.5 text-xs text-rose-700 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-400">
                   {m.replace(/_/g, ' ')}
                 </span>
               ))}
@@ -297,10 +297,10 @@ function TradeDetailModal({
 
         {trade.strengths.length > 0 && (
           <div className="mb-4">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-emerald-400">Strengths</p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Strengths</p>
             <div className="flex flex-wrap gap-1">
               {trade.strengths.map((s) => (
-                <span key={s} className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-xs text-emerald-400">
+                <span key={s} className="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-400">
                   {s.replace(/_/g, ' ')}
                 </span>
               ))}
@@ -310,7 +310,7 @@ function TradeDetailModal({
 
         <button
           onClick={onClose}
-          className="w-full rounded-lg bg-slate-800 py-2 text-sm text-slate-300 hover:bg-slate-700"
+          className="w-full rounded-lg bg-slate-100 py-2 text-sm text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           Close
         </button>
@@ -340,9 +340,9 @@ function TradeTablePanel({
       {trades.length === 0 ? (
         <p className="text-xs text-slate-500">No scored trades yet — evaluations appear once trades close.</p>
       ) : (
-        <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+        <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-300 dark:border-slate-800">
           <table className="w-full text-xs font-mono">
-            <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/90">
+            <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800/90">
               <tr className="text-left text-slate-500">
                 <th className="p-2">Symbol</th>
                 <th className="p-2">Side</th>
@@ -358,7 +358,7 @@ function TradeTablePanel({
               {trades.map((t) => (
                 <tr
                   key={t.id || t.trade_eval_id}
-                  className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                  className="cursor-pointer border-t border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"
                   onClick={() => onSelect(t)}
                 >
                   <td className="p-2 font-semibold">{t.symbol ?? '--'}</td>
@@ -414,7 +414,7 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
     {
       label: 'Sharpe',
       value: metrics.sharpe_ratio?.toFixed(2) ?? '--',
-      color: metrics.sharpe_ratio >= 1 ? 'text-emerald-500' : metrics.sharpe_ratio >= 0 ? 'text-amber-400' : 'text-rose-500',
+      color: metrics.sharpe_ratio >= 1 ? 'text-emerald-500' : metrics.sharpe_ratio >= 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500',
     },
     {
       label: 'Max Drawdown',
@@ -424,12 +424,12 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
     {
       label: 'Avg Score',
       value: fmtScore(metrics.avg_score),
-      color: metrics.avg_score >= 0.6 ? 'text-emerald-500' : 'text-amber-400',
+      color: metrics.avg_score >= 0.6 ? 'text-emerald-500' : 'text-amber-600 dark:text-amber-400',
     },
     {
       label: 'Consistency',
       value: fmtScore(metrics.consistency),
-      color: metrics.consistency >= 0.7 ? 'text-emerald-500' : 'text-amber-400',
+      color: metrics.consistency >= 0.7 ? 'text-emerald-500' : 'text-amber-600 dark:text-amber-400',
     },
   ]
 
@@ -438,13 +438,13 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
       <ModeBanner mode={metrics.mode} />
       <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
         {tiles.map((t) => (
-          <div key={t.label} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+          <div key={t.label} className="rounded-lg border border-slate-300 bg-slate-50 p-2 dark:border-slate-800 dark:bg-transparent">
             <p className="text-xs text-slate-500 dark:text-slate-400">{t.label}</p>
             <p className={`text-sm font-mono font-bold ${t.color}`}>{t.value}</p>
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+      <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
         <span className="text-xs text-slate-500">Score trend:</span>
         <span className={`text-sm font-bold font-mono ${trendColor(metrics.score_trend)}`}>
           {trendIcon(metrics.score_trend)} {metrics.score_trend}
@@ -464,18 +464,18 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
       <ModeBanner mode={mode} />
       {!reflection ? (
         <p className="text-xs text-slate-500">No reflections yet — runs after every {' '}
-          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">N</code> trades.</p>
+          <code className="rounded bg-slate-200 px-1 dark:bg-slate-800">N</code> trades.</p>
       ) : (
         <div className="space-y-3">
           <div className="flex gap-4 text-xs font-mono">
             {reflection.trades_analyzed != null && (
-              <span className="text-slate-400">trades: <b className="text-slate-200">{reflection.trades_analyzed}</b></span>
+              <span className="text-slate-500 dark:text-slate-400">trades: <b className="text-slate-700 dark:text-slate-200">{reflection.trades_analyzed}</b></span>
             )}
             {reflection.win_rate != null && (
-              <span className="text-slate-400">win rate: <b className={reflection.win_rate >= 0.5 ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(reflection.win_rate * 100, 0)}</b></span>
+              <span className="text-slate-500 dark:text-slate-400">win rate: <b className={reflection.win_rate >= 0.5 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>{fmtPct(reflection.win_rate * 100, 0)}</b></span>
             )}
             {reflection.confidence != null && (
-              <span className="text-slate-400">confidence: <b className="text-slate-200">{fmtPct(reflection.confidence * 100, 0)}</b></span>
+              <span className="text-slate-500 dark:text-slate-400">confidence: <b className="text-slate-700 dark:text-slate-200">{fmtPct(reflection.confidence * 100, 0)}</b></span>
             )}
           </div>
 
@@ -484,8 +484,8 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Patterns</p>
               <ul className="space-y-1">
                 {reflection.patterns.slice(0, 5).map((p, i) => (
-                  <li key={i} className="flex gap-2 text-xs text-slate-400">
-                    <span className="text-amber-400 shrink-0">→</span>
+                  <li key={i} className="flex gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <span className="text-amber-600 dark:text-amber-400 shrink-0">→</span>
                     {p}
                   </li>
                 ))}
@@ -499,15 +499,15 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
               <div className="space-y-1.5">
                 {reflection.mistake_clusters.slice(0, 4).map((c, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
-                    <span className="w-32 font-mono text-slate-300">{c.type.replace(/_/g, ' ')}</span>
-                    <div className="h-1.5 flex-1 rounded-full bg-slate-700">
+                    <span className="w-32 font-mono text-slate-600 dark:text-slate-300">{c.type.replace(/_/g, ' ')}</span>
+                    <div className="h-1.5 flex-1 rounded-full bg-slate-200 dark:bg-slate-700">
                       <div
                         className="h-1.5 rounded-full bg-rose-500"
                         style={{ width: `${Math.round(c.frequency * 100)}%` }}
                       />
                     </div>
-                    <span className="w-10 text-right text-slate-400">{fmtPct(c.frequency * 100, 0)}</span>
-                    <span className={`w-16 text-right font-mono ${c.impact < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    <span className="w-10 text-right text-slate-500 dark:text-slate-400">{fmtPct(c.frequency * 100, 0)}</span>
+                    <span className={`w-16 text-right font-mono ${c.impact < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                       {fmtUSD(c.impact)}
                     </span>
                   </div>
@@ -521,8 +521,8 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Recommendations</p>
               <ul className="space-y-1">
                 {reflection.recommendations.slice(0, 3).map((r, i) => (
-                  <li key={i} className="flex gap-2 text-xs text-slate-400">
-                    <span className="text-emerald-400 shrink-0">✓</span>
+                  <li key={i} className="flex gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <span className="text-emerald-600 dark:text-emerald-400 shrink-0">✓</span>
                     {r}
                   </li>
                 ))}
@@ -558,17 +558,17 @@ function StrategyPanel({
           {strategies.slice(0, 5).map((s) => (
             <div
               key={s.id}
-              className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+              className="rounded-lg border border-slate-300 p-3 dark:border-slate-800"
             >
               <div className="mb-1 flex items-start justify-between gap-2">
-                <p className="text-xs text-slate-300 leading-relaxed">{s.description || 'Strategy proposal'}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{s.description || 'Strategy proposal'}</p>
                 <span
                   className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-mono ${
                     s.status === 'approved'
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400'
                       : s.status === 'rejected'
-                        ? 'border-rose-500/30 bg-rose-500/10 text-rose-400'
-                        : 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                        ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400'
+                        : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400'
                   }`}
                 >
                   {s.status ?? 'pending'}
@@ -578,7 +578,7 @@ function StrategyPanel({
                 {s.expected_improvement != null && (
                   <span>
                     expected:{' '}
-                    <b className="text-emerald-400">+{(s.expected_improvement * 100).toFixed(0)}%</b>
+                    <b className="text-emerald-600 dark:text-emerald-400">+{(s.expected_improvement * 100).toFixed(0)}%</b>
                   </span>
                 )}
                 <span>{fmtTime(s.created_at)}</span>
@@ -615,11 +615,11 @@ function PipelineStatusPanel({ status }: { status: PipelineStatus | null }) {
             return (
               <div
                 key={key}
-                className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+                className="rounded-lg border border-slate-300 p-3 dark:border-slate-800"
               >
                 <div className="mb-1 flex items-center gap-1">
                   <span className="text-sm">{icon}</span>
-                  <p className="text-xs font-semibold text-slate-300">{name}</p>
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{name}</p>
                 </div>
                 <p className={`text-xs font-mono font-bold ${stageColor(stage.status)}`}>
                   {stage.status.toUpperCase()}
@@ -676,9 +676,9 @@ function DebugPanel({
         ) : (
           events.map((e, i) => (
             <div key={i} className="flex gap-2 text-xs font-mono">
-              <span className="shrink-0 text-slate-600">{fmtTime(e.at)}</span>
-              <span className="text-amber-400 shrink-0">{e.type}</span>
-              <span className="text-slate-400 truncate">{e.detail}</span>
+              <span className="shrink-0 text-slate-500 dark:text-slate-600">{fmtTime(e.at)}</span>
+              <span className="text-amber-600 dark:text-amber-400 shrink-0">{e.type}</span>
+              <span className="text-slate-500 dark:text-slate-400 truncate">{e.detail}</span>
             </div>
           ))
         )}
@@ -686,7 +686,7 @@ function DebugPanel({
       {pipeline && (
         <div className="mt-2 flex items-center gap-2 text-xs font-mono text-slate-500">
           <span>mode:</span>
-          <span className={pipeline.mode === 'db' ? 'text-emerald-400' : 'text-amber-400'}>
+          <span className={pipeline.mode === 'db' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
             {pipeline.mode}
           </span>
         </div>
