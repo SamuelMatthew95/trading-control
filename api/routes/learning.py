@@ -68,18 +68,55 @@ def _grade_from_score(score: float) -> str:
     return "F"
 
 
-async def _agent_grades_as_trades(
-    session: Any, limit: int, offset: int
-) -> tuple[list[dict[str, Any]], int]:
-    """Map agent_grades rows to trade_evaluation format when trade_evaluations is empty."""
-    from sqlalchemy import text as _text
+def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) -> dict[str, Any]:
+    """Convert a raw grade score into the trade_evaluation response shape."""
+    return {
+        "id": "",
+        FieldName.TRADE_EVAL_ID: trade_id,
+        FieldName.SYMBOL: None,
+        FieldName.SIDE: None,
+        FieldName.PNL: None,
+        FieldName.PNL_PERCENT: None,
+        FieldName.ENTRY_QUALITY: None,
+        FieldName.EXIT_QUALITY: None,
+        FieldName.TIMING_SCORE: None,
+        FieldName.SIGNAL_ALIGNMENT: None,
+        FieldName.RISK_REWARD: None,
+        FieldName.OVERALL_SCORE: round(score, 4) if score is not None else None,
+        FieldName.GRADE: _grade_from_score(score) if score is not None else None,
+        FieldName.CONFIDENCE: None,
+        FieldName.MISTAKES: [],
+        FieldName.STRENGTHS: [],
+        "created_at": _iso(created_at),
+    }
 
-    count_row = await session.execute(_text("SELECT COUNT(*) FROM agent_grades"))
+
+def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
+    """In-memory fallback: map grade_history entries to trade_evaluation shape."""
+    all_grades = store.get_grades(200)
+    total = len(all_grades)
+    page = all_grades[offset : offset + limit]
+    trades = [
+        _grade_record_to_trade(
+            score=float(g.get("score") or g.get("score_pct", 0) / 100),
+            trade_id=str(g.get("trace_id") or ""),
+            created_at=g.get("timestamp"),
+        )
+        for g in page
+    ]
+    return trades, total
+
+
+async def _db_grades_as_trades(
+    session: Any, text: Any, limit: int, offset: int
+) -> tuple[list[dict[str, Any]], int]:
+    """DB fallback: map agent_grades rows to trade_evaluation shape."""
+    count_row = await session.execute(text("SELECT COUNT(*) FROM agent_grades"))
     total = int(count_row.scalar() or 0)
     if total == 0:
         return [], 0
     rows = await session.execute(
-        _text("""
+        text("""
             SELECT trace_id, score, created_at
             FROM agent_grades
             ORDER BY created_at DESC
@@ -88,25 +125,11 @@ async def _agent_grades_as_trades(
         {"limit": limit, "offset": offset},
     )
     trades = [
-        {
-            "id": "",
-            FieldName.TRADE_EVAL_ID: str(r[0] or ""),
-            FieldName.SYMBOL: None,
-            FieldName.SIDE: None,
-            FieldName.PNL: None,
-            FieldName.PNL_PERCENT: None,
-            FieldName.ENTRY_QUALITY: None,
-            FieldName.EXIT_QUALITY: None,
-            FieldName.TIMING_SCORE: None,
-            FieldName.SIGNAL_ALIGNMENT: None,
-            FieldName.RISK_REWARD: None,
-            FieldName.OVERALL_SCORE: round(float(r[1]), 4) if r[1] is not None else None,
-            FieldName.GRADE: _grade_from_score(float(r[1])) if r[1] is not None else None,
-            FieldName.CONFIDENCE: None,
-            FieldName.MISTAKES: [],
-            FieldName.STRENGTHS: [],
-            "created_at": _iso(r[2]),
-        }
+        _grade_record_to_trade(
+            score=float(r[1]) if r[1] is not None else None,
+            trade_id=str(r[0] or ""),
+            created_at=r[2],
+        )
         for r in rows.all()
     ]
     return trades, total
@@ -128,10 +151,13 @@ async def list_trade_evaluations(
     if not is_db_available():
         store = get_runtime_store()
         all_evals = store.get_trade_evaluations(200)
+        if not all_evals:
+            all_evals, _ = _mem_grades_as_trades(store, 200, 0)
+        total = len(all_evals)
         page = all_evals[offset : offset + limit]
         return {
             "trades": page,
-            "total": len(all_evals),
+            "total": total,
             "limit": limit,
             "offset": offset,
             "mode": mode,
@@ -153,7 +179,7 @@ async def list_trade_evaluations(
                 table_ok = False
 
             if not table_ok or total == 0:
-                trades, total = await _agent_grades_as_trades(session, limit, offset)
+                trades, total = await _db_grades_as_trades(session, text, limit, offset)
                 return {
                     "trades": trades,
                     "total": total,
@@ -285,6 +311,9 @@ async def get_learning_metrics() -> dict[str, Any]:
     if not is_db_available():
         store = get_runtime_store()
         evaluations = store.get_trade_evaluations(200)
+        if not evaluations:
+            grade_evals, _ = _mem_grades_as_trades(store, 200, 0)
+            evaluations = grade_evals
         metrics = compute_learning_metrics(evaluations)
         return {**metrics, "mode": mode, "timestamp": datetime.now(timezone.utc).isoformat()}
 
@@ -475,17 +504,16 @@ async def get_pipeline_status() -> dict[str, Any]:
 
     if not is_db_available():
         store = get_runtime_store()
+        scoring_source = store.trade_evaluations or store.grade_history
         return {
             "mode": mode,
             "timestamp": now,
             "stages": {
                 "scoring": {
-                    "status": "active" if store.trade_evaluations else "idle",
-                    "jobs_processed": len(store.trade_evaluations),
+                    "status": "active" if scoring_source else "idle",
+                    "jobs_processed": len(scoring_source),
                     "last_run": _iso(
-                        store.trade_evaluations[-1].get("created_at")
-                        if store.trade_evaluations
-                        else None
+                        scoring_source[-1].get("created_at") if scoring_source else None
                     ),
                     "error_count": 0,
                 },
