@@ -1,11 +1,23 @@
 'use client'
 
 import { Brain, ThumbsDown, ThumbsUp } from 'lucide-react'
+import type { ComponentType, ReactNode } from 'react'
 import { TerminalCard, SectionHeader, EmptyState } from '@/components/terminal'
 import { cn } from '@/lib/utils'
 import { TONE_CLASSES, type Tone } from '@/lib/state'
 import { formatRatioAsPercent, formatTimestamp } from '@/lib/format'
 import { UI_TEXT } from '@/lib/constants/ui'
+import {
+  CHIP_BASE_BOLD,
+  ICON_XS,
+  MONO_CHIP,
+  PENDING_COUNT_CHIP,
+  ROW_START,
+  ROW_WRAP,
+  SCORE_CHIP,
+  SCROLL_LIST_TALL,
+  VOTE_BUTTON_BASE,
+} from '@/lib/styles'
 import type { Proposal, ProposalStatus } from '@/stores/useCodexStore'
 
 const PROPOSAL_TYPE_LABEL: Record<string, string> = {
@@ -33,8 +45,119 @@ interface ProposalsFeedProps {
   onUpdateStatus: (id: string, status: ProposalStatus) => void
 }
 
-export function ProposalsFeed({ proposals, onUpdateStatus }: ProposalsFeedProps) {
-  const pending = proposals.filter((p) => p.status === 'pending')
+interface ProposalCardProps {
+  proposal: Proposal
+  onUpdateStatus: (id: string, status: ProposalStatus) => void
+}
+
+function proposalTypeLabel(type: string): string {
+  return PROPOSAL_TYPE_LABEL[type] ?? type
+}
+
+function proposalTypeTone(type: string): Tone {
+  return PROPOSAL_TYPE_TONE[type] ?? 'info'
+}
+
+function proposalDescription(content: string): string {
+  return content?.trim() ? content : 'No description'
+}
+
+function proposalCardClass(status: ProposalStatus): string {
+  return cn(
+    'rounded-[6px] border p-3 transition-opacity',
+    status === 'pending'
+      ? 'border-slate-200 dark:border-slate-800/50'
+      : 'border-slate-200 opacity-60 dark:border-slate-800',
+  )
+}
+
+function pendingCount(proposals: Proposal[]): number {
+  return proposals.filter((p) => p.status === 'pending').length
+}
+
+const VOTE_BUTTON_HOVER: Record<'pos' | 'neg', string> = {
+  pos: 'hover:bg-emerald-500/20',
+  neg: 'hover:bg-rose-500/20',
+}
+
+function VoteButton(props: {
+  label: string
+  Icon: ComponentType<{ className?: string }>
+  tone: 'pos' | 'neg'
+  onClick: () => void
+}) {
+  const { label, Icon, tone, onClick } = props
+  return (
+    <button
+      onClick={onClick}
+      className={cn(VOTE_BUTTON_BASE, TONE_CLASSES[tone].soft, VOTE_BUTTON_HOVER[tone])}
+    >
+      <Icon className={ICON_XS} />
+      {label}
+    </button>
+  )
+}
+
+function VoteControls(props: { proposalId: string; onUpdateStatus: ProposalCardProps['onUpdateStatus'] }) {
+  const { proposalId, onUpdateStatus } = props
+  const onApprove = () => onUpdateStatus(proposalId, 'approved')
+  const onReject = () => onUpdateStatus(proposalId, 'rejected')
+  return (
+    <div className={ROW_START}>
+      <VoteButton label="Approve" Icon={ThumbsUp} tone="pos" onClick={onApprove} />
+      <VoteButton label="Reject" Icon={ThumbsDown} tone="neg" onClick={onReject} />
+    </div>
+  )
+}
+
+function StatusBadge(props: { status: Exclude<ProposalStatus, 'pending'> }) {
+  const tone = props.status === 'approved' ? 'pos' : 'neg'
+  return <span className={cn(SCORE_CHIP, 'uppercase', TONE_CLASSES[tone].soft)}>{props.status}</span>
+}
+
+const PROPOSAL_HEADER = cn('mb-2', ROW_WRAP)
+
+function ProposalHeader(props: { proposal: Proposal }) {
+  const { proposal } = props
+  const tone = proposalTypeTone(proposal.proposal_type)
+  return (
+    <div className={PROPOSAL_HEADER}>
+      <span className={cn(CHIP_BASE_BOLD, TONE_CLASSES[tone].soft)}>
+        {proposalTypeLabel(proposal.proposal_type)}
+      </span>
+      {proposal.confidence != null ? (
+        <span className={MONO_CHIP}>{formatRatioAsPercent(proposal.confidence)} confidence</span>
+      ) : null}
+      {proposal.status !== 'pending' ? <StatusBadge status={proposal.status} /> : null}
+      <span className={cn(UI_TEXT.muted, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
+    </div>
+  )
+}
+
+function ProposalCard(props: ProposalCardProps) {
+  const { proposal, onUpdateStatus } = props
+  const showVoteControls = proposal.status === 'pending' && proposal.requires_approval
+  return (
+    <div className={proposalCardClass(proposal.status)}>
+      <ProposalHeader proposal={proposal} />
+      <p className={cn(UI_TEXT.body, 'mb-2 leading-relaxed')}>
+        {proposalDescription(proposal.content)}
+      </p>
+      {showVoteControls ? (
+        <VoteControls proposalId={proposal.id} onUpdateStatus={onUpdateStatus} />
+      ) : null}
+    </div>
+  )
+}
+
+function PendingBadge(props: { count: number }): ReactNode {
+  if (props.count === 0) return null
+  return <span className={PENDING_COUNT_CHIP}>{props.count} pending</span>
+}
+
+export function ProposalsFeed(props: ProposalsFeedProps) {
+  const { proposals, onUpdateStatus } = props
+  const pending = pendingCount(proposals)
   return (
     <TerminalCard>
       <SectionHeader
@@ -42,11 +165,7 @@ export function ProposalsFeed({ proposals, onUpdateStatus }: ProposalsFeedProps)
         icon={Brain}
         right={
           <>
-            {pending.length > 0 ? (
-              <span className="rounded-[4px] bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-900 dark:bg-slate-700 dark:text-slate-100">
-                {pending.length} pending
-              </span>
-            ) : null}
+            <PendingBadge count={pending} />
             <span className={UI_TEXT.muted}>{proposals.length} total</span>
           </>
         }
@@ -54,87 +173,12 @@ export function ProposalsFeed({ proposals, onUpdateStatus }: ProposalsFeedProps)
       {proposals.length === 0 ? (
         <EmptyState message="No proposals yet" icon={Brain} />
       ) : (
-        <div className="max-h-96 space-y-3 overflow-y-auto">
+        <div className={SCROLL_LIST_TALL}>
           {proposals.map((proposal) => (
-            <ProposalCard
-              key={proposal.id}
-              proposal={proposal}
-              onUpdateStatus={onUpdateStatus}
-            />
+            <ProposalCard key={proposal.id} proposal={proposal} onUpdateStatus={onUpdateStatus} />
           ))}
         </div>
       )}
     </TerminalCard>
-  )
-}
-
-interface ProposalCardProps {
-  proposal: Proposal
-  onUpdateStatus: (id: string, status: ProposalStatus) => void
-}
-
-function ProposalCard({ proposal, onUpdateStatus }: ProposalCardProps) {
-  const typeTone = PROPOSAL_TYPE_TONE[proposal.proposal_type] ?? 'info'
-  const typeLabel = PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type
-  const description = proposal.content?.trim() || 'No description'
-
-  return (
-    <div
-      className={cn(
-        'rounded-[6px] border p-3 transition-opacity',
-        proposal.status === 'pending'
-          ? 'border-slate-200 dark:border-slate-800/50'
-          : 'border-slate-200 opacity-60 dark:border-slate-800',
-      )}
-    >
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className={cn('rounded-[4px] px-2 py-0.5 text-xs font-bold', TONE_CLASSES[typeTone].soft)}>
-          {typeLabel}
-        </span>
-        {proposal.confidence != null ? (
-          <span className="rounded-[4px] bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
-            {formatRatioAsPercent(proposal.confidence)} confidence
-          </span>
-        ) : null}
-        {proposal.status !== 'pending' ? (
-          <span
-            className={cn(
-              'rounded-[4px] px-2 py-0.5 text-xs font-semibold uppercase',
-              proposal.status === 'approved' ? TONE_CLASSES.pos.soft : TONE_CLASSES.neg.soft,
-            )}
-          >
-            {proposal.status}
-          </span>
-        ) : null}
-        <span className={cn(UI_TEXT.muted, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
-      </div>
-      <p className={cn(UI_TEXT.body, 'mb-2 leading-relaxed')}>{description}</p>
-      {proposal.status === 'pending' && proposal.requires_approval ? (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onUpdateStatus(proposal.id, 'approved')}
-            className={cn(
-              'flex items-center gap-1.5 rounded-[4px] px-3 py-1 text-xs font-semibold transition-colors',
-              TONE_CLASSES.pos.soft,
-              'hover:bg-emerald-500/20',
-            )}
-          >
-            <ThumbsUp className="h-3 w-3" />
-            Approve
-          </button>
-          <button
-            onClick={() => onUpdateStatus(proposal.id, 'rejected')}
-            className={cn(
-              'flex items-center gap-1.5 rounded-[4px] px-3 py-1 text-xs font-semibold transition-colors',
-              TONE_CLASSES.neg.soft,
-              'hover:bg-rose-500/20',
-            )}
-          >
-            <ThumbsDown className="h-3 w-3" />
-            Reject
-          </button>
-        </div>
-      ) : null}
-    </div>
   )
 }

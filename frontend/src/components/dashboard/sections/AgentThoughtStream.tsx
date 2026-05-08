@@ -6,7 +6,22 @@ import { TONE_CLASSES, toneForRatio } from '@/lib/state'
 import { toFiniteNumber } from '@/lib/format'
 import { UI_TEXT } from '@/lib/constants/ui'
 import { AGENT_LOG_MAX_ROWS } from '@/lib/constants/trading'
+import {
+  ROW_DIVIDER_SKIP_FIRST,
+  ROW_WRAP,
+  SCORE_CHIP,
+  SCROLL_FADE_BOTTOM,
+  SCROLL_LIST_AGENT_LOG,
+  ROW_TITLE_BOLD,
+  STACK_TIGHT,
+  TRACE_BUTTON,
+} from '@/lib/styles'
 import type { AgentLog } from '@/stores/useCodexStore'
+
+interface AgentThoughtStreamProps {
+  logs: AgentLog[]
+  onTraceClick: (traceId: string) => void
+}
 
 const FALLBACK_LABELS: Record<string, string> = {
   skip_reasoning: 'Rule-based fallback decision',
@@ -24,66 +39,94 @@ function formatAgentMessage(raw: unknown): string {
   return text
 }
 
-interface AgentThoughtStreamProps {
-  logs: AgentLog[]
+function buildAgentLabel(log: AgentLog): string {
+  return String(log?.agent_name ?? log?.agent ?? '') || 'N/A'
+}
+
+function buildConfidenceText(confidence: number | null): string {
+  if (confidence == null) return '—'
+  return (confidence * 100).toFixed(0)
+}
+
+function readTraceId(log: AgentLog): string | null {
+  return typeof log?.trace_id === 'string' && log.trace_id ? log.trace_id : null
+}
+
+function buildLogKey(log: AgentLog, agentLabel: string, index: number): string {
+  if (log?.id != null) return String(log.id)
+  return `${agentLabel}-${log?.timestamp ?? ''}-${index}`
+}
+
+function readLogMessage(log: AgentLog): unknown {
+  return log?.message ?? log?.summary ?? log?.primary_edge
+}
+
+function TraceLinkButton(props: { traceId: string; onTraceClick: (id: string) => void }) {
+  const { traceId, onTraceClick } = props
+  const handleClick = () => onTraceClick(traceId)
+  return (
+    <button onClick={handleClick} className={TRACE_BUTTON}>
+      trace:{traceId.slice(0, 8)}…
+    </button>
+  )
+}
+
+interface AgentLogRowProps {
+  log: AgentLog
+  index: number
   onTraceClick: (traceId: string) => void
 }
 
-export function AgentThoughtStream({ logs, onTraceClick }: AgentThoughtStreamProps) {
+const LOG_ROW_HEADER = cn('mb-1', ROW_WRAP)
+
+function AgentLogRow(props: AgentLogRowProps) {
+  const { log, index, onTraceClick } = props
+  const confidence = toFiniteNumber(log?.confidence)
+  const tone = toneForRatio(confidence)
+  const agentLabel = buildAgentLabel(log)
+  const traceId = readTraceId(log)
+  return (
+    <div key={buildLogKey(log, agentLabel, index)} className={cn(ROW_DIVIDER_SKIP_FIRST, 'py-2')}>
+      <div className={LOG_ROW_HEADER}>
+        <p className={ROW_TITLE_BOLD}>{agentLabel}</p>
+        <span className={cn(SCORE_CHIP, TONE_CLASSES[tone].soft)}>
+          {buildConfidenceText(confidence)}%
+        </span>
+        {traceId ? <TraceLinkButton traceId={traceId} onTraceClick={onTraceClick} /> : null}
+      </div>
+      <p className={cn(UI_TEXT.body, 'leading-relaxed')}>{formatAgentMessage(readLogMessage(log))}</p>
+    </div>
+  )
+}
+
+function visibleLogs(logs: AgentLog[]): AgentLog[] {
+  return logs.slice(-AGENT_LOG_MAX_ROWS).slice().reverse()
+}
+
+export function AgentThoughtStream(props: AgentThoughtStreamProps) {
+  const { logs, onTraceClick } = props
+  const rows = visibleLogs(logs)
   return (
     <TerminalCard>
       <SectionHeader
         title="Agent Thought Stream"
         right={<StateIndicator tone="pos" label="Live" pulse />}
       />
-      {logs.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState message="No active agents" />
       ) : (
-        <div className="relative max-h-80 overflow-y-auto">
-          <div className="space-y-2">
-            {logs
-              .slice(-AGENT_LOG_MAX_ROWS)
-              .reverse()
-              .map((log, index) => {
-                const confidence = toFiniteNumber(log?.confidence)
-                const confidencePct = confidence == null ? '—' : (confidence * 100).toFixed(0)
-                const tone = toneForRatio(confidence)
-                const agentLabel = String(log?.agent_name ?? log?.agent ?? '') || 'N/A'
-                const traceId = typeof log?.trace_id === 'string' ? log.trace_id : null
-                return (
-                  <div
-                    key={String(log?.id ?? `${agentLabel}-${log?.timestamp ?? ''}-${index}`)}
-                    className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800"
-                  >
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {agentLabel}
-                      </p>
-                      <span
-                        className={cn(
-                          'rounded-[4px] px-2 py-0.5 text-xs font-semibold',
-                          TONE_CLASSES[tone].soft,
-                        )}
-                      >
-                        {confidencePct}%
-                      </span>
-                      {traceId ? (
-                        <button
-                          onClick={() => onTraceClick(traceId)}
-                          className="rounded-[4px] px-1.5 py-0.5 text-[10px] font-mono text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-                        >
-                          trace:{traceId.slice(0, 8)}…
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className={cn(UI_TEXT.body, 'leading-relaxed')}>
-                      {formatAgentMessage(log?.message ?? log?.summary ?? log?.primary_edge)}
-                    </p>
-                  </div>
-                )
-              })}
+        <div className={SCROLL_LIST_AGENT_LOG}>
+          <div className={STACK_TIGHT}>
+            {rows.map((log, index) => (
+              <AgentLogRow
+                key={buildLogKey(log, buildAgentLabel(log), index)}
+                log={log}
+                index={index}
+                onTraceClick={onTraceClick}
+              />
+            ))}
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-slate-900" />
+          <div className={SCROLL_FADE_BOTTOM} />
         </div>
       )}
     </TerminalCard>

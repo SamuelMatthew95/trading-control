@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { TerminalCard, SectionHeader, StateIndicator } from '@/components/terminal'
 import { cn } from '@/lib/utils'
-import { TONE_CLASSES, getNumberTone } from '@/lib/state'
+import { TONE_CLASSES, getNumberTone, type Tone } from '@/lib/state'
 import {
   formatCurrency,
   formatTimestamp,
@@ -11,7 +11,13 @@ import {
   toFiniteNumber,
 } from '@/lib/format'
 import { UI_TEXT } from '@/lib/constants/ui'
-import { PRICE_LIVE_WINDOW_MS, TICKER_SYMBOLS } from '@/lib/constants/trading'
+import { PRICE_LIVE_WINDOW_MS, TICKER_SYMBOLS, type TickerSymbol } from '@/lib/constants/trading'
+import {
+  INNER_TILE,
+  PRICE_TILE_GRID,
+  PRIMARY_TEXT,
+  ROW_BETWEEN,
+} from '@/lib/styles'
 import type { PriceData } from '@/stores/useCodexStore'
 import { PriceTileSkeleton } from './PriceTileSkeleton'
 
@@ -25,31 +31,92 @@ interface PriceWithTimestamp extends PriceData {
   timestamp?: string | null
 }
 
-function getFreshnessTone(prices: Record<string, PriceData>) {
-  const ages = Object.values(prices)
-    .map((p) => {
-      const r = p as PriceWithTimestamp
-      return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
-    })
-    .filter((d): d is Date => d instanceof Date)
-    .map((d) => Date.now() - d.getTime())
-  const freshestMs = ages.length > 0 ? Math.min(...ages) : null
-  if (freshestMs == null) return { tone: 'muted' as const, label: 'No Data' }
-  if (freshestMs <= PRICE_LIVE_WINDOW_MS) return { tone: 'pos' as const, label: 'Live' }
-  return { tone: 'warn' as const, label: 'Stale' }
+interface FreshnessSummary {
+  tone: Tone
+  label: string
 }
 
-export function LiveMarketPrices({ prices, loading }: LiveMarketPricesProps) {
-  const tickerEntries = useMemo(
+const SKELETON_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5'] as const
+
+const PRICE_VALUE_TEXT = 'mt-1 text-lg font-mono tabular-nums'
+const PRICE_CHANGE_TEXT = 'text-xs font-mono tabular-nums'
+const PRICE_FOOTER = 'mt-2 ' + ROW_BETWEEN
+
+function readPriceTimestamp(priceData: PriceData | undefined | null): Date | null {
+  if (!priceData) return null
+  const r = priceData as PriceWithTimestamp
+  return parseTimestamp(r.updatedAt ?? r.ts ?? r.timestamp)
+}
+
+function freshnessFromPrices(prices: Record<string, PriceData>): FreshnessSummary {
+  const ages: number[] = []
+  for (const priceData of Object.values(prices)) {
+    const ts = readPriceTimestamp(priceData)
+    if (ts) ages.push(Date.now() - ts.getTime())
+  }
+  if (ages.length === 0) return { tone: 'muted', label: 'No Data' }
+  const freshestMs = Math.min(...ages)
+  if (freshestMs <= PRICE_LIVE_WINDOW_MS) return { tone: 'pos', label: 'Live' }
+  return { tone: 'warn', label: 'Stale' }
+}
+
+function resolveFreshness(
+  prices: Record<string, PriceData>,
+  loading: boolean,
+): FreshnessSummary {
+  if (loading) return { tone: 'warn', label: 'Loading' }
+  if (Object.keys(prices).length === 0) return { tone: 'muted', label: 'No Data' }
+  return freshnessFromPrices(prices)
+}
+
+function deriveChange(priceData: PriceData | undefined | null): number | null {
+  const price = toFiniteNumber(priceData?.price)
+  const previous = toFiniteNumber(priceData?.previousPrice)
+  const observed = toFiniteNumber(priceData?.change)
+  if (observed != null) return observed
+  if (price != null && previous != null) return price - previous
+  return null
+}
+
+function buildSkeletonRow() {
+  return SKELETON_KEYS.map((key) => <PriceTileSkeleton key={key} />)
+}
+
+function PriceTile(props: { symbol: TickerSymbol; priceData: PriceData | undefined }) {
+  const { symbol, priceData } = props
+  const price = toFiniteNumber(priceData?.price)
+  const change = deriveChange(priceData)
+  const hasData = price != null
+  const changeTone = getNumberTone(change)
+  const changeText =
+    change == null || !hasData
+      ? '—'
+      : `${change >= 0 ? '▲' : '▼'} ${formatCurrency(Math.abs(change))}`
+
+  return (
+    <div className={INNER_TILE}>
+      <div className={ROW_BETWEEN}>
+        <p className={UI_TEXT.label}>{symbol}</p>
+        <StateIndicator tone={hasData ? 'pos' : 'muted'} />
+      </div>
+      <p className={cn(PRICE_VALUE_TEXT, PRIMARY_TEXT)}>{formatCurrency(price)}</p>
+      <div className={PRICE_FOOTER}>
+        <p className={cn(PRICE_CHANGE_TEXT, TONE_CLASSES[changeTone].text)}>{changeText}</p>
+        <p className={UI_TEXT.muted}>{formatTimestamp(priceData?.updatedAt ?? null)}</p>
+      </div>
+    </div>
+  )
+}
+
+export function LiveMarketPrices(props: LiveMarketPricesProps) {
+  const { prices, loading } = props
+
+  const tickerEntries = useMemo<ReadonlyArray<readonly [TickerSymbol, PriceData | undefined]>>(
     () => TICKER_SYMBOLS.map((symbol) => [symbol, prices[symbol]] as const),
     [prices],
   )
 
-  const freshness = useMemo(() => {
-    if (loading) return { tone: 'warn' as const, label: 'Loading' }
-    if (Object.keys(prices).length === 0) return { tone: 'muted' as const, label: 'No Data' }
-    return getFreshnessTone(prices)
-  }, [loading, prices])
+  const freshness = useMemo(() => resolveFreshness(prices, loading), [loading, prices])
 
   return (
     <TerminalCard>
@@ -57,39 +124,12 @@ export function LiveMarketPrices({ prices, loading }: LiveMarketPricesProps) {
         title="Live Market Prices"
         right={<StateIndicator tone={freshness.tone} label={freshness.label} pulse={loading} />}
       />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className={PRICE_TILE_GRID}>
         {loading
-          ? Array.from({ length: 6 }).map((_, i) => <PriceTileSkeleton key={`skel-${i}`} />)
-          : tickerEntries.map(([symbol, priceData]) => {
-              const price = toFiniteNumber(priceData?.price)
-              const previous = toFiniteNumber(priceData?.previousPrice)
-              const observedChange = toFiniteNumber(priceData?.change)
-              const change = observedChange ?? (price != null && previous != null ? price - previous : null)
-              const hasData = price != null
-              const changeTone = getNumberTone(change)
-              return (
-                <div
-                  key={symbol}
-                  className="rounded-[6px] border border-slate-200 p-3 dark:border-slate-800"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className={UI_TEXT.label}>{symbol}</p>
-                    <StateIndicator tone={hasData ? 'pos' : 'muted'} />
-                  </div>
-                  <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                    {formatCurrency(price)}
-                  </p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <p className={cn('text-xs font-mono tabular-nums', TONE_CLASSES[changeTone].text)}>
-                      {change == null || !hasData
-                        ? '—'
-                        : `${change >= 0 ? '▲' : '▼'} ${formatCurrency(Math.abs(change))}`}
-                    </p>
-                    <p className={UI_TEXT.muted}>{formatTimestamp(priceData?.updatedAt ?? null)}</p>
-                  </div>
-                </div>
-              )
-            })}
+          ? buildSkeletonRow()
+          : tickerEntries.map(([symbol, priceData]) => (
+              <PriceTile key={symbol} symbol={symbol} priceData={priceData} />
+            ))}
       </div>
     </TerminalCard>
   )

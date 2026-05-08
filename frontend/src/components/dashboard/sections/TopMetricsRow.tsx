@@ -6,6 +6,8 @@ import { getNumberTone } from '@/lib/state'
 import { formatNumber, formatSignedCurrency, formatSignedPercent } from '@/lib/format'
 import type { DashboardSummaryView } from '@/lib/types'
 
+const TOP_METRICS_GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-4'
+
 interface TopMetricsRowProps {
   summary: DashboardSummaryView
 }
@@ -15,7 +17,7 @@ export function TopMetricsRow({ summary }: TopMetricsRowProps) {
   const dailyPnlTone = getNumberTone(summary.dailyPnlNumeric)
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+    <div className={TOP_METRICS_GRID}>
       <MetricTile
         label="Daily P&L"
         value={summary.hasOrders ? formatSignedCurrency(summary.dailyPnlNumeric) : '—'}

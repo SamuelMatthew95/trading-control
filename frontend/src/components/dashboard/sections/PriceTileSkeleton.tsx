@@ -1,20 +1,22 @@
+import {
+  INNER_TILE,
+  ROW_BETWEEN,
+  SKELETON_LABEL,
+  SKELETON_VALUE,
+  SKELETON_TINY,
+  SKELETON_TINIER,
+} from '@/lib/styles'
 import { cn } from '@/lib/utils'
-import { UI_RADIUS } from '@/lib/constants/ui'
 
 /** Loading placeholder shaped like a real price tile so the layout doesn't shift on hydration. */
 export function PriceTileSkeleton() {
   return (
-    <div
-      className={cn(
-        UI_RADIUS.card,
-        'border border-slate-200 p-3 dark:border-slate-800',
-      )}
-    >
-      <div className="mb-1 h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-1 h-6 w-24 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-2 flex items-center justify-between">
-        <div className="h-3 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-        <div className="h-3 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+    <div className={INNER_TILE}>
+      <div className={SKELETON_LABEL} />
+      <div className={SKELETON_VALUE} />
+      <div className={cn('mt-2', ROW_BETWEEN)}>
+        <div className={SKELETON_TINY} />
+        <div className={SKELETON_TINIER} />
       </div>
     </div>
   )

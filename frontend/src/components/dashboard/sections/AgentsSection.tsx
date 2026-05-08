@@ -3,6 +3,7 @@
 import { MetricTile } from '@/components/terminal'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
+import { METRIC_ROW_GRID, STACK } from '@/lib/styles'
 import { AgentStatusTable } from './AgentStatusTable'
 import { AgentInstancesPanel } from './AgentInstancesPanel'
 import { SystemDiagnosticsPanel } from './SystemDiagnosticsPanel'
@@ -51,8 +52,8 @@ export function AgentsSection({
   const liveAgentCount = agents.filter((a) => a.status === 'Live').length
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+    <div className={STACK}>
+      <div className={METRIC_ROW_GRID}>
         <MetricTile
           label="Market Ticks"
           value={formatNumber(marketTickCount)}

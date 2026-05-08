@@ -14,6 +14,18 @@ import { cn } from '@/lib/utils'
 import { TONE_CLASSES, type Tone } from '@/lib/state'
 import { TerminalCard, SectionHeader, EmptyState } from '@/components/terminal'
 import { UI_TEXT } from '@/lib/constants/ui'
+import {
+  CHIP_BASE_BOLD,
+  ICON_SM,
+  NOTIFICATION_CARD,
+  NOTIFICATION_FACT_VALUE,
+  NOTIFICATION_FACTS_GRID,
+  NOTIFICATION_ICON_BOX,
+  ROW_WRAP,
+  SCROLL_LIST_TIGHT,
+  PRIMARY_TEXT,
+  SECONDARY_TEXT,
+} from '@/lib/styles'
 import type { Notification } from '@/stores/useCodexStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 
@@ -85,7 +97,7 @@ export function NotificationFeed({ notifications, wsConnected }: NotificationFee
       {notifications.length === 0 ? (
         <EmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
       ) : (
-        <div className="max-h-72 space-y-2 overflow-y-auto">
+        <div className={SCROLL_LIST_TIGHT}>
           {notifications.map((notification) => (
             <NotificationRow key={notification.id} notification={notification} />
           ))}
@@ -110,34 +122,26 @@ function NotificationRow({ notification }: { notification: Notification }) {
   const cardTone = TONE_CLASSES[tone]
 
   return (
-    <article className={cn('rounded-[6px] border px-3 py-3', cardTone.card)}>
+    <article className={cn(NOTIFICATION_CARD, cardTone.card)}>
       <div className="flex items-start gap-3">
-        <span
-          className={cn(
-            'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px]',
-            cardTone.soft,
-          )}
-        >
-          <Icon className="h-4 w-4" />
+        <span className={cn(NOTIFICATION_ICON_BOX, cardTone.soft)}>
+          <Icon className={ICON_SM} />
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={ROW_WRAP}>
             {badges.map((badge, index) => {
               const badgeTone = resolveTone(badge.tone || tone)
               return (
                 <span
                   key={`${displayValue(badge.label)}-${index}`}
-                  className={cn(
-                    'rounded-[4px] px-2 py-0.5 text-xs font-bold uppercase',
-                    TONE_CLASSES[badgeTone].chip,
-                  )}
+                  className={cn(CHIP_BASE_BOLD, TONE_CLASSES[badgeTone].chip)}
                 >
                   {displayValue(badge.label)}
                 </span>
               )
             })}
-            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <h3 className={cn('min-w-0 flex-1 truncate text-sm font-semibold', PRIMARY_TEXT)}>
               {title}
             </h3>
             <span className={cn(UI_TEXT.muted, 'shrink-0')}>
@@ -145,10 +149,10 @@ function NotificationRow({ notification }: { notification: Notification }) {
             </span>
           </div>
 
-          <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{subtitle}</p>
+          <p className={cn('mt-1 text-sm', SECONDARY_TEXT)}>{subtitle}</p>
 
           {facts.length > 0 ? (
-            <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
+            <dl className={NOTIFICATION_FACTS_GRID}>
               {facts.map((fact, index) => {
                 const factTone = resolveTone(fact.tone)
                 const factHasTone = Boolean(fact.tone)
@@ -157,8 +161,8 @@ function NotificationRow({ notification }: { notification: Notification }) {
                     <dt className={UI_TEXT.muted}>{displayValue(fact.label)}</dt>
                     <dd
                       className={cn(
-                        'truncate text-xs font-mono font-semibold tabular-nums',
-                        factHasTone ? TONE_CLASSES[factTone].text : 'text-slate-900 dark:text-slate-100',
+                        NOTIFICATION_FACT_VALUE,
+                        factHasTone ? TONE_CLASSES[factTone].text : PRIMARY_TEXT,
                       )}
                     >
                       {displayValue(fact.value)}
@@ -170,7 +174,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
           ) : null}
 
           {meta.length > 0 ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className={cn('mt-3', ROW_WRAP)}>
               {meta.map((item, index) => (
                 <span key={`${displayValue(item.label)}-${index}`} className={UI_TEXT.muted}>
                   {displayValue(item.label)}: {displayValue(item.value)}

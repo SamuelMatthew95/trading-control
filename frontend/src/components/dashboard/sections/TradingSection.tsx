@@ -1,5 +1,6 @@
 'use client'
 
+import { STACK } from '@/lib/styles'
 import { TradeFeedPanel } from './TradeFeedPanel'
 import { AgentThoughtStream } from './AgentThoughtStream'
 import { PositionsTable } from './PositionsTable'
@@ -19,7 +20,7 @@ export function TradingSection({
   onTraceClick,
 }: TradingSectionProps) {
   return (
-    <div className="space-y-4">
+    <div className={STACK}>
       <TradeFeedPanel trades={trades} onTraceClick={onTraceClick} />
       <AgentThoughtStream logs={agentLogs} onTraceClick={onTraceClick} />
       <PositionsTable positions={positions} />

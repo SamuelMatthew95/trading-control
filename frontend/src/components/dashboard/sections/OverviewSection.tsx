@@ -2,6 +2,7 @@
 
 import { TerminalCard, SectionHeader } from '@/components/terminal'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
+import { SPLIT_GRID, STACK } from '@/lib/styles'
 import { TopMetricsRow } from './TopMetricsRow'
 import { PerformancePanel } from './PerformancePanel'
 import { AgentMatrix } from './AgentMatrix'
@@ -29,11 +30,11 @@ export function OverviewSection({
   wsConnected,
 }: OverviewSectionProps) {
   return (
-    <div className="space-y-4">
+    <div className={STACK}>
       <TopMetricsRow summary={summary} />
       <PerformancePanel summary={performanceSummary} />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+      <div className={SPLIT_GRID}>
         <TerminalCard className="sm:col-span-2 lg:col-span-2">
           <SectionHeader title="Equity Curve" />
           <EquityCurve orders={orders} />

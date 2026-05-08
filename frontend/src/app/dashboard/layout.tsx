@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { TONE_CLASSES, getNumberTone, toneForSystemStatus } from '@/lib/state'
 import { formatSignedCurrency } from '@/lib/format'
+import { RECONNECT_BANNER } from '@/lib/styles'
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
@@ -41,6 +42,17 @@ const NAV = [
   { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
   { href: '/dashboard/system', label: 'System', Icon: Settings2 },
 ]
+
+const RECONNECT_DOT = 'inline-block h-2 w-2 animate-pulse rounded-full align-middle'
+
+function ReconnectBanner() {
+  return (
+    <div className={cn(RECONNECT_BANNER, TONE_CLASSES.warn.card, TONE_CLASSES.warn.text)}>
+      <span className={cn(RECONNECT_DOT, TONE_CLASSES.warn.bg)} />
+      <span className="ml-2">Reconnecting to live feed…</span>
+    </div>
+  )
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   useWebSocket()
@@ -248,18 +260,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {showReconnectBanner ? (
-          <div
-            className={cn(
-              'border-b px-4 py-2 text-xs font-semibold',
-              TONE_CLASSES.warn.card,
-              TONE_CLASSES.warn.text,
-            )}
-          >
-            <span className={cn('inline-block h-2 w-2 animate-pulse rounded-full align-middle', TONE_CLASSES.warn.bg)} />
-            <span className="ml-2">Reconnecting to live feed…</span>
-          </div>
-        ) : null}
+        {showReconnectBanner ? <ReconnectBanner /> : null}
 
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>

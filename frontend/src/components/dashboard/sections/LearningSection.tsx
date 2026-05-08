@@ -7,6 +7,15 @@ import { TONE_CLASSES, getNumberTone } from '@/lib/state'
 import { canonicalAgentKey } from '@/lib/constants/agentStates'
 import { formatNumber, formatPercent, formatSignedCurrency, formatTimestamp } from '@/lib/format'
 import { UI_TEXT } from '@/lib/constants/ui'
+import {
+  INNER_TILE,
+  METRIC_ROW_GRID_LG,
+  STACK,
+  STRONG_MONO,
+} from '@/lib/styles'
+
+const EMPTY_PROPOSALS_BANNER =
+  'rounded-[6px] border border-slate-200 bg-slate-100/50 p-3 dark:border-slate-800 dark:bg-slate-900/60'
 import { LearningPipelineStatusPanel } from './LearningPipelineStatusPanel'
 import { ProposalsFeed } from './ProposalsFeed'
 import { IcWeightsPanel } from './IcWeightsPanel'
@@ -52,10 +61,10 @@ export function LearningSection({
   const totalPnlTone = getNumberTone(resolvedPerformanceSummary?.total_pnl)
 
   return (
-    <div className="space-y-4">
+    <div className={STACK}>
       <LearningPipelineStatusPanel stages={pipelineStages} />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+      <div className={METRIC_ROW_GRID_LG}>
         <MetricTile
           label="Trades Evaluated"
           value={formatNumber(learningSummary.tradesEvaluated)}
@@ -80,12 +89,7 @@ export function LearningSection({
 
       <ProposalsFeed proposals={proposals} onUpdateStatus={onUpdateProposalStatus} />
       {proposals.length === 0 ? (
-        <p
-          className={cn(
-            UI_TEXT.muted,
-            'rounded-[6px] border border-slate-200 bg-slate-100/50 p-3 dark:border-slate-800 dark:bg-slate-900/60',
-          )}
-        >
+        <p className={cn(UI_TEXT.muted, EMPTY_PROPOSALS_BANNER)}>
           No strategy proposals yet. Reflection pipeline may be idle, disconnected, or awaiting graded trades.
         </p>
       ) : null}
@@ -96,7 +100,7 @@ export function LearningSection({
 
       <TerminalCard>
         <SectionHeader title="Performance Summary" />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={METRIC_ROW_GRID_LG}>
           <SummaryTile
             label="Win Rate"
             value={summary.winRate == null ? '—' : formatPercent(summary.winRate)}
@@ -131,13 +135,11 @@ export function LearningSection({
         <SectionHeader title="Learning Runtime Notes" />
         <p className={UI_TEXT.muted}>
           Reflection agent status:{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-200">
-            {reflectionAgentStatus}
-          </span>
+          <span className={STRONG_MONO}>{reflectionAgentStatus}</span>
         </p>
         <p className={cn(UI_TEXT.muted, 'mt-1')}>
           Last grade timestamp:{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-200">
+          <span className={STRONG_MONO}>
             {gradeHistory[0]?.timestamp ? formatTimestamp(gradeHistory[0].timestamp) : 'No grades yet'}
           </span>
         </p>
@@ -146,21 +148,18 @@ export function LearningSection({
   )
 }
 
-function SummaryTile({
-  label,
-  value,
-  valueClassName,
-}: {
+interface SummaryTileProps {
   label: string
   value: string
   valueClassName?: string
-}) {
+}
+
+function SummaryTile(props: SummaryTileProps) {
+  const valueClass = props.valueClassName ?? 'text-slate-900 dark:text-slate-100'
   return (
-    <div className="rounded-[6px] border border-slate-200 p-3 dark:border-slate-800">
-      <p className={UI_TEXT.muted}>{label}</p>
-      <p className={cn('text-sm font-mono tabular-nums', valueClassName ?? 'text-slate-900 dark:text-slate-100')}>
-        {value}
-      </p>
+    <div className={INNER_TILE}>
+      <p className={UI_TEXT.muted}>{props.label}</p>
+      <p className={cn('text-sm font-mono tabular-nums', valueClass)}>{props.value}</p>
     </div>
   )
 }
