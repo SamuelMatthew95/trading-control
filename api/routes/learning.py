@@ -110,7 +110,9 @@ def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dic
     events have been processed through the learning pipeline yet.
     grade_history is the best available evidence of agent scoring activity.
     """
-    all_grades = store.get_grades(200)
+    # Access grade_history directly to respect the full 500-entry store limit.
+    # get_grades() caps at 200, which under-reports total during extended DB outages.
+    all_grades = list(reversed(store.grade_history))
     total = len(all_grades)
     page = all_grades[offset : offset + limit]
     trades = []
@@ -378,8 +380,18 @@ async def get_learning_metrics() -> dict[str, Any]:
         store = get_runtime_store()
         evaluations = store.get_trade_evaluations(200)
         if not evaluations:
-            grade_evals, _ = _mem_grades_as_trades(store, 200, 0)
-            evaluations = grade_evals
+            # Grade-bridged records have pnl=None, making win_rate/avg_return/sharpe
+            # all zero.  Synthesize PnL from overall_score — same as the DB-up bridge.
+            for g in reversed(store.grade_history):
+                raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
+                score_n = raw / 100.0 if raw > 1.0 else raw
+                evaluations.append(
+                    {
+                        FieldName.PNL: score_n - 0.5,
+                        FieldName.PNL_PERCENT: (score_n - 0.5) * 20,
+                        FieldName.OVERALL_SCORE: score_n,
+                    }
+                )
         metrics = compute_learning_metrics(evaluations)
         return {
             **metrics,
