@@ -106,7 +106,7 @@ def test_mem_grades_as_trades_score_pct_fallback():
 
 
 @pytest.mark.asyncio
-async def test_list_trades_memory_with_trade_evaluations(client):
+async def test_list_trades_db_down_with_trade_evaluations(client):
     store = InMemoryStore()
     store.add_trade_evaluation(
         {
@@ -128,9 +128,9 @@ async def test_list_trades_memory_with_trade_evaluations(client):
 
 
 @pytest.mark.asyncio
-async def test_list_trades_memory_fallback_to_grade_history(client):
+async def test_list_trades_db_down_grade_history_when_no_evals(client):
     store = InMemoryStore()
-    # No trade_evaluations, but grade_history has data
+    # DB is down. GradeAgent ran and wrote to grade_history. No trade_evaluations yet.
     store.add_grade({"trace_id": "grade-1", "score": 0.80, "timestamp": time.time()})
     set_runtime_store(store)
     set_db_available(False)
@@ -145,7 +145,7 @@ async def test_list_trades_memory_fallback_to_grade_history(client):
 
 
 @pytest.mark.asyncio
-async def test_list_trades_memory_empty_returns_empty(client):
+async def test_list_trades_db_down_empty_store(client):
     store = InMemoryStore()
     set_runtime_store(store)
     set_db_available(False)
@@ -158,7 +158,7 @@ async def test_list_trades_memory_empty_returns_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_list_trades_memory_pagination(client):
+async def test_list_trades_db_down_pagination(client):
     store = InMemoryStore()
     for i in range(5):
         store.add_grade({"trace_id": f"g{i}", "score": 0.7, "timestamp": time.time()})
@@ -178,7 +178,7 @@ async def test_list_trades_memory_pagination(client):
 
 
 @pytest.mark.asyncio
-async def test_metrics_memory_with_trade_evaluations(client):
+async def test_metrics_db_down_with_trade_evaluations(client):
     store = InMemoryStore()
     store.add_trade_evaluation(
         {
@@ -199,7 +199,7 @@ async def test_metrics_memory_with_trade_evaluations(client):
 
 
 @pytest.mark.asyncio
-async def test_metrics_memory_fallback_to_grade_history(client):
+async def test_metrics_db_down_grade_history_when_no_evals(client):
     store = InMemoryStore()
     store.add_grade({"trace_id": "g1", "score": 0.80, "timestamp": time.time()})
     store.add_grade({"trace_id": "g2", "score": 0.60, "timestamp": time.time()})
@@ -215,7 +215,7 @@ async def test_metrics_memory_fallback_to_grade_history(client):
 
 
 @pytest.mark.asyncio
-async def test_metrics_memory_empty_returns_zeros(client):
+async def test_metrics_db_down_empty_store(client):
     store = InMemoryStore()
     set_runtime_store(store)
     set_db_available(False)
@@ -232,7 +232,7 @@ async def test_metrics_memory_empty_returns_zeros(client):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_status_memory_with_trade_evaluations(client):
+async def test_pipeline_status_db_down_with_trade_evaluations(client):
     store = InMemoryStore()
     store.add_trade_evaluation({"created_at": time.time()})
     set_runtime_store(store)
@@ -247,9 +247,9 @@ async def test_pipeline_status_memory_with_trade_evaluations(client):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_status_memory_fallback_to_grade_history(client):
+async def test_pipeline_status_db_down_grade_history_when_no_evals(client):
     store = InMemoryStore()
-    # No trade_evaluations; grade_history has data
+    # DB is down. GradeAgent ran (grade_history has data). No trade_evaluations yet.
     store.add_grade({"trace_id": "g1", "score": 0.7, "timestamp": time.time()})
     set_runtime_store(store)
     set_db_available(False)
@@ -262,7 +262,7 @@ async def test_pipeline_status_memory_fallback_to_grade_history(client):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_status_memory_all_idle_when_empty(client):
+async def test_pipeline_status_db_down_all_idle_when_empty(client):
     store = InMemoryStore()
     set_runtime_store(store)
     set_db_available(False)
@@ -281,7 +281,7 @@ async def test_pipeline_status_memory_all_idle_when_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_reflections_memory_empty(client):
+async def test_reflections_db_down_empty(client):
     store = InMemoryStore()
     set_runtime_store(store)
     set_db_available(False)
@@ -294,7 +294,7 @@ async def test_reflections_memory_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_reflections_memory_with_data(client):
+async def test_reflections_db_down_with_data(client):
     store = InMemoryStore()
     store.add_reflection(
         {
@@ -313,7 +313,7 @@ async def test_reflections_memory_with_data(client):
 
 
 @pytest.mark.asyncio
-async def test_strategies_memory_empty(client):
+async def test_strategies_db_down_empty(client):
     store = InMemoryStore()
     set_runtime_store(store)
     set_db_available(False)
@@ -326,7 +326,7 @@ async def test_strategies_memory_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_strategies_memory_with_data(client):
+async def test_strategies_db_down_with_data(client):
     store = InMemoryStore()
     store.add_strategy(
         {
