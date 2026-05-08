@@ -1,9 +1,20 @@
-"""Learning pipeline API — real data only, no mocks.
+"""Learning pipeline API — two operating modes, no mocks.
 
-Every number returned by these endpoints maps directly to a DB query
-(trade_evaluations / reflections / strategies) or to InMemoryStore when DB
-is unavailable.  The ``mode`` field in every response tells the caller which
-path was used so the UI can surface a banner when running in memory mode.
+DB UP   (is_db_available() == True):  queries hit PostgreSQL tables
+        trade_evaluations / reflections / strategies.
+        If trade_evaluations is still empty (migration ran but no
+        STREAM_TRADE_COMPLETED events processed yet), agent_grades is
+        bridged into the same response shape so the UI always has data.
+
+DB DOWN (is_db_available() == False): reads come from InMemoryStore,
+        which agents write to instead of Postgres while the DB is
+        unavailable.  InMemoryStore is the authoritative state in this
+        mode — not a fallback.  If no trade_evaluations have been written
+        yet (GradeAgent ran but no STREAM_TRADE_COMPLETED events were
+        processed), grade_history is bridged to fill the trades list.
+
+The ``mode`` field in every response ("db" or "memory") tells the UI
+which path was used so it can surface an appropriate banner.
 """
 
 from __future__ import annotations
@@ -92,7 +103,13 @@ def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) 
 
 
 def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
-    """In-memory fallback: map grade_history entries to trade_evaluation shape."""
+    """DB-down path: project grade_history into trade_evaluation shape.
+
+    Used when DB is down and InMemoryStore.trade_evaluations is empty —
+    meaning GradeAgent has been scoring but no STREAM_TRADE_COMPLETED
+    events have been processed through the learning pipeline yet.
+    grade_history is the best available evidence of agent scoring activity.
+    """
     all_grades = store.get_grades(200)
     total = len(all_grades)
     page = all_grades[offset : offset + limit]
@@ -110,7 +127,13 @@ def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dic
 async def _db_grades_as_trades(
     session: Any, text: Any, limit: int, offset: int
 ) -> tuple[list[dict[str, Any]], int]:
-    """DB fallback: map agent_grades rows to trade_evaluation shape."""
+    """DB-up bridge: project agent_grades rows into trade_evaluation shape.
+
+    Used when DB is up but trade_evaluations is empty — the migration ran
+    but no STREAM_TRADE_COMPLETED events have completed the learning loop
+    yet.  agent_grades holds GradeAgent's aggregate scores which are the
+    best available evidence until proper trade evaluations exist.
+    """
     count_row = await session.execute(text("SELECT COUNT(*) FROM agent_grades"))
     total = int(count_row.scalar() or 0)
     if total == 0:
@@ -169,7 +192,8 @@ async def list_trade_evaluations(
         from api.database import AsyncSessionFactory
 
         async with AsyncSessionFactory() as session:
-            # Check if trade_evaluations has data; fall back to agent_grades if not.
+            # trade_evaluations is empty if no STREAM_TRADE_COMPLETED events have been
+            # processed yet; bridge to agent_grades so the UI has real scoring data.
             total = 0
             table_ok = True
             try:
@@ -323,7 +347,8 @@ async def get_learning_metrics() -> dict[str, Any]:
         from api.database import AsyncSessionFactory
 
         async with AsyncSessionFactory() as session:
-            # Try trade_evaluations first; fall back to agent_grades if empty/missing.
+            # trade_evaluations is the primary source; bridge to agent_grades when
+            # the table is empty (no trade completions have cycled through yet).
             raw = []
             try:
                 rows = await session.execute(
@@ -552,7 +577,8 @@ async def get_pipeline_status() -> dict[str, Any]:
                 pass
 
             if not eval_count:
-                # Fall back to agent_grades so the scoring stage shows actual activity.
+                # trade_evaluations still empty — use agent_grades count so the
+                # scoring stage reflects GradeAgent activity that has already run.
                 ag_row = await session.execute(
                     text("SELECT COUNT(*), MAX(created_at) FROM agent_grades")
                 )
