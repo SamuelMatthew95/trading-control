@@ -44,10 +44,10 @@ const FALLBACK_LABELS: Record<string, string> = {
 }
 const formatAgentMessage = (raw: unknown): string => {
   const text = sanitizeValue(toSanitizeInput(raw))
-  if (text === '--') return 'N/A'
+  if (text === '--') return ''
   if (text.startsWith('fallback:')) {
     const mode = text.slice('fallback:'.length)
-    return FALLBACK_LABELS[mode] ?? 'LLM unavailable'
+    return FALLBACK_LABELS[mode] ?? 'Rule-based fallback (LLM unavailable)'
   }
   return text
 }
@@ -591,6 +591,13 @@ export function DashboardView({ section }: { section: Section }) {
     eventHistory: 'pending',
   })
   const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
+  const [tradeFeedEmptyReason, setTradeFeedEmptyReason] = useState<string | null>(null)
+  const [tradeFeedUpstream, setTradeFeedUpstream] = useState<{
+    signal_events?: number
+    decisions_evaluated?: number
+    ee_last_status?: string | null
+    ee_event_count?: number
+  } | null>(null)
   // null = not yet fetched, true/false = fetched from /dashboard/state
   const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('')
@@ -748,6 +755,13 @@ export function DashboardView({ section }: { section: Section }) {
           const trades = d.trades ?? []
           console.info('[Dashboard] Trade feed —', trades.length, 'trades')
           useCodexStore.getState().setTradeFeed(trades)
+          if (trades.length === 0) {
+            setTradeFeedEmptyReason(d.empty_reason ?? null)
+            setTradeFeedUpstream(d.upstream_activity ?? null)
+          } else {
+            setTradeFeedEmptyReason(null)
+            setTradeFeedUpstream(null)
+          }
         } else {
           console.warn('[Dashboard] /dashboard/trade-feed responded', r.status)
         }
@@ -1206,11 +1220,17 @@ export function DashboardView({ section }: { section: Section }) {
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
-                        <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                          {agent.realtimeCount + agent.persistedCount} events
-                        </p>
+                        {(agent.realtimeCount + agent.persistedCount) > 0 ? (
+                          <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                            {agent.realtimeCount + agent.persistedCount} events
+                          </p>
+                        ) : agent.lastSeen ? (
+                          <p className={mutedClass}>active</p>
+                        ) : (
+                          <p className={mutedClass}>waiting</p>
+                        )}
                         <p className={mutedClass}>
-                          {agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : 'Never'}
+                          {agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '—'}
                         </p>
                       </div>
                     </div>
@@ -1313,7 +1333,23 @@ export function DashboardView({ section }: { section: Section }) {
               <p className={mutedClass}>{tradeFeed.length} fills</p>
             </div>
             {tradeFeed.length === 0 ? (
-              <EmptyState message="No orders today" />
+              <div className="py-4 text-center space-y-2">
+                <p className={mutedClass}>
+                  {tradeFeedEmptyReason === 'db_degraded' ? 'DB unavailable — no fills persisted yet' :
+                   tradeFeedEmptyReason === 'no_orders_executed' ? 'No orders executed yet — decisions are being evaluated' :
+                   tradeFeedEmptyReason === 'lifecycle_not_persisted' ? 'Orders placed but lifecycle rows pending' :
+                   tradeFeedEmptyReason === 'no_executable_intents' ? 'Pipeline active — no executable intents yet' :
+                   'No fills yet'}
+                </p>
+                {tradeFeedUpstream && (tradeFeedUpstream.signal_events ?? 0) > 0 && (
+                  <div className="text-xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5">
+                    <p>Signals: {tradeFeedUpstream.signal_events?.toLocaleString() ?? 0} · Decisions: {tradeFeedUpstream.decisions_evaluated?.toLocaleString() ?? 0}</p>
+                    {tradeFeedUpstream.ee_last_status && (
+                      <p className="text-slate-400 dark:text-slate-500">EE: {tradeFeedUpstream.ee_last_status}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-1">
                 {tradeFeed.slice(0, 50).map((trade) => {
@@ -1386,14 +1422,39 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="relative max-h-80 overflow-y-auto">
                 <div className="space-y-2">
                   {agentLogs.slice(-10).reverse().map((log, index) => {
-                    const confidence = toFiniteNumber(log?.confidence)
-                    const confidencePct = confidence == null ? '--' : sanitizeValue((confidence * 100).toFixed(0))
-                    const confidenceClass = confidence != null && confidence > 0.9 ? 'bg-emerald-500/15 text-emerald-500' : confidence != null && confidence >= 0.75 ? 'bg-amber-500/15 text-amber-500' : 'bg-slate-500/15 text-slate-500'
+                    // Normalize confidence — backend may send it as 0–1 or 0–100
+                    const rawConf = toFiniteNumber(log?.confidence_score ?? log?.confidence)
+                    const confidence = rawConf == null ? null : rawConf > 1 ? rawConf / 100 : rawConf
+                    const confidencePct = confidence == null ? null : Math.round(confidence * 100)
+                    const confidenceClass = confidence == null ? 'bg-slate-500/15 text-slate-500'
+                      : confidence > 0.8 ? 'bg-emerald-500/15 text-emerald-500'
+                      : confidence >= 0.5 ? 'bg-amber-500/15 text-amber-500'
+                      : 'bg-slate-500/15 text-slate-500'
+                    // Resolve agent display name (SCREAMING_SNAKE → Title Case)
+                    const rawName = String(log?.agent_name || log?.agent || log?.source || '')
+                    const agentDisplay = rawName
+                      ? rawName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+                      : 'Agent'
+                    // Symbol may come directly or inside data sub-object
+                    const symbol = String(
+                      log?.symbol || (log?.data as Record<string,unknown>)?.symbol || ''
+                    )
+                    const action = String(log?.action || log?.decision || '').toUpperCase()
                     return (
-                      <div key={String(log?.id || `${String(log?.agent_name || log?.agent || '')}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
+                      <div key={String(log?.id || `${rawName}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
                         <div className="mb-1 flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent)) === '--' ? 'N/A' : sanitizeValue(toSanitizeInput(log?.agent_name || log?.agent))}</p>
-                          <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
+                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{agentDisplay}</p>
+                          {symbol && <span className="text-xs font-mono text-slate-500">{symbol}</span>}
+                          {action && action !== '' && (
+                            <span className={cn('rounded px-1.5 py-0.5 text-xs font-mono font-bold',
+                              action === 'BUY' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' :
+                              action === 'SELL' ? 'bg-rose-500/15 text-rose-500' :
+                              'bg-slate-500/10 text-slate-500'
+                            )}>{action}</span>
+                          )}
+                          {confidencePct != null && (
+                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
+                          )}
                           {typeof log?.trace_id === 'string' && log.trace_id ? (
                             <button
                               onClick={() => setActiveTraceId(log.trace_id as string)}
@@ -1429,7 +1490,7 @@ export function DashboardView({ section }: { section: Section }) {
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No orders today" /></td>
+                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No open positions" /></td>
                     </tr>
                   ) : (
                     positions.map((position, index) => {
@@ -1593,9 +1654,13 @@ export function DashboardView({ section }: { section: Section }) {
                         </td>
                         <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">{formatAgentSource(agent.source)}</td>
                         <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                          rt:{sanitizeValue(agent.realtimeCount)} · db:{sanitizeValue(agent.persistedCount)}
+                          {(agent.realtimeCount + agent.persistedCount) > 0 ? (
+                            <>{(agent.realtimeCount + agent.persistedCount).toLocaleString()} events</>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-600">—</span>
+                          )}
                         </td>
-                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '--'}</td>
+                        <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{agent.lastSeen ? formatTimeAgoSafe(agent.lastSeen) : '—'}</td>
                       </tr>
                     ))
                   )}

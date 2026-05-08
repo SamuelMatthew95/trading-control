@@ -56,6 +56,8 @@ _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
 
 class ExecutionEngine(BaseStreamConsumer):
+    _heartbeat_agent_name = AGENT_EXECUTION
+
     def __init__(
         self,
         bus: EventBus,
@@ -76,10 +78,14 @@ class ExecutionEngine(BaseStreamConsumer):
         self.redis = redis_client
         self.broker = broker
         self.agent_state = agent_state
+        self._decisions_evaluated: int = 0  # total decisions received (holds + gated + executed)
 
     async def process(self, data: dict[str, Any]) -> None:
+        # Check kill switch BEFORE incrementing so that retried messages (which are
+        # not acked when KillSwitchActive is raised) don't inflate the counter.
         if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
+        self._decisions_evaluated += 1
         # Learning-loop circuit breaker — set by ProposalApplier when GradeAgent
         # publishes a Grade F retirement proposal. Distinct from the manual
         # kill switch so the dashboard can distinguish "operator paused" from
@@ -87,13 +93,15 @@ class ExecutionEngine(BaseStreamConsumer):
         if await self.redis.get(REDIS_KEY_TRADING_PAUSED) == "1":
             reason = await self.redis.get(REDIS_KEY_TRADING_PAUSED_REASON) or "learning_loop_paused"
             symbol = str(data.get(FieldName.SYMBOL) or "?")
+            trace_id = str(data.get(FieldName.TRACE_ID) or "")
             log_structured(
                 "warning",
                 "execution_blocked_trading_paused",
                 symbol=symbol,
                 reason=reason,
-                trace_id=data.get(FieldName.TRACE_ID),
+                trace_id=trace_id,
             )
+            await self._write_idle_heartbeat(symbol, "blocked:trading_paused", trace_id)
             return
         if not is_db_available():
             await self._process_in_memory(data)
@@ -107,6 +115,8 @@ class ExecutionEngine(BaseStreamConsumer):
             missing.append("action/side")
         if missing:
             log_structured("warning", "order_missing_required_fields", missing=missing)
+            symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
+            await self._write_idle_heartbeat(symbol_hint, "error:missing_fields")
             return
 
         # strategy_id is required by the DB; fall back to a generated UUID if absent
@@ -118,6 +128,7 @@ class ExecutionEngine(BaseStreamConsumer):
             price = float(data[FieldName.PRICE])
         except (TypeError, ValueError):
             log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
+            await self._write_idle_heartbeat(symbol, "error:invalid_fields")
             return
         # Reject non-positive quantity / price to prevent broker-side errors and
         # accidental zero-size orders slipping past the gate.
@@ -129,6 +140,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 qty=qty,
                 price=price,
             )
+            await self._write_idle_heartbeat(symbol, "error:non_positive_fields")
             return
         trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
 
@@ -141,6 +153,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 action=side,
                 trace_id=trace_id,
             )
+            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
             return
 
         # --- Execution gate 2: weighted decision score -----------------------
@@ -170,6 +183,11 @@ class ExecutionEngine(BaseStreamConsumer):
                 threshold=threshold,
                 trace_id=trace_id,
             )
+            await self._write_idle_heartbeat(
+                symbol,
+                f"gated:score score={final_score:.3f}<{threshold}",
+                trace_id,
+            )
             return
 
         # --- Execution gate 3: market clock (equities only) ------------------
@@ -180,6 +198,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 symbol=symbol,
                 trace_id=trace_id,
             )
+            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
             return
         order_timestamp = self._parse_timestamp(data.get(FieldName.TIMESTAMP))
         idempotency_key = self._build_idempotency_key(
@@ -470,9 +489,34 @@ class ExecutionEngine(BaseStreamConsumer):
                 self.redis,
                 _STATE_NAME,
                 f"order_filled:{symbol} side={side} fill_price={fill_price}",
+                self._decisions_evaluated,
             )
         except Exception:
             log_structured("warning", "execution_heartbeat_failed", exc_info=True)
+
+    async def _write_idle_heartbeat(
+        self, symbol: str, exec_status: str, trace_id: str = ""
+    ) -> None:
+        """Write a heartbeat even when no order executes so dashboard always shows EE status.
+
+        The ``exec_status`` string encodes the gate reason:
+          idle:hold           — decision action was hold/reject/flat
+          gated:score         — weighted score below EXECUTION_DECISION_THRESHOLD
+          blocked:market_closed  — equity market hours check failed
+          blocked:trading_paused — learning-loop circuit breaker active
+          error:missing_fields   — required payload fields absent
+          error:invalid_fields   — numeric field conversion failed
+        """
+        try:
+            await _write_heartbeat(
+                self.redis,
+                _STATE_NAME,
+                f"decision:{symbol} {exec_status}",
+                self._decisions_evaluated,
+                extra={"exec_status": exec_status, "last_trace_id": trace_id},
+            )
+        except Exception:
+            log_structured("warning", "execution_idle_heartbeat_failed", exc_info=True)
 
     async def _process_in_memory(self, data: dict[str, Any]) -> None:
         """Execute an order entirely in-memory when the DB is unavailable.
@@ -487,6 +531,8 @@ class ExecutionEngine(BaseStreamConsumer):
             missing.append("action/side")
         if missing:
             log_structured("warning", "order_missing_required_fields_memory", missing=missing)
+            symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
+            await self._write_idle_heartbeat(symbol_hint, "error:missing_fields")
             return
 
         strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
@@ -497,6 +543,7 @@ class ExecutionEngine(BaseStreamConsumer):
             price = float(data[FieldName.PRICE])
         except (TypeError, ValueError):
             log_structured("warning", "order_invalid_numeric_fields_memory", symbol=symbol)
+            await self._write_idle_heartbeat(symbol, "error:invalid_fields")
             return
         if qty <= 0 or price <= 0:
             log_structured(
@@ -506,10 +553,12 @@ class ExecutionEngine(BaseStreamConsumer):
                 qty=qty,
                 price=price,
             )
+            await self._write_idle_heartbeat(symbol, "error:non_positive_fields")
             return
         trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
 
         if side in NO_ORDER_ACTIONS:
+            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
             return
 
         signal_confidence = float(
@@ -522,9 +571,15 @@ class ExecutionEngine(BaseStreamConsumer):
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         threshold = EXECUTION_DECISION_THRESHOLD
         if final_score < threshold:
+            await self._write_idle_heartbeat(
+                symbol,
+                f"gated:score score={final_score:.3f}<{threshold}",
+                trace_id,
+            )
             return
 
         if not self._is_market_open(symbol):
+            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
             return
 
         # --- Idempotency guard (mirrors the DB-path SELECT on idempotency_key) ---
@@ -771,6 +826,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 self.redis,
                 _STATE_NAME,
                 f"order_filled_memory:{symbol} side={side} fill_price={fill_price}",
+                self._decisions_evaluated,
             )
         except Exception:
             log_structured("warning", "execution_heartbeat_failed_memory", exc_info=True)
@@ -891,12 +947,14 @@ class ExecutionEngine(BaseStreamConsumer):
         self,
         signal_confidence: float,
         reasoning_score: float,
-        historical_perf: float = 0.5,
+        historical_perf: float = 0.6,
     ) -> float:
         """Weighted execution score used as a gate before submitting orders.
 
         Weights: signal 50%, reasoning 30%, historical performance 20%.
-        ``historical_perf`` defaults to 0.5 (neutral) when unavailable.
+        ``historical_perf`` defaults to 0.6 (slight optimism for new systems with
+        no trading history — allows MOMENTUM-tier signals, score=0.55, to clear
+        the 0.55 gate: 0.55*0.5 + 0.55*0.3 + 0.6*0.2 = 0.56 > 0.55).
         """
         return (signal_confidence * 0.50) + (reasoning_score * 0.30) + (historical_perf * 0.20)
 

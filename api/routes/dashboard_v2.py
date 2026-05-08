@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from api.config import settings
 from api.constants import (
+    AGENT_EXECUTION,
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
@@ -393,7 +394,10 @@ async def get_dashboard_state() -> dict[str, Any]:
                     data = await aggregator.get_raw_snapshot()
             except Exception:
                 log_structured("warning", "dashboard_state_db_failed", exc_info=True)
-                return get_runtime_store().dashboard_fallback_snapshot()
+                fallback = get_runtime_store().dashboard_fallback_snapshot()
+                fallback["degraded_mode"] = True
+                fallback["degraded_reason"] = "db_unavailable"
+                return fallback
 
         # Redis enrichment is best-effort: a Redis outage must not prevent
         # the frontend from receiving its DB-backed hydration data.
@@ -402,6 +406,9 @@ async def get_dashboard_state() -> dict[str, Any]:
         except Exception:
             log_structured("warning", "dashboard_state_redis_unavailable", exc_info=True)
             data.setdefault("mode", runtime_mode())
+            db_up = is_db_available()
+            data["degraded_mode"] = True
+            data["degraded_reason"] = "db_unavailable" if not db_up else "redis_unavailable"
             return data
 
         # Enrich with current prices from Redis cache
@@ -448,6 +455,10 @@ async def get_dashboard_state() -> dict[str, Any]:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
 
         data.setdefault("mode", runtime_mode())
+        db_up = is_db_available()
+        data["degraded_mode"] = not db_up
+        if not db_up:
+            data["degraded_reason"] = "db_unavailable"
         # Expose whether the configured LLM provider has an API key so the
         # frontend can surface a "rule-based mode" banner instead of silently
         # showing no reasoning decisions.
@@ -629,16 +640,21 @@ async def get_flow_status() -> dict[str, Any]:
     try:
         if not is_db_available():
             store = get_runtime_store()
+            mem_runs = len(store.agent_runs)
             return {
                 "api_version": DASHBOARD_API_VERSION,
                 "db_schema_version": DB_SCHEMA_VERSION,
+                "degraded_mode": True,
+                "degraded_reason": "db_unavailable",
                 "counts": {
-                    "agent_runs": len(store.agent_runs),
+                    "agent_runs": mem_runs,
                     "agent_logs": len(store.event_history),
                     "agent_grades": len(store.grade_history),
                     "orders": 0,
                     "trade_lifecycle": 0,
                 },
+                "realtime_event_count": mem_runs,
+                "persisted_event_count": 0,
                 "trace_coverage": {"trace_id": None},
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "in_memory",
@@ -707,26 +723,35 @@ async def get_flow_status() -> dict[str, Any]:
                     or 0
                 )
 
+        counts = {k: int(v or 0) for k, v in dict(counts_row).items()}
         return {
             "api_version": DASHBOARD_API_VERSION,
             "db_schema_version": DB_SCHEMA_VERSION,
-            "counts": {k: int(v or 0) for k, v in dict(counts_row).items()},
+            "degraded_mode": False,
+            "counts": counts,
+            "realtime_event_count": counts.get("agent_runs", 0),
+            "persisted_event_count": counts.get("agent_logs", 0),
             "trace_coverage": trace_coverage,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("warning", "flow_status_db_unavailable", exc_info=True)
         store = get_runtime_store()
+        mem_runs = len(store.agent_runs)
         return {
             "api_version": DASHBOARD_API_VERSION,
             "db_schema_version": DB_SCHEMA_VERSION,
+            "degraded_mode": True,
+            "degraded_reason": "db_unavailable",
             "counts": {
-                "agent_runs": len(store.agent_runs),
+                "agent_runs": mem_runs,
                 "agent_logs": len(store.event_history),
                 "agent_grades": len(store.grade_history),
                 "orders": 0,
                 "trade_lifecycle": 0,
             },
+            "realtime_event_count": mem_runs,
+            "persisted_event_count": 0,
             "trace_coverage": {"trace_id": None},
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
@@ -845,8 +870,24 @@ async def get_agents_status() -> dict[str, Any]:
                         existing[FieldName.STATUS] = "STALE"
                         existing[FieldName.LAST_EVENT] = "missing_last_seen_at"
 
+        # Pipeline health summary: signal / decision stream lengths + EE last status
+        pipeline_health: dict[str, Any] = {}
+        try:
+            pipeline_health["signal_stream_length"] = await redis_client.xlen(STREAM_SIGNALS)
+            pipeline_health["decision_stream_length"] = await redis_client.xlen(STREAM_DECISIONS)
+            _ee_raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
+            if _ee_raw:
+                _ee = json.loads(_ee_raw)
+                pipeline_health["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
+                pipeline_health["ee_decisions_evaluated"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
+        except Exception:
+            pass
+
         return {
             "agents": agents,
+            "pipeline_health": pipeline_health,
+            "degraded_mode": not is_db_available(),
+            **({"degraded_reason": "db_unavailable"} if not is_db_available() else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -866,6 +907,8 @@ async def get_agents_status() -> dict[str, Any]:
         ]
         return {
             "agents": agents,
+            "degraded_mode": True,
+            "degraded_reason": "redis_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -2108,9 +2151,18 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
     Each row shows what happened end-to-end: filled price, P&L, grade, and
     whether a reflection has been written.  The frontend displays these as a
     clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
+
+    When ``count`` is 0 the response includes ``empty_reason`` to explain why:
+    - ``db_degraded``            — DB unavailable; in-memory store also has no fills
+    - ``no_orders_executed``     — DB reachable but orders table is empty
+    - ``lifecycle_not_persisted``— orders exist but no trade_lifecycle rows yet
+    - ``no_executable_intents``  — decisions were gated (HOLD/score/market) by EE
     """
     if not is_db_available():
-        return _in_memory_trade_feed_payload(limit, session_id=session_id)
+        payload = _in_memory_trade_feed_payload(limit, session_id=session_id)
+        if payload["count"] == 0:
+            payload["empty_reason"] = "db_degraded"
+        return payload
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -2220,6 +2272,69 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
             if fallback["count"] > 0:
                 return fallback
+
+            # Diagnose why trade feed is empty so the UI can explain it.
+            # Scope counts to the requested session when one is provided so the
+            # reason reflects that session's state, not the global table state.
+            empty_reason = "no_executable_intents"
+            try:
+                _diag_params: dict[str, Any] = {}
+                if session_id:
+                    _order_sql = "SELECT COUNT(*) FROM orders WHERE strategy_id::text = :sid"
+                    # Mirror the COALESCE(o.strategy_id, tl.decision_trace_id) session
+                    # mapping used by the main trade-feed query so the diagnostic
+                    # counts lifecycle rows for this session regardless of which
+                    # identifier was populated.
+                    _lifecycle_sql = """
+                        SELECT COUNT(*)
+                        FROM trade_lifecycle tl
+                        LEFT JOIN orders o ON o.id = tl.order_id
+                        WHERE COALESCE(o.strategy_id::text, tl.decision_trace_id) = :sid
+                    """
+                    _diag_params = {"sid": session_id}
+                else:
+                    _order_sql = "SELECT COUNT(*) FROM orders"
+                    _lifecycle_sql = "SELECT COUNT(*) FROM trade_lifecycle"
+                async with AsyncSessionFactory() as diag_session:
+                    order_count = (
+                        await diag_session.execute(text(_order_sql), _diag_params)
+                    ).scalar() or 0
+                    lifecycle_count = (
+                        await diag_session.execute(text(_lifecycle_sql), _diag_params)
+                    ).scalar() or 0
+                if order_count == 0:
+                    empty_reason = "no_orders_executed"
+                elif lifecycle_count == 0:
+                    empty_reason = "lifecycle_not_persisted"
+            except Exception:
+                pass  # keep default reason
+
+            # Fetch upstream pipeline counts so the UI can show the pipeline
+            # is healthy even when no fills have occurred yet.
+            upstream: dict[str, Any] = {
+                "signal_events": 0,
+                "decisions_evaluated": 0,
+                "ee_last_status": None,
+            }
+            try:
+                _redis = await get_redis()
+                upstream["signal_events"] = await _redis.xlen(STREAM_SIGNALS)
+                upstream["decisions_evaluated"] = await _redis.xlen(STREAM_DECISIONS)
+                _ee_raw = await _redis.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
+                if _ee_raw:
+                    _ee = json.loads(_ee_raw)
+                    upstream["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
+                    upstream["ee_event_count"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
+            except Exception:
+                pass
+
+            return {
+                "trades": [],
+                "count": 0,
+                "empty_reason": empty_reason,
+                "upstream_activity": upstream,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
 
         return {
             "trades": trades,
