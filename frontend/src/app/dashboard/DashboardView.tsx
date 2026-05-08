@@ -10,15 +10,11 @@ import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import {
-  Activity,
   Brain,
-  ThumbsDown,
-  ThumbsUp,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
-import type { Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -249,103 +245,7 @@ function PriceCardSkeleton() {
   )
 }
 
-const PROPOSAL_TYPE_LABEL: Record<string, string> = {
-  parameter_change: 'Param Change',
-  code_change: 'Code Change',
-  regime_adjustment: 'Regime Adjust',
-  signal_weight_reduction: 'Weight Reduction',
-  agent_suspension: 'Suspension',
-  agent_retirement: 'Retirement',
-  new_agent: 'New Agent',
-}
-const PROPOSAL_TYPE_STYLE: Record<string, string> = {
-  parameter_change: 'bg-slate-500/10 text-slate-500',
-  code_change: 'bg-slate-500/10 text-slate-500',
-  regime_adjustment: 'bg-amber-500/15 text-amber-500',
-  signal_weight_reduction: 'bg-amber-500/15 text-amber-500',
-  agent_suspension: 'bg-rose-500/15 text-rose-500',
-  agent_retirement: 'bg-rose-600/15 text-rose-600',
-  new_agent: 'bg-emerald-500/15 text-emerald-500',
-}
 
-function ProposalsFeed({
-  proposals,
-  onUpdateStatus,
-}: {
-  proposals: Proposal[]
-  onUpdateStatus: (id: string, status: import('@/stores/useCodexStore').ProposalStatus) => void
-}) {
-  const pending = proposals.filter((p) => p.status === 'pending')
-  return (
-    <div className={cardClass}>
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-slate-500" />
-          <p className={sectionTitleClass}>Strategy Proposals</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {pending.length > 0 && (
-            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-900 dark:bg-slate-700 dark:text-slate-100">{pending.length} pending</span>
-          )}
-          <p className={mutedClass}>{proposals.length} total</p>
-        </div>
-      </div>
-      {proposals.length === 0 ? (
-        <EmptyState message="No proposals yet" icon={Brain} />
-      ) : (
-        <div className="max-h-96 space-y-3 overflow-y-auto">
-          {proposals.map((proposal) => (
-            <div
-              key={proposal.id}
-              className={cn(
-                'rounded-lg border p-3 transition-opacity',
-                proposal.status === 'pending' ? 'border-slate-200 dark:border-slate-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
-              )}
-            >
-              <div className="mb-2 flex items-center gap-2 flex-wrap">
-                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-400')}>
-                  {PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type}
-                </span>
-                {proposal.confidence != null && (
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
-                    {(proposal.confidence * 100).toFixed(0)}% confidence
-                  </span>
-                )}
-                {proposal.status !== 'pending' && (
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
-                    {proposal.status}
-                  </span>
-                )}
-                <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
-              </div>
-              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
-                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
-              </p>
-              {proposal.status === 'pending' && proposal.requires_approval && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => onUpdateStatus(proposal.id, 'approved')}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
-                  >
-                    <ThumbsUp className="h-3 w-3" />
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => onUpdateStatus(proposal.id, 'rejected')}
-                    className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
-                  >
-                    <ThumbsDown className="h-3 w-3" />
-                    Reject
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Trace modal
@@ -552,7 +452,6 @@ export function DashboardView({ section }: { section: Section }) {
     positions = [],
     systemMetrics = [],
     notifications = [],
-    proposals = [],
     tradeFeed = [],
     agentInstances = [],
     performanceSummary,
@@ -566,7 +465,6 @@ export function DashboardView({ section }: { section: Section }) {
     wsDiagnostics,
     recentEvents = [],
     agentStatuses = [],
-    updateProposalStatus,
   } = useCodexStore()
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
