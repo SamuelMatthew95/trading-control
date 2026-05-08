@@ -138,11 +138,11 @@ export function EquityCurve({
   }
 
   if (hasError) {
-    return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">Unable to load equity curve</div>
+    return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">Unable to load equity curve</div>
   }
 
   if (series.length === 0) {
-    return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">No equity data yet</div>
+    return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No equity data yet</div>
   }
 
   const last = stats?.end ?? 0

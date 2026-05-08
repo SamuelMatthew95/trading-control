@@ -93,7 +93,7 @@ const formatWiringAge = (ageMs: number | null): string => {
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
 }
 
-const cardClass = 'rounded-xl border border-slate-200 bg-white p-4 transition-colors duration-150 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
+const cardClass = 'rounded-xl border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
@@ -227,7 +227,7 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
 function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
   return (
     <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-400">{message}</p>
+      <p className="text-sm font-sans text-slate-500 dark:text-slate-400">{message}</p>
     </div>
   )
 }
@@ -320,7 +320,7 @@ function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void
                 <div className="space-y-1">
                   {data.agent_grades.map((g, i) => {
                     const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
-                    const scoreColor = score == null ? 'text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
+                    const scoreColor = score == null ? 'text-slate-500 dark:text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
                     return (
                       <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
                         <span>{String(g.grade_type ?? '--')}</span>
@@ -1677,7 +1677,7 @@ export function DashboardView({ section }: { section: Section }) {
                             ? 'bg-slate-500/10 text-slate-500'
                             : event.stream === 'orders'
                               ? 'bg-amber-500/15 text-amber-500'
-                              : 'bg-slate-500/15 text-slate-400'
+                              : 'bg-slate-500/15 text-slate-500'
                       )}
                     >
                       {event.stream}
@@ -1774,7 +1774,7 @@ export function DashboardView({ section }: { section: Section }) {
   )
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
+    <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
         <div
           className={cn(
