@@ -29,6 +29,11 @@ function totalEvents(agent: AgentSummary): number {
   return agent.realtimeCount + agent.persistedCount
 }
 
+function eventsLabel(agent: AgentSummary): string {
+  const total = totalEvents(agent)
+  return total === 0 ? 'no events' : `${total} events`
+}
+
 function AgentMatrixTile(props: { agent: AgentSummary }) {
   const { agent } = props
   return (
@@ -38,7 +43,7 @@ function AgentMatrixTile(props: { agent: AgentSummary }) {
         <StateIndicator tone={toneForAgentStatus(agent.status)} label={agent.status} />
       </div>
       <div className={`mt-2 ${ROW_BETWEEN}`}>
-        <p className={UI_TEXT.cell}>{totalEvents(agent)} events</p>
+        <p className={UI_TEXT.cell}>{eventsLabel(agent)}</p>
         <p className={UI_TEXT.muted}>{lastSeenLabel(agent.lastSeen)}</p>
       </div>
     </div>

@@ -27,7 +27,13 @@ interface AgentStatusTableProps {
   showEmpty: boolean
 }
 
+/**
+ * Collapse the noise case of `rt:0 · db:0` (an agent that has registered
+ * a heartbeat but never produced an event) to a single em-dash so the
+ * table reads "no events" at a glance instead of "two zeros".
+ */
 function eventCountText(agent: AgentSummary): string {
+  if (agent.realtimeCount === 0 && agent.persistedCount === 0) return '—'
   return `rt:${agent.realtimeCount} · db:${agent.persistedCount}`
 }
 

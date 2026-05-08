@@ -29,18 +29,32 @@ const FALLBACK_LABELS: Record<string, string> = {
   use_last_reflection: 'Rule-based fallback: reused last reflection',
 }
 
+/**
+ * Translate `fallback:<mode>` markers WHEREVER they appear in the message.
+ * The reasoning agent emits both bare markers ("fallback:skip_reasoning")
+ * and embedded forms ("HOLD (30%) — fallback:skip_reasoning"). The previous
+ * implementation only handled the prefix form, so embedded markers leaked
+ * raw to the UI.
+ */
 function formatAgentMessage(raw: unknown): string {
-  if (raw == null || raw === '') return 'N/A'
-  const text = String(raw)
-  if (text.startsWith('fallback:')) {
-    const mode = text.slice('fallback:'.length)
+  if (raw == null || raw === '') return ''
+  const text = String(raw).trim()
+  if (!text) return ''
+  return text.replace(/fallback:(\w+)/g, (_match, mode: string) => {
     return FALLBACK_LABELS[mode] ?? 'LLM unavailable'
-  }
-  return text
+  })
 }
 
-function buildAgentLabel(log: AgentLog): string {
-  return String(log?.agent_name ?? log?.agent ?? '') || 'N/A'
+function readAgentName(log: AgentLog): string {
+  return String(log?.agent_name ?? log?.agent ?? '').trim()
+}
+
+function readTraceId(log: AgentLog): string | null {
+  return typeof log?.trace_id === 'string' && log.trace_id ? log.trace_id : null
+}
+
+function readLogMessage(log: AgentLog): string {
+  return formatAgentMessage(log?.message ?? log?.summary ?? log?.primary_edge)
 }
 
 function buildConfidenceText(confidence: number | null): string {
@@ -48,17 +62,36 @@ function buildConfidenceText(confidence: number | null): string {
   return (confidence * 100).toFixed(0)
 }
 
-function readTraceId(log: AgentLog): string | null {
-  return typeof log?.trace_id === 'string' && log.trace_id ? log.trace_id : null
-}
-
 function buildLogKey(log: AgentLog, agentLabel: string, index: number): string {
   if (log?.id != null) return String(log.id)
   return `${agentLabel}-${log?.timestamp ?? ''}-${index}`
 }
 
-function readLogMessage(log: AgentLog): unknown {
-  return log?.message ?? log?.summary ?? log?.primary_edge
+/**
+ * Drop logs that carry no real signal:
+ *   - missing/blank agent_name (renders as "N/A")
+ *   - empty message after fallback translation
+ * And dedupe per (trace_id, message) so the reasoning agent's parallel
+ * "decision" + "summary" writes for the same trace don't both render.
+ * Keeps the FIRST occurrence (newest, since we reverse before this runs).
+ */
+function visibleLogs(logs: AgentLog[]): AgentLog[] {
+  const recent = logs.slice(-AGENT_LOG_MAX_ROWS * 2).slice().reverse()
+  const seen = new Set<string>()
+  const out: AgentLog[] = []
+  for (const log of recent) {
+    const agentName = readAgentName(log)
+    if (!agentName) continue
+    const message = readLogMessage(log)
+    if (!message) continue
+    const traceId = readTraceId(log) ?? ''
+    const dedupeKey = `${traceId}|${message}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    out.push(log)
+    if (out.length >= AGENT_LOG_MAX_ROWS) break
+  }
+  return out
 }
 
 function TraceLinkButton(props: { traceId: string; onTraceClick: (id: string) => void }) {
@@ -83,7 +116,7 @@ function AgentLogRow(props: AgentLogRowProps) {
   const { log, index, onTraceClick } = props
   const confidence = toFiniteNumber(log?.confidence)
   const tone = toneForRatio(confidence)
-  const agentLabel = buildAgentLabel(log)
+  const agentLabel = readAgentName(log)
   const traceId = readTraceId(log)
   return (
     <div key={buildLogKey(log, agentLabel, index)} className={cn(ROW_DIVIDER_SKIP_FIRST, 'py-2')}>
@@ -94,13 +127,9 @@ function AgentLogRow(props: AgentLogRowProps) {
         </span>
         {traceId ? <TraceLinkButton traceId={traceId} onTraceClick={onTraceClick} /> : null}
       </div>
-      <p className={cn(UI_TEXT.body, 'leading-relaxed')}>{formatAgentMessage(readLogMessage(log))}</p>
+      <p className={cn(UI_TEXT.body, 'leading-relaxed')}>{readLogMessage(log)}</p>
     </div>
   )
-}
-
-function visibleLogs(logs: AgentLog[]): AgentLog[] {
-  return logs.slice(-AGENT_LOG_MAX_ROWS).slice().reverse()
 }
 
 export function AgentThoughtStream(props: AgentThoughtStreamProps) {
@@ -119,7 +148,7 @@ export function AgentThoughtStream(props: AgentThoughtStreamProps) {
           <div className={STACK_TIGHT}>
             {rows.map((log, index) => (
               <AgentLogRow
-                key={buildLogKey(log, buildAgentLabel(log), index)}
+                key={buildLogKey(log, readAgentName(log), index)}
                 log={log}
                 index={index}
                 onTraceClick={onTraceClick}
