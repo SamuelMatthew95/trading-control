@@ -9,12 +9,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-slate-200 bg-slate-100 text-slate-950 hover:bg-slate-200',
+        default: 'border-slate-300 bg-slate-100 text-slate-950 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700',
         outline: 'border-slate-400 bg-transparent text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
         secondary: 'border-slate-400 bg-transparent text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
         ghost: 'border-transparent bg-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200',
-        destructive: 'border-rose-400 bg-transparent text-rose-400 hover:bg-rose-500/10',
-        success: 'border-slate-200 bg-slate-100 text-slate-950 hover:bg-slate-200',
+        destructive: 'border-rose-500 bg-transparent text-rose-600 hover:bg-rose-500/10 dark:border-rose-400 dark:text-rose-400',
+        success: 'border-slate-300 bg-slate-100 text-slate-950 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700',
         link: 'border-transparent bg-transparent text-slate-500 underline-offset-4 hover:underline',
       },
       size: {
