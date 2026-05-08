@@ -7,7 +7,7 @@ import { METRIC_ROW_GRID, STACK } from '@/lib/styles'
 import { AgentStatusTable } from './AgentStatusTable'
 import { AgentInstancesPanel } from './AgentInstancesPanel'
 import { SystemDiagnosticsPanel } from './SystemDiagnosticsPanel'
-import { formatNumber, formatTimestamp } from '@/lib/format'
+import { formatNumber, formatTimestamp, parseTimestamp } from '@/lib/format'
 import type {
   AgentInstance,
   AgentLog,
@@ -15,6 +15,14 @@ import type {
   Notification,
 } from '@/stores/useCodexStore'
 import type { AgentSummary, ApiHealthState, WiringFreshness } from '@/lib/types'
+
+function notificationActivityHint(timestamp: string | null | undefined): string {
+  // Use parseTimestamp first so an invalid value (e.g. "not-a-date") falls
+  // through to "No activity yet" rather than rendering "Last: —".
+  const parsed = parseTimestamp(timestamp)
+  if (!parsed) return 'No activity yet'
+  return `Last: ${formatTimestamp(parsed)}`
+}
 
 interface AgentsSectionProps {
   marketTickCount: number
@@ -72,11 +80,7 @@ export function AgentsSection({
         <MetricTile
           label="Notifications"
           value={formatNumber(notifications.length)}
-          hint={
-            notifications[0]?.timestamp
-              ? `Last: ${formatTimestamp(notifications[0].timestamp)}`
-              : 'No activity yet'
-          }
+          hint={notificationActivityHint(notifications[0]?.timestamp)}
         />
       </div>
 

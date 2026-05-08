@@ -37,7 +37,7 @@ interface BannedPattern {
 const BANNED_PATTERNS: BannedPattern[] = [
   {
     description: 'INNER_TILE pattern must come from lib/styles, not be inlined',
-    needle: 'rounded-[6px] border border-slate-200 p-3 dark:border-slate-800',
+    needle: 'rounded-[6px] border border-slate-300 p-3 dark:border-slate-800',
     dirs: [SECTIONS_DIR],
   },
   {
@@ -49,7 +49,7 @@ const BANNED_PATTERNS: BannedPattern[] = [
   {
     description: 'EVENT_ROW pattern must come from lib/styles',
     needle:
-      'flex items-center justify-between rounded-[6px] border border-slate-200 px-3 py-2 dark:border-slate-800',
+      'flex items-center justify-between rounded-[6px] border border-slate-300 px-3 py-2 dark:border-slate-800',
     dirs: [SECTIONS_DIR],
   },
   {
@@ -98,7 +98,8 @@ describe('dashboard style guardrails', () => {
 describe('lib/styles exports are consistent', () => {
   it('INNER_TILE encodes the canonical inner-tile pattern', () => {
     expect(INNER_TILE).toContain('rounded-[6px]')
-    expect(INNER_TILE).toContain('border-slate-200')
+    // slate-300 in light mode for visible edges on the slate-100 page background.
+    expect(INNER_TILE).toContain('border-slate-300')
   })
   it('CHIP_BASE and CHIP_BASE_BOLD share the same shape but differ in weight', () => {
     expect(CHIP_BASE).toContain('font-semibold')

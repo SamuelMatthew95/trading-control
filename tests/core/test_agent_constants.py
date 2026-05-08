@@ -124,15 +124,16 @@ def test_dashboard_state_reads_correct_redis_keys() -> None:
 
 
 # ---------------------------------------------------------------------------
-# LLM_TIMEOUT_SECONDS — regression: value was raised from 30 → 60
+# LLM_TIMEOUT_SECONDS — regression: must come from settings/env var
 # ---------------------------------------------------------------------------
 
 
-def test_llm_timeout_seconds_is_sixty() -> None:
-    """LLM_TIMEOUT_SECONDS must equal 60 (raised from 30 to allow slow model responses)."""
+def test_llm_timeout_seconds_uses_configured_setting() -> None:
+    """LLM_TIMEOUT_SECONDS must mirror settings so Render env var can control it."""
+    from api.config import settings
     from api.constants import LLM_TIMEOUT_SECONDS
 
-    assert LLM_TIMEOUT_SECONDS == 60
+    assert LLM_TIMEOUT_SECONDS == settings.LLM_TIMEOUT_SECONDS
 
 
 def test_llm_timeout_seconds_greater_than_old_value() -> None:

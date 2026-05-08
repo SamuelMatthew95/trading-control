@@ -674,7 +674,7 @@ class MetricsAggregator:
                             "proposal_type": _safe_str(p.get(FieldName.PROPOSAL_TYPE))
                             or "parameter_change",
                             "content": _safe_str(
-                                p.get(FieldName.CONTENT) or p.get("description") or ""
+                                p.get(FieldName.CONTENT) or p.get(FieldName.DESCRIPTION) or ""
                             ),
                             "requires_approval": bool(p.get(FieldName.REQUIRES_APPROVAL, True)),
                             "confidence": _safe_float(p.get(FieldName.CONFIDENCE)) or None,

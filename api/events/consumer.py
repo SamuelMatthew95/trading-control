@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -18,8 +19,15 @@ from api.services.agent_state import AgentStateRegistry
 
 ACCEPTED_SCHEMA_VERSIONS = ACCEPTED_DB_SCHEMA_VERSIONS
 
+_IDLE_HEARTBEAT_INTERVAL = 60  # seconds between keep-alive heartbeats when idle
+
 
 class BaseStreamConsumer(ABC):
+    # Subclasses set this to the agent name constant (e.g. AGENT_SIGNAL).
+    # When set, _run() writes a startup heartbeat and a periodic idle heartbeat
+    # so the dashboard shows the agent as alive even when no messages arrive.
+    _heartbeat_agent_name: str | None = None
+
     def __init__(
         self,
         bus: EventBus,
@@ -42,6 +50,28 @@ class BaseStreamConsumer(ABC):
         self._backoff = 1  # Exponential backoff state
         self._max_backoff = 10  # Maximum backoff in seconds
         self._instance_id: str | None = None
+        self._events_processed: int = 0
+
+    async def _write_alive_heartbeat(self, status: str = "idle:waiting") -> None:
+        """Write a keep-alive heartbeat using the agent name declared in the subclass.
+
+        Uses lazy Redis access via self.bus.redis so we don't need a separate
+        redis_client parameter on every subclass. No-op when _heartbeat_agent_name
+        is not set or Redis is unavailable.
+        """
+        if not self._heartbeat_agent_name:
+            return
+        try:
+            from api.services.agent_heartbeat import write_heartbeat as _hb
+
+            await _hb(
+                self.bus.redis,
+                self._heartbeat_agent_name,
+                f"agent:{status}",
+                event_count=self._events_processed,
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Public introspection — used by AgentSupervisor to detect crashes
@@ -202,6 +232,10 @@ class BaseStreamConsumer(ABC):
         if self.agent_state:
             self.agent_state.transition(self.consumer, "active", task=f"polling:{self.stream}")
 
+        # Startup heartbeat — makes the agent visible immediately on the dashboard.
+        await self._write_alive_heartbeat("idle:starting")
+        _last_heartbeat = time.monotonic()
+
         try:
             # Initial reclaim of stale messages
             reclaimed = await self._safe_reclaim_stale()
@@ -217,6 +251,10 @@ class BaseStreamConsumer(ABC):
 
         # Main loop with responsive shutdown
         while self._running and not self._shutdown_event.is_set():
+            now = time.monotonic()
+            if now - _last_heartbeat >= _IDLE_HEARTBEAT_INTERVAL:
+                await self._write_alive_heartbeat("idle:waiting")
+                _last_heartbeat = now
             try:
                 # Use shorter blocking time for responsive shutdown
                 messages = await self.bus.consume(
@@ -401,6 +439,7 @@ class BaseStreamConsumer(ABC):
         try:
             await self._process_with_timeout(data)
             await self.bus.acknowledge(self.stream, self.group, msg_id)
+            self._events_processed += 1
             if self.agent_state:
                 self.agent_state.record_event(self.consumer, task=f"acked:{self.stream}")
                 self.agent_state.transition(self.consumer, "active", task=f"polling:{self.stream}")

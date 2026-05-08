@@ -130,7 +130,7 @@ describe('DashboardView — trading', () => {
 
   it('shows empty state when no positions', () => {
     render(<DashboardView section="trading" />)
-    expect(screen.getAllByText(/no orders today/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/no fills yet/i).length).toBeGreaterThan(0)
   })
 })
 
@@ -172,6 +172,26 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText('Live')).toBeInTheDocument()
     expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
+
+  it('falls back when latest notification timestamp is invalid', () => {
+    mockStore.notifications = [
+      {
+        id: 'notif-invalid-ts',
+        severity: 'INFO',
+        title: 'Bad timestamp event',
+        message: 'Timestamp malformed',
+        notification_type: 'system.test',
+        stream_source: 'runtime',
+        timestamp: 'not-a-date',
+      },
+    ]
+
+    render(<DashboardView section="agents" />)
+
+    expect(screen.getByText('No activity yet')).toBeInTheDocument()
+    expect(screen.queryByText(/Last:\s*Invalid Date/i)).not.toBeInTheDocument()
+  })
+
 
   it('renders buy trade notifications with trade fields', () => {
     mockStore.notifications = [

@@ -156,6 +156,21 @@ class GradeAgent(MultiStreamAgent):
 
         trigger = max(int(settings.GRADE_EVERY_N_FILLS), 1)
         if self._fills == 0 or self._fills % trigger != 0:
+            # Write idle heartbeat so dashboard shows GradeAgent as active even
+            # between grading cycles.
+            try:
+                from api.redis_client import get_redis as _get_redis
+
+                _redis = await _get_redis()
+                await _write_heartbeat(
+                    _redis,
+                    self._state_name,
+                    f"fill_buffered:{self._fills}/{trigger}",
+                    self._fills,
+                    extra={"exec_status": "idle:buffering"},
+                )
+            except Exception:
+                log_structured("warning", "grade_idle_heartbeat_failed", exc_info=True)
             return
 
         await self._compute_and_publish_grade()
@@ -579,6 +594,16 @@ class ICUpdater(MultiStreamAgent):
 
         trigger = max(int(settings.IC_UPDATE_EVERY_N_FILLS), 1)
         if self._fills % trigger != 0:
+            try:
+                await _write_heartbeat(
+                    self.redis,
+                    self._state_name,
+                    f"fill_buffered:{self._fills}/{trigger}",
+                    self._fills,
+                    extra={"exec_status": "idle:buffering"},
+                )
+            except Exception:
+                log_structured("warning", "ic_updater_idle_heartbeat_failed", exc_info=True)
             return
 
         await self._recompute_and_publish()
@@ -758,6 +783,19 @@ class ReflectionAgent(MultiStreamAgent):
 
         trigger = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
         if self._fills == 0 or self._fills % trigger != 0:
+            try:
+                from api.redis_client import get_redis as _get_redis_lazy
+
+                _redis = await _get_redis_lazy()
+                await _write_heartbeat(
+                    _redis,
+                    self._state_name,
+                    f"fill_buffered:{self._fills}/{trigger}",
+                    self._fills,
+                    extra={"exec_status": "idle:buffering"},
+                )
+            except Exception:
+                log_structured("warning", "reflection_idle_heartbeat_failed", exc_info=True)
             return
         if len(self._recent_fills) < 3:
             return
@@ -1042,7 +1080,7 @@ class StrategyProposer(MultiStreamAgent):
                         "msg_id": str(uuid.uuid4()),
                         "source": SOURCE_STRATEGY_PROPOSER,
                         "type": "pr_request",
-                        "title": f"Strategy rule proposal: {hypothesis.get('description', '')[:80]}",
+                        "title": f"Strategy rule proposal: {hypothesis.get(FieldName.DESCRIPTION, '')[:80]}",
                         "body": json.dumps(
                             {
                                 "hypothesis": hypothesis,
@@ -1061,7 +1099,7 @@ class StrategyProposer(MultiStreamAgent):
             await persist_strategy_record(
                 {
                     FieldName.RULES: proposal.get(FieldName.CONTENT, {}),
-                    "description": hypothesis.get("description", ""),
+                    "description": hypothesis.get(FieldName.DESCRIPTION, ""),
                     FieldName.EXPECTED_IMPROVEMENT: float(
                         hypothesis.get(FieldName.CONFIDENCE) or 0
                     ),
@@ -1080,7 +1118,7 @@ class StrategyProposer(MultiStreamAgent):
                     "message": (
                         f"New {proposal[FieldName.PROPOSAL_TYPE]} proposal "
                         f"(confidence={float(hypothesis.get(FieldName.CONFIDENCE) or 0):.0%}): "
-                        f"{hypothesis.get('description', '')[:100]}"
+                        f"{hypothesis.get(FieldName.DESCRIPTION, '')[:100]}"
                     ),
                     "timestamp": now_iso,
                 },
@@ -1163,7 +1201,7 @@ class StrategyProposer(MultiStreamAgent):
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
     ) -> dict[str, Any]:
         hyp_type = str(hypothesis.get(FieldName.TYPE) or "parameter").lower()
-        description = str(hypothesis.get("description") or "")
+        description = str(hypothesis.get(FieldName.DESCRIPTION) or "")
         confidence = float(hypothesis.get(FieldName.CONFIDENCE) or 0)
 
         base = {

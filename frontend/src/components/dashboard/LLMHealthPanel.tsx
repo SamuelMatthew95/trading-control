@@ -27,6 +27,12 @@ interface CallRecord {
 }
 
 interface LLMHealthData {
+  last_error?: {
+    kind: string | null
+    message: string | null
+    at: string | null
+  }
+
   status: LLMStatus
   provider: string
   model: string
@@ -53,10 +59,10 @@ const STATUS_DOT_COLOR: Record<LLMStatus, string> = {
   [LLMStatus.UNKNOWN]: 'bg-slate-400',
 }
 const STATUS_TEXT_COLOR: Record<LLMStatus, string> = {
-  [LLMStatus.LIVE]: 'text-emerald-500',
-  [LLMStatus.DEGRADED]: 'text-amber-400',
-  [LLMStatus.DOWN]: 'text-rose-500',
-  [LLMStatus.UNKNOWN]: 'text-slate-400',
+  [LLMStatus.LIVE]: 'text-emerald-600 dark:text-emerald-500',
+  [LLMStatus.DEGRADED]: 'text-amber-600 dark:text-amber-400',
+  [LLMStatus.DOWN]: 'text-rose-600 dark:text-rose-500',
+  [LLMStatus.UNKNOWN]: 'text-slate-500 dark:text-slate-400',
 }
 const STATUS_LABEL: Record<LLMStatus, string> = {
   [LLMStatus.LIVE]: 'Live',
@@ -91,7 +97,7 @@ function CallDot({ call }: { call: CallRecord }) {
     return (
       <span
         title="Rate limited"
-        className="rounded bg-amber-400/10 px-1 py-0.5 text-[10px] font-mono text-amber-400"
+        className="rounded bg-amber-50 px-1 py-0.5 text-[10px] font-mono text-amber-700 dark:bg-amber-400/10 dark:text-amber-400"
       >
         RL
       </span>
@@ -110,29 +116,29 @@ function CallDot({ call }: { call: CallRecord }) {
   return (
     <span
       title="Error"
-      className="rounded bg-slate-500/10 px-1 py-0.5 text-[10px] font-mono text-slate-400"
+      className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-mono text-slate-600 dark:bg-slate-500/10 dark:text-slate-400"
     >
       ERR
     </span>
   )
 }
 
-const CARD = 'rounded-xl border border-slate-200 bg-white p-4 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100'
+const CARD = 'rounded-xl border border-slate-300 bg-white p-4 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100'
 const MUTED = 'text-xs text-slate-500 dark:text-slate-400'
 const LABEL = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
 const VALUE = 'font-mono text-slate-700 dark:text-slate-300'
 
 function successRateColor(pct: number): string {
-  if (pct >= 80) return 'font-semibold text-emerald-500'
-  if (pct >= 50) return 'font-semibold text-amber-400'
-  return 'font-semibold text-rose-500'
+  if (pct >= 80) return 'font-semibold text-emerald-600 dark:text-emerald-500'
+  if (pct >= 50) return 'font-semibold text-amber-600 dark:text-amber-400'
+  return 'font-semibold text-rose-600 dark:text-rose-500'
 }
 
 function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted: boolean }) {
   const color = gradeAdjusted
     ? delayMs >= 1000
-      ? 'font-semibold text-rose-500'
-      : 'font-semibold text-amber-400'
+      ? 'font-semibold text-rose-600 dark:text-rose-500'
+      : 'font-semibold text-amber-600 dark:text-amber-400'
     : VALUE
   return (
     <span className={color}>
@@ -228,7 +234,7 @@ export function LLMHealthPanel() {
 
         <span className={MUTED}>
           Rate Limited:{' '}
-          <span className={data.rate_limited_count > 0 ? 'font-semibold text-amber-400' : VALUE}>
+          <span className={data.rate_limited_count > 0 ? 'font-semibold text-amber-600 dark:text-amber-400' : VALUE}>
             {data.rate_limited_count}
           </span>{' '}
           <span className={MUTED}>(last {windowMin}m)</span>
@@ -250,6 +256,12 @@ export function LLMHealthPanel() {
           Lifetime: <span className={VALUE}>{data.total_calls_lifetime}</span>
         </span>
       </div>
+
+      {data.last_error?.message && (
+        <div className="mb-3 rounded-lg border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+          Last error: <span className="font-mono">{data.last_error.message}</span>
+        </div>
+      )}
 
       {/* GradeAgent call-rate adjustment banner */}
       <div

@@ -30,13 +30,13 @@ export const ROW_WRAP = 'flex flex-wrap items-center gap-2'
 // Used in PnL summary tiles, metric grids, system panels, learning summary,
 // price tiles, persisted-history panels, etc.
 export const INNER_TILE =
-  'rounded-[6px] border border-slate-200 p-3 dark:border-slate-800'
+  'rounded-[6px] border border-slate-300 p-3 dark:border-slate-800'
 
 export const PRICE_TILE = INNER_TILE
 
 // Inline event row (looks like a tile, but laid out as a single row).
 export const EVENT_ROW =
-  'flex items-center justify-between rounded-[6px] border border-slate-200 px-3 py-2 dark:border-slate-800'
+  'flex items-center justify-between rounded-[6px] border border-slate-300 px-3 py-2 dark:border-slate-800'
 
 // ── Bordered chip bases (compose with TONE_CLASSES[tone].chip / .soft) ────
 
@@ -65,9 +65,9 @@ export const VOTE_BUTTON_BASE =
 
 // ── Row dividers ──────────────────────────────────────────────────────────
 
-export const ROW_DIVIDER = 'border-t border-slate-200 dark:border-slate-800'
+export const ROW_DIVIDER = 'border-t border-slate-300 dark:border-slate-800'
 export const ROW_DIVIDER_SKIP_FIRST =
-  'border-t border-slate-200 first:border-t-0 dark:border-slate-800'
+  'border-t border-slate-300 first:border-t-0 dark:border-slate-800'
 
 // ── Banner card surface (compose with TONE_CLASSES[tone].card / .text) ────
 
@@ -112,7 +112,7 @@ export const SCROLL_LIST_INSTANCES = 'max-h-48 overflow-y-auto'
 export const MODAL_OVERLAY =
   'fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16'
 export const MODAL_PANEL =
-  'max-h-[80vh] w-full max-w-3xl overflow-y-auto rounded-[8px] border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900'
+  'max-h-[80vh] w-full max-w-3xl overflow-y-auto rounded-[8px] border border-slate-300 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900'
 
 // ── Typography fragments (reused alongside UI_TEXT.* tokens) ──────────────
 

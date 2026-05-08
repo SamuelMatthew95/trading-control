@@ -212,6 +212,11 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     )
 
 
+def _is_gemini_daily_quota_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "requests/day" in message or "per day" in message or "daily limit" in message
+
+
 def _is_gemini_model_not_found_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "404" in message or "not found" in message or "model not found" in message
@@ -234,7 +239,7 @@ def _get_gemini_sdk():
 async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     genai, genai_errors = _get_gemini_sdk()
     client = genai.Client(api_key=_get_gemini_api_key())
-    model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite")
+    model_name = settings.GEMINI_MODEL
     retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
     for attempt in range(retries + 1):
@@ -253,7 +258,11 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
             return _parse_response(text, trace_id, 0.0), tokens, 0.0
         except genai_errors.ClientError as exc:
             if _is_gemini_model_not_found_error(exc):
-                raise RuntimeError(f"gemini_model_not_found: {model_name}") from exc
+                raise RuntimeError(
+                    f"gemini_model_not_found: {model_name} (check GEMINI_MODEL env var)"
+                ) from exc
+            if _is_gemini_daily_quota_error(exc):
+                raise RuntimeError("gemini_daily_quota_exhausted") from exc
             if _is_gemini_rate_limit_error(exc) and attempt < retries:
                 delay = _gemini_backoff_delay(exc, attempt)
                 log_structured(
@@ -366,7 +375,7 @@ async def _call_provider_raw(
     if provider == "gemini":
         genai, genai_errors = _get_gemini_sdk()
         client = genai.Client(api_key=_get_gemini_api_key())
-        model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash-lite")
+        model_name = settings.GEMINI_MODEL
         retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
 
         for attempt in range(retries + 1):
@@ -384,7 +393,11 @@ async def _call_provider_raw(
                 return text, tokens, 0.0
             except genai_errors.ClientError as exc:
                 if _is_gemini_model_not_found_error(exc):
-                    raise RuntimeError(f"gemini_model_not_found: {model_name}") from exc
+                    raise RuntimeError(
+                        f"gemini_model_not_found: {model_name} (check GEMINI_MODEL env var)"
+                    ) from exc
+                if _is_gemini_daily_quota_error(exc):
+                    raise RuntimeError("gemini_daily_quota_exhausted") from exc
                 if _is_gemini_rate_limit_error(exc) and attempt < retries:
                     delay = _gemini_backoff_delay(exc, attempt)
                     log_structured(
@@ -455,7 +468,9 @@ async def call_llm_with_system(
     provider = settings.LLM_PROVIDER.lower().strip()
     api_key = _get_provider_key(provider)
     if not api_key:
-        raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+        msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
+        llm_metrics.record_error(message=msg, kind="config")
+        raise RuntimeError(msg)
     await _inter_call_delay()
     t0 = _time.monotonic()
     try:
@@ -475,7 +490,7 @@ async def call_llm_with_system(
             llm_metrics.record_timeout()
             log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
         else:
-            llm_metrics.record_error()
+            llm_metrics.record_error(message=str(exc), kind="provider_error")
             log_structured("warning", "LLM custom call failed", provider=provider, exc_info=True)
         raise
 
@@ -492,7 +507,9 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         raise RuntimeError(f"unknown_provider: '{provider}' - supported: {list(_PROVIDERS.keys())}")
     api_key = _get_provider_key(provider)
     if not api_key:
-        raise RuntimeError(f"missing_api_key: set {provider.upper()}_API_KEY in environment")
+        msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
+        llm_metrics.record_error(message=msg, kind="config")
+        raise RuntimeError(msg)
     await _inter_call_delay()
     t0 = _time.monotonic()
     try:
@@ -510,6 +527,6 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
             llm_metrics.record_timeout()
             log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
         else:
-            llm_metrics.record_error()
+            llm_metrics.record_error(message=str(exc), kind="provider_error")
             log_structured("warning", "LLM call failed", provider=provider, exc_info=True)
         raise

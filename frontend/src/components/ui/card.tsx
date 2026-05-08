@@ -8,7 +8,7 @@ function Card({ className, size = 'default', ...props }: React.ComponentProps<'d
       data-slot="card"
       data-size={size}
       className={cn(
-        'group/card flex flex-col gap-4 overflow-hidden rounded-xl border border-slate-200 bg-white py-4 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 data-[size=sm]:gap-3 data-[size=sm]:py-3',
+        'group/card flex flex-col gap-4 overflow-hidden rounded-xl border border-slate-300 bg-white py-4 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 data-[size=sm]:gap-3 data-[size=sm]:py-3',
         className
       )}
       {...props}
@@ -37,7 +37,7 @@ function CardContent({ className, ...props }: React.ComponentProps<'div'>) {
 }
 
 function CardFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="card-footer" className={cn('flex items-center border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-800/40', className)} {...props} />
+  return <div data-slot="card-footer" className={cn('flex items-center border-t border-slate-300 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-800/40', className)} {...props} />
 }
 
 export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent }

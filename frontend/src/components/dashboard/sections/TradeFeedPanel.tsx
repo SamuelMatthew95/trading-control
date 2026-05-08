@@ -84,7 +84,7 @@ export function TradeFeedPanel(props: TradeFeedPanelProps) {
         right={<span className={UI_TEXT.muted}>{trades.length} fills</span>}
       />
       {trades.length === 0 ? (
-        <EmptyState message="No orders today" />
+        <EmptyState message="No fills yet" />
       ) : (
         <div className={SCROLL_LIST_TRADE_FEED}>
           {trades.slice(0, TRADE_FEED_MAX_ROWS).map((trade) => (

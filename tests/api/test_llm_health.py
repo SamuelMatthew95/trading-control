@@ -38,7 +38,15 @@ async def test_llm_health_root_path(client: AsyncClient):
     r = await client.get("/llm/health")
     assert r.status_code == 200
     data = r.json()
-    for key in ("status", "provider", "model", "timestamp", "success_rate_pct", "daily_calls"):
+    for key in (
+        "status",
+        "provider",
+        "model",
+        "model_var",
+        "timestamp",
+        "success_rate_pct",
+        "daily_calls",
+    ):
         assert key in data, f"missing key: {key}"
 
 
@@ -85,6 +93,17 @@ def test_snapshot_reflects_recorded_calls():
     assert snap["daily_calls"] == 3
     assert snap["total_calls_lifetime"] == 3
     assert snap["avg_latency_ms"] == round((123.0 + 456.0) / 2)
+
+
+def test_snapshot_includes_last_error_details():
+    col = LLMMetricsCollector(max_records=50)
+    col.record_error(message="missing_api_key: set GEMINI_API_KEY in environment", kind="config")
+    snap = col.snapshot()
+
+    assert "last_error" in snap
+    assert snap["last_error"]["kind"] == "config"
+    assert "missing_api_key" in (snap["last_error"]["message"] or "")
+    assert snap["last_error"]["at"]
 
 
 # ---------------------------------------------------------------------------

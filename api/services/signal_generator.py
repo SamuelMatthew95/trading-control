@@ -48,6 +48,8 @@ AGENT_NAME = AGENT_SIGNAL
 
 
 class SignalGenerator(BaseStreamConsumer):
+    _heartbeat_agent_name = AGENT_SIGNAL
+
     def __init__(
         self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
     ):

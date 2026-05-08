@@ -29,9 +29,10 @@ export const UI_TEXT = {
 
 /** Surface / card background tokens. */
 export const UI_SURFACE = {
-  card: 'border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
-  cardHover: 'hover:border-slate-300 dark:hover:border-slate-600',
-  sunken: 'border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950',
+  // slate-300 in light mode so the card edge reads against the slate-100 page background.
+  card: 'border border-slate-300 bg-white dark:border-slate-800 dark:bg-slate-900',
+  cardHover: 'hover:border-slate-400 dark:hover:border-slate-600',
+  sunken: 'border border-slate-300 bg-slate-50 dark:border-slate-800 dark:bg-slate-950',
 } as const
 
 /** Standard padding tokens. */

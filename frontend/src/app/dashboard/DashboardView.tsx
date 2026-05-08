@@ -203,7 +203,7 @@ export function DashboardView({ section }: { section: Section }) {
   const systemTone = toneForSystemStatus(systemStatus)
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 dark:bg-slate-950 lg:pb-4">
+    <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
         <div
           className={cn(
