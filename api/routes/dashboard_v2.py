@@ -2275,9 +2275,16 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                 _diag_params: dict[str, Any] = {}
                 if session_id:
                     _order_sql = "SELECT COUNT(*) FROM orders WHERE strategy_id::text = :sid"
-                    _lifecycle_sql = (
-                        "SELECT COUNT(*) FROM trade_lifecycle WHERE decision_trace_id = :sid"
-                    )
+                    # Mirror the COALESCE(o.strategy_id, tl.decision_trace_id) session
+                    # mapping used by the main trade-feed query so the diagnostic
+                    # counts lifecycle rows for this session regardless of which
+                    # identifier was populated.
+                    _lifecycle_sql = """
+                        SELECT COUNT(*)
+                        FROM trade_lifecycle tl
+                        LEFT JOIN orders o ON o.id = tl.order_id
+                        WHERE COALESCE(o.strategy_id::text, tl.decision_trace_id) = :sid
+                    """
                     _diag_params = {"sid": session_id}
                 else:
                     _order_sql = "SELECT COUNT(*) FROM orders"
