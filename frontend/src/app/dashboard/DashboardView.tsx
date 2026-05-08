@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCodexStore, type ProposalStatus } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useDashboardData } from '@/hooks/useDashboardData'
 import { TONE_CLASSES, toneForSystemStatus } from '@/lib/state'
@@ -9,6 +9,7 @@ import { canonicalAgentKey } from '@/lib/constants/agentStates'
 import { toFiniteNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { UI_RADIUS } from '@/lib/constants/ui'
+import { voteOnProposal } from '@/lib/api'
 import {
   buildAgentSummaries,
   buildDashboardSummary,
@@ -66,6 +67,25 @@ export function DashboardView({ section }: { section: Section }) {
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
+
+  // Persist proposal votes through the backend BEFORE mutating the local
+  // Zustand store. If the API call fails (network or non-2xx), the store is
+  // not updated — preventing the UI from diverging from server-side state on
+  // reconnect or next hydration. (Codex review #214 P1.)
+  const handleProposalStatusChange = useCallback(
+    async (id: string, status: ProposalStatus) => {
+      if (status !== 'approved' && status !== 'rejected') return
+      try {
+        await voteOnProposal(id, status)
+        updateProposalStatus(id, status)
+      } catch {
+        // Network or HTTP error — leave the proposal in its current state so
+        // the operator can retry. Surfacing the failure in toast/notification
+        // can be added in a future iteration.
+      }
+    },
+    [updateProposalStatus],
+  )
 
   // ── Derived view-models ─────────────────────────────────────────────────
   const summary = useMemo(
@@ -259,7 +279,7 @@ export function DashboardView({ section }: { section: Section }) {
             pipelineStages={pipelineStages}
             learningSummary={learningSummary}
             proposals={proposals}
-            onUpdateProposalStatus={updateProposalStatus}
+            onUpdateProposalStatus={handleProposalStatusChange}
             icWeights={data.icWeights}
             gradeHistory={cleanGradeHistory}
             resolvedPerformanceSummary={resolvedPerformanceSummary ?? null}
