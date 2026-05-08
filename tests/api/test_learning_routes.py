@@ -13,7 +13,12 @@ from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.main import app
 from api.routes import learning as learning_module
-from api.routes.learning import _grade_from_score, _grade_record_to_trade, _iso, _mem_grades_as_trades
+from api.routes.learning import (
+    _grade_from_score,
+    _grade_record_to_trade,
+    _iso,
+    _mem_grades_as_trades,
+)
 from api.runtime_state import set_db_available, set_runtime_store
 
 
@@ -208,7 +213,11 @@ async def test_list_trades_db_down_trade_evals_full_count(client):
     store = InMemoryStore()
     for i in range(300):
         store.add_trade_evaluation(
-            {FieldName.TRADE_EVAL_ID: f"e{i}", FieldName.OVERALL_SCORE: 0.7, "created_at": time.time()}
+            {
+                FieldName.TRADE_EVAL_ID: f"e{i}",
+                FieldName.OVERALL_SCORE: 0.7,
+                "created_at": time.time(),
+            }
         )
     set_runtime_store(store)
     set_db_available(False)
