@@ -113,14 +113,18 @@ def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dic
     all_grades = store.get_grades(200)
     total = len(all_grades)
     page = all_grades[offset : offset + limit]
-    trades = [
-        _grade_record_to_trade(
-            score=float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0) / 100),
-            trade_id=str(g.get(FieldName.TRACE_ID) or ""),
-            created_at=g.get(FieldName.TIMESTAMP),
+    trades = []
+    for g in page:
+        raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
+        # GradeAgent may write percentage scores (0–100); normalize to [0, 1]
+        score = raw / 100.0 if raw > 1.0 else raw
+        trades.append(
+            _grade_record_to_trade(
+                score=score,
+                trade_id=str(g.get(FieldName.TRACE_ID) or ""),
+                created_at=g.get(FieldName.TIMESTAMP),
+            )
         )
-        for g in page
-    ]
     return trades, total
 
 
@@ -376,16 +380,18 @@ async def get_learning_metrics() -> dict[str, Any]:
                         LIMIT 500
                     """)
                 )
-                evaluations = [
-                    {
-                        FieldName.PNL: (float(r[0]) - 0.5) if r[0] is not None else 0.0,
-                        FieldName.PNL_PERCENT: ((float(r[0]) - 0.5) * 20)
-                        if r[0] is not None
-                        else 0.0,
-                        FieldName.OVERALL_SCORE: float(r[0]) if r[0] is not None else 0.0,
-                    }
-                    for r in ag_rows.all()
-                ]
+                evaluations = []
+                for r in ag_rows.all():
+                    raw_s = float(r[0]) if r[0] is not None else 0.0
+                    # agent_grades.score may be a percentage (0–100); normalize to [0, 1]
+                    score_n = raw_s / 100.0 if raw_s > 1.0 else raw_s
+                    evaluations.append(
+                        {
+                            FieldName.PNL: score_n - 0.5,
+                            FieldName.PNL_PERCENT: (score_n - 0.5) * 20,
+                            FieldName.OVERALL_SCORE: score_n,
+                        }
+                    )
             else:
                 evaluations = [
                     {
@@ -546,7 +552,12 @@ async def get_pipeline_status() -> dict[str, Any]:
                     FieldName.STATUS: "active" if scoring_source else "idle",
                     "jobs_processed": len(scoring_source),
                     "last_run": _iso(
-                        scoring_source[-1].get(FieldName.CREATED_AT) if scoring_source else None
+                        (
+                            scoring_source[-1].get(FieldName.CREATED_AT)
+                            or scoring_source[-1].get(FieldName.TIMESTAMP)
+                        )
+                        if scoring_source
+                        else None
                     ),
                     "error_count": 0,
                 },
