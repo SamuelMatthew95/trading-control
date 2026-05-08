@@ -183,6 +183,7 @@ class FieldName(StrEnum):
     COST_USD = "cost_usd"
     CREATED_AT = "created_at"
     DATA = "data"
+    DESCRIPTION = "description"
     DIRECTION = "direction"
     DECISION_TRACE_ID = "decision_trace_id"
     EMBEDDING = "embedding"
@@ -296,6 +297,7 @@ class FieldName(StrEnum):
     SUSPENDED_UNTIL = "suspended_until"
     # --- Learning pipeline fields ---
     AVG_RETURN = "avg_return"
+    AVG_SCORE = "avg_score"
     CONSISTENCY = "consistency"
     ENTRY_QUALITY = "entry_quality"
     EXIT_QUALITY = "exit_quality"
