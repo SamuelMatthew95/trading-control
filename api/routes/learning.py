@@ -151,14 +151,18 @@ async def _db_grades_as_trades(
         """),
         {"limit": limit, "offset": offset},
     )
-    trades = [
-        _grade_record_to_trade(
-            score=float(r[1]) if r[1] is not None else None,
-            trade_id=str(r[0] or ""),
-            created_at=r[2],
+    trades = []
+    for r in rows.all():
+        raw = float(r[1]) if r[1] is not None else None
+        # agent_grades.score may be a percentage (0–100); normalize to [0, 1]
+        score = (raw / 100.0 if raw > 1.0 else raw) if raw is not None else None
+        trades.append(
+            _grade_record_to_trade(
+                score=score,
+                trade_id=str(r[0] or ""),
+                created_at=r[2],
+            )
         )
-        for r in rows.all()
-    ]
     return trades, total
 
 
