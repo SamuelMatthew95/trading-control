@@ -2267,15 +2267,27 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             if fallback["count"] > 0:
                 return fallback
 
-            # Diagnose why trade feed is empty so the UI can explain it
+            # Diagnose why trade feed is empty so the UI can explain it.
+            # Scope counts to the requested session when one is provided so the
+            # reason reflects that session's state, not the global table state.
             empty_reason = "no_executable_intents"
             try:
+                _diag_params: dict[str, Any] = {}
+                if session_id:
+                    _order_sql = "SELECT COUNT(*) FROM orders WHERE strategy_id::text = :sid"
+                    _lifecycle_sql = (
+                        "SELECT COUNT(*) FROM trade_lifecycle WHERE decision_trace_id = :sid"
+                    )
+                    _diag_params = {"sid": session_id}
+                else:
+                    _order_sql = "SELECT COUNT(*) FROM orders"
+                    _lifecycle_sql = "SELECT COUNT(*) FROM trade_lifecycle"
                 async with AsyncSessionFactory() as diag_session:
                     order_count = (
-                        await diag_session.execute(text("SELECT COUNT(*) FROM orders"))
+                        await diag_session.execute(text(_order_sql), _diag_params)
                     ).scalar() or 0
                     lifecycle_count = (
-                        await diag_session.execute(text("SELECT COUNT(*) FROM trade_lifecycle"))
+                        await diag_session.execute(text(_lifecycle_sql), _diag_params)
                     ).scalar() or 0
                 if order_count == 0:
                     empty_reason = "no_orders_executed"
