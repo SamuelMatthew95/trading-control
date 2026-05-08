@@ -12,6 +12,7 @@ This folder contains focused reference docs for contributors working on Trading 
 | [deployment-guide.md](deployment-guide.md) | Render + Vercel deployment, all required env vars, smoke checks |
 | [contributing.md](contributing.md) | PR workflow, code standards, full validation checklist |
 | [AGENTS.md](AGENTS.md) | Agent patterns, stream chain rules, new agent template |
+| [frontend-structure.md](frontend-structure.md) | Frontend folder map, layer rules, lib/format / lib/state / lib/styles conventions, "adding a new section" guide |
 
 ## Quick links
 

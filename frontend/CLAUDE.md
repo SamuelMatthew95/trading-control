@@ -55,7 +55,7 @@ pages → DashboardView → SectionN → TerminalCard / MetricTile / StatusChip
                           └── lib/constants           (UI tokens, agent thresholds, tickers)
 ```
 
-See **`STRUCTURE.md`** in this directory for the full folder map, layer
+See **`/docs/frontend-structure.md`** for the full folder map, layer
 rules, data flow, invariants, and "adding a new section" guide.
 
 ## Test layout
