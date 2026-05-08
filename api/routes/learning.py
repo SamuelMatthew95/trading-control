@@ -273,6 +273,12 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         for ev in reversed(store.trade_evaluations):
             if str(ev.get(FieldName.TRADE_EVAL_ID)) == trade_id:
                 return {"trade": ev, "mode": "memory"}
+        # trade_evaluations empty — IDs may come from the grade_history bridge
+        if not store.trade_evaluations:
+            bridged, _ = _mem_grades_as_trades(store, 200, 0)
+            for ev in bridged:
+                if str(ev.get(FieldName.TRADE_EVAL_ID)) == trade_id:
+                    return {"trade": ev, "mode": "memory"}
         raise HTTPException(status_code=404, detail="Trade evaluation not found")
 
     try:
@@ -295,30 +301,58 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                 {"trade_id": trade_id},
             )
             r = row.first()
-            if r is None:
-                raise HTTPException(status_code=404, detail="Trade evaluation not found")
-            return {
-                "trade": {
-                    "id": str(r[0]),
-                    FieldName.TRADE_EVAL_ID: str(r[1]),
-                    FieldName.SYMBOL: r[2],
-                    FieldName.SIDE: r[3],
-                    FieldName.PNL: float(r[4]) if r[4] is not None else None,
-                    FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
-                    FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
-                    FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
-                    FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
-                    FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
-                    FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
-                    FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
-                    FieldName.GRADE: r[12],
-                    FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
-                    FieldName.MISTAKES: _as_list(r[14]),
-                    FieldName.STRENGTHS: _as_list(r[15]),
-                    FieldName.CREATED_AT: _iso(r[16]),
-                },
-                "mode": "db",
-            }
+            if r is not None:
+                return {
+                    "trade": {
+                        "id": str(r[0]),
+                        FieldName.TRADE_EVAL_ID: str(r[1]),
+                        FieldName.SYMBOL: r[2],
+                        FieldName.SIDE: r[3],
+                        FieldName.PNL: float(r[4]) if r[4] is not None else None,
+                        FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
+                        FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
+                        FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
+                        FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
+                        FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
+                        FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
+                        FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
+                        FieldName.GRADE: r[12],
+                        FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
+                        FieldName.MISTAKES: _as_list(r[14]),
+                        FieldName.STRENGTHS: _as_list(r[15]),
+                        FieldName.CREATED_AT: _iso(r[16]),
+                    },
+                    "mode": "db",
+                }
+            # trade_evaluations miss — IDs may come from the agent_grades bridge
+            te_empty = False
+            try:
+                cnt = await session.execute(text("SELECT COUNT(*) FROM trade_evaluations"))
+                te_empty = int(cnt.scalar() or 0) == 0
+            except Exception:
+                te_empty = True
+            if te_empty:
+                ag_row = await session.execute(
+                    text("""
+                        SELECT trace_id, score, created_at
+                        FROM agent_grades
+                        WHERE trace_id = :trade_id
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """),
+                    {"trade_id": trade_id},
+                )
+                ag_r = ag_row.first()
+                if ag_r is not None:
+                    raw = float(ag_r[1]) if ag_r[1] is not None else None
+                    score = (raw / 100.0 if raw > 1.0 else raw) if raw is not None else None
+                    trade = _grade_record_to_trade(
+                        score=score,
+                        trade_id=str(ag_r[0] or ""),
+                        created_at=ag_r[2],
+                    )
+                    return {"trade": trade, "mode": "db"}
+            raise HTTPException(status_code=404, detail="Trade evaluation not found")
     except HTTPException:
         raise
     except Exception:
