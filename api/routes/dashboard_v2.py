@@ -394,7 +394,10 @@ async def get_dashboard_state() -> dict[str, Any]:
                     data = await aggregator.get_raw_snapshot()
             except Exception:
                 log_structured("warning", "dashboard_state_db_failed", exc_info=True)
-                return get_runtime_store().dashboard_fallback_snapshot()
+                fallback = get_runtime_store().dashboard_fallback_snapshot()
+                fallback["degraded_mode"] = True
+                fallback["degraded_reason"] = "db_unavailable"
+                return fallback
 
         # Redis enrichment is best-effort: a Redis outage must not prevent
         # the frontend from receiving its DB-backed hydration data.
@@ -403,6 +406,9 @@ async def get_dashboard_state() -> dict[str, Any]:
         except Exception:
             log_structured("warning", "dashboard_state_redis_unavailable", exc_info=True)
             data.setdefault("mode", runtime_mode())
+            db_up = is_db_available()
+            data["degraded_mode"] = True
+            data["degraded_reason"] = "db_unavailable" if not db_up else "redis_unavailable"
             return data
 
         # Enrich with current prices from Redis cache
