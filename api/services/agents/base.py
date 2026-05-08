@@ -43,6 +43,7 @@ class MultiStreamAgent:
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._instance_id: str | None = None
+        self._events_processed: int = 0
 
     # ------------------------------------------------------------------
     # Public introspection — used by AgentSupervisor to detect crashes
@@ -178,7 +179,12 @@ class MultiStreamAgent:
             from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 
             redis = await _get_redis()
-            await _write_heartbeat(redis, self._state_name, f"agent:{status}")
+            await _write_heartbeat(
+                redis,
+                self._state_name,
+                f"agent:{status}",
+                event_count=self._events_processed,
+            )
         except Exception:
             pass
 
@@ -218,6 +224,7 @@ class MultiStreamAgent:
                         )
                         await self.process(stream, redis_id, data)
                         await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+                        self._events_processed += 1
                         if self.agent_state and self._state_name:
                             self.agent_state.record_event(
                                 self._state_name,
