@@ -90,6 +90,18 @@ def test_mem_grades_as_trades_pagination():
     assert len(trades) == 2
 
 
+def test_mem_grades_as_trades_beyond_200_entries():
+    """Pagination is correct even when grade_history exceeds 200 entries."""
+    store = InMemoryStore()
+    # store.grade_history caps at 500; add 250 entries
+    for i in range(250):
+        store.add_grade({"trace_id": f"t{i}", "score": 0.7, "timestamp": time.time()})
+
+    trades, total = _mem_grades_as_trades(store, limit=10, offset=240)
+    assert total == 250
+    assert len(trades) == 10
+
+
 def test_mem_grades_as_trades_score_pct_fallback():
     store = InMemoryStore()
     # score_pct field (0-100 range) with no score field
@@ -200,7 +212,9 @@ async def test_metrics_db_down_with_trade_evaluations(client):
 
 @pytest.mark.asyncio
 async def test_metrics_db_down_grade_history_when_no_evals(client):
+    """Metrics synthesize PnL from score so win_rate/avg_return are non-zero."""
     store = InMemoryStore()
+    # score 0.80 → synthetic pnl_pct +6% (win), score 0.60 → +2% (win)
     store.add_grade({"trace_id": "g1", "score": 0.80, "timestamp": time.time()})
     store.add_grade({"trace_id": "g2", "score": 0.60, "timestamp": time.time()})
     set_runtime_store(store)
@@ -210,8 +224,9 @@ async def test_metrics_db_down_grade_history_when_no_evals(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "memory"
-    # Metrics should be computed from the 2 grade records
-    assert "avg_score" in data
+    assert data["win_rate"] == pytest.approx(1.0)  # both scores > 0.5 → synthetic pnl > 0
+    assert data["avg_return"] > 0  # synthetic pnl_pct is positive
+    assert data["avg_score"] == pytest.approx(0.70, rel=1e-2)
 
 
 @pytest.mark.asyncio
