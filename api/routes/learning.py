@@ -284,7 +284,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         # trade_evaluations empty — IDs may come from the grade_history bridge;
         # search the full list directly to avoid the 200-entry cap of _mem_grades_as_trades
         if not store.trade_evaluations:
-            for g in store.grade_history:
+            for g in reversed(store.grade_history):
                 if str(g.get(FieldName.TRACE_ID) or "") == trade_id:
                     raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
                     score = raw / 100.0 if raw > 1.0 else raw
@@ -397,7 +397,7 @@ async def get_learning_metrics() -> dict[str, Any]:
         if not evaluations:
             # Grade-bridged records have pnl=None, making win_rate/avg_return/sharpe
             # all zero.  Synthesize PnL from overall_score — same as the DB-up bridge.
-            for g in reversed(store.grade_history):
+            for g in store.grade_history:
                 raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
                 score_n = raw / 100.0 if raw > 1.0 else raw
                 evaluations.append(

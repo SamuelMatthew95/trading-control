@@ -641,3 +641,40 @@ async def test_trade_detail_db_up_finds_in_agent_grades_bridge(client, monkeypat
     # 75.0 normalizes to 0.75 → grade B
     assert data["trade"][FieldName.OVERALL_SCORE] == pytest.approx(0.75, rel=1e-3)
     assert data["trade"][FieldName.GRADE] == "B"
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_down_returns_newest_on_duplicate_trace(client):
+    """DB-down: when the same trace_id is graded twice, detail returns the newest score."""
+    store = InMemoryStore()
+    now = time.time()
+    # Old entry with a low score, then a newer entry with a higher score.
+    store.add_grade({"trace_id": "dup-id", "score": 20.0, "timestamp": now - 10})
+    store.add_grade({"trace_id": "dup-id", "score": 80.0, "timestamp": now})
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades/dup-id")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Newest grade (80 → 0.80 normalised) must win, not the stale 20 → 0.20
+    assert data["trade"][FieldName.OVERALL_SCORE] == pytest.approx(0.80, rel=1e-3)
+    assert data["trade"][FieldName.GRADE] == "B"
+
+
+@pytest.mark.asyncio
+async def test_metrics_db_down_grade_history_chronological_order(client):
+    """DB-down metrics: grade_history is fed oldest→newest so score_trend is correct."""
+    store = InMemoryStore()
+    now = time.time()
+    # Scores improving over time: 40, 60, 80 (oldest→newest)
+    for score in [40.0, 60.0, 80.0]:
+        store.add_grade({"trace_id": f"t-{score}", "score": score, "timestamp": now})
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/metrics")
+    assert resp.status_code == 200
+    data = resp.json()
+    # With improving scores the trend must not be "declining"
+    assert data.get("score_trend") in ("improving", "stable")
