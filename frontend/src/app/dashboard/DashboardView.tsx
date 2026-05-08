@@ -10,16 +10,11 @@ import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import {
-  Activity,
   Brain,
-  FileCode,
-  ThumbsDown,
-  ThumbsUp,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
-import type { Proposal } from '@/stores/useCodexStore'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
   if (value === undefined || value === null || value === '') return '--';
@@ -250,103 +245,7 @@ function PriceCardSkeleton() {
   )
 }
 
-const PROPOSAL_TYPE_LABEL: Record<string, string> = {
-  parameter_change: 'Param Change',
-  code_change: 'Code Change',
-  regime_adjustment: 'Regime Adjust',
-  signal_weight_reduction: 'Weight Reduction',
-  agent_suspension: 'Suspension',
-  agent_retirement: 'Retirement',
-  new_agent: 'New Agent',
-}
-const PROPOSAL_TYPE_STYLE: Record<string, string> = {
-  parameter_change: 'bg-slate-500/10 text-slate-500',
-  code_change: 'bg-slate-500/10 text-slate-500',
-  regime_adjustment: 'bg-amber-500/15 text-amber-500',
-  signal_weight_reduction: 'bg-amber-500/15 text-amber-500',
-  agent_suspension: 'bg-rose-500/15 text-rose-500',
-  agent_retirement: 'bg-rose-600/15 text-rose-600',
-  new_agent: 'bg-emerald-500/15 text-emerald-500',
-}
 
-function ProposalsFeed({
-  proposals,
-  onUpdateStatus,
-}: {
-  proposals: Proposal[]
-  onUpdateStatus: (id: string, status: import('@/stores/useCodexStore').ProposalStatus) => void
-}) {
-  const pending = proposals.filter((p) => p.status === 'pending')
-  return (
-    <div className={cardClass}>
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-slate-500" />
-          <p className={sectionTitleClass}>Strategy Proposals</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {pending.length > 0 && (
-            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-900 dark:bg-slate-700 dark:text-slate-100">{pending.length} pending</span>
-          )}
-          <p className={mutedClass}>{proposals.length} total</p>
-        </div>
-      </div>
-      {proposals.length === 0 ? (
-        <EmptyState message="No proposals yet" icon={Brain} />
-      ) : (
-        <div className="max-h-96 space-y-3 overflow-y-auto">
-          {proposals.map((proposal) => (
-            <div
-              key={proposal.id}
-              className={cn(
-                'rounded-lg border p-3 transition-opacity',
-                proposal.status === 'pending' ? 'border-slate-200 dark:border-slate-800/50' : 'border-slate-200 opacity-60 dark:border-slate-800',
-              )}
-            >
-              <div className="mb-2 flex items-center gap-2 flex-wrap">
-                <span className={cn('rounded px-2 py-0.5 text-xs font-bold', PROPOSAL_TYPE_STYLE[proposal.proposal_type] ?? 'bg-slate-500/15 text-slate-400')}>
-                  {PROPOSAL_TYPE_LABEL[proposal.proposal_type] ?? proposal.proposal_type}
-                </span>
-                {proposal.confidence != null && (
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800">
-                    {(proposal.confidence * 100).toFixed(0)}% confidence
-                  </span>
-                )}
-                {proposal.status !== 'pending' && (
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-semibold', proposal.status === 'approved' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
-                    {proposal.status}
-                  </span>
-                )}
-                <span className={cn(mutedClass, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
-              </div>
-              <p className="mb-2 text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">
-                {sanitizeValue(proposal.content) === '--' ? 'No description' : proposal.content}
-              </p>
-              {proposal.status === 'pending' && proposal.requires_approval && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => onUpdateStatus(proposal.id, 'approved')}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
-                  >
-                    <ThumbsUp className="h-3 w-3" />
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => onUpdateStatus(proposal.id, 'rejected')}
-                    className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
-                  >
-                    <ThumbsDown className="h-3 w-3" />
-                    Reject
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Trace modal
@@ -548,13 +447,11 @@ function formatUptime(seconds: number): string {
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
-    learningEvents = [],
     orders = [],
     prices = {},
     positions = [],
     systemMetrics = [],
     notifications = [],
-    proposals = [],
     tradeFeed = [],
     agentInstances = [],
     performanceSummary,
@@ -568,13 +465,10 @@ export function DashboardView({ section }: { section: Section }) {
     wsDiagnostics,
     recentEvents = [],
     agentStatuses = [],
-    updateProposalStatus,
   } = useCodexStore()
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
-  const [icWeights, setIcWeights] = useState<Record<string, number>>({})
-  const [gradeHistory, setGradeHistory] = useState<Array<{ grade: string; score_pct: number; timestamp: string }>>([])
   // Track whether we have attempted a price fetch so we stop showing skeleton
   // loaders even when the price poller hasn't populated Redis yet.
   const [pricesFetched, setPricesFetched] = useState(false)
@@ -701,13 +595,8 @@ export function DashboardView({ section }: { section: Section }) {
   useEffect(() => {
     const { addProposal } = useCodexStore.getState()
     const fetchLearning = async () => {
-      console.info('[Dashboard] Fetching learning data (proposals, IC weights, grades)')
       try {
-        const [proposalsRes, icRes, gradesRes] = await Promise.all([
-          fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS)),
-          fetch(api(API_ENDPOINTS.LEARNING_IC_WEIGHTS)),
-          fetch(api(API_ENDPOINTS.LEARNING_GRADES)),
-        ])
+        const proposalsRes = await fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS))
         if (proposalsRes.ok) {
           const data = await proposalsRes.json()
           const existing = useCodexStore.getState().proposals
@@ -719,22 +608,6 @@ export function DashboardView({ section }: { section: Section }) {
           }
         } else {
           console.warn('[Dashboard] /learning/proposals responded', proposalsRes.status)
-        }
-        if (icRes.ok) {
-          const data = await icRes.json()
-          const weights = data.current_weights ?? {}
-          console.info('[Dashboard] IC weights —', Object.keys(weights).length, 'factors')
-          setIcWeights(weights)
-        } else {
-          console.warn('[Dashboard] /learning/ic-weights responded', icRes.status)
-        }
-        if (gradesRes.ok) {
-          const data = await gradesRes.json()
-          const grades = (data.grades ?? []).slice(0, 10)
-          console.info('[Dashboard] Grades —', grades.length, 'entries')
-          setGradeHistory(grades)
-        } else {
-          console.warn('[Dashboard] /learning/grades responded', gradesRes.status)
         }
       } catch (err) {
         console.warn('[Dashboard] fetchLearning failed:', err)
@@ -998,105 +871,6 @@ export function DashboardView({ section }: { section: Section }) {
     }, 10000)
     return () => clearTimeout(timer)
   }, [realAgents.length, wsConnected])
-
-  const learningSummary = useMemo(() => {
-    const streamReflections = streamStats['reflection_outputs']?.count ?? 0
-    const streamEvaluations = streamStats['agent_grades']?.count ?? 0
-    const streamIcUpdates = streamStats['factor_ic_history']?.count ?? 0
-    const tradesEvaluated = Math.max(
-      learningEvents.filter((event) => event?.type === 'trade_evaluated').length,
-      streamEvaluations,
-      gradeHistory.length,
-    )
-    const reflectionsCompleted = Math.max(
-      learningEvents.filter((event) => event?.type === 'reflection').length,
-      streamReflections,
-    )
-    const icValuesUpdated = Math.max(
-      learningEvents.filter((event) => event?.type === 'ic_update').length,
-      streamIcUpdates,
-      Object.keys(icWeights).length > 0 ? 1 : 0,
-    )
-    const strategiesTested = Math.max(
-      learningEvents.filter((event) => event?.type === 'strategy_tested').length,
-      proposals.length,
-    )
-
-    const dailyPnlMap = orders.reduce<Record<string, number>>((acc, order) => {
-      const timestamp = new Date(String(order?.timestamp || ''))
-      if (Number.isNaN(timestamp.getTime())) return acc
-      const key = timestamp.toDateString()
-      acc[key] = (acc[key] ?? 0) + (toFiniteNumber(order?.pnl) ?? 0)
-      return acc
-    }, {})
-
-    const dayEntries = Object.entries(dailyPnlMap)
-    const bestDay = dayEntries.length > 0 ? dayEntries.reduce((best, current) => (current[1] > best[1] ? current : best)) : null
-    const worstDay = dayEntries.length > 0 ? dayEntries.reduce((worst, current) => (current[1] < worst[1] ? current : worst)) : null
-
-    return {
-      tradesEvaluated,
-      reflectionsCompleted,
-      icValuesUpdated,
-      strategiesTested,
-      bestDay,
-      worstDay,
-    }
-  }, [gradeHistory.length, icWeights, learningEvents, orders, proposals.length, streamStats])
-
-  const cleanGradeHistory = useMemo(() => {
-    const seen = new Set<string>()
-    return gradeHistory
-      .filter((g) => {
-        const hasGrade = typeof g.grade === 'string' && g.grade.trim() !== '' && g.grade !== '--'
-        const hasScore = typeof g.score_pct === 'number' && Number.isFinite(g.score_pct)
-        const hasTime = Boolean(parseTimestamp(g.timestamp))
-        return (hasGrade || hasScore) && hasTime
-      })
-      .sort((a, b) => {
-        const aTs = parseTimestamp(a.timestamp)?.getTime() ?? 0
-        const bTs = parseTimestamp(b.timestamp)?.getTime() ?? 0
-        return bTs - aTs
-      })
-      .filter((g) => {
-        const key = `${g.timestamp}|${g.grade}|${g.score_pct}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
-  }, [gradeHistory])
-
-  const learningPipelineStages = useMemo(() => {
-    const latestTradeTs = tradeFeed
-      .map((t) => parseTimestamp(t.filled_at ?? t.created_at))
-      .filter((ts): ts is Date => ts instanceof Date)
-      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
-    const latestGradeTs = cleanGradeHistory
-      .map((g) => parseTimestamp(g.timestamp))
-      .filter((ts): ts is Date => ts instanceof Date)
-      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
-    const reflectionTs = parseTimestamp(streamStats['reflection_outputs']?.lastMessageTimestamp)
-    const proposalTs = proposals
-      .map((p) => parseTimestamp(p.timestamp))
-      .filter((ts): ts is Date => ts instanceof Date)
-      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
-    const icTs = parseTimestamp(streamStats['factor_ic_history']?.lastMessageTimestamp)
-    const now = Date.now()
-    const asStatus = (count: number, ts: Date | null, requiresInput?: number): 'Active' | 'Idle' | 'Error' => {
-      if (count <= 0 && (requiresInput ?? 0) <= 0) return 'Idle'
-      if (count <= 0 && (requiresInput ?? 0) > 0) return 'Error'
-      if (!ts) return 'Idle'
-      return now - ts.getTime() <= 10 * 60 * 1000 ? 'Active' : 'Idle'
-    }
-
-    return [
-      { key: 'ingestion', label: 'Trade Ingestion', count: tradeFeed.length, lastRun: latestTradeTs, status: asStatus(tradeFeed.length, latestTradeTs) },
-      { key: 'grading', label: 'Evaluation & Grading', count: cleanGradeHistory.length, lastRun: latestGradeTs, status: asStatus(cleanGradeHistory.length, latestGradeTs, tradeFeed.length) },
-      { key: 'reflection', label: 'Reflection', count: learningSummary.reflectionsCompleted, lastRun: reflectionTs, status: asStatus(learningSummary.reflectionsCompleted, reflectionTs, cleanGradeHistory.length) },
-      { key: 'proposals', label: 'Strategy Proposals', count: proposals.length, lastRun: proposalTs, status: asStatus(proposals.length, proposalTs, learningSummary.reflectionsCompleted) },
-      { key: 'ic', label: 'IC Updates', count: learningSummary.icValuesUpdated, lastRun: icTs, status: asStatus(learningSummary.icValuesUpdated, icTs, learningSummary.reflectionsCompleted) },
-    ] as const
-  }, [cleanGradeHistory, learningSummary.icValuesUpdated, learningSummary.reflectionsCompleted, proposals, streamStats, tradeFeed])
 
   const wiringFreshness = useMemo(() => {
     const now = Date.now()
@@ -1719,178 +1493,7 @@ export function DashboardView({ section }: { section: Section }) {
         </div>
       )}
 
-      {section === 'learning' && (
-        <div className="space-y-4">
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Learning Pipeline Status</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              {learningPipelineStages.map((stage) => (
-                <div key={stage.key} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                  <p className={mutedClass}>{stage.label}</p>
-                  <p
-                    className={cn(
-                      'mt-1 text-xs font-semibold uppercase tracking-wide',
-                      stage.status === 'Active'
-                        ? 'text-emerald-500'
-                        : stage.status === 'Error'
-                          ? 'text-rose-500'
-                          : 'text-slate-500',
-                    )}
-                  >
-                    {stage.status}
-                  </p>
-                  <p className="mt-1 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{stage.count}</p>
-                  <p className="mt-1 text-[11px] font-mono text-slate-500">
-                    {stage.lastRun ? `last ${formatTimeAgoSafe(stage.lastRun)}` : 'No runs yet'}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
-            {[
-              { label: 'Trades Evaluated', value: learningSummary.tradesEvaluated, Icon: FileCode, color: 'text-slate-500' },
-              { label: 'Reflections Completed', value: learningSummary.reflectionsCompleted, Icon: Brain, color: 'text-slate-500' },
-              { label: 'IC Values Updated', value: learningSummary.icValuesUpdated, Icon: Activity, color: 'text-slate-500' },
-              { label: 'Strategies Tested', value: learningSummary.strategiesTested, Icon: Zap, color: 'text-slate-500' },
-            ].map((item) => (
-              <div key={item.label} className={cardClass}>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className={sectionTitleClass}>{item.label}</p>
-                  <item.Icon className={cn('h-4 w-4', item.color)} />
-                </div>
-                <p className={valueClass}>{sanitizeValue(item.value)}</p>
-              </div>
-            ))}
-          </div>
-
-          <ProposalsFeed proposals={proposals} onUpdateStatus={updateProposalStatus} />
-          {proposals.length === 0 && (
-            <div className="rounded-lg border border-slate-200 bg-slate-100/50 p-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-              No strategy proposals yet. Reflection pipeline may be idle, disconnected, or awaiting graded trades.
-            </div>
-          )}
-
-          {Object.keys(icWeights).length > 0 && (
-            <div className={cardClass}>
-              <p className={cn(sectionTitleClass, 'mb-3')}>IC Factor Weights</p>
-              <div className="space-y-2">
-                {Object.entries(icWeights).map(([factor, weight]) => {
-                  // Weight comes from Redis JSON with no server-side validation;
-                  // guard against null/Infinity/NaN before calling .toFixed().
-                  // Clamp to [0, 1] so the progress bar never overflows.
-                  const w = typeof weight === 'number' && Number.isFinite(weight) ? Math.max(0, Math.min(1, weight)) : 0
-                  return (
-                    <div key={factor} className="flex items-center justify-between">
-                      <span className="text-sm font-sans text-slate-600 dark:text-slate-400">{factor}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
-                          <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.round(w * 100)}%` }} />
-                        </div>
-                        <span className="w-10 text-right text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">{(w * 100).toFixed(1)}%</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {cleanGradeHistory.length > 0 ? (
-            <div className={cardClass}>
-              <p className={cn(sectionTitleClass, 'mb-3')}>Grade History</p>
-              <div className="overflow-x-auto">
-                <table className="min-w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800">
-                      {['Grade', 'Score', 'LLM Health', 'Rate Lim', 'Delay', 'Time'].map((h) => (
-                        <th key={h} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cleanGradeHistory.map((g, i) => {
-                      const m = (g as Record<string, unknown>).metrics as Record<string, number> | undefined
-                      const llmHealth = m?.llm_health_score
-                      const rateLim = m?.llm_rate_limited
-                      const delayMs = m?.llm_effective_delay_ms
-                      return (
-                        <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
-                          <td className="px-2 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{g.grade ?? '--'}</td>
-                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-700 dark:text-slate-300">{g.score_pct != null ? `${g.score_pct}%` : '--'}</td>
-                          <td className="px-2 py-2 text-xs font-mono tabular-nums">
-                            {llmHealth != null ? (
-                              <span className={llmHealth >= 0.8 ? 'text-emerald-500' : llmHealth >= 0.5 ? 'text-amber-400' : 'text-rose-500'}>
-                                {(llmHealth * 100).toFixed(0)}%
-                              </span>
-                            ) : '--'}
-                          </td>
-                          <td className="px-2 py-2 text-xs font-mono tabular-nums">
-                            {rateLim != null ? (
-                              <span className={rateLim > 0 ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}>{rateLim}</span>
-                            ) : '--'}
-                          </td>
-                          <td className="px-2 py-2 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                            {delayMs != null ? `${delayMs}ms` : '--'}
-                          </td>
-                          <td className="px-2 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{g.timestamp ? new Date(g.timestamp).toLocaleTimeString() : '--'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <EmptyState message="No graded learning records yet" />
-          )}
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Performance Summary</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Win Rate</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{summary.winRate == null ? '--' : `${sanitizeValue(summary.winRate.toFixed(2))}%`}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Total P&L</p>
-                <p className={cn('text-sm font-mono tabular-nums', (resolvedPerformanceSummary?.total_pnl ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                  {resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Best Day</p>
-                <p className="text-sm font-mono tabular-nums text-emerald-500">
-                  {learningSummary.bestDay ? `${learningSummary.bestDay[0]} (${signedUSD(learningSummary.bestDay[1])})` : 'N/A'}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Worst Day</p>
-                <p className="text-sm font-mono tabular-nums text-rose-500">
-                  {learningSummary.worstDay ? `${learningSummary.worstDay[0]} (${signedUSD(learningSummary.worstDay[1])})` : 'N/A'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-2')}>Learning Runtime Notes</p>
-            <p className={mutedClass}>
-              Reflection agent status:{' '}
-              <span className="font-mono text-slate-700 dark:text-slate-200">
-                {realAgents.find((agent) => canonicalAgentKey(agent.name) === 'REFLECTION_AGENT')?.status ?? 'Unknown'}
-              </span>
-            </p>
-            <p className={cn(mutedClass, 'mt-1')}>
-              Last grade timestamp:{' '}
-              <span className="font-mono text-slate-700 dark:text-slate-200">
-                {cleanGradeHistory[0]?.timestamp ? formatTimestamp(cleanGradeHistory[0].timestamp) : 'No grades yet'}
-              </span>
-            </p>
-          </div>
-        </div>
-      )}
+      {section === 'learning' && <LearningDashboard />}
 
       {section === 'proposals' && <ProposalsSection />}
 
@@ -1994,9 +1597,6 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             </div>
           </div>
-
-          {/* Learning Pipeline — real scored trades, quant reflections, strategies */}
-          <LearningDashboard />
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>

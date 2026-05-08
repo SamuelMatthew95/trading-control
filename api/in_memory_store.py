@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
@@ -210,6 +211,7 @@ class InMemoryStore:
 
     def add_reflection(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
+        entry.setdefault("id", str(uuid.uuid4()))
         entry.setdefault("created_at", time.time())
         self.reflections.append(entry)
         if len(self.reflections) > 100:
@@ -222,6 +224,7 @@ class InMemoryStore:
 
     def add_strategy(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
+        entry.setdefault("id", str(uuid.uuid4()))
         entry.setdefault("created_at", time.time())
         self.strategies.append(entry)
         if len(self.strategies) > 100:
