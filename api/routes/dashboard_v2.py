@@ -793,45 +793,24 @@ async def get_prices() -> dict[str, Any]:
     This provides instant price data for dashboard initial load,
     without requiring WebSocket connection.
     """
-    try:
+
+    async def _fetch_prices() -> dict[str, Any]:
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
         redis_client = await get_redis()
-
-        # Get all price keys from Redis
         keys = [REDIS_KEY_PRICES.format(symbol=symbol) for symbol in symbols]
         cached_values = await redis_client.mget(keys)
-
         prices = {}
         for symbol, cached_value in zip(symbols, cached_values, strict=False):
-            if cached_value:
-                try:
-                    prices[symbol] = json.loads(cached_value)
-                except json.JSONDecodeError:
-                    log_structured("warning", "invalid price json", symbol=symbol)
-                    prices[symbol] = None
-            else:
-                prices[symbol] = None
+            prices[symbol] = json.loads(cached_value) if cached_value else None
+        return prices
 
-        return {
-            "prices": prices,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "redis_cache",
-        }
-
-    except Exception:
-        log_structured("warning", "price_cache_redis_unavailable", exc_info=True)
-        mem_prices = get_runtime_store().dashboard_fallback_snapshot().get("prices", {})
-        return {
-            "prices": mem_prices if isinstance(mem_prices, dict) else {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-            "meta": dashboard_reads._meta(
-                source="memory" if bool(mem_prices) else "empty",
-                memory_record_count=len(mem_prices) if isinstance(mem_prices, dict) else 0,
-                db_checked=False,
-                reason=None if mem_prices else "memory_empty_db_unavailable",
-            ),
-        }
+    selected = await dashboard_selector.prices_or_memory(fetch_db=_fetch_prices)
+    return {
+        "prices": selected["prices"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": selected["source"],
+        "meta": selected["meta"],
+    }
 
 
 @router.get("/agents/status")
@@ -952,63 +931,32 @@ async def get_agents_status() -> dict[str, Any]:
 @router.get("/system-metrics")
 async def get_system_stream_metrics() -> dict[str, Any]:
     """Get Redis stream lengths for pipeline health display."""
-    try:
-        redis_client = await get_redis()
 
+    async def _fetch_db_metrics() -> dict[str, Any]:
+        redis_client = await get_redis()
         streams = {
             "market_events": STREAM_MARKET_EVENTS,
             "signals": STREAM_SIGNALS,
             "decisions": STREAM_DECISIONS,
             "graded_decisions": STREAM_GRADED_DECISIONS,
         }
-
         result = {}
         for key, stream_name in streams.items():
             try:
                 result[key] = await redis_client.xlen(stream_name)
             except Exception:
                 result[key] = 0
+        async with AsyncSessionFactory() as session:
+            row = await session.execute(text("SELECT COUNT(*) FROM agent_logs"))
+            result["agent_logs"] = row.scalar() or 0
+            row = await session.execute(
+                text("SELECT COUNT(*) FROM events WHERE event_type = 'trade.alert'")
+            )
+            result["trade_alerts"] = row.scalar() or 0
+        return result
 
-        # agent_logs count from DB (skip if DB unavailable)
-        if is_db_available():
-            try:
-                async with AsyncSessionFactory() as session:
-                    row = await session.execute(text("SELECT COUNT(*) FROM agent_logs"))
-                    result["agent_logs"] = row.scalar() or 0
-            except Exception:
-                result["agent_logs"] = 0
-        else:
-            result["agent_logs"] = len(get_runtime_store().event_history)
-
-        # trade_alerts count from events table (skip if DB unavailable)
-        if is_db_available():
-            try:
-                async with AsyncSessionFactory() as session:
-                    row = await session.execute(
-                        text("SELECT COUNT(*) FROM events WHERE event_type = 'trade.alert'")
-                    )
-                    result["trade_alerts"] = row.scalar() or 0
-            except Exception:
-                result["trade_alerts"] = 0
-        else:
-            result["trade_alerts"] = 0
-
-        return {
-            **result,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception:
-        log_structured("warning", "system_metrics_unavailable", exc_info=True)
-        return {
-            "market_events": 0,
-            "signals": 0,
-            "decisions": 0,
-            "graded_decisions": 0,
-            "agent_logs": 0,
-            "trade_alerts": 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+    selected = await dashboard_selector.system_metrics_or_memory(fetch_db=_fetch_db_metrics)
+    return {**selected, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/events/recent")

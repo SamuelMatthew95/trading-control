@@ -59,3 +59,58 @@ class DashboardReadSelector:
             if rows:
                 return {"rows": rows, "source": "memory"}
             return {"rows": empty_factory() if empty_factory else [], "source": "empty"}
+
+    async def prices_or_memory(
+        self, *, fetch_db: Callable[[], Awaitable[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        mem = self.reads.memory_prices()
+        mem_prices = mem.get("prices", {})
+        if not is_db_available():
+            return {
+                "prices": mem_prices,
+                "source": "memory" if mem_prices else "empty",
+                "meta": mem["meta"],
+            }
+        try:
+            db_prices = await fetch_db()
+            if db_prices:
+                return {"prices": db_prices, "source": "database", "meta": mem["meta"]}
+            return {
+                "prices": mem_prices,
+                "source": "memory" if mem_prices else "empty",
+                "meta": mem["meta"],
+            }
+        except Exception:
+            return {
+                "prices": mem_prices,
+                "source": "memory" if mem_prices else "empty",
+                "meta": mem["meta"],
+            }
+
+    async def system_metrics_or_memory(
+        self, *, fetch_db: Callable[[], Awaitable[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        if not is_db_available():
+            return {
+                "market_events": 0,
+                "signals": 0,
+                "decisions": 0,
+                "graded_decisions": 0,
+                "agent_logs": len(self.reads.runtime_dashboard_snapshot().get("agent_logs", [])),
+                "trade_alerts": 0,
+                "source": "memory",
+            }
+        try:
+            payload = await fetch_db()
+            payload["source"] = "database"
+            return payload
+        except Exception:
+            return {
+                "market_events": 0,
+                "signals": 0,
+                "decisions": 0,
+                "graded_decisions": 0,
+                "agent_logs": len(self.reads.runtime_dashboard_snapshot().get("agent_logs", [])),
+                "trade_alerts": 0,
+                "source": "memory",
+            }

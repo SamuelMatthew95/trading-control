@@ -1040,3 +1040,76 @@ async def test_trade_feed_selector_memory_fallback():
     payload = await dashboard_v2.get_trade_feed(limit=10)
     assert payload["source"] == "memory"
     assert payload["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_prices_selector_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Redis:
+        async def mget(self, _keys):
+            return ['{"price": 1}'] * 6
+
+    async def _redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _redis)
+    payload = await dashboard_v2.get_prices()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_prices_selector_runtime_fallback(monkeypatch):
+    set_db_available(False)
+
+    async def _boom():
+        raise RuntimeError("no redis")
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _boom)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_prices()
+    assert payload["source"] in {"memory", "empty"}
+
+
+@pytest.mark.asyncio
+async def test_system_metrics_selector_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Redis:
+        async def xlen(self, _name):
+            return 1
+
+    class _Result:
+        def scalar(self):
+            return 1
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    async def _redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _redis)
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    payload = await dashboard_v2.get_system_stream_metrics()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_system_metrics_selector_runtime_default(monkeypatch):
+    set_db_available(False)
+
+    async def _boom():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _boom)
+    payload = await dashboard_v2.get_system_stream_metrics()
+    assert payload["source"] == "memory"
+    assert "market_events" in payload
