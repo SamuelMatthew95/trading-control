@@ -915,3 +915,56 @@ async def test_dashboard_state_sets_mode_even_if_redis_unavailable(monkeypatch):
     payload = await dashboard_v2.get_dashboard_state()
 
     assert payload["mode"] == "in_memory_fallback"
+
+
+class _FakeAggForSnapshot:
+    def __init__(self, _session):
+        pass
+
+    async def get_dashboard_snapshot(self):
+        return {"orders": [{"id": "db-order"}]}
+
+    async def get_raw_snapshot(self):
+        return {"orders": [{"id": "db-order"}], "positions": []}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_selector_uses_db_when_available(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeAggForSnapshot)
+
+    payload = await dashboard_v2.get_dashboard_snapshot()
+    assert payload["source"] == "database"
+    assert payload["orders"][0]["id"] == "db-order"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_selector_uses_memory_when_db_unavailable(monkeypatch):
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "mem-order"})
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_dashboard_snapshot()
+    assert payload["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_state_selector_uses_same_memory_fallback(monkeypatch):
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "mem-order"})
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_dashboard_state()
+    assert payload["source"] == "memory"
+    assert "orders" in payload

@@ -42,10 +42,12 @@ from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.services.dashboard_read_service import DashboardReadService
+from api.services.dashboard_source_selector import DashboardReadSelector
 from api.services.metrics_aggregator import MetricsAggregator
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 dashboard_reads = DashboardReadService()
+dashboard_selector = DashboardReadSelector()
 
 # Track process start time for startup grace period
 PROCESS_START_TIME = datetime.now(timezone.utc)
@@ -363,15 +365,15 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
     Returns sanitized data with no NaN values.
     Uses in-memory store directly when the database is unavailable.
     """
-    if not is_db_available():
-        return get_runtime_store().dashboard_fallback_snapshot()
-    try:
+
+    async def _fetch_db() -> dict[str, Any]:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_dashboard_snapshot()
-    except Exception:
-        log_structured("warning", "dashboard_snapshot_db_failed", exc_info=True)
-        return get_runtime_store().dashboard_fallback_snapshot()
+
+    return await dashboard_selector.snapshot_or_memory(
+        fetch_db=_fetch_db, runtime_mode_value=runtime_mode()
+    )
 
 
 @router.get("/state")
@@ -384,22 +386,17 @@ async def get_dashboard_state() -> dict[str, Any]:
     is slow to connect or unavailable.
     """
     try:
-        # Route determined once upfront; no silent try/except routing.
-        if not is_db_available():
-            store = get_runtime_store()
-            data = store.dashboard_fallback_snapshot()
-            data["mode"] = runtime_mode()  # "in_memory_fallback" when DB is unavailable
-        else:
-            try:
-                async with AsyncSessionFactory() as session:
-                    aggregator = MetricsAggregator(session)
-                    data = await aggregator.get_raw_snapshot()
-            except Exception:
-                log_structured("warning", "dashboard_state_db_failed", exc_info=True)
-                fallback = get_runtime_store().dashboard_fallback_snapshot()
-                fallback["degraded_mode"] = True
-                fallback["degraded_reason"] = "db_unavailable"
-                return fallback
+
+        async def _fetch_db() -> dict[str, Any]:
+            async with AsyncSessionFactory() as session:
+                aggregator = MetricsAggregator(session)
+                return await aggregator.get_raw_snapshot()
+
+        data = await dashboard_selector.snapshot_or_memory(
+            fetch_db=_fetch_db,
+            runtime_mode_value=runtime_mode(),
+            include_mode=True,
+        )
 
         # Redis enrichment is best-effort: a Redis outage must not prevent
         # the frontend from receiving its DB-backed hydration data.
