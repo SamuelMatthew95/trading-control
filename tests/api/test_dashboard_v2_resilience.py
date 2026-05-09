@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from api.constants import LogType
@@ -1312,3 +1314,26 @@ async def test_ic_weights_runtime_fallback():
     set_runtime_store(InMemoryStore())
     payload = await dashboard_v2.get_ic_weights()
     assert payload["source"] in {"memory", "empty"}
+
+
+def test_core_selector_routes_do_not_call_runtime_store_directly():
+    funcs = [
+        dashboard_v2.get_dashboard_snapshot,
+        dashboard_v2.get_dashboard_state,
+        dashboard_v2.get_prices,
+        dashboard_v2.get_order_metrics,
+        dashboard_v2.get_positions,
+        dashboard_v2.get_portfolio,
+        dashboard_v2.get_pnl_metrics,
+        dashboard_v2.get_trade_feed,
+        dashboard_v2.get_lifecycle,
+        dashboard_v2.get_agent_metrics,
+        dashboard_v2.get_agent_runs,
+        dashboard_v2.get_notifications,
+        dashboard_v2.get_system_stream_metrics,
+        dashboard_v2.get_grade_history,
+        dashboard_v2.get_ic_weights,
+    ]
+    for fn in funcs:
+        source = inspect.getsource(fn)
+        assert "get_runtime_store(" not in source, f"direct runtime-store call in {fn.__name__}"
