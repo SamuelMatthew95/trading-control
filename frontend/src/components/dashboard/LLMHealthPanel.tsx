@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/apiClient'
+import { LLM_HEALTH_POLL_MS } from '@/lib/constants/polling'
 
 // Mirrors api/constants.py LLMCallResult StrEnum
 const LLMCallResult = {
@@ -167,7 +168,7 @@ export function LLMHealthPanel() {
     }
 
     poll()
-    const id = setInterval(poll, 5000)
+    const id = setInterval(poll, LLM_HEALTH_POLL_MS)
     return () => {
       cancelled = true
       clearInterval(id)

@@ -4,6 +4,7 @@ export {
   toFiniteNumber,
   formatNumber,
   formatCompactNumber,
+  extractConfidence,
 } from './number'
 
 export {

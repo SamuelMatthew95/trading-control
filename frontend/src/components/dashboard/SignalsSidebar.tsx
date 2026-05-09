@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/apiClient'
+import { SIGNALS_POLL_MS } from '@/lib/constants/polling'
 
 type Signal = {
   id: string
@@ -29,7 +30,7 @@ export function SignalsSidebar() {
 
   useEffect(() => {
     void load()
-    const timer = setInterval(() => void load(), 60000)
+    const timer = setInterval(() => void load(), SIGNALS_POLL_MS)
     return () => clearInterval(timer)
   }, [load])
 

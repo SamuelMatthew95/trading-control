@@ -5,9 +5,8 @@
 import type { GradeRecord } from '@/lib/api'
 import type { Order, Proposal, TradeFeedItem } from '@/stores/useCodexStore'
 import { parseTimestamp, toFiniteNumber } from '@/lib/format'
+import { PIPELINE_FRESH_WINDOW_MS } from '@/lib/constants/learning'
 import type { LearningSummaryView, PipelineStageView } from '@/lib/types'
-
-const PIPELINE_FRESH_WINDOW_MS = 10 * 60 * 1000
 
 interface StreamStat {
   count: number

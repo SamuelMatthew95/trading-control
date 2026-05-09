@@ -67,21 +67,47 @@ export function DashboardView({ section }: { section: Section }) {
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
+  const [pendingVoteIds, setPendingVoteIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  )
 
   // Persist proposal votes through the backend BEFORE mutating the local
-  // Zustand store. If the API call fails (network or non-2xx), the store is
-  // not updated — preventing the UI from diverging from server-side state on
-  // reconnect or next hydration. (Codex review #214 P1.)
+  // Zustand store, and track in-flight votes so the UI can disable the vote
+  // controls. Without this:
+  //   - The store would diverge from the server on a failed API call
+  //     (Codex review #214 P1).
+  //   - On a slow connection, operators could double-click Approve/Reject
+  //     and submit concurrent PATCHes whose final persisted status depends
+  //     on race order (Codex review #214 P2).
   const handleProposalStatusChange = useCallback(
     async (id: string, status: ProposalStatus) => {
       if (status !== 'approved' && status !== 'rejected') return
+      // Re-entrancy guard: ignore clicks while a vote for this id is in flight.
+      let alreadyPending = false
+      setPendingVoteIds((prev) => {
+        if (prev.has(id)) {
+          alreadyPending = true
+          return prev
+        }
+        const next = new Set(prev)
+        next.add(id)
+        return next
+      })
+      if (alreadyPending) return
+
       try {
         await voteOnProposal(id, status)
         updateProposalStatus(id, status)
       } catch {
         // Network or HTTP error — leave the proposal in its current state so
-        // the operator can retry. Surfacing the failure in toast/notification
-        // can be added in a future iteration.
+        // the operator can retry.
+      } finally {
+        setPendingVoteIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
       }
     },
     [updateProposalStatus],
@@ -280,6 +306,7 @@ export function DashboardView({ section }: { section: Section }) {
             learningSummary={learningSummary}
             proposals={proposals}
             onUpdateProposalStatus={handleProposalStatusChange}
+            pendingVoteIds={pendingVoteIds}
             icWeights={data.icWeights}
             gradeHistory={cleanGradeHistory}
             resolvedPerformanceSummary={resolvedPerformanceSummary ?? null}

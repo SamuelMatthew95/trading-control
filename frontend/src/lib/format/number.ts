@@ -41,3 +41,31 @@ export function formatCompactNumber(value: number | null | undefined): string {
     maximumFractionDigits: 1,
   })
 }
+
+/**
+ * Read a confidence value from a record and normalize it to a 0–1 ratio.
+ *
+ * Handles three real-world shapes the backend may emit:
+ *   - { confidence: 0.73 }         ← canonical 0-1 ratio
+ *   - { confidence: 73 }           ← legacy / pre-normalization 0-100
+ *   - { confidence_score: 0.73 }   ← alternate field name (LearningDashboard, evals)
+ *
+ * Single source of truth so every component reads confidence the same way.
+ * Values > 1 are treated as percentages and divided by 100.
+ * Returns null for null / undefined / NaN / negative inputs so callers can
+ * render a `—` placeholder consistently.
+ */
+export function extractConfidence(
+  record: Record<string, unknown> | null | undefined,
+): number | null {
+  if (!record) return null
+  const raw = record.confidence_score ?? record.confidence
+  const n = toFiniteNumber(raw)
+  if (n == null || n < 0) return null
+  if (n > 1) {
+    // Treat values up to 100 as percentages. Anything beyond is bogus.
+    if (n > 100) return null
+    return n / 100
+  }
+  return n
+}

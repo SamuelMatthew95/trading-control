@@ -106,10 +106,24 @@ frontend/src/
 │   │   ├── dashboard.ts
 │   │   └── index.ts
 │   │
-│   ├── constants/                     ← UI tokens, agent thresholds, tickers
+│   ├── constants/                     ← UI tokens, agent thresholds, tickers,
+│   │   │                                 fallback labels, proposal taxonomy,
+│   │   │                                 polling cadences
 │   │   ├── ui.ts                      (UI_RADIUS, UI_TEXT, UI_SURFACE, UI_PAD)
 │   │   ├── trading.ts                 (TICKER_SYMBOLS, PRICE_LIVE_WINDOW_MS)
-│   │   └── agentStates.ts             (AGENT_LIVE/STALE thresholds, displayAgentName)
+│   │   ├── agentStates.ts             (AGENT_LIVE/STALE thresholds, displayAgentName)
+│   │   ├── learning.ts                (FALLBACK_LABELS, FALLBACK_MESSAGES,
+│   │   │                                 PROPOSAL_TYPE_LABEL/_TONE,
+│   │   │                                 SHARPE_GREAT/_NEUTRAL_THRESHOLD,
+│   │   │                                 RECENT_EVENT_TONE,
+│   │   │                                 PIPELINE_STREAM_NAMES,
+│   │   │                                 PIPELINE_FRESH_WINDOW_MS,
+│   │   │                                 STREAM_LIVE_WINDOW_MS)
+│   │   └── polling.ts                 (DASHBOARD_STATE_POLL_MS,
+│   │                                     DASHBOARD_DATA_POLL_MS,
+│   │                                     LLM_HEALTH_POLL_MS,
+│   │                                     SIGNALS_POLL_MS,
+│   │                                     LEARNING_DASHBOARD_POLL_MS)
 │   │
 │   ├── api/                           ← typed REST wrappers
 │   │   ├── dashboard.ts               (getDashboardState, getKillSwitch, …)
@@ -213,6 +227,40 @@ function PositionRow({ position, index }: PositionRowProps) { ... }
 ```
 
 This makes the row component testable in isolation and unblocks reuse.
+
+### 7. Constants — never hardcode magic numbers, labels, or lookup tables
+
+Every recurring label, threshold, polling cadence, or `Record<string, X>`
+lookup belongs in `lib/constants/*`. Components never declare them locally.
+
+```tsx
+// ✗ NEVER
+const REFRESH_MS = 15_000
+const PROPOSAL_TYPE_LABEL = { parameter_change: 'Param Change', ... }
+const FALLBACK_LABELS = { skip_reasoning: 'Rule-based fallback decision', ... }
+
+// ✓ Single source of truth
+import { LEARNING_DASHBOARD_POLL_MS } from '@/lib/constants/polling'
+import { PROPOSAL_TYPE_LABEL, FALLBACK_LABELS } from '@/lib/constants/learning'
+```
+
+Consequences:
+- Tuning the dashboard's polling load = edit `lib/constants/polling.ts`.
+- Adding a backend `proposal_type` = edit `lib/constants/learning.ts`.
+- Renaming a fallback message = edit one file.
+- Constants tests (`lib/constants/__tests__/*.test.ts`) catch shape drift —
+  e.g. a proposal type missing its tone, a Sharpe threshold inversion.
+
+### 8. Confidence is read through `extractConfidence`
+
+Backend logs may emit confidence as `0.73`, `73`, or `confidence_score: 0.73`.
+A component reading `log.confidence` directly will render `7300%` for the
+second form and miss the third entirely. Always use the helper:
+
+```tsx
+import { extractConfidence } from '@/lib/format'
+const confidence = extractConfidence(log)  // → 0–1 ratio or null
+```
 
 ## Data flow at runtime
 

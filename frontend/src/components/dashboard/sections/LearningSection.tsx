@@ -38,6 +38,8 @@ interface LearningSectionProps {
   learningSummary: LearningSummaryView
   proposals: Proposal[]
   onUpdateProposalStatus: (id: string, status: ProposalStatus) => void
+  /** IDs of proposals whose vote API call is currently in flight. */
+  pendingVoteIds?: ReadonlySet<string>
   icWeights: Record<string, number>
   gradeHistory: GradeRecord[]
   resolvedPerformanceSummary: PerformanceSummary | null
@@ -50,6 +52,7 @@ export function LearningSection({
   learningSummary,
   proposals,
   onUpdateProposalStatus,
+  pendingVoteIds,
   icWeights,
   gradeHistory,
   resolvedPerformanceSummary,
@@ -87,7 +90,11 @@ export function LearningSection({
         />
       </div>
 
-      <ProposalsFeed proposals={proposals} onUpdateStatus={onUpdateProposalStatus} />
+      <ProposalsFeed
+        proposals={proposals}
+        onUpdateStatus={onUpdateProposalStatus}
+        pendingVoteIds={pendingVoteIds}
+      />
       {proposals.length === 0 ? (
         <p className={cn(UI_TEXT.muted, EMPTY_PROPOSALS_BANNER)}>
           No strategy proposals yet. Reflection pipeline may be idle, disconnected, or awaiting graded trades.

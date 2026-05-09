@@ -5,7 +5,8 @@ import type { ComponentType, ReactNode } from 'react'
 import { TerminalCard, SectionHeader, EmptyState } from '@/components/terminal'
 import { cn } from '@/lib/utils'
 import { TONE_CLASSES, type Tone } from '@/lib/state'
-import { formatRatioAsPercent, formatTimestamp } from '@/lib/format'
+import { extractConfidence, formatRatioAsPercent, formatTimestamp } from '@/lib/format'
+import { PROPOSAL_TYPE_LABEL, PROPOSAL_TYPE_TONE } from '@/lib/constants/learning'
 import { UI_TEXT } from '@/lib/constants/ui'
 import {
   CHIP_BASE_BOLD,
@@ -20,34 +21,18 @@ import {
 } from '@/lib/styles'
 import type { Proposal, ProposalStatus } from '@/stores/useCodexStore'
 
-const PROPOSAL_TYPE_LABEL: Record<string, string> = {
-  parameter_change: 'Param Change',
-  code_change: 'Code Change',
-  regime_adjustment: 'Regime Adjust',
-  signal_weight_reduction: 'Weight Reduction',
-  agent_suspension: 'Suspension',
-  agent_retirement: 'Retirement',
-  new_agent: 'New Agent',
-}
-
-const PROPOSAL_TYPE_TONE: Record<string, Tone> = {
-  parameter_change: 'info',
-  code_change: 'info',
-  regime_adjustment: 'warn',
-  signal_weight_reduction: 'warn',
-  agent_suspension: 'neg',
-  agent_retirement: 'neg',
-  new_agent: 'pos',
-}
-
 interface ProposalsFeedProps {
   proposals: Proposal[]
   onUpdateStatus: (id: string, status: ProposalStatus) => void
+  /** IDs of proposals whose vote API call is currently in flight. */
+  pendingVoteIds?: ReadonlySet<string>
 }
 
 interface ProposalCardProps {
   proposal: Proposal
   onUpdateStatus: (id: string, status: ProposalStatus) => void
+  /** True while the API request for this proposal's vote is in flight. */
+  isVoting: boolean
 }
 
 function proposalTypeLabel(type: string): string {
@@ -85,12 +70,21 @@ function VoteButton(props: {
   Icon: ComponentType<{ className?: string }>
   tone: 'pos' | 'neg'
   onClick: () => void
+  disabled: boolean
 }) {
-  const { label, Icon, tone, onClick } = props
+  const { label, Icon, tone, onClick, disabled } = props
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={cn(VOTE_BUTTON_BASE, TONE_CLASSES[tone].soft, VOTE_BUTTON_HOVER[tone])}
+      disabled={disabled}
+      aria-busy={disabled}
+      className={cn(
+        VOTE_BUTTON_BASE,
+        TONE_CLASSES[tone].soft,
+        VOTE_BUTTON_HOVER[tone],
+        'disabled:cursor-not-allowed disabled:opacity-50',
+      )}
     >
       <Icon className={ICON_XS} />
       {label}
@@ -98,14 +92,40 @@ function VoteButton(props: {
   )
 }
 
-function VoteControls(props: { proposalId: string; onUpdateStatus: ProposalCardProps['onUpdateStatus'] }) {
-  const { proposalId, onUpdateStatus } = props
-  const onApprove = () => onUpdateStatus(proposalId, 'approved')
-  const onReject = () => onUpdateStatus(proposalId, 'rejected')
+interface VoteControlsProps {
+  proposalId: string
+  onUpdateStatus: ProposalCardProps['onUpdateStatus']
+  isVoting: boolean
+}
+
+function VoteControls(props: VoteControlsProps) {
+  const { proposalId, onUpdateStatus, isVoting } = props
+  // Guard at the handler level too — if a click somehow lands while the
+  // button is mid-disable transition, swallow it. Belt and suspenders.
+  const onApprove = () => {
+    if (isVoting) return
+    onUpdateStatus(proposalId, 'approved')
+  }
+  const onReject = () => {
+    if (isVoting) return
+    onUpdateStatus(proposalId, 'rejected')
+  }
   return (
     <div className={ROW_START}>
-      <VoteButton label="Approve" Icon={ThumbsUp} tone="pos" onClick={onApprove} />
-      <VoteButton label="Reject" Icon={ThumbsDown} tone="neg" onClick={onReject} />
+      <VoteButton
+        label={isVoting ? 'Working…' : 'Approve'}
+        Icon={ThumbsUp}
+        tone="pos"
+        onClick={onApprove}
+        disabled={isVoting}
+      />
+      <VoteButton
+        label="Reject"
+        Icon={ThumbsDown}
+        tone="neg"
+        onClick={onReject}
+        disabled={isVoting}
+      />
     </div>
   )
 }
@@ -120,13 +140,16 @@ const PROPOSAL_HEADER = cn('mb-2', ROW_WRAP)
 function ProposalHeader(props: { proposal: Proposal }) {
   const { proposal } = props
   const tone = proposalTypeTone(proposal.proposal_type)
+  // Use the centralized confidence extractor — handles both 0-1 and 0-100
+  // shapes plus the alternate `confidence_score` field name.
+  const confidence = extractConfidence(proposal as unknown as Record<string, unknown>)
   return (
     <div className={PROPOSAL_HEADER}>
       <span className={cn(CHIP_BASE_BOLD, TONE_CLASSES[tone].soft)}>
         {proposalTypeLabel(proposal.proposal_type)}
       </span>
-      {proposal.confidence != null ? (
-        <span className={MONO_CHIP}>{formatRatioAsPercent(proposal.confidence)} confidence</span>
+      {confidence != null ? (
+        <span className={MONO_CHIP}>{formatRatioAsPercent(confidence)} confidence</span>
       ) : null}
       {proposal.status !== 'pending' ? <StatusBadge status={proposal.status} /> : null}
       <span className={cn(UI_TEXT.muted, 'ml-auto')}>{formatTimestamp(proposal.timestamp)}</span>
@@ -135,7 +158,7 @@ function ProposalHeader(props: { proposal: Proposal }) {
 }
 
 function ProposalCard(props: ProposalCardProps) {
-  const { proposal, onUpdateStatus } = props
+  const { proposal, onUpdateStatus, isVoting } = props
   const showVoteControls = proposal.status === 'pending' && proposal.requires_approval
   return (
     <div className={proposalCardClass(proposal.status)}>
@@ -144,7 +167,11 @@ function ProposalCard(props: ProposalCardProps) {
         {proposalDescription(proposal.content)}
       </p>
       {showVoteControls ? (
-        <VoteControls proposalId={proposal.id} onUpdateStatus={onUpdateStatus} />
+        <VoteControls
+          proposalId={proposal.id}
+          onUpdateStatus={onUpdateStatus}
+          isVoting={isVoting}
+        />
       ) : null}
     </div>
   )
@@ -156,7 +183,7 @@ function PendingBadge(props: { count: number }): ReactNode {
 }
 
 export function ProposalsFeed(props: ProposalsFeedProps) {
-  const { proposals, onUpdateStatus } = props
+  const { proposals, onUpdateStatus, pendingVoteIds } = props
   const pending = pendingCount(proposals)
   return (
     <TerminalCard>
@@ -175,7 +202,12 @@ export function ProposalsFeed(props: ProposalsFeedProps) {
       ) : (
         <div className={SCROLL_LIST_TALL}>
           {proposals.map((proposal) => (
-            <ProposalCard key={proposal.id} proposal={proposal} onUpdateStatus={onUpdateStatus} />
+            <ProposalCard
+              key={proposal.id}
+              proposal={proposal}
+              onUpdateStatus={onUpdateStatus}
+              isVoting={pendingVoteIds?.has(proposal.id) ?? false}
+            />
           ))}
         </div>
       )}

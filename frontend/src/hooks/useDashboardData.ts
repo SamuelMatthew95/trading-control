@@ -19,8 +19,10 @@ import type {
   PersistedStreamCount,
 } from '@/lib/types'
 
-const POLL_INTERVAL_MS = 30_000
-const STATE_POLL_INTERVAL_MS = 15_000
+import {
+  DASHBOARD_DATA_POLL_MS as POLL_INTERVAL_MS,
+  DASHBOARD_STATE_POLL_MS as STATE_POLL_INTERVAL_MS,
+} from '@/lib/constants/polling'
 
 interface DashboardApiHealth {
   dashboardState: ApiHealthState

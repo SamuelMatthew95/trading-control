@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { LEARNING_DASHBOARD_POLL_MS } from '@/lib/constants/polling'
 
 type LatestGrade = {
   trace_id: string
@@ -48,7 +49,7 @@ type LearningLoopState = {
   timestamp: string
 }
 
-const REFRESH_MS = 15_000
+const REFRESH_MS = LEARNING_DASHBOARD_POLL_MS
 
 const gradeColor = (grade: string | null): string => {
   switch (grade) {

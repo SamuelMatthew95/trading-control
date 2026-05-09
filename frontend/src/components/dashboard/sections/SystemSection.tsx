@@ -40,6 +40,11 @@ import {
   TERTIARY_TEXT,
   URL_MONO,
 } from '@/lib/styles'
+import {
+  PIPELINE_STREAM_NAMES,
+  RECENT_EVENT_TONE,
+  STREAM_LIVE_WINDOW_MS,
+} from '@/lib/constants/learning'
 import type {
   AgentStatus as StoreAgentStatus,
   PerformanceSummary,
@@ -62,22 +67,6 @@ const PIPELINE_TONE: Record<PipelineStatus, Tone> = {
 interface StreamStat {
   count: number
   lastMessageTimestamp: string | null
-}
-
-const PIPELINE_STREAM_NAMES = [
-  'market_ticks',
-  'signals',
-  'orders',
-  'executions',
-  'agent_logs',
-  'risk_alerts',
-  'notifications',
-] as const
-
-const RECENT_EVENT_TONE: Record<string, Tone> = {
-  market_ticks: 'pos',
-  signals: 'info',
-  orders: 'warn',
 }
 
 interface SystemSectionProps {
@@ -440,7 +429,7 @@ function PipelineHandoffPanel(props: PipelineHandoffPanelProps) {
 
 function isStreamLive(stat: StreamStat): boolean {
   if (!stat.lastMessageTimestamp) return false
-  return Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000
+  return Date.now() - new Date(stat.lastMessageTimestamp).getTime() < STREAM_LIVE_WINDOW_MS
 }
 
 function StreamStatTile(props: { name: string; stat: StreamStat }) {

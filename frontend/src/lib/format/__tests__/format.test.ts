@@ -14,6 +14,7 @@ import {
   formatUptime,
   parseTimestamp,
   formatTimestamp,
+  extractConfidence,
 } from '../index'
 
 describe('isFiniteNumber', () => {
@@ -218,5 +219,36 @@ describe('formatUptime', () => {
   })
   it('missing for null', () => {
     expect(formatUptime(null)).toBe(MISSING)
+  })
+})
+
+describe('extractConfidence', () => {
+  it('returns canonical 0-1 ratio unchanged', () => {
+    expect(extractConfidence({ confidence: 0.73 })).toBeCloseTo(0.73)
+  })
+  it('treats values > 1 as percentages and divides by 100', () => {
+    expect(extractConfidence({ confidence: 73 })).toBeCloseTo(0.73)
+  })
+  it('reads confidence_score in preference to confidence', () => {
+    expect(extractConfidence({ confidence: 0.5, confidence_score: 0.9 })).toBeCloseTo(0.9)
+  })
+  it('falls back to confidence when confidence_score is missing', () => {
+    expect(extractConfidence({ confidence: 0.42 })).toBeCloseTo(0.42)
+  })
+  it('returns null for missing record / fields', () => {
+    expect(extractConfidence(null)).toBeNull()
+    expect(extractConfidence(undefined)).toBeNull()
+    expect(extractConfidence({})).toBeNull()
+  })
+  it('returns null for negative values', () => {
+    expect(extractConfidence({ confidence: -0.1 })).toBeNull()
+  })
+  it('returns null for values above 100 (bogus)', () => {
+    expect(extractConfidence({ confidence: 150 })).toBeNull()
+    expect(extractConfidence({ confidence: 7300 })).toBeNull()
+  })
+  it('handles edge values 0 and 1', () => {
+    expect(extractConfidence({ confidence: 0 })).toBe(0)
+    expect(extractConfidence({ confidence: 1 })).toBe(1)
   })
 })

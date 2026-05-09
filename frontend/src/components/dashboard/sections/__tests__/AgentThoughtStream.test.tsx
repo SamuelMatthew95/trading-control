@@ -122,6 +122,49 @@ describe('AgentThoughtStream', () => {
     expect(screen.getByText('Sell ETH/USD on RSI overbought')).toBeInTheDocument()
   })
 
+  it('renders confidence=0.73 as 73% (canonical ratio form)', () => {
+    const logs = [
+      {
+        id: '1',
+        agent_name: 'reasoning_agent',
+        message: 'Buy BTC/USD',
+        confidence: 0.73,
+        timestamp: '2026-05-08T10:00:00Z',
+      },
+    ] as unknown as AgentLog[]
+    render(<AgentThoughtStream logs={logs} onTraceClick={onTraceClick} />)
+    expect(screen.getByText('73%')).toBeInTheDocument()
+  })
+
+  it('renders confidence=73 as 73% (legacy 0-100 form, NOT 7300%)', () => {
+    const logs = [
+      {
+        id: '1',
+        agent_name: 'reasoning_agent',
+        message: 'Buy BTC/USD',
+        confidence: 73,
+        timestamp: '2026-05-08T10:00:00Z',
+      },
+    ] as unknown as AgentLog[]
+    render(<AgentThoughtStream logs={logs} onTraceClick={onTraceClick} />)
+    expect(screen.getByText('73%')).toBeInTheDocument()
+    expect(screen.queryByText(/7300%/)).not.toBeInTheDocument()
+  })
+
+  it('reads confidence_score when confidence is missing', () => {
+    const logs = [
+      {
+        id: '1',
+        agent_name: 'reasoning_agent',
+        message: 'Buy BTC/USD',
+        confidence_score: 0.85,
+        timestamp: '2026-05-08T10:00:00Z',
+      },
+    ] as unknown as AgentLog[]
+    render(<AgentThoughtStream logs={logs} onTraceClick={onTraceClick} />)
+    expect(screen.getByText('85%')).toBeInTheDocument()
+  })
+
   it('translates an embedded fallback marker (HOLD (30%) — fallback:skip_reasoning)', () => {
     const logs = [
       {

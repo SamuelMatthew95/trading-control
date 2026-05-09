@@ -3,9 +3,14 @@
 import { TerminalCard, SectionHeader, EmptyState, StateIndicator } from '@/components/terminal'
 import { cn } from '@/lib/utils'
 import { TONE_CLASSES, toneForRatio } from '@/lib/state'
-import { toFiniteNumber, formatTimeAgo, parseTimestamp } from '@/lib/format'
+import { extractConfidence, formatTimeAgo, parseTimestamp } from '@/lib/format'
 import { UI_TEXT } from '@/lib/constants/ui'
 import { AGENT_LOG_MAX_ROWS } from '@/lib/constants/trading'
+import {
+  FALLBACK_LABELS,
+  FALLBACK_MESSAGES,
+  FALLBACK_UNKNOWN_LABEL,
+} from '@/lib/constants/learning'
 import {
   ROW_DIVIDER_SKIP_FIRST,
   ROW_WRAP,
@@ -23,27 +28,21 @@ interface AgentThoughtStreamProps {
   onTraceClick: (traceId: string) => void
 }
 
-const FALLBACK_LABELS: Record<string, string> = {
-  skip_reasoning: 'Rule-based fallback decision',
-  reject_signal: 'Rule-based fallback: signal rejected',
-  use_last_reflection: 'Rule-based fallback: reused last reflection',
-}
-
-const FALLBACK_VALUES = new Set(Object.values(FALLBACK_LABELS))
-
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
 /**
  * Translate `fallback:<mode>` markers anywhere in the message. The reasoning
  * agent emits both bare ("fallback:skip_reasoning") and embedded
- * ("HOLD (30%) — fallback:skip_reasoning") forms.
+ * ("HOLD (30%) — fallback:skip_reasoning") forms. Mode → label mapping
+ * lives in lib/constants/learning so it stays in sync with the backend
+ * fallback enum.
  */
 function formatAgentMessage(raw: unknown): string {
   if (raw == null || raw === '') return ''
   const text = String(raw).trim()
   if (!text) return ''
   return text.replace(/fallback:(\w+)/g, (_match, mode: string) => {
-    return FALLBACK_LABELS[mode] ?? 'LLM unavailable'
+    return FALLBACK_LABELS[mode] ?? FALLBACK_UNKNOWN_LABEL
   })
 }
 
@@ -64,7 +63,7 @@ function readTimestamp(log: AgentLog): Date | null {
 }
 
 function isFallbackMessage(message: string): boolean {
-  return FALLBACK_VALUES.has(message) || message.startsWith('LLM unavailable')
+  return FALLBACK_MESSAGES.has(message)
 }
 
 // ── Aggregation ───────────────────────────────────────────────────────────
@@ -116,7 +115,7 @@ function buildThoughtView(logs: AgentLog[]): ThoughtStreamView {
 
     const key = `${agent}|${message}`
     const existing = groups.get(key)
-    const confidence = toFiniteNumber(log?.confidence)
+    const confidence = extractConfidence(log as Record<string, unknown>)
     const traceId = readTraceId(log)
     const ts = readTimestamp(log)
 

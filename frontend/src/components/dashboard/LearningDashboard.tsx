@@ -3,6 +3,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import {
+  extractConfidence,
+  formatRatioAsPercent,
+  formatSignedCurrency,
+  formatSignedPercent,
+  formatTimestamp,
+  MISSING,
+} from '@/lib/format'
+import {
+  TONE_CLASSES,
+  toneForGrade,
+  toneForRatio,
+  toneForTradeSide,
+  getNumberTone,
+} from '@/lib/state'
+import { LEARNING_DASHBOARD_POLL_MS } from '@/lib/constants/polling'
+import {
+  SHARPE_GREAT_THRESHOLD,
+  SHARPE_NEUTRAL_THRESHOLD,
+} from '@/lib/constants/learning'
+import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,52 +130,42 @@ interface PipelineStatus {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const REFRESH_MS = 15_000
+const REFRESH_MS = LEARNING_DASHBOARD_POLL_MS
 
-const gradeColor = (grade: string | null): string => {
-  switch (grade) {
-    case 'A': return 'text-emerald-600 dark:text-emerald-500'
-    case 'B': return 'text-green-600 dark:text-green-400'
-    case 'C': return 'text-amber-600 dark:text-amber-500'
-    case 'D': return 'text-orange-600 dark:text-orange-500'
-    case 'F': return 'text-rose-600 dark:text-rose-500'
-    default: return 'text-slate-500 dark:text-slate-400'
-  }
-}
+// ── Color / tone helpers — single source of truth in lib/state ────────────
+//
+// `gradeColor` and `gradeBg` map A-F grades to the canonical Tone vocabulary
+// so we never write raw color strings here. `trendColor` and `stageColor`
+// follow the same pattern.
+
+const gradeColor = (grade: string | null): string => TONE_CLASSES[toneForGrade(grade)].text
 
 const gradeBg = (grade: string | null): string => {
-  switch (grade) {
-    case 'A': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
-    case 'B': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30'
-    case 'C': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
-    case 'D': return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/30'
-    case 'F': return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30'
-    default: return 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-500/10 dark:text-slate-400 dark:border-slate-500/30'
-  }
+  const tone = toneForGrade(grade)
+  return cn('border', TONE_CLASSES[tone].chip)
 }
 
-const fmtPct = (n: number | null | undefined, decimals = 1): string =>
-  n == null ? '--' : `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`
+// ── Display formatters — wrap the shared lib/format utilities so the rest
+// of this file reads naturally. They preserve the legacy `--` placeholder
+// where this component used it (the rest of the dashboard now uses `—`).
+const fmtPct = (n: number | null | undefined, decimals = 1): string => {
+  const out = formatSignedPercent(n, decimals)
+  return out === MISSING ? '--' : out
+}
 
 const fmtUSD = (n: number | null | undefined): string => {
-  if (n == null) return '--'
-  const abs = Math.abs(n)
-  const fmt = abs >= 1000
-    ? abs.toLocaleString('en-US', { maximumFractionDigits: 0 })
-    : abs.toFixed(2)
-  return `${n < 0 ? '-' : '+'}$${fmt}`
+  const out = formatSignedCurrency(n)
+  return out === MISSING ? '--' : out
 }
 
-const fmtScore = (n: number | null | undefined): string =>
-  n == null ? '--' : (n * 100).toFixed(0) + '%'
+const fmtScore = (n: number | null | undefined): string => {
+  const out = formatRatioAsPercent(n)
+  return out === MISSING ? '--' : out
+}
 
 const fmtTime = (iso: string | null | undefined): string => {
-  if (!iso) return '--'
-  try {
-    return new Date(iso).toLocaleTimeString()
-  } catch {
-    return '--'
-  }
+  const out = formatTimestamp(iso)
+  return out === MISSING ? '--' : out
 }
 
 const trendIcon = (trend: string): string => {
@@ -164,13 +175,22 @@ const trendIcon = (trend: string): string => {
 }
 
 const trendColor = (trend: string): string => {
-  if (trend === 'improving') return 'text-emerald-500'
-  if (trend === 'declining') return 'text-rose-500'
-  return 'text-slate-500 dark:text-slate-400'
+  if (trend === 'improving') return TONE_CLASSES.pos.text
+  if (trend === 'declining') return TONE_CLASSES.neg.text
+  return TONE_CLASSES.muted.text
 }
 
-const stageColor = (status: string): string =>
-  status === 'active' ? 'text-emerald-600 dark:text-emerald-500' : status === 'failed' ? 'text-rose-600 dark:text-rose-500' : 'text-slate-500 dark:text-slate-400'
+const stageColor = (status: string): string => {
+  if (status === 'active') return TONE_CLASSES.pos.text
+  if (status === 'failed') return TONE_CLASSES.neg.text
+  return TONE_CLASSES.muted.text
+}
+
+const pnlToneText = (n: number | null | undefined): string =>
+  TONE_CLASSES[getNumberTone(n)].text
+
+const ratioToneText = (n: number | null | undefined): string =>
+  TONE_CLASSES[toneForRatio(n)].text
 
 // ScoreBar — a horizontal bar showing a [0,1] score
 function ScoreBar({ value, color }: { value: number | null; color?: string }) {
@@ -260,15 +280,11 @@ function TradeDetailModal({
         <div className="mb-4 grid grid-cols-2 gap-3 text-xs font-mono">
           <div>
             <p className="text-slate-500">P&L</p>
-            <p className={`font-bold ${(trade.pnl ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-              {fmtUSD(trade.pnl)}
-            </p>
+            <p className={cn('font-bold', pnlToneText(trade.pnl))}>{fmtUSD(trade.pnl)}</p>
           </div>
           <div>
             <p className="text-slate-500">Return</p>
-            <p className={`font-bold ${(trade.pnl_percent ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-              {fmtPct(trade.pnl_percent)}
-            </p>
+            <p className={cn('font-bold', pnlToneText(trade.pnl_percent))}>{fmtPct(trade.pnl_percent)}</p>
           </div>
         </div>
 
@@ -362,10 +378,10 @@ function TradeTablePanel({
                   onClick={() => onSelect(t)}
                 >
                   <td className="p-2 font-semibold">{t.symbol ?? '--'}</td>
-                  <td className={`p-2 ${t.side === 'buy' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  <td className={cn('p-2', TONE_CLASSES[toneForTradeSide(t.side)].text)}>
                     {t.side?.toUpperCase() ?? '--'}
                   </td>
-                  <td className={`p-2 text-right ${(t.pnl ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  <td className={cn('p-2 text-right', pnlToneText(t.pnl))}>
                     {fmtUSD(t.pnl)}
                   </td>
                   <td className="p-2 text-right">{fmtScore(t.overall_score)}</td>
@@ -400,36 +416,45 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
     )
   }
 
+  // Sharpe is a special-case ratio (not [0,1]); thresholds live in
+  // lib/constants/learning so they can be tuned in one place.
+  const sharpeTone =
+    metrics.sharpe_ratio >= SHARPE_GREAT_THRESHOLD
+      ? TONE_CLASSES.pos.text
+      : metrics.sharpe_ratio >= SHARPE_NEUTRAL_THRESHOLD
+        ? TONE_CLASSES.warn.text
+        : TONE_CLASSES.neg.text
+
   const tiles = [
     {
       label: 'Win Rate',
       value: fmtPct(metrics.win_rate * 100, 1),
-      color: metrics.win_rate >= 0.5 ? 'text-emerald-500' : 'text-rose-500',
+      color: ratioToneText(metrics.win_rate),
     },
     {
       label: 'Avg Return',
       value: fmtPct(metrics.avg_return, 2),
-      color: metrics.avg_return >= 0 ? 'text-emerald-500' : 'text-rose-500',
+      color: pnlToneText(metrics.avg_return),
     },
     {
       label: 'Sharpe',
       value: metrics.sharpe_ratio?.toFixed(2) ?? '--',
-      color: metrics.sharpe_ratio >= 1 ? 'text-emerald-500' : metrics.sharpe_ratio >= 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500',
+      color: sharpeTone,
     },
     {
       label: 'Max Drawdown',
       value: fmtPct(metrics.max_drawdown * 100, 1),
-      color: 'text-rose-600 dark:text-rose-400',
+      color: TONE_CLASSES.neg.text,
     },
     {
       label: 'Avg Score',
       value: fmtScore(metrics.avg_score),
-      color: metrics.avg_score >= 0.6 ? 'text-emerald-500' : 'text-amber-600 dark:text-amber-400',
+      color: ratioToneText(metrics.avg_score),
     },
     {
       label: 'Consistency',
       value: fmtScore(metrics.consistency),
-      color: metrics.consistency >= 0.7 ? 'text-emerald-500' : 'text-amber-600 dark:text-amber-400',
+      color: ratioToneText(metrics.consistency),
     },
   ]
 
@@ -472,11 +497,18 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
               <span className="text-slate-500 dark:text-slate-400">trades: <b className="text-slate-700 dark:text-slate-200">{reflection.trades_analyzed}</b></span>
             )}
             {reflection.win_rate != null && (
-              <span className="text-slate-500 dark:text-slate-400">win rate: <b className={reflection.win_rate >= 0.5 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>{fmtPct(reflection.win_rate * 100, 0)}</b></span>
+              <span className="text-slate-500 dark:text-slate-400">win rate: <b className={ratioToneText(reflection.win_rate)}>{fmtScore(reflection.win_rate)}</b></span>
             )}
-            {reflection.confidence != null && (
-              <span className="text-slate-500 dark:text-slate-400">confidence: <b className="text-slate-700 dark:text-slate-200">{fmtPct(reflection.confidence * 100, 0)}</b></span>
-            )}
+            {(() => {
+              // Use extractConfidence so a backend that emits 73 instead of 0.73
+              // (or `confidence_score` instead of `confidence`) renders as 73%
+              // — not 7300% / N/A.  Single source of truth in lib/format.
+              const conf = extractConfidence(reflection as unknown as Record<string, unknown>)
+              if (conf == null) return null
+              return (
+                <span className="text-slate-500 dark:text-slate-400">confidence: <b className="text-slate-700 dark:text-slate-200">{fmtScore(conf)}</b></span>
+              )
+            })()}
           </div>
 
           {reflection.patterns.length > 0 && (
@@ -507,7 +539,7 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
                       />
                     </div>
                     <span className="w-10 text-right text-slate-500 dark:text-slate-400">{fmtPct(c.frequency * 100, 0)}</span>
-                    <span className={`w-16 text-right font-mono ${c.impact < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    <span className={cn('w-16 text-right font-mono', pnlToneText(c.impact))}>
                       {fmtUSD(c.impact)}
                     </span>
                   </div>

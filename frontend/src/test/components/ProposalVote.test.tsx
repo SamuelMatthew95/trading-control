@@ -135,4 +135,38 @@ describe('Proposal vote persistence', () => {
     expect(voteOnProposalMock).toHaveBeenCalledTimes(1)
     expect(mockStore.updateProposalStatus).not.toHaveBeenCalled()
   })
+
+  it('disables vote buttons while a vote API call is in flight (no double-click race)', async () => {
+    // Hold the API call open so we can observe the buttons mid-flight.
+    let resolveVote: ((v: { ok: boolean }) => void) | null = null
+    voteOnProposalMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveVote = resolve
+        }),
+    )
+
+    const user = userEvent.setup()
+    render(<DashboardView section="learning" />)
+
+    const approveButton = await screen.findByRole('button', { name: /approve/i })
+    const rejectButton = screen.getByRole('button', { name: /reject/i })
+
+    await user.click(approveButton)
+
+    // Both vote controls disable while the request is pending — operators
+    // cannot fire a concurrent PATCH that races the first.
+    const approveAfter = await screen.findByRole('button', { name: /working|approve/i })
+    expect(approveAfter).toBeDisabled()
+    expect(rejectButton).toBeDisabled()
+
+    // Even attempting more clicks while pending must not enqueue more API calls.
+    await user.click(approveAfter)
+    await user.click(rejectButton)
+    expect(voteOnProposalMock).toHaveBeenCalledTimes(1)
+
+    // Resolving the call re-enables the buttons (until the proposal status
+    // actually changes, but the test proposal remains pending in the mock store).
+    resolveVote!({ ok: true })
+  })
 })
