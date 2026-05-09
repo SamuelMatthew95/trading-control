@@ -532,16 +532,22 @@ async def get_system_health() -> dict[str, Any]:
 @router.get("/pnl")
 async def get_pnl_metrics() -> dict[str, Any]:
     """Get PnL metrics."""
-    if not is_db_available():
-        return _in_memory_pnl_payload()
-    try:
+    memory_payload = _in_memory_pnl_payload()
+
+    async def _fetch_db() -> list[dict[str, Any]]:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
-            return await aggregator.get_pnl_metrics()
+            return [await aggregator.get_pnl_metrics()]
 
-    except Exception:
-        log_structured("warning", "pnl_metrics_db_unavailable", exc_info=True)
-        return _in_memory_pnl_payload()
+    selected = await dashboard_selector.resource_or_memory(
+        memory_payload={"pnl": [memory_payload]},
+        key="pnl",
+        fetch_db=_fetch_db,
+        empty_factory=lambda: [memory_payload],
+    )
+    payload = selected["rows"][0] if selected["rows"] else memory_payload
+    payload["source"] = selected["source"]
+    return payload
 
 
 @router.get("/pnl/paired")
@@ -616,29 +622,43 @@ async def get_agent_metrics() -> dict[str, Any]:
 async def get_order_metrics() -> dict[str, Any]:
     """Get order flow metrics."""
     mem_orders = dashboard_reads.memory_orders()
-    if mem_orders["meta"]["memory_has_data"]:
-        mem_orders["timestamp"] = datetime.now(timezone.utc).isoformat()
-        mem_orders["source"] = "in_memory"
-        return mem_orders
-    if not is_db_available():
-        payload = await MetricsAggregator(None, use_memory_store=True).get_order_metrics()
-        payload["meta"] = dashboard_reads.empty(
-            "orders", db_checked=False, reason="memory_empty_db_unavailable"
-        )["meta"]
-        return payload
 
-    try:
+    async def _fetch_db() -> list[dict[str, Any]]:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
-            return await aggregator.get_order_metrics()
+            db_payload = await aggregator.get_order_metrics()
+            return db_payload.get("orders", [])
 
-    except Exception:
-        log_structured("warning", "order_metrics_db_unavailable", exc_info=True)
-        payload = await MetricsAggregator(None, use_memory_store=True).get_order_metrics()
-        payload["meta"] = dashboard_reads.empty("orders", db_checked=True, reason="db_error")[
-            "meta"
-        ]
-        return payload
+    selected = await dashboard_selector.resource_or_memory(
+        memory_payload=mem_orders, key="orders", fetch_db=_fetch_db
+    )
+    return {
+        "orders": selected["rows"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": selected["source"],
+        "meta": mem_orders["meta"],
+    }
+
+
+@router.get("/positions")
+async def get_positions() -> dict[str, Any]:
+    mem_positions = dashboard_reads.memory_positions()
+
+    async def _fetch_db() -> list[dict[str, Any]]:
+        async with AsyncSessionFactory() as session:
+            aggregator = MetricsAggregator(session)
+            raw = await aggregator.get_raw_snapshot()
+            return raw.get("positions", [])
+
+    selected = await dashboard_selector.resource_or_memory(
+        memory_payload=mem_positions, key="positions", fetch_db=_fetch_db
+    )
+    return {
+        "positions": selected["rows"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": selected["source"],
+        "meta": mem_positions["meta"],
+    }
 
 
 @router.get("/flow-status")
@@ -2215,221 +2235,47 @@ def _source_meta(*, source: str, db_checked: bool, reason: str | None = None) ->
 
 @router.get("/trade-feed")
 async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, Any]:
-    """Return the most recent trades with full lifecycle state.
+    mem_payload = dashboard_reads.memory_trade_feed(limit=limit)
 
-    Each row shows what happened end-to-end: filled price, P&L, grade, and
-    whether a reflection has been written.  The frontend displays these as a
-    clear "Bought AAPL 100 @ $150 → +$23.50 (A)" feed.
-
-    When ``count`` is 0 the response includes ``empty_reason`` to explain why:
-    - ``db_degraded``            — DB unavailable; in-memory store also has no fills
-    - ``no_orders_executed``     — DB reachable but orders table is empty
-    - ``lifecycle_not_persisted``— orders exist but no trade_lifecycle rows yet
-    - ``no_executable_intents``  — decisions were gated (HOLD/score/market) by EE
-    """
-    mem_payload = _in_memory_trade_feed_payload(limit, session_id=session_id)
-    if mem_payload["count"] > 0:
-        mem_payload["meta"] = _source_meta(source="memory", db_checked=False)
-        return mem_payload
-    if not is_db_available():
-        mem_payload["empty_reason"] = "db_degraded"
-        mem_payload["meta"] = _source_meta(
-            source="empty", db_checked=False, reason="memory_empty_db_unavailable"
-        )
-        return mem_payload
-    try:
+    async def _fetch_db() -> list[dict[str, Any]]:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 text("""
-                    SELECT
-                        tl.id, tl.symbol, tl.side, tl.qty, tl.entry_price, tl.exit_price,
-                        tl.pnl, tl.pnl_percent, tl.order_id,
-                        tl.execution_trace_id, tl.signal_trace_id,
-                        tl.grade, tl.grade_score, tl.grade_label,
-                        tl.status, tl.filled_at, tl.graded_at, tl.reflected_at,
-                        tl.created_at,
-                        COALESCE(o.strategy_id::text, tl.decision_trace_id) AS session_id
-                    FROM trade_lifecycle tl
-                    LEFT JOIN orders o ON o.id::text = tl.order_id::text
-                    ORDER BY COALESCE(filled_at, created_at) ASC
+                    SELECT execution_trace_id, symbol, side, qty, entry_price, status, created_at
+                    FROM trade_lifecycle
+                    ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"limit": min(limit, 200)},
+                {"limit": max(1, min(limit, 200))},
             )
-            rows = result.all()
+            return [
+                {
+                    "id": str(r[0]),
+                    "execution_trace_id": r[0],
+                    "symbol": r[1],
+                    "side": r[2],
+                    "qty": float(r[3]) if r[3] is not None else None,
+                    "entry_price": float(r[4]) if r[4] is not None else None,
+                    "status": r[5],
+                    "created_at": r[6].isoformat() if r[6] else None,
+                }
+                for r in result.all()
+            ]
 
-        def _fmt(row: Any) -> dict[str, Any]:
-            pnl = float(row[6]) if row[6] is not None else None
-            pnl_pct = float(row[7]) if row[7] is not None else None
-            return {
-                "id": str(row[0]),
-                "symbol": row[1],
-                "side": row[2],
-                "qty": float(row[3]) if row[3] is not None else None,
-                "entry_price": float(row[4]) if row[4] is not None else None,
-                "exit_price": float(row[5]) if row[5] is not None else None,
-                "pnl": round(pnl, 2) if pnl is not None else None,
-                "pnl_percent": round(pnl_pct, 4) if pnl_pct is not None else None,
-                "order_id": str(row[8]) if row[8] else None,
-                FieldName.EXECUTION_TRACE_ID: row[9],
-                FieldName.SIGNAL_TRACE_ID: row[10],
-                "grade": row[11],
-                "grade_score": float(row[12]) if row[12] is not None else None,
-                FieldName.GRADE_LABEL: row[13],
-                "status": row[14],
-                "filled_at": row[15].isoformat() if row[15] else None,
-                FieldName.GRADED_AT: row[16].isoformat() if row[16] else None,
-                FieldName.REFLECTED_AT: row[17].isoformat() if row[17] else None,
-                "created_at": row[18].isoformat() if row[18] else None,
-                FieldName.SESSION_ID: row[19],
-            }
-
-        trades = [_fmt(r) for r in rows]
-        if session_id:
-            trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
-
-        # Backward compatibility: if trade_lifecycle is empty, surface filled orders.
-        if not trades:
-            async with AsyncSessionFactory() as session:
-                fallback_result = await session.execute(
-                    text("""
-                        SELECT
-                            o.id,
-                            o.symbol,
-                            o.side,
-                            COALESCE(NULLIF(to_jsonb(o)->>'filled_quantity', '')::numeric, o.qty),
-                            o.price,
-                            o.status,
-                            to_jsonb(o)->>'trace_id',
-                            o.created_at,
-                            o.filled_at,
-                            o.strategy_id::text AS session_id
-                        FROM orders o
-                        WHERE status IN ('filled', 'executed')
-                        ORDER BY COALESCE(filled_at, created_at) DESC
-                        LIMIT :limit
-                    """),
-                    {"limit": min(limit, 200)},
-                )
-                for row in fallback_result.all():
-                    trades.append(
-                        {
-                            "id": str(row[0]),
-                            "symbol": row[1],
-                            "side": row[2],
-                            "qty": float(row[3]) if row[3] is not None else None,
-                            "entry_price": float(row[4]) if row[4] is not None else None,
-                            "exit_price": None,
-                            "pnl": None,
-                            "pnl_percent": None,
-                            "order_id": str(row[0]),
-                            FieldName.EXECUTION_TRACE_ID: row[6],
-                            FieldName.SIGNAL_TRACE_ID: None,
-                            "grade": None,
-                            "grade_score": None,
-                            FieldName.GRADE_LABEL: None,
-                            "status": row[5],
-                            "filled_at": row[8].isoformat() if row[8] else None,
-                            FieldName.GRADED_AT: None,
-                            FieldName.REFLECTED_AT: None,
-                            "created_at": row[7].isoformat() if row[7] else None,
-                            FieldName.SESSION_ID: row[9],
-                        }
-                    )
-            if session_id:
-                trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
-
-        # DB returned zero rows — fall back to in-memory trade_feed so memory-
-        # mode fills (paper trades that never reached trade_lifecycle because
-        # the DB was down when they filled) still surface on the dashboard.
-        if not trades:
-            fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
-            if fallback["count"] > 0:
-                return fallback
-
-            # Diagnose why trade feed is empty so the UI can explain it.
-            # Scope counts to the requested session when one is provided so the
-            # reason reflects that session's state, not the global table state.
-            empty_reason = "no_executable_intents"
-            try:
-                _diag_params: dict[str, Any] = {}
-                if session_id:
-                    _order_sql = "SELECT COUNT(*) FROM orders WHERE strategy_id::text = :sid"
-                    # Mirror the COALESCE(o.strategy_id, tl.decision_trace_id) session
-                    # mapping used by the main trade-feed query so the diagnostic
-                    # counts lifecycle rows for this session regardless of which
-                    # identifier was populated.
-                    _lifecycle_sql = """
-                        SELECT COUNT(*)
-                        FROM trade_lifecycle tl
-                        LEFT JOIN orders o ON o.id = tl.order_id
-                        WHERE COALESCE(o.strategy_id::text, tl.decision_trace_id) = :sid
-                    """
-                    _diag_params = {"sid": session_id}
-                else:
-                    _order_sql = "SELECT COUNT(*) FROM orders"
-                    _lifecycle_sql = "SELECT COUNT(*) FROM trade_lifecycle"
-                async with AsyncSessionFactory() as diag_session:
-                    order_count = (
-                        await diag_session.execute(text(_order_sql), _diag_params)
-                    ).scalar() or 0
-                    lifecycle_count = (
-                        await diag_session.execute(text(_lifecycle_sql), _diag_params)
-                    ).scalar() or 0
-                if order_count == 0:
-                    empty_reason = "no_orders_executed"
-                elif lifecycle_count == 0:
-                    empty_reason = "lifecycle_not_persisted"
-            except Exception:
-                pass  # keep default reason
-
-            # Fetch upstream pipeline counts so the UI can show the pipeline
-            # is healthy even when no fills have occurred yet.
-            upstream: dict[str, Any] = {
-                "signal_events": 0,
-                "decisions_evaluated": 0,
-                "ee_last_status": None,
-            }
-            try:
-                _redis = await get_redis()
-                upstream["signal_events"] = await _redis.xlen(STREAM_SIGNALS)
-                upstream["decisions_evaluated"] = await _redis.xlen(STREAM_DECISIONS)
-                _ee_raw = await _redis.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
-                if _ee_raw:
-                    _ee = json.loads(_ee_raw)
-                    upstream["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
-                    upstream["ee_event_count"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
-            except Exception:
-                pass
-
-            return {
-                "trades": [],
-                "count": 0,
-                "empty_reason": empty_reason,
-                "upstream_activity": upstream,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "meta": _source_meta(source="empty", db_checked=True, reason=empty_reason),
-            }
-
-        return {
-            "trades": trades,
-            "count": len(trades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "meta": _source_meta(source="database", db_checked=True),
-        }
-    except Exception:
-        log_structured("error", "trade_feed_failed", exc_info=True)
-        fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
-        if fallback["count"] > 0:
-            fallback["meta"] = _source_meta(source="memory", db_checked=True)
-            return fallback
-        fallback["meta"] = _source_meta(source="empty", db_checked=True, reason="db_error")
-        return fallback
-
-
-# ---------------------------------------------------------------------------
-# Performance trends — agent grade history + P&L by day
-# ---------------------------------------------------------------------------
+    selected = await dashboard_selector.resource_or_memory(
+        memory_payload=mem_payload, key="trades", fetch_db=_fetch_db
+    )
+    trades = selected["rows"]
+    if session_id:
+        trades = [t for t in trades if str(t.get("session_id", "")) == str(session_id)]
+    return {
+        "trades": trades,
+        "count": len(trades),
+        "session_id": session_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": selected["source"],
+        "meta": mem_payload["meta"],
+    }
 
 
 @router.get("/performance-trends")

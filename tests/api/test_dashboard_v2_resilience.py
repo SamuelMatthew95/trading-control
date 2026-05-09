@@ -968,3 +968,75 @@ async def test_state_selector_uses_same_memory_fallback(monkeypatch):
     payload = await dashboard_v2.get_dashboard_state()
     assert payload["source"] == "memory"
     assert "orders" in payload
+
+
+@pytest.mark.asyncio
+async def test_orders_selector_memory_when_db_unavailable():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "o1"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_order_metrics()
+    assert payload["source"] == "memory"
+    assert payload["orders"]
+
+
+@pytest.mark.asyncio
+async def test_positions_selector_empty_shape_when_no_data(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Agg:
+        def __init__(self, _s):
+            pass
+
+        async def get_raw_snapshot(self):
+            return {"positions": []}
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _Agg)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_positions()
+    assert payload["source"] == "empty"
+    assert payload["positions"] == []
+
+
+@pytest.mark.asyncio
+async def test_pnl_selector_db_path(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Agg:
+        def __init__(self, _s):
+            pass
+
+        async def get_pnl_metrics(self):
+            return {"total_pnl": 1.0}
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _Agg)
+    payload = await dashboard_v2.get_pnl_metrics()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_selector_memory_fallback():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_trade_fill({"execution_trace_id": "t1", "symbol": "BTC/USD"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["source"] == "memory"
+    assert payload["count"] == 1

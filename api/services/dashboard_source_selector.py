@@ -36,3 +36,26 @@ class DashboardReadSelector:
             if include_mode:
                 payload["mode"] = runtime_mode_value
             return payload
+
+    async def resource_or_memory(
+        self,
+        *,
+        memory_payload: dict[str, Any],
+        key: str,
+        fetch_db: Callable[[], Awaitable[list[dict[str, Any]]]],
+        empty_factory: Callable[[], list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
+        rows = memory_payload.get(key, [])
+        if not is_db_available():
+            return {"rows": rows, "source": "memory" if rows else "empty"}
+        try:
+            db_rows = await fetch_db()
+            if db_rows:
+                return {"rows": db_rows, "source": "database"}
+            if rows:
+                return {"rows": rows, "source": "memory"}
+            return {"rows": empty_factory() if empty_factory else [], "source": "empty"}
+        except Exception:
+            if rows:
+                return {"rows": rows, "source": "memory"}
+            return {"rows": empty_factory() if empty_factory else [], "source": "empty"}
