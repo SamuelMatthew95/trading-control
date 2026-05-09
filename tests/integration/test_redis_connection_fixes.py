@@ -251,43 +251,45 @@ class TestWebSocketBroadcaster:
     ):
         """The dashboard loop should read from hardcoded default streams on start."""
         await broadcaster.start(mock_redis_client)
+        try:
+            await asyncio.sleep(0.15)
 
-        await asyncio.sleep(0.15)
-
-        assert mock_redis_client.xread.await_count >= 1
-        first_call = mock_redis_client.xread.await_args_list[0]
-        # STREAM_ORDERS removed: advisory decisions are internal; only fills reach the UI
-        assert first_call.args[0] == {
-            "signals": "$",
-            "executions": "$",
-            "risk_alerts": "$",
-            "learning_events": "$",
-            "agent_logs": "$",
-        }
-        assert broadcaster._running is True
-
-        await broadcaster.stop()
+            assert mock_redis_client.xread.await_count >= 1
+            first_call = mock_redis_client.xread.await_args_list[0]
+            # STREAM_ORDERS removed: advisory decisions are internal; only fills reach the UI
+            assert first_call.args[0] == {
+                "signals": "$",
+                "executions": "$",
+                "risk_alerts": "$",
+                "learning_events": "$",
+                "agent_logs": "$",
+                "notifications": "$",
+            }
+            assert broadcaster._running is True
+        finally:
+            await broadcaster.stop()
 
     @pytest.mark.asyncio
     async def test_dashboard_loop_reads_registered_streams(self, broadcaster, mock_redis_client):
         """Registered streams should be passed to Redis xread."""
         broadcaster.register_stream("orders", "0-0")
         await broadcaster.start(mock_redis_client)
+        try:
+            await asyncio.sleep(0.15)
 
-        await asyncio.sleep(0.15)
-
-        assert mock_redis_client.xread.await_count >= 1
-        first_call = mock_redis_client.xread.await_args_list[0]
-        assert first_call.args[0] == {
-            "signals": "$",
-            "orders": "0-0",
-            "executions": "$",
-            "risk_alerts": "$",
-            "learning_events": "$",
-            "agent_logs": "$",
-        }
-
-        await broadcaster.stop()
+            assert mock_redis_client.xread.await_count >= 1
+            first_call = mock_redis_client.xread.await_args_list[0]
+            assert first_call.args[0] == {
+                "signals": "$",
+                "orders": "0-0",
+                "executions": "$",
+                "risk_alerts": "$",
+                "learning_events": "$",
+                "agent_logs": "$",
+                "notifications": "$",
+            }
+        finally:
+            await broadcaster.stop()
 
     def test_get_broadcaster_singleton(self):
         """Test broadcaster singleton pattern."""
