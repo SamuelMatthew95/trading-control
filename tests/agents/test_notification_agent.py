@@ -149,6 +149,22 @@ async def test_deduplication_allows_same_event_type_different_symbol(notificatio
     assert len(notifications_calls) == 2
 
 
+@pytest.mark.asyncio
+@patch(
+    "api.core.writer.safe_writer.SafeWriter",
+    MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
+)
+async def test_deduplication_uses_redis_id_when_trace_missing(notification_agent, mock_bus):
+    """Events without trace_id/msg_id should dedup by redis_id, not collapse by side+symbol."""
+    event = {"type": "order_filled", "side": "buy", "symbol": "BTC/USD"}
+
+    await notification_agent.process("executions", "id-1", event)
+    await notification_agent.process("executions", "id-2", event)
+
+    notifications_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "notifications"]
+    assert len(notifications_calls) == 2
+
+
 # ---------------------------------------------------------------------------
 # Skip-self-stream test
 # ---------------------------------------------------------------------------

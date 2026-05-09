@@ -51,6 +51,7 @@ class WebSocketBroadcaster:
             STREAM_RISK_ALERTS: "$",
             STREAM_LEARNING_EVENTS: "$",
             STREAM_AGENT_LOGS: "$",
+            STREAM_NOTIFICATIONS: "$",
         }
         self._idle_sleep_seconds = 0.1
         self._xread_streams_state: str | None = None

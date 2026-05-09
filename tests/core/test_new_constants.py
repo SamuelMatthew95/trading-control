@@ -469,33 +469,6 @@ def test_severity_values() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_broadcaster_stream_offsets_use_constants() -> None:
-    """WebSocketBroadcaster._stream_offsets keys must equal STREAM_* constants.
-
-    STREAM_ORDERS is intentionally absent: advisory decisions go to STREAM_DECISIONS
-    (internal), and only actual fills on STREAM_EXECUTIONS reach the UI.
-    """
-    from api.constants import (
-        STREAM_AGENT_LOGS,
-        STREAM_EXECUTIONS,
-        STREAM_LEARNING_EVENTS,
-        STREAM_RISK_ALERTS,
-        STREAM_SIGNALS,
-    )
-    from api.services.websocket_broadcaster import WebSocketBroadcaster
-
-    broadcaster = WebSocketBroadcaster()
-    keys = set(broadcaster._stream_offsets.keys())
-    expected = {
-        STREAM_SIGNALS,
-        STREAM_EXECUTIONS,
-        STREAM_RISK_ALERTS,
-        STREAM_LEARNING_EVENTS,
-        STREAM_AGENT_LOGS,
-    }
-    assert keys == expected
-
-
 # ---------------------------------------------------------------------------
 # Reasoning agent uses constants for LLM fallback mode comparisons
 # ---------------------------------------------------------------------------

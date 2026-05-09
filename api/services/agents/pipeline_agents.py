@@ -1404,7 +1404,8 @@ class NotificationAgent(MultiStreamAgent):
             return
 
         symbol_key = str(data.get(FieldName.SYMBOL) or data.get("asset") or "")
-        trace_key = str(data.get(FieldName.TRACE_ID) or data.get(FieldName.MSG_ID) or "")
+        msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
+        trace_key = str(data.get(FieldName.TRACE_ID) or msg_id)
         dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
             stream=stream,
             event_type=event_type,
@@ -1419,7 +1420,6 @@ class NotificationAgent(MultiStreamAgent):
 
         now_iso = datetime.now(timezone.utc).isoformat()
         severity = self._classify_severity(stream, data)
-        msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
         notification = build_trade_notification(
             data=data,
             side=side_raw,
