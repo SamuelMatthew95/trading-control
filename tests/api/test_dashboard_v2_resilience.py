@@ -685,6 +685,8 @@ async def test_trade_feed_returns_in_memory_trades_when_db_unavailable():
     assert payload["trades"][0]["id"] == "trace-mem-fill"
     assert payload["trades"][0]["symbol"] == "BTC/USD"
     assert payload["trades"][0]["pnl"] == pytest.approx(50.0)
+    assert payload["meta"]["source"] == "memory"
+    assert payload["meta"]["memory_checked"] is True
 
 
 @pytest.mark.asyncio
@@ -719,6 +721,7 @@ async def test_trade_feed_prefers_in_memory_when_db_returns_empty(monkeypatch):
     assert payload["count"] == 1
     assert payload["source"] == "in_memory"
     assert payload["trades"][0]["id"] == "trace-bridge"
+    assert payload["meta"]["source"] == "memory"
 
 
 @pytest.mark.asyncio
@@ -738,6 +741,7 @@ async def test_trade_feed_db_orders_fallback_honors_session_filter(monkeypatch):
     payload = await dashboard_v2.get_trade_feed(limit=10, session_id="sess-b")
     assert payload["count"] == 0
     assert payload["trades"] == []
+    assert payload["meta"]["source"] == "empty"
 
 
 @pytest.mark.asyncio
@@ -777,6 +781,90 @@ async def test_trade_feed_in_memory_honors_session_filter():
     assert payload["source"] == "in_memory"
     assert payload["count"] == 1
     assert payload["trades"][0]["id"] == "trace-b"
+    assert payload["meta"]["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_empty_meta_when_db_unavailable_and_memory_empty():
+    set_db_available(False)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["trades"] == []
+    assert payload["meta"]["source"] == "empty"
+    assert payload["meta"]["reason"] == "memory_empty_db_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_returns_db_rows_when_memory_empty(monkeypatch):
+    _enable_db(monkeypatch)
+    session_rows = [
+        [
+            [
+                (
+                    1,
+                    "BTC/USD",
+                    "buy",
+                    1.0,
+                    10.0,
+                    11.0,
+                    0.0,
+                    0.0,
+                    "1",
+                    "et",
+                    "st",
+                    "A",
+                    1.0,
+                    "A",
+                    "filled",
+                    None,
+                    None,
+                    None,
+                    None,
+                    "s1",
+                )
+            ]
+        ]
+    ]
+    monkeypatch.setattr(
+        dashboard_v2, "AsyncSessionFactory", _FactoryWithQueuedSessions(session_rows)
+    )
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["count"] == 1
+    assert payload["meta"]["source"] == "database"
+    assert payload["trades"][0]["pnl"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_recent_events_memory_first_when_db_unavailable():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_event({"event_type": "price_update", "symbol": "BTC/USD"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_recent_events()
+    assert len(payload["events"]) == 1
+    assert payload["meta"]["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_grades_memory_first_preserves_zero_values():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_grade({"trace_id": "t1", "score": 0, "score_pct": 0, "grade": "C"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_grade_history(limit=10)
+    assert payload["total"] == 1
+    assert payload["grades"][0]["score"] == 0
+    assert payload["meta"]["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_grades_empty_reason_when_db_and_memory_empty():
+    set_db_available(False)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_grade_history(limit=10)
+    assert payload["grades"] == []
+    assert payload["meta"]["reason"] == "memory_empty_db_unavailable"
 
 
 @pytest.mark.asyncio
@@ -827,3 +915,286 @@ async def test_dashboard_state_sets_mode_even_if_redis_unavailable(monkeypatch):
     payload = await dashboard_v2.get_dashboard_state()
 
     assert payload["mode"] == "in_memory_fallback"
+
+
+class _FakeAggForSnapshot:
+    def __init__(self, _session):
+        pass
+
+    async def get_dashboard_snapshot(self):
+        return {"orders": [{"id": "db-order"}]}
+
+    async def get_raw_snapshot(self):
+        return {"orders": [{"id": "db-order"}], "positions": []}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_selector_uses_db_when_available(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeAggForSnapshot)
+
+    payload = await dashboard_v2.get_dashboard_snapshot()
+    assert payload["source"] == "database"
+    assert payload["orders"][0]["id"] == "db-order"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_selector_uses_memory_when_db_unavailable(monkeypatch):
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "mem-order"})
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_dashboard_snapshot()
+    assert payload["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_state_selector_uses_same_memory_fallback(monkeypatch):
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "mem-order"})
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_dashboard_state()
+    assert payload["source"] == "memory"
+    assert "orders" in payload
+
+
+@pytest.mark.asyncio
+async def test_orders_selector_memory_when_db_unavailable():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_order({"order_id": "o1"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_order_metrics()
+    assert payload["source"] == "memory"
+    assert payload["orders"]
+
+
+@pytest.mark.asyncio
+async def test_positions_selector_empty_shape_when_no_data(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Agg:
+        def __init__(self, _s):
+            pass
+
+        async def get_raw_snapshot(self):
+            return {"positions": []}
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _Agg)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_positions()
+    assert payload["source"] == "empty"
+    assert payload["positions"] == []
+
+
+@pytest.mark.asyncio
+async def test_pnl_selector_db_path(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Agg:
+        def __init__(self, _s):
+            pass
+
+        async def get_pnl_metrics(self):
+            return {"total_pnl": 1.0}
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _Agg)
+    payload = await dashboard_v2.get_pnl_metrics()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_selector_memory_fallback():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_trade_fill({"execution_trace_id": "t1", "symbol": "BTC/USD"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["source"] == "memory"
+    assert payload["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_prices_selector_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Redis:
+        async def mget(self, _keys):
+            return ['{"price": 1}'] * 6
+
+    async def _redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _redis)
+    payload = await dashboard_v2.get_prices()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_prices_selector_runtime_fallback(monkeypatch):
+    set_db_available(False)
+
+    async def _boom():
+        raise RuntimeError("no redis")
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _boom)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_prices()
+    assert payload["source"] in {"memory", "empty"}
+
+
+@pytest.mark.asyncio
+async def test_system_metrics_selector_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Redis:
+        async def xlen(self, _name):
+            return 1
+
+    class _Result:
+        def scalar(self):
+            return 1
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    async def _redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _redis)
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    payload = await dashboard_v2.get_system_stream_metrics()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_system_metrics_selector_runtime_default(monkeypatch):
+    set_db_available(False)
+
+    async def _boom():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _boom)
+    payload = await dashboard_v2.get_system_stream_metrics()
+    assert payload["source"] == "memory"
+    assert "market_events" in payload
+
+
+def test_runtime_system_metrics_payload_uses_defaults_for_missing_fields():
+    reads = dashboard_v2.dashboard_reads
+    payload = reads.runtime_system_metrics_payload()
+    defaults = reads.empty_system_metrics_payload()
+    for key in defaults:
+        assert key in payload
+
+
+@pytest.mark.asyncio
+async def test_system_metrics_runtime_path_computes_from_snapshot(monkeypatch):
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_event({"id": "e1"})
+    store.add_order({"order_id": "o1"})
+    store.add_grade({"grade": "A"})
+    store.record_notification({"message": "alert"})
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_system_stream_metrics()
+    assert payload["source"] == "memory"
+    assert payload["decisions"] >= 1
+    assert payload["graded_decisions"] >= 1
+    assert payload["trade_alerts"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_agents_selector_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Agg:
+        def __init__(self, _s):
+            pass
+
+        async def get_agent_metrics(self):
+            return {"agents": [{"name": "A"}], "runs": []}
+
+    class _SessionOk:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _Agg)
+    payload = await dashboard_v2.get_agent_metrics()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_agents_selector_runtime_fallback():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.upsert_agent("SIGNAL_AGENT", {"status": "ACTIVE"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_agent_metrics()
+    assert payload["source"] == "memory"
+    assert payload["agents"]
+
+
+@pytest.mark.asyncio
+async def test_agent_runs_selector_empty_shape(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Result:
+        def all(self):
+            return []
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_agent_runs()
+    assert payload["source"] == "empty"
+    assert payload["runs"] == []
