@@ -161,3 +161,17 @@ class DashboardReadService:
             "current_weights": weights if isinstance(weights, dict) else {},
             "history": [],
         }
+
+    def memory_portfolio(self) -> dict[str, Any]:
+        pnl = get_runtime_store().paired_pnl_payload()["summary"]
+        return {
+            "equity": float(pnl.get("total_pnl", 0.0)),
+            "pnl": float(pnl.get("total_pnl", 0.0)),
+            "realized_pnl": float(pnl.get("realized_pnl", 0.0)),
+            "unrealized_pnl": float(pnl.get("unrealized_pnl", 0.0)),
+            "position_count": int(pnl.get("open_positions", 0)),
+        }
+
+    def memory_trade_feed(self, *, limit: int) -> dict[str, Any]:
+        rows = list(reversed(get_runtime_store().trade_feed[-max(1, limit) :]))
+        return self._memory_payload("trades", rows)

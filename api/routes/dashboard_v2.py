@@ -634,8 +634,6 @@ async def get_agent_runs(limit: int = 50) -> dict[str, Any]:
     }
 
 
-# TODO(selector-migration): add/route /dashboard/notifications through DashboardReadSelector
-# with notifications_or_memory(...) and named empty/default payload helper.
 @router.get("/notifications")
 async def get_notifications(limit: int = 50) -> dict[str, Any]:
     async def _fetch_db() -> list[dict[str, Any]]:
@@ -663,6 +661,56 @@ async def get_notifications(limit: int = 50) -> dict[str, Any]:
 
     selected = await dashboard_selector.notifications_or_memory(fetch_db=_fetch_db, limit=limit)
     return {**selected, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/portfolio")
+async def get_portfolio() -> dict[str, Any]:
+    payload = dashboard_reads.memory_portfolio()
+    payload["source"] = "memory"
+    payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return payload
+
+
+@router.get("/lifecycle")
+async def get_lifecycle(limit: int = 50) -> dict[str, Any]:
+    mem_payload = dashboard_reads.memory_trade_feed(limit=limit)
+
+    async def _fetch_db() -> list[dict[str, Any]]:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    SELECT execution_trace_id, symbol, side, qty, entry_price, status, created_at
+                    FROM trade_lifecycle
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": max(1, min(limit, 200))},
+            )
+            return [
+                {
+                    "id": str(r[0]),
+                    "execution_trace_id": r[0],
+                    "symbol": r[1],
+                    "side": r[2],
+                    "qty": float(r[3]) if r[3] is not None else None,
+                    "entry_price": float(r[4]) if r[4] is not None else None,
+                    "status": r[5],
+                    "created_at": r[6].isoformat() if r[6] else None,
+                }
+                for r in result.all()
+            ]
+
+    selected = await dashboard_selector.resource_or_memory(
+        memory_payload=mem_payload, key="trades", fetch_db=_fetch_db
+    )
+    return {
+        "lifecycle": selected["rows"],
+        "count": len(selected["rows"]),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": selected["source"],
+    }
 
 
 @router.get("/orders")
