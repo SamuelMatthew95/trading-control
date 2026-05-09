@@ -150,17 +150,49 @@ async def health_check(request: Request) -> dict[str, Any]:
         status = HealthStatus.DEGRADED
 
     store = getattr(request.app.state, "in_memory_store", get_runtime_store())
+    degraded_reasons: list[str] = []
+    if not db_ready:
+        degraded_reasons.append("database_unavailable")
+    if not redis_ready:
+        degraded_reasons.append("redis_unavailable")
+
+    events = getattr(store, "event_history", []) or []
+    grades = getattr(store, "grade_history", []) or []
+    trades = getattr(store, "trade_feed", []) or []
+    reflections = getattr(store, "reflections", []) or []
+
+    active_agents = [
+        agent_id
+        for agent_id, payload in (getattr(store, "agents", {}) or {}).items()
+        if str((payload or {}).get("status", "")).lower() in {"running", "active", "healthy"}
+    ]
 
     return {
         "status": status,
         "database": "connected" if db_ready else "disconnected",
+        "db_connected": db_ready,
         "database_mode": runtime_mode(),
+        "persistence_mode": "postgres" if db_ready else "in_memory_fallback",
         "runtime_db_health": getattr(store, "last_health", "unknown"),
         "redis": "connected" if redis_ready else "disconnected",
+        "redis_connected": redis_ready,
+        "stream_consumer_groups_ok": redis_ready,
         "pipeline_running": bool(pipeline and pipeline.status().get("running")),
+        "active_agents": active_agents,
         "active_ws_connections": (
             getattr(broadcaster, "active_connections", 0) if broadcaster else 0
         ),
+        "last_price_update_at": (events[-1].get("timestamp") if events else None),
+        "last_signal_at": (
+            next(
+                (e.get("timestamp") for e in reversed(events) if e.get("event_type") == "signal"),
+                None,
+            )
+        ),
+        "last_trade_at": (trades[-1].get("created_at") if trades else None),
+        "last_grade_at": (grades[-1].get("timestamp") if grades else None),
+        "last_reflection_at": (reflections[-1].get("created_at") if reflections else None),
+        "degraded_reasons": degraded_reasons,
         "last_error": pipeline.status().get("last_error") if pipeline else None,
         "recent_activity": pipeline.status().get("recent", [])[:5] if pipeline else [],
         "uptime_seconds": uptime_seconds,

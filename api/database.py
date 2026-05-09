@@ -71,7 +71,10 @@ def _resolve_database_url() -> str:
         return get_database_url()
     except Exception:
         db_url = os.getenv("DATABASE_URL")
-        if os.getenv("NODE_ENV", "development") == "production" and not db_url:
+        is_production = os.getenv("NODE_ENV", "development") == "production" or bool(
+            os.getenv("RENDER_EXTERNAL_URL")
+        )
+        if is_production and not db_url:
             raise RuntimeError("DATABASE_URL is required in production") from None
         return db_url or SQLITE_FALLBACK_URL
 
