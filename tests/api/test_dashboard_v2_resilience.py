@@ -685,6 +685,8 @@ async def test_trade_feed_returns_in_memory_trades_when_db_unavailable():
     assert payload["trades"][0]["id"] == "trace-mem-fill"
     assert payload["trades"][0]["symbol"] == "BTC/USD"
     assert payload["trades"][0]["pnl"] == pytest.approx(50.0)
+    assert payload["meta"]["source"] == "memory"
+    assert payload["meta"]["memory_checked"] is True
 
 
 @pytest.mark.asyncio
@@ -719,6 +721,7 @@ async def test_trade_feed_prefers_in_memory_when_db_returns_empty(monkeypatch):
     assert payload["count"] == 1
     assert payload["source"] == "in_memory"
     assert payload["trades"][0]["id"] == "trace-bridge"
+    assert payload["meta"]["source"] == "memory"
 
 
 @pytest.mark.asyncio
@@ -738,6 +741,7 @@ async def test_trade_feed_db_orders_fallback_honors_session_filter(monkeypatch):
     payload = await dashboard_v2.get_trade_feed(limit=10, session_id="sess-b")
     assert payload["count"] == 0
     assert payload["trades"] == []
+    assert payload["meta"]["source"] == "empty"
 
 
 @pytest.mark.asyncio
@@ -777,6 +781,90 @@ async def test_trade_feed_in_memory_honors_session_filter():
     assert payload["source"] == "in_memory"
     assert payload["count"] == 1
     assert payload["trades"][0]["id"] == "trace-b"
+    assert payload["meta"]["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_empty_meta_when_db_unavailable_and_memory_empty():
+    set_db_available(False)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["trades"] == []
+    assert payload["meta"]["source"] == "empty"
+    assert payload["meta"]["reason"] == "memory_empty_db_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_trade_feed_returns_db_rows_when_memory_empty(monkeypatch):
+    _enable_db(monkeypatch)
+    session_rows = [
+        [
+            [
+                (
+                    1,
+                    "BTC/USD",
+                    "buy",
+                    1.0,
+                    10.0,
+                    11.0,
+                    0.0,
+                    0.0,
+                    "1",
+                    "et",
+                    "st",
+                    "A",
+                    1.0,
+                    "A",
+                    "filled",
+                    None,
+                    None,
+                    None,
+                    None,
+                    "s1",
+                )
+            ]
+        ]
+    ]
+    monkeypatch.setattr(
+        dashboard_v2, "AsyncSessionFactory", _FactoryWithQueuedSessions(session_rows)
+    )
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_trade_feed(limit=10)
+    assert payload["count"] == 1
+    assert payload["meta"]["source"] == "database"
+    assert payload["trades"][0]["pnl"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_recent_events_memory_first_when_db_unavailable():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_event({"event_type": "price_update", "symbol": "BTC/USD"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_recent_events()
+    assert len(payload["events"]) == 1
+    assert payload["meta"]["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_grades_memory_first_preserves_zero_values():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_grade({"trace_id": "t1", "score": 0, "score_pct": 0, "grade": "C"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_grade_history(limit=10)
+    assert payload["total"] == 1
+    assert payload["grades"][0]["score"] == 0
+    assert payload["meta"]["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_grades_empty_reason_when_db_and_memory_empty():
+    set_db_available(False)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_grade_history(limit=10)
+    assert payload["grades"] == []
+    assert payload["meta"]["reason"] == "memory_empty_db_unavailable"
 
 
 @pytest.mark.asyncio

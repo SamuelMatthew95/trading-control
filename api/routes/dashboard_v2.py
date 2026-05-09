@@ -41,9 +41,11 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
+from api.services.dashboard_read_service import DashboardReadService
 from api.services.metrics_aggregator import MetricsAggregator
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+dashboard_reads = DashboardReadService()
 
 # Track process start time for startup grace period
 PROCESS_START_TIME = datetime.now(timezone.utc)
@@ -616,8 +618,17 @@ async def get_agent_metrics() -> dict[str, Any]:
 @router.get("/orders")
 async def get_order_metrics() -> dict[str, Any]:
     """Get order flow metrics."""
+    mem_orders = dashboard_reads.memory_orders()
+    if mem_orders["meta"]["memory_has_data"]:
+        mem_orders["timestamp"] = datetime.now(timezone.utc).isoformat()
+        mem_orders["source"] = "in_memory"
+        return mem_orders
     if not is_db_available():
-        return await MetricsAggregator(None, use_memory_store=True).get_order_metrics()
+        payload = await MetricsAggregator(None, use_memory_store=True).get_order_metrics()
+        payload["meta"] = dashboard_reads.empty(
+            "orders", db_checked=False, reason="memory_empty_db_unavailable"
+        )["meta"]
+        return payload
 
     try:
         async with AsyncSessionFactory() as session:
@@ -626,12 +637,11 @@ async def get_order_metrics() -> dict[str, Any]:
 
     except Exception:
         log_structured("warning", "order_metrics_db_unavailable", exc_info=True)
-        return {
-            "orders": [],
-            "total_orders": 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        payload = await MetricsAggregator(None, use_memory_store=True).get_order_metrics()
+        payload["meta"] = dashboard_reads.empty("orders", db_checked=True, reason="db_error")[
+            "meta"
+        ]
+        return payload
 
 
 @router.get("/flow-status")
@@ -793,10 +803,17 @@ async def get_prices() -> dict[str, Any]:
 
     except Exception:
         log_structured("warning", "price_cache_redis_unavailable", exc_info=True)
+        mem_prices = get_runtime_store().dashboard_fallback_snapshot().get("prices", {})
         return {
-            "prices": dict.fromkeys(["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]),
+            "prices": mem_prices if isinstance(mem_prices, dict) else {},
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
+            "meta": dashboard_reads._meta(
+                source="memory" if bool(mem_prices) else "empty",
+                memory_record_count=len(mem_prices) if isinstance(mem_prices, dict) else 0,
+                db_checked=False,
+                reason=None if mem_prices else "memory_empty_db_unavailable",
+            ),
         }
 
 
@@ -980,11 +997,22 @@ async def get_system_stream_metrics() -> dict[str, Any]:
 @router.get("/events/recent")
 async def get_recent_events() -> dict[str, Any]:
     """Get last 10 events from events table, with in-memory fallback."""
-    if not is_db_available():
+    mem_payload = dashboard_reads.memory_events(limit=10)
+    if mem_payload["meta"]["memory_has_data"]:
         return {
-            "events": get_runtime_store().get_events(limit=10),
+            "events": mem_payload["events"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
+            "meta": mem_payload["meta"],
+        }
+    if not is_db_available():
+        return {
+            "events": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+            "meta": dashboard_reads.empty(
+                "events", db_checked=False, reason="memory_empty_db_unavailable"
+            )["meta"],
         }
 
     try:
@@ -1013,6 +1041,12 @@ async def get_recent_events() -> dict[str, Any]:
         return {
             "events": events,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "meta": dashboard_reads._meta(
+                source="database" if len(events) > 0 else "empty",
+                memory_record_count=0,
+                db_checked=True,
+                reason=None if len(events) > 0 else "db_empty_memory_empty",
+            ),
         }
     except Exception:
         log_structured("warning", "recent_events_db_unavailable", exc_info=True)
@@ -1021,6 +1055,12 @@ async def get_recent_events() -> dict[str, Any]:
             "events": store.get_events(limit=10),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
+            "meta": dashboard_reads._meta(
+                source="memory",
+                memory_record_count=len(store.get_events(limit=10)),
+                db_checked=True,
+                reason="db_error",
+            ),
         }
 
 
@@ -1596,14 +1636,25 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
 @router.get("/learning/grades")
 async def get_grade_history(limit: int = 50) -> dict[str, Any]:
     """Get recent agent grade history from agent_grades table and agent_logs."""
-    if not is_db_available():
-        store = get_runtime_store()
-        grades = store.get_grades(limit=limit)
+    mem_grades = dashboard_reads.memory_grades(limit=limit)
+    if mem_grades["meta"]["memory_has_data"]:
+        grades = mem_grades["grades"]
         return {
             "grades": grades,
             "total": len(grades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
+            "meta": mem_grades["meta"],
+        }
+    if not is_db_available():
+        return {
+            "grades": [],
+            "total": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+            "meta": dashboard_reads.empty(
+                "grades", db_checked=False, reason="memory_empty_db_unavailable"
+            )["meta"],
         }
     try:
         async with AsyncSessionFactory() as session:
@@ -1663,18 +1714,29 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
             "grades": grades,
             "total": len(grades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "meta": dashboard_reads._meta(
+                source="database" if len(grades) > 0 else "empty",
+                memory_record_count=0,
+                db_checked=True,
+                reason=None if len(grades) > 0 else "db_empty_memory_empty",
+            ),
         }
     except Exception:
         log_structured("error", "grades fetch failed", exc_info=True)
         if is_db_available():
             raise HTTPException(status_code=500, detail="Internal server error") from None
-        store = get_runtime_store()
-        grades = store.get_grades(limit=limit)
+        grades = get_runtime_store().get_grades(limit=limit)
         return {
             "grades": grades,
             "total": len(grades),
             "error": "grades_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "meta": dashboard_reads._meta(
+                source="memory" if len(grades) > 0 else "empty",
+                memory_record_count=len(grades),
+                db_checked=True,
+                reason="db_error",
+            ),
         }
 
 
@@ -1716,12 +1778,10 @@ async def get_ic_weights() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "ic weights fetch failed", exc_info=True)
-        return {
-            "current_weights": {},
-            "history": [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        payload = dashboard_reads.memory_ic_weights()
+        payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+        payload["source"] = "in_memory"
+        return payload
 
 
 @router.get("/learning/reflections")
@@ -2144,6 +2204,18 @@ def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> 
     }
 
 
+def _source_meta(*, source: str, db_checked: bool, reason: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": source,
+        "memory_checked": True,
+        "db_checked": db_checked,
+        "db_available": bool(is_db_available()),
+    }
+    if reason is not None:
+        payload["reason"] = reason
+    return payload
+
+
 @router.get("/trade-feed")
 async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, Any]:
     """Return the most recent trades with full lifecycle state.
@@ -2158,11 +2230,16 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
     - ``lifecycle_not_persisted``— orders exist but no trade_lifecycle rows yet
     - ``no_executable_intents``  — decisions were gated (HOLD/score/market) by EE
     """
+    mem_payload = _in_memory_trade_feed_payload(limit, session_id=session_id)
+    if mem_payload["count"] > 0:
+        mem_payload["meta"] = _source_meta(source="memory", db_checked=False)
+        return mem_payload
     if not is_db_available():
-        payload = _in_memory_trade_feed_payload(limit, session_id=session_id)
-        if payload["count"] == 0:
-            payload["empty_reason"] = "db_degraded"
-        return payload
+        mem_payload["empty_reason"] = "db_degraded"
+        mem_payload["meta"] = _source_meta(
+            source="empty", db_checked=False, reason="memory_empty_db_unavailable"
+        )
+        return mem_payload
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
@@ -2334,16 +2411,23 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                 "empty_reason": empty_reason,
                 "upstream_activity": upstream,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "meta": _source_meta(source="empty", db_checked=True, reason=empty_reason),
             }
 
         return {
             "trades": trades,
             "count": len(trades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "meta": _source_meta(source="database", db_checked=True),
         }
     except Exception:
         log_structured("error", "trade_feed_failed", exc_info=True)
-        return _in_memory_trade_feed_payload(limit, session_id=session_id)
+        fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
+        if fallback["count"] > 0:
+            fallback["meta"] = _source_meta(source="memory", db_checked=True)
+            return fallback
+        fallback["meta"] = _source_meta(source="empty", db_checked=True, reason="db_error")
+        return fallback
 
 
 # ---------------------------------------------------------------------------
