@@ -1198,3 +1198,117 @@ async def test_agent_runs_selector_empty_shape(monkeypatch):
     payload = await dashboard_v2.get_agent_runs()
     assert payload["source"] == "empty"
     assert payload["runs"] == []
+
+
+@pytest.mark.asyncio
+async def test_notifications_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Result:
+        def all(self):
+            return [("1", "msg", "info", None)]
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    payload = await dashboard_v2.get_notifications()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_notifications_runtime_fallback():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.record_notification({"message": "runtime"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_notifications()
+    assert payload["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_notifications_empty_shape():
+    set_db_available(False)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_notifications()
+    assert payload["source"] == "empty"
+    assert payload["notifications"] == []
+
+
+@pytest.mark.asyncio
+async def test_learning_grades_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Result:
+        def all(self):
+            return [("t1", {"grade": "A", "score": 1, "score_pct": 100, "metrics": {}}, None)]
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    payload = await dashboard_v2.get_grade_history()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_learning_grades_runtime_fallback():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.add_grade({"grade": "B"})
+    set_runtime_store(store)
+    payload = await dashboard_v2.get_grade_history()
+    assert payload["source"] == "memory"
+
+
+@pytest.mark.asyncio
+async def test_ic_weights_db_healthy(monkeypatch):
+    _enable_db(monkeypatch)
+
+    class _Redis:
+        async def get(self, _key):
+            return '{"factor": 1.0}'
+
+    class _Result:
+        def all(self):
+            return [("factor", 0.2, None)]
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    async def _redis():
+        return _Redis()
+
+    monkeypatch.setattr(dashboard_v2, "get_redis", _redis)
+    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    payload = await dashboard_v2.get_ic_weights()
+    assert payload["source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_ic_weights_runtime_fallback():
+    set_db_available(False)
+    set_runtime_store(InMemoryStore())
+    payload = await dashboard_v2.get_ic_weights()
+    assert payload["source"] in {"memory", "empty"}

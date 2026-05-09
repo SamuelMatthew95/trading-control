@@ -636,6 +636,33 @@ async def get_agent_runs(limit: int = 50) -> dict[str, Any]:
 
 # TODO(selector-migration): add/route /dashboard/notifications through DashboardReadSelector
 # with notifications_or_memory(...) and named empty/default payload helper.
+@router.get("/notifications")
+async def get_notifications(limit: int = 50) -> dict[str, Any]:
+    async def _fetch_db() -> list[dict[str, Any]]:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    SELECT id, message, type, created_at
+                    FROM notifications
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": max(1, min(limit, 200))},
+            )
+            return [
+                {
+                    "id": str(row[0]),
+                    "message": row[1],
+                    "type": row[2],
+                    "timestamp": row[3].isoformat() if row[3] else None,
+                }
+                for row in result.all()
+            ]
+
+    selected = await dashboard_selector.notifications_or_memory(fetch_db=_fetch_db, limit=limit)
+    return {**selected, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/orders")
@@ -1620,31 +1647,7 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
 
 @router.get("/learning/grades")
 async def get_grade_history(limit: int = 50) -> dict[str, Any]:
-    # TODO(selector-migration): migrate /dashboard/learning/grades to DashboardReadSelector
-    # using a dedicated learning_grades_or_memory(...) method (DB healthy, runtime fallback,
-    # and named empty/default helpers) while preserving response contract.
-    """Get recent agent grade history from agent_grades table and agent_logs."""
-    mem_grades = dashboard_reads.memory_grades(limit=limit)
-    if mem_grades["meta"]["memory_has_data"]:
-        grades = mem_grades["grades"]
-        return {
-            "grades": grades,
-            "total": len(grades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-            "meta": mem_grades["meta"],
-        }
-    if not is_db_available():
-        return {
-            "grades": [],
-            "total": 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-            "meta": dashboard_reads.empty(
-                "grades", db_checked=False, reason="memory_empty_db_unavailable"
-            )["meta"],
-        }
-    try:
+    async def _fetch_db() -> list[dict[str, Any]]:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 text("""
@@ -1671,107 +1674,42 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
             )
+        return grades
 
-        # Backward compatibility: older deployments only write agent_grades rows.
-        if not grades:
-            async with AsyncSessionFactory() as session:
-                fallback_result = await session.execute(
-                    text("""
-                        SELECT trace_id, score, metrics, created_at
-                        FROM agent_grades
-                        ORDER BY created_at DESC
-                        LIMIT :limit
-                    """),
-                    {"limit": limit},
-                )
-                for row in fallback_result.all():
-                    metrics = _as_dict(row[2])
-                    score = float(row[1]) if row[1] is not None else None
-                    grades.append(
-                        {
-                            "trace_id": row[0],
-                            "grade": None,
-                            "score": score,
-                            "score_pct": round(score, 2) if score is not None else None,
-                            "metrics": metrics,
-                            "fills_graded": metrics.get("fills_graded"),
-                            "timestamp": row[3].isoformat() if row[3] else None,
-                        }
-                    )
-        return {
-            "grades": grades,
-            "total": len(grades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "meta": dashboard_reads._meta(
-                source="database" if len(grades) > 0 else "empty",
-                memory_record_count=0,
-                db_checked=True,
-                reason=None if len(grades) > 0 else "db_empty_memory_empty",
-            ),
-        }
-    except Exception:
-        log_structured("error", "grades fetch failed", exc_info=True)
-        if is_db_available():
-            raise HTTPException(status_code=500, detail="Internal server error") from None
-        grades = get_runtime_store().get_grades(limit=limit)
-        return {
-            "grades": grades,
-            "total": len(grades),
-            "error": "grades_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "meta": dashboard_reads._meta(
-                source="memory" if len(grades) > 0 else "empty",
-                memory_record_count=len(grades),
-                db_checked=True,
-                reason="db_error",
-            ),
-        }
+    selected = await dashboard_selector.learning_grades_or_memory(fetch_db=_fetch_db, limit=limit)
+    return {**selected, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/learning/ic-weights")
 async def get_ic_weights() -> dict[str, Any]:
-    # TODO(selector-migration): migrate /dashboard/learning/ic-weights to DashboardReadSelector
-    # using ic_weights_or_memory(...) and named empty/default helpers; keep route thin.
-    """Get current IC factor weights from Redis."""
-    try:
+    async def _fetch_db() -> dict[str, Any]:
         redis_client = await get_redis()
         raw = await redis_client.get(REDIS_KEY_IC_WEIGHTS)
         weights = json.loads(raw) if raw else {}
         history_result: list[dict[str, Any]] = []
-        if is_db_available():
-            try:
-                async with AsyncSessionFactory() as session:
-                    result = await session.execute(
-                        text("""
-                            SELECT factor_name, ic_score, computed_at
-                            FROM factor_ic_history
-                            ORDER BY computed_at DESC
-                            LIMIT 20
-                        """)
-                    )
-                    rows = result.all()
-                    history_result = [
-                        {
-                            "factor": row[0],
-                            "ic_score": float(row[1]),
-                            "computed_at": row[2].isoformat() if row[2] else None,
-                        }
-                        for row in rows
-                    ]
-            except Exception:
-                pass
-        return {
-            "current_weights": weights,
-            "history": history_result,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "redis_cache" if is_db_available() else "in_memory",
-        }
-    except Exception:
-        log_structured("error", "ic weights fetch failed", exc_info=True)
-        payload = dashboard_reads.memory_ic_weights()
-        payload["timestamp"] = datetime.now(timezone.utc).isoformat()
-        payload["source"] = "in_memory"
-        return payload
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT factor_name, ic_score, computed_at
+                    FROM factor_ic_history
+                    ORDER BY computed_at DESC
+                    LIMIT 20
+                """)
+            )
+            rows = result.all()
+            history_result = [
+                {
+                    "factor": row[0],
+                    "ic_score": float(row[1]),
+                    "computed_at": row[2].isoformat() if row[2] else None,
+                }
+                for row in rows
+            ]
+        return {"current_weights": weights, "history": history_result}
+
+    selected = await dashboard_selector.ic_weights_or_memory(fetch_db=_fetch_db)
+    selected["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return selected
 
 
 @router.get("/learning/reflections")

@@ -136,3 +136,65 @@ class DashboardReadSelector:
             if mem_runs:
                 return {"runs": mem_runs, "source": "memory"}
             return {"runs": [], "source": "empty"}
+
+    async def notifications_or_memory(
+        self, *, fetch_db: Callable[[], Awaitable[list[dict[str, Any]]]], limit: int = 50
+    ) -> dict[str, Any]:
+        mem_payload = self.reads.runtime_notifications_payload(limit=limit)
+        mem_rows = mem_payload["notifications"]
+        if not is_db_available():
+            return {
+                "notifications": mem_rows,
+                "count": len(mem_rows),
+                "source": "memory" if mem_rows else "empty",
+            }
+        try:
+            db_rows = await fetch_db()
+            if db_rows:
+                return {"notifications": db_rows, "count": len(db_rows), "source": "database"}
+            if mem_rows:
+                return {"notifications": mem_rows, "count": len(mem_rows), "source": "memory"}
+            return {**self.reads.empty_notifications_payload(), "source": "empty"}
+        except Exception:
+            if mem_rows:
+                return {"notifications": mem_rows, "count": len(mem_rows), "source": "memory"}
+            return {**self.reads.empty_notifications_payload(), "source": "empty"}
+
+    async def learning_grades_or_memory(
+        self, *, fetch_db: Callable[[], Awaitable[list[dict[str, Any]]]], limit: int = 50
+    ) -> dict[str, Any]:
+        mem_payload = self.reads.runtime_learning_grades_payload(limit=limit)
+        mem_rows = mem_payload["grades"]
+        if not is_db_available():
+            return {**mem_payload, "source": "memory" if mem_rows else "empty"}
+        try:
+            db_rows = await fetch_db()
+            if db_rows:
+                return {"grades": db_rows, "total": len(db_rows), "source": "database"}
+            if mem_rows:
+                return {**mem_payload, "source": "memory"}
+            return {**self.reads.empty_learning_grades_payload(), "source": "empty"}
+        except Exception:
+            if mem_rows:
+                return {**mem_payload, "source": "memory"}
+            return {**self.reads.empty_learning_grades_payload(), "source": "empty"}
+
+    async def ic_weights_or_memory(
+        self, *, fetch_db: Callable[[], Awaitable[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        mem_payload = self.reads.runtime_ic_weights_payload()
+        mem_has = bool(mem_payload.get("current_weights"))
+        if not is_db_available():
+            return {**mem_payload, "source": "memory" if mem_has else "empty"}
+        try:
+            db_payload = await fetch_db()
+            if db_payload.get("current_weights") or db_payload.get("history"):
+                db_payload["source"] = "database"
+                return db_payload
+            if mem_has:
+                return {**mem_payload, "source": "memory"}
+            return {**self.reads.empty_ic_weights_payload(), "source": "empty"}
+        except Exception:
+            if mem_has:
+                return {**mem_payload, "source": "memory"}
+            return {**self.reads.empty_ic_weights_payload(), "source": "empty"}

@@ -133,3 +133,31 @@ class DashboardReadService:
         agents = [{"name": name, **(store.get_agent(name) or {})} for name in store.agents.keys()]
         runs = list(store.agent_runs[-50:])
         return {"agents": agents, "runs": runs}
+
+    def empty_notifications_payload(self) -> dict[str, Any]:
+        return {"notifications": [], "count": 0}
+
+    def runtime_notifications_payload(self, limit: int | None = None) -> dict[str, Any]:
+        store = get_runtime_store()
+        rows = list(reversed(store.notifications))
+        if limit is not None:
+            rows = rows[: max(1, min(limit, 200))]
+        return {"notifications": rows, "count": len(rows)}
+
+    def empty_learning_grades_payload(self) -> dict[str, Any]:
+        return {"grades": [], "total": 0}
+
+    def runtime_learning_grades_payload(self, limit: int = 50) -> dict[str, Any]:
+        rows = get_runtime_store().get_grades(limit=limit)
+        return {"grades": rows, "total": len(rows)}
+
+    def empty_ic_weights_payload(self) -> dict[str, Any]:
+        return {"current_weights": {}, "history": []}
+
+    def runtime_ic_weights_payload(self) -> dict[str, Any]:
+        snapshot = self.runtime_dashboard_snapshot()
+        weights = snapshot.get("ic_weights") if isinstance(snapshot, dict) else {}
+        return {
+            "current_weights": weights if isinstance(weights, dict) else {},
+            "history": [],
+        }
