@@ -54,6 +54,26 @@ ANTHROPIC_COST_ALERT_USD=5.0
 MAX_CONSUMER_LAG_ALERT=5000
 ```
 
+
+## Dependency installation
+
+Render production deploys should install only runtime dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+CI and local test environments should install the development set instead:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Do not add test-only packages to the production install set to work around a
+proxy or package-index failure. If pip reports `Tunnel connection failed: 403
+Forbidden`, fix the active proxy, `PIP_INDEX_URL`, or private mirror before
+changing dependency pins.
+
 ## Backend deployment checklist
 
 1. Provision PostgreSQL 15+ and enable the pgvector extension.

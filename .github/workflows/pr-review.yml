@@ -1,4 +1,4 @@
- name: PR Review Automation
+name: PR Review Automation
 
 on:
   workflow_dispatch:
@@ -27,8 +27,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install bandit safety ruff
+        python -m pip install -r requirements-dev.txt
 
     - name: Security scan with Bandit
       run: |
@@ -47,7 +46,6 @@ jobs:
 
     - name: Complexity analysis
       run: |
-        pip install radon
         radon cc . --json > complexity-report.json || true
         radon cc . --txt > complexity-report.txt || true
 

@@ -3,13 +3,13 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-import fakeredis
 import pytest
 import pytest_asyncio
 
 from api.core.writer.safe_writer import SafeWriter
 from api.in_memory_store import InMemoryStore
 from api.runtime_state import set_db_available, set_runtime_store
+from tests.fakes.redis import FakeAsyncRedis
 
 os.environ.setdefault("ENABLE_SIGNAL_SCHEDULER", "false")
 
@@ -30,8 +30,8 @@ def _reset_runtime_state():
 
 @pytest_asyncio.fixture
 async def fake_redis():
-    """Provide a fresh fakeredis async instance for each test."""
-    redis = fakeredis.FakeAsyncRedis(decode_responses=True)
+    """Provide a fresh in-memory Redis instance for each test."""
+    redis = FakeAsyncRedis(decode_responses=True)
     yield redis
     await redis.aclose()
 

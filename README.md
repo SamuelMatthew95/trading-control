@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"/>
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11"/>
   <img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/>
   <img src="https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js 14"/>
   <img src="https://img.shields.io/badge/PostgreSQL-15%2B-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL 15+"/>
@@ -33,7 +33,7 @@
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| Backend | FastAPI (Python 3.10+) | Control APIs, telemetry, agent orchestration |
+| Backend | FastAPI (Python 3.11) | Control APIs, telemetry, agent orchestration |
 | Frontend | Next.js 14 (TypeScript) | Live operator dashboard |
 | Database | PostgreSQL 15+ with pgvector | Persistent state, vector memory, audit trail |
 | Streams | Redis 5.0+ | Event bus, agent communication, pub/sub |
@@ -93,7 +93,7 @@ Core guarantees:
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11
 - PostgreSQL 15+ with the pgvector extension
 - Redis 5.0+
 
@@ -104,8 +104,10 @@ git clone https://github.com/SamuelMatthew95/trading-control.git
 cd trading-control
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```
+
+For production installs, use `python -m pip install -r requirements.txt`.
 
 ### Configuration
 
@@ -192,8 +194,9 @@ trading-control/
 ├── tests/                      # Unit, API, agent, and integration tests
 │   ├── core/                   # Core unit tests + FakeAsyncSession
 │   └── api/                    # Per-router endpoint tests
-├── requirements.txt            # All runtime + dev/test dependencies
-├── ruff.toml                   # Linting config (line-length 100, py310)
+├── requirements.txt            # Production/runtime Python dependencies
+├── requirements-dev.txt        # Runtime plus local test/lint tooling
+├── ruff.toml                   # Linting config (line-length 100)
 ├── pytest.ini                  # Pytest configuration
 ├── render.yaml                 # Render deployment config
 └── CHANGELOG.md                # Full change history

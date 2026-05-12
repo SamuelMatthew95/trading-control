@@ -1,4 +1,4 @@
-"""Tests for Redis stream initialization using fakeredis."""
+"""Tests for Redis stream initialization using an in-memory Redis double."""
 
 from __future__ import annotations
 
@@ -286,22 +286,21 @@ if __name__ == "__main__":
     import asyncio
 
     async def run_tests():
-        print("TEST Running Redis init tests with fakeredis...")
+        print("TEST Running Redis init tests with in-memory Redis...")
 
         try:
-            # Import fakeredis for direct testing
-            import fakeredis
+            from tests.fakes.redis import FakeAsyncRedis
 
             # Test 1: Happy path
             print("\n1. Testing happy path...")
-            fake_redis_1 = fakeredis.FakeAsyncRedis(decode_responses=True)
+            fake_redis_1 = FakeAsyncRedis(decode_responses=True)
             await test_happy_path_stream_creation(fake_redis_1)
             await fake_redis_1.aclose()
             print("[OK] Happy path test passed")
 
             # Test 2: Idempotency
             print("\n2. Testing idempotency...")
-            fake_redis_2 = fakeredis.FakeAsyncRedis(decode_responses=True)
+            fake_redis_2 = FakeAsyncRedis(decode_responses=True)
             await test_idempotency_multiple_calls(fake_redis_2)
             await fake_redis_2.aclose()
             print("[OK] Idempotency test passed")
@@ -312,21 +311,21 @@ if __name__ == "__main__":
 
             # Test 4: All streams consumable
             print("\n4. Testing all streams consumable...")
-            fake_redis_4 = fakeredis.FakeAsyncRedis(decode_responses=True)
+            fake_redis_4 = FakeAsyncRedis(decode_responses=True)
             await test_all_streams_have_consumers(fake_redis_4)
             await fake_redis_4.aclose()
             print("[OK] All streams consumable test passed")
 
             # Test 5: Message handling
             print("\n5. Testing message handling...")
-            fake_redis_5 = fakeredis.FakeAsyncRedis(decode_responses=True)
+            fake_redis_5 = FakeAsyncRedis(decode_responses=True)
             await test_stream_creation_with_messages(fake_redis_5)
             await fake_redis_5.aclose()
             print("[OK] Message handling test passed")
 
             # Test 6: Group id parameter
             print("\n6. Testing group id parameter...")
-            fake_redis_6 = fakeredis.FakeAsyncRedis(decode_responses=True)
+            fake_redis_6 = FakeAsyncRedis(decode_responses=True)
             await test_group_id_parameter(fake_redis_6)
             await fake_redis_6.aclose()
             print("[OK] Group id parameter test passed")

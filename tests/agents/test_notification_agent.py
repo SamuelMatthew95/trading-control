@@ -2,7 +2,6 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import fakeredis
 import pytest
 
 from api.constants import NOTIFICATIONS_STREAM_MAXLEN
@@ -10,6 +9,7 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.pipeline_agents import NotificationAgent
+from tests.fakes.redis import FakeAsyncRedis
 
 # Async mark applied per async function; sync classify tests do not carry this mark.
 
@@ -42,7 +42,7 @@ def agent_state():
 
 @pytest.fixture
 async def fake_redis():
-    return fakeredis.FakeAsyncRedis(decode_responses=True)
+    return FakeAsyncRedis(decode_responses=True)
 
 
 @pytest.fixture

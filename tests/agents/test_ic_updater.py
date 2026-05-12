@@ -3,13 +3,13 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import fakeredis
 import pytest
 
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.pipeline_agents import ICUpdater
+from tests.fakes.redis import FakeAsyncRedis
 
 pytestmark = pytest.mark.asyncio
 
@@ -89,7 +89,7 @@ def agent_state():
 
 @pytest.fixture
 async def fake_redis():
-    return fakeredis.FakeAsyncRedis(decode_responses=True)
+    return FakeAsyncRedis(decode_responses=True)
 
 
 @pytest.fixture

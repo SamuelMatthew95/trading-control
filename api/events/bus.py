@@ -127,7 +127,7 @@ def _decode_bytes(value: Any) -> str:
 def _is_nogroup_error(exc: ResponseError) -> bool:
     """Return True if a Redis ResponseError means the stream or group is missing.
 
-    Covers both real Redis ("NOGROUP") and fakeredis
+    Covers both real Redis ("NOGROUP") and in-memory test doubles
     ("The XGROUP subcommand requires the key to exist").
     """
     msg = str(exc)

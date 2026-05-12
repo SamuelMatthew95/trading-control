@@ -6,7 +6,6 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
-import fakeredis
 import pytest
 
 from api.workers.price_poller import (
@@ -18,13 +17,14 @@ from api.workers.price_poller import (
     flush_to_db,
     publish_to_redis,
 )
+from tests.fakes.redis import FakeAsyncRedis
 
 pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
 async def redis():
-    r = fakeredis.FakeAsyncRedis(decode_responses=True)
+    r = FakeAsyncRedis(decode_responses=True)
     yield r
     await r.aclose()
 

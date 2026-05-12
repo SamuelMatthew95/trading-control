@@ -138,7 +138,7 @@ class BaseStreamConsumer(ABC):
         if self._task is None:
             return
 
-        # The loop can be blocked inside Redis/fakeredis reads. Cancel it first
+        # The loop can be blocked inside Redis reads. Cancel it first
         # so stop() does not wait for the next poll interval to unwind.
         if not self._task.done():
             self._task.cancel()
@@ -359,7 +359,7 @@ class BaseStreamConsumer(ABC):
     async def _safe_reclaim_stale(self) -> list[tuple[str, dict[str, Any]]]:
         """Safely reclaim stale messages with timeout and error handling."""
         redis_client = getattr(self.bus, "redis", None)
-        if type(redis_client).__module__.startswith("fakeredis."):
+        if not getattr(redis_client, "supports_xautoclaim", True):
             return []
 
         try:

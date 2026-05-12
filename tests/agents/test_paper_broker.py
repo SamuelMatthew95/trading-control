@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import fakeredis.aioredis
 import pytest
 
 from api.constants import DEFAULT_PAPER_CASH
 from api.services.execution.brokers.paper import PaperBroker
+from tests.fakes.redis import FakeAsyncRedis
 
 pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
 async def redis():
-    r = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    r = FakeAsyncRedis(decode_responses=True)
     yield r
     await r.aclose()
 

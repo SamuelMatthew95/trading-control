@@ -1,6 +1,6 @@
 name: Config / Dependency PR Tagger
 
-# Triggers whenever a PR to main touches requirements.txt or frontend package files.
+# Triggers whenever a PR to main touches requirements files or frontend package files.
 # Auto-labels the PR and posts a comment showing exactly what changed.
 
 on:
@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - "requirements.txt"
+      - "requirements-dev.txt"
       - "frontend/package.json"
       - "frontend/pnpm-lock.yaml"
 
@@ -48,7 +49,7 @@ jobs:
           import subprocess, os
 
           pr_number = os.environ["PR_NUMBER"]
-          files = ["requirements.txt", "frontend/package.json", "frontend/pnpm-lock.yaml"]
+          files = ["requirements.txt", "requirements-dev.txt", "frontend/package.json", "frontend/pnpm-lock.yaml"]
 
           sections = []
 

@@ -108,15 +108,17 @@ Add or update this coverage for every new dashboard, websocket hydration, or met
 
 ### Redis tests
 
-Use `FakeAsyncRedis` from the `fakeredis` PyPI package — never connect to a real Redis in unit tests. The `fake_redis` fixture in `tests/conftest.py` provides a pre-configured instance.
+Use the in-repo `FakeAsyncRedis` test double — never connect to a real Redis in unit tests. The `fake_redis` fixture in `tests/conftest.py` provides a pre-configured instance.
 
 ```python
 import pytest_asyncio
-import fakeredis
+
+from tests.fakes.redis import FakeAsyncRedis
+
 
 @pytest_asyncio.fixture
 async def redis():
-    r = fakeredis.FakeAsyncRedis(decode_responses=True)
+    r = FakeAsyncRedis(decode_responses=True)
     yield r
     await r.aclose()
 ```

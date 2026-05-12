@@ -2,20 +2,21 @@
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11 (required by the pinned backend dependency set)
 - Node.js 20+ (for the frontend dashboard)
 - PostgreSQL 15+ with the pgvector extension
 - Redis 5.0+
 
 ## 1. Install dependencies
 
-```bash
-# Backend (all runtime + dev/test deps in one file)
-pip install -r requirements.txt
+| Environment | Command | Notes |
+|---|---|---|
+| Production / Render | `python -m pip install -r requirements.txt` | Runtime packages only |
+| Local development / CI | `python -m pip install -r requirements-dev.txt` | Runtime plus test, lint, and security tooling |
+| Frontend | `cd frontend && npm install` | Dashboard dependencies |
 
-# Frontend
-cd frontend && npm install
-```
+`requirements-dev.txt` starts with `-r requirements.txt`, so local and CI installs
+include the exact production dependency set before adding development tools.
 
 ## 2. Configure environment
 
@@ -94,6 +95,47 @@ ruff format .
 ruff check . --fix && ruff format --check . && ruff check . --select=E9,F63,F7,F82
 ```
 
+## Dependency troubleshooting
+
+If `pip install -r requirements.txt` fails with messages like
+`Tunnel connection failed: 403 Forbidden` followed by
+`No matching distribution found`, treat the tunnel error as the root cause first.
+That output usually means pip could not reach the configured package index or
+proxy, so the later `from versions: none` message can be misleading. Do not
+downgrade or replace normal public packages such as `fastapi` unless package
+resolution still fails after PyPI or the approved package mirror is reachable.
+
+Use these commands to inspect the active pip/proxy configuration:
+
+```bash
+python -m pip config list -v
+env | grep -i proxy
+env | grep -i pip
+python -m pip debug --verbose
+python -m pip cache purge
+```
+
+Verify package visibility against the intended index:
+
+```bash
+python -m pip index versions fastapi --index-url https://pypi.org/simple
+```
+
+For local testing, force official PyPI only when appropriate for your network:
+
+```bash
+python -m pip install -r requirements.txt \
+  --index-url https://pypi.org/simple \
+  --trusted-host pypi.org \
+  --trusted-host files.pythonhosted.org
+```
+
+If your environment requires a corporate or private package mirror, verify that
+`PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `HTTP_PROXY`, and `HTTPS_PROXY` point to
+a working, authenticated mirror that proxies public PyPI packages. CI should
+install `requirements-dev.txt`; production deploys, including Render, should
+install only `requirements.txt`.
+
 ## Common issues
 
 | Problem | Fix |
@@ -103,6 +145,7 @@ ruff check . --fix && ruff format --check . && ruff check . --select=E9,F63,F7,F
 | Redis connection fails | Verify Redis is running on the configured port |
 | Alpaca errors | Check API key and ensure `ALPACA_PAPER=true` for paper mode |
 | CORS errors in dev | Set `FRONTEND_URL=http://localhost:3000` in `.env` |
+| `Tunnel connection failed: 403 Forbidden` during pip install | Fix the active proxy or package index; do not treat the subsequent `No matching distribution found` line as proof that a public package is unavailable |
 
 ## Adding a new agent
 

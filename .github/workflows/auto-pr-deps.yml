@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements-dev.txt
 
       - uses: pnpm/action-setup@v4
         with:
@@ -35,7 +35,7 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt -q
+        run: python -m pip install -r requirements-dev.txt -q
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -52,7 +52,7 @@ jobs:
 
           # Python outdated packages
           result = subprocess.run(
-              ["pip", "list", "--outdated", "--format=columns"],
+              ["python", "-m", "pip", "list", "--outdated", "--format=columns"],
               capture_output=True, text=True
           )
           # Strip the two header lines (Package / Version / Latest / Type + dashes)
@@ -73,7 +73,7 @@ jobs:
               f.write(f"# Dependency Audit — {date}\n\n")
               f.write("> Auto-generated every 2 days. Review and update packages manually.\n\n")
 
-              f.write("## 🐍 Python (`requirements.txt`)\n\n")
+              f.write("## 🐍 Python (`requirements.txt` + `requirements-dev.txt`)\n\n")
               if py_outdated:
                   f.write(f"**{len(py_lines)} outdated package(s):**\n\n")
                   f.write("```\n")
@@ -94,7 +94,7 @@ jobs:
                   f.write("✅ All packages up to date.\n\n")
 
               f.write("---\n")
-              f.write("_To update: edit `requirements.txt` or `frontend/package.json` with the new versions and open a PR._\n")
+              f.write("_To update: edit `requirements.txt`, `requirements-dev.txt`, or `frontend/package.json` with the new versions and open a PR._\n")
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as gho:
               gho.write(f"has_outdated={'true' if has_outdated else 'false'}\n")
@@ -125,7 +125,7 @@ jobs:
             See `.github/DEPS_REPORT.md` in this PR for the full list.
 
             **To update a Python package:**
-            1. Edit the version pin in `requirements.txt`
+            1. Edit the version pin in `requirements.txt` or `requirements-dev.txt`
             2. Push to this branch — CI will run automatically
 
             **To update a frontend package:**
