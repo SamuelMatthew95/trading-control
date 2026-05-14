@@ -113,9 +113,12 @@ async def test_dashboard_hydration_is_idempotent_across_repeated_reads(fake_redi
         first = await dashboard_v2.get_dashboard_debug_state()
         second = await dashboard_v2.get_dashboard_debug_state()
 
+        assert first["counts"]["redis_hydration_status"] == "completed"
         assert first["counts"]["decisions"] == second["counts"]["decisions"] == 2
         assert first["counts"]["notifications"] == second["counts"]["notifications"] == 2
         assert first["counts"]["closed_trades"] == second["counts"]["closed_trades"] == 1
+        assert first["counts"]["redis_decisions_applied"] == 2
+        assert second["counts"]["redis_decisions_applied"] == 0
         assert first["summary"]["realized_pnl"] > 0
         assert second["summary"]["realized_pnl"] > 0
         assert first["source"] == "redis_hydrated"

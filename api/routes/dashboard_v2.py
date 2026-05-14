@@ -55,8 +55,11 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
     store = get_runtime_store()
     diagnostics: dict[str, Any] = {
         "source": "in_memory",
+        "hydration_status": "skipped",
         "redis_decisions_seen": 0,
         "redis_notifications_seen": 0,
+        "redis_decisions_applied": 0,
+        "redis_notifications_applied": 0,
         "applied_decision_keys": len(store.applied_decision_keys),
         "last_error": None,
     }
@@ -68,13 +71,19 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
         return diagnostics
 
     try:
+        diagnostics["hydration_status"] = "attempted"
         decisions = await redis_store.list_decisions(limit=500)
         diagnostics["redis_decisions_seen"] = len(decisions)
+        decisions_before = len(store.applied_decision_keys)
         for decision in reversed(decisions):
             store.apply_decision(decision)
+        diagnostics["redis_decisions_applied"] = max(
+            0, len(store.applied_decision_keys) - decisions_before
+        )
 
         notifications = await redis_store.list_notifications(limit=500)
         diagnostics["redis_notifications_seen"] = len(notifications)
+        notifications_before = len(store.notifications)
         existing_notification_keys = {
             str(item.get("id") or item.get(FieldName.NOTIFICATION_ID) or "")
             or json.dumps(item, sort_keys=True, default=str)
@@ -90,11 +99,16 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
                 continue
             store.record_notification(notification)
             existing_notification_keys.add(notification_key)
+        diagnostics["redis_notifications_applied"] = max(
+            0, len(store.notifications) - notifications_before
+        )
 
         diagnostics["applied_decision_keys"] = len(store.applied_decision_keys)
-        if diagnostics["redis_decisions_seen"] > 0:
+        if diagnostics["redis_decisions_seen"] > 0 or diagnostics["redis_notifications_seen"] > 0:
             diagnostics["source"] = "redis_hydrated"
+        diagnostics["hydration_status"] = "completed"
     except Exception as exc:
+        diagnostics["hydration_status"] = "failed"
         diagnostics["last_error"] = str(exc)
         log_structured("warning", "dashboard_redis_hydration_failed", exc_info=True)
 
@@ -2732,7 +2746,11 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
             snapshot.get("decisions") or snapshot.get("positions") or snapshot.get("orders")
         ),
         "counts": {
+            "redis_hydration_status": diagnostics["hydration_status"],
             "redis_decisions_seen": diagnostics["redis_decisions_seen"],
+            "redis_decisions_applied": diagnostics["redis_decisions_applied"],
+            "redis_notifications_seen": diagnostics["redis_notifications_seen"],
+            "redis_notifications_applied": diagnostics["redis_notifications_applied"],
             "applied_decision_keys": diagnostics["applied_decision_keys"],
             "decisions": len(snapshot.get("decisions", [])),
             "notifications": len(snapshot.get("notifications", [])),
