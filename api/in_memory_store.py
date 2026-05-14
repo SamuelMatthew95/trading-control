@@ -4,8 +4,10 @@ import time
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
+from api.config import settings
 from api.constants import (
     AGENT_CHALLENGER,
     AGENT_EXECUTION,
@@ -34,6 +36,7 @@ DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_CHALLENGER: {"status": "idle"},
     AGENT_PROPOSAL_APPLIER: {"status": "idle"},
 }
+DEFAULT_TRADE_NOTIONAL: float = float(getattr(settings, "EQUITY_PER_TRADE", 1000.0) or 1000.0)
 
 
 @dataclass(slots=True)
@@ -55,6 +58,10 @@ class InMemoryStore:
     trade_evaluations: list[dict[str, Any]] = field(default_factory=list)
     reflections: list[dict[str, Any]] = field(default_factory=list)
     strategies: list[dict[str, Any]] = field(default_factory=list)
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    closed_trades: list[dict[str, Any]] = field(default_factory=list)
+    equity_curve: list[dict[str, Any]] = field(default_factory=list)
+    applied_decision_keys: set[str] = field(default_factory=set)
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
@@ -271,12 +278,122 @@ class InMemoryStore:
                 for name, data in self.agents.items()
             ],
             "notifications": notifications,
+            "decisions": list(reversed(self.decisions[-50:])),
+            "closed_trades": list(reversed(self.closed_trades[-50:])),
+            "equity_curve": list(self.equity_curve[-200:]),
             "notification_summary": notification_summary,
             "mode": "in_memory",
             "db_health": self.last_health,
             "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode
             "source": "in_memory",
+            "has_data": bool(self.decisions or self.orders or self.positions or self.notifications),
         }
+
+    def apply_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
+        decision_key = self._decision_key(payload)
+        if decision_key in self.applied_decision_keys:
+            return {
+                "id": payload.get("id") or payload.get(FieldName.TRACE_ID) or decision_key,
+                "deduplicated": True,
+            }
+        self.applied_decision_keys.add(decision_key)
+        action = str(payload.get(FieldName.ACTION, "hold")).upper()
+        symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
+        price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
+        quantity = self._safe_float(payload.get(FieldName.QTY))
+        if (quantity is None or quantity <= 0) and price > 0:
+            quantity = DEFAULT_TRADE_NOTIONAL / price
+        quantity = quantity or 0.0
+        event = {
+            "id": payload.get("id")
+            or payload.get(FieldName.TRACE_ID)
+            or f"mem-dec-{len(self.decisions) + 1}",
+            FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
+            "timestamp": payload.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat(),
+            FieldName.SYMBOL: symbol,
+            FieldName.ACTION: action,
+            FieldName.PRICE: price,
+            FieldName.QTY: quantity,
+            FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
+            "agent": payload.get("agent") or "reasoning_agent",
+            "reason": payload.get("reasoning_summary") or payload.get("reason"),
+        }
+        self.decisions.append(event)
+        if len(self.decisions) > 500:
+            self.decisions = self.decisions[-500:]
+        if action not in {"BUY", "SELL"} or not symbol or price <= 0 or quantity <= 0:
+            return event
+        pos = self.positions.get(
+            symbol, {FieldName.SYMBOL: symbol, FieldName.QTY: 0.0, "avg_entry_price": 0.0}
+        )
+        pos_qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
+        avg = self._safe_float(pos.get("avg_entry_price")) or price
+        if action == "BUY":
+            new_qty = pos_qty + quantity
+            new_avg = ((avg * pos_qty) + (price * quantity)) / new_qty if new_qty > 0 else price
+            pos.update(
+                {
+                    FieldName.SIDE: "long",
+                    FieldName.QTY: new_qty,
+                    "avg_entry_price": new_avg,
+                    FieldName.UNREALIZED_PNL: 0.0,
+                    FieldName.PRICE: price,
+                }
+            )
+            self.positions[symbol] = pos
+        else:
+            sell_qty = min(pos_qty, quantity)
+            realized = (price - avg) * sell_qty
+            remaining = max(pos_qty - sell_qty, 0.0)
+            self.closed_trades.append(
+                {
+                    FieldName.SYMBOL: symbol,
+                    "entry_price": avg,
+                    "exit_price": price,
+                    FieldName.QTY: sell_qty,
+                    FieldName.PNL: realized,
+                    "timestamp": event["timestamp"],
+                }
+            )
+            self.orders.append(
+                {
+                    FieldName.SYMBOL: symbol,
+                    FieldName.PNL: realized,
+                    "status": "closed",
+                    "created_at": event["timestamp"],
+                }
+            )
+            if remaining <= 0:
+                self.positions.pop(symbol, None)
+            else:
+                pos.update(
+                    {FieldName.QTY: remaining, "avg_entry_price": avg, FieldName.PRICE: price}
+                )
+                self.positions[symbol] = pos
+        paired = self.paired_pnl_payload()["summary"]
+        self.equity_curve.append(
+            {
+                "timestamp": event["timestamp"],
+                "value": paired["total_pnl"],
+                "realized_pnl": paired["realized_pnl"],
+                "unrealized_pnl": paired["unrealized_pnl"],
+                "total_pnl": paired["total_pnl"],
+            }
+        )
+        if len(self.equity_curve) > 1000:
+            self.equity_curve = self.equity_curve[-1000:]
+        return event
+
+    def _decision_key(self, payload: dict[str, Any]) -> str:
+        for key in ("redis_stream_id", "stream_id", "id", FieldName.TRACE_ID):
+            value = payload.get(key)
+            if value:
+                return f"{key}:{value}"
+        timestamp = payload.get(FieldName.TIMESTAMP) or payload.get("timestamp") or ""
+        symbol = payload.get(FieldName.SYMBOL) or ""
+        action = payload.get(FieldName.ACTION) or ""
+        price = payload.get(FieldName.PRICE) or ""
+        return f"derived:{timestamp}:{symbol}:{action}:{price}"
 
     def open_positions(self) -> list[dict[str, Any]]:
         """Return normalized in-memory open positions (long/short with non-zero qty)."""
