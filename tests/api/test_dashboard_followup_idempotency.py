@@ -53,10 +53,19 @@ async def test_snapshot_and_state_reads_are_stable_and_in_memory() -> None:
 
 
 async def test_debug_route_available_under_dashboard_and_api_prefix(api_client) -> None:
-    r1 = await api_client.get("/dashboard/debug/state")
-    r2 = await api_client.get("/api/dashboard/debug/state")
-    assert r1.status_code == 200
-    assert r2.status_code == 200
+    headers = {"host": "localhost"}
+    r1 = await api_client.get("/dashboard/debug/state", headers=headers)
+    r2 = await api_client.get("/api/dashboard/debug/state", headers=headers)
+    assert r1.status_code == 200, r1.text
+    assert r2.status_code == 200, r2.text
+    body1 = r1.json()
+    body2 = r2.json()
+    assert "source" in body1
+    assert "counts" in body1
+    assert "db_available" in body1
+    assert "source" in body2
+    assert "counts" in body2
+    assert "db_available" in body2
 
 
 async def test_debug_route_is_explicitly_runtime_store_scoped() -> None:
