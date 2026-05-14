@@ -1,6 +1,14 @@
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
+from api.services.redis_store import RedisStore, get_redis_store, set_redis_store
+
+
+async def _with_redis_store(fake_redis):
+    previous = get_redis_store()
+    store = RedisStore(fake_redis)
+    set_redis_store(store)
+    return store, previous
 
 
 def _seed(store: InMemoryStore) -> None:
@@ -50,6 +58,69 @@ async def test_snapshot_and_state_reads_are_stable_and_in_memory() -> None:
     assert len(snap1["notifications"]) == len(snap2["notifications"])
     assert len(snap1["equity_curve"]) == len(snap2["equity_curve"])
     assert snap1["equity_curve"] == snap2["equity_curve"]
+
+
+async def test_dashboard_hydrates_from_redis_decisions_when_db_unavailable(fake_redis) -> None:
+    store, previous = await _with_redis_store(fake_redis)
+    try:
+        set_runtime_store(InMemoryStore())
+        set_db_available(False)
+        await store.push_decision(
+            {"id": "d-1", "action": "buy", "symbol": "BTC/USD", "price": 80000.0, "trace_id": "t-1"}
+        )
+        await store.push_notification({"id": "n-1", "title": "BUY BTC/USD executed"})
+
+        snap = await dashboard_v2.get_dashboard_snapshot()
+        state = await dashboard_v2.get_dashboard_state()
+
+        assert snap["has_data"] is True
+        assert len(snap["decisions"]) > 0
+        assert len(snap["positions"]) > 0
+        assert snap["equity_curve"]
+        assert state["has_data"] is True
+        assert snap["source"] == "redis_hydrated"
+        assert state["source"] == "redis_hydrated"
+    finally:
+        set_redis_store(previous)
+
+
+async def test_dashboard_hydration_is_idempotent_across_repeated_reads(fake_redis) -> None:
+    store, previous = await _with_redis_store(fake_redis)
+    try:
+        set_runtime_store(InMemoryStore())
+        set_db_available(False)
+        await store.push_decision(
+            {
+                "id": "buy-1",
+                "action": "buy",
+                "symbol": "BTC/USD",
+                "price": 80000.0,
+                "trace_id": "buy-t",
+            }
+        )
+        await store.push_decision(
+            {
+                "id": "sell-1",
+                "action": "sell",
+                "symbol": "BTC/USD",
+                "price": 81000.0,
+                "trace_id": "sell-t",
+            }
+        )
+        await store.push_notification({"id": "n-buy", "title": "BUY BTC/USD"})
+        await store.push_notification({"id": "n-sell", "title": "SELL BTC/USD"})
+
+        first = await dashboard_v2.get_dashboard_debug_state()
+        second = await dashboard_v2.get_dashboard_debug_state()
+
+        assert first["counts"]["decisions"] == second["counts"]["decisions"] == 2
+        assert first["counts"]["notifications"] == second["counts"]["notifications"] == 2
+        assert first["counts"]["closed_trades"] == second["counts"]["closed_trades"] == 1
+        assert first["summary"]["realized_pnl"] > 0
+        assert second["summary"]["realized_pnl"] > 0
+        assert first["source"] == "redis_hydrated"
+    finally:
+        set_redis_store(previous)
 
 
 async def test_debug_route_available_under_dashboard_and_api_prefix(api_client) -> None:
