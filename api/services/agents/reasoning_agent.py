@@ -394,20 +394,23 @@ class ReasoningAgent(BaseStreamConsumer):
             is_fallback=is_fallback,
         )
         await store.push_decision(payload)
+        if not is_db_available():
+            get_runtime_store().record_decision(payload)
 
         # Surface actionable buys/sells as notifications (one per decision,
         # not per fill). The execution layer still publishes the fill
         # notification separately, but this guarantees something appears on
         # the dashboard even before the order executes.
         if action in self._ACTIONABLE_ACTIONS:
-            await store.push_notification(
-                self._build_decision_notification(
-                    action=action,
-                    symbol=str(payload[FieldName.SYMBOL]),
-                    price=payload[FieldName.PRICE],
-                    trace_id=trace_id,
-                )
+            notification = self._build_decision_notification(
+                action=action,
+                symbol=str(payload[FieldName.SYMBOL]),
+                price=payload[FieldName.PRICE],
+                trace_id=trace_id,
             )
+            await store.push_notification(notification)
+            if not is_db_available():
+                get_runtime_store().record_notification(notification)
 
     # ------------------------------------------------------------------
     # Internal helpers

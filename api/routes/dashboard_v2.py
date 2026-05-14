@@ -2649,3 +2649,38 @@ async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, 
     except Exception:
         log_structured("error", "kill switch toggle failed", active=active, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/debug/state")
+async def get_dashboard_debug_state() -> dict[str, Any]:
+    """Debug snapshot from in-memory runtime store only.
+
+    This endpoint is intentionally memory-scoped so operators can inspect
+    fallback/runtime state. It does not query Postgres and must not claim the
+    payload is DB-sourced when db_available=True.
+    """
+    store = get_runtime_store()
+    snapshot = store.dashboard_fallback_snapshot()
+    paired = store.paired_pnl_payload()
+    db_available = is_db_available()
+    return {
+        "db_available": db_available,
+        "source": "in_memory",
+        "scope": "runtime_store",
+        "has_data": bool(
+            snapshot.get("decisions") or snapshot.get("positions") or snapshot.get("orders")
+        ),
+        "counts": {
+            "decisions": len(snapshot.get("decisions", [])),
+            "notifications": len(snapshot.get("notifications", [])),
+            "open_positions": len(snapshot.get("positions", [])),
+            "closed_trades": len(snapshot.get("closed_trades", [])),
+            "equity_points": len(snapshot.get("equity_curve", [])),
+        },
+        "latest_decision": (snapshot.get("decisions") or [None])[0],
+        "latest_notification": (snapshot.get("notifications") or [None])[0],
+        "latest_open_position": (snapshot.get("positions") or [None])[0],
+        "latest_closed_trade": (snapshot.get("closed_trades") or [None])[0],
+        "summary": paired.get("summary", {}),
+        "last_error": None,
+    }
