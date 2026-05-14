@@ -65,9 +65,14 @@ class RedisStore:
         entry.setdefault(FieldName.TIMESTAMP, _now_iso())
         entry.setdefault("severity", "info")
         entry.setdefault("read", False)
+        encoded = json.dumps(entry, default=str)
         try:
-            await self.redis.lpush(REDIS_KEY_NOTIFICATIONS_RECENT, json.dumps(entry, default=str))
-            await self.redis.ltrim(REDIS_KEY_NOTIFICATIONS_RECENT, 0, REDIS_NOTIFICATIONS_MAX - 1)
+            # Atomic LPUSH + LTRIM in a single round trip — keeps the list
+            # bounded under concurrent writers without a transient overshoot.
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(REDIS_KEY_NOTIFICATIONS_RECENT, encoded)
+                pipe.ltrim(REDIS_KEY_NOTIFICATIONS_RECENT, 0, REDIS_NOTIFICATIONS_MAX - 1)
+                await pipe.execute()
         except Exception:
             log_structured("warning", "redis_store_notification_push_failed", exc_info=True)
         return entry
@@ -131,9 +136,12 @@ class RedisStore:
         entry = dict(payload)
         entry.setdefault("id", str(uuid.uuid4()))
         entry.setdefault(FieldName.TIMESTAMP, _now_iso())
+        encoded = json.dumps(entry, default=str)
         try:
-            await self.redis.lpush(REDIS_KEY_DECISIONS_RECENT, json.dumps(entry, default=str))
-            await self.redis.ltrim(REDIS_KEY_DECISIONS_RECENT, 0, REDIS_DECISIONS_MAX - 1)
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(REDIS_KEY_DECISIONS_RECENT, encoded)
+                pipe.ltrim(REDIS_KEY_DECISIONS_RECENT, 0, REDIS_DECISIONS_MAX - 1)
+                await pipe.execute()
         except Exception:
             log_structured("warning", "redis_store_decision_push_failed", exc_info=True)
         return entry
@@ -215,6 +223,13 @@ class RedisStore:
     # LLM metrics — rolling hash counters
     # ------------------------------------------------------------------ #
 
+    _OUTCOME_FIELD: dict[str, str] = {
+        "success": "successes",
+        "rate_limit": "rate_limits",
+        "timeout": "timeouts",
+        "error": "errors",
+    }
+
     async def record_llm_call(
         self,
         *,
@@ -224,25 +239,23 @@ class RedisStore:
         """Record one LLM call result.
 
         ``outcome`` is one of: ``success``, ``rate_limit``, ``timeout``, ``error``.
+        Counters are written in a single pipeline so a partial failure can't
+        leave totals out of step with the per-outcome buckets.
         """
+        outcome_field = self._OUTCOME_FIELD.get(outcome, "errors")
         try:
-            await self.redis.hincrby(REDIS_KEY_LLM_METRICS, "total_calls", 1)
-            if outcome == "success":
-                await self.redis.hincrby(REDIS_KEY_LLM_METRICS, "successes", 1)
-                if latency_ms is not None:
-                    await self.redis.hset(
+            async with self.redis.pipeline(transaction=False) as pipe:
+                pipe.hincrby(REDIS_KEY_LLM_METRICS, "total_calls", 1)
+                pipe.hincrby(REDIS_KEY_LLM_METRICS, outcome_field, 1)
+                if outcome == "success" and latency_ms is not None:
+                    pipe.hset(
                         REDIS_KEY_LLM_METRICS,
                         mapping={
                             "last_success_at": _now_iso(),
                             "last_latency_ms": int(latency_ms),
                         },
                     )
-            elif outcome == "rate_limit":
-                await self.redis.hincrby(REDIS_KEY_LLM_METRICS, "rate_limits", 1)
-            elif outcome == "timeout":
-                await self.redis.hincrby(REDIS_KEY_LLM_METRICS, "timeouts", 1)
-            else:
-                await self.redis.hincrby(REDIS_KEY_LLM_METRICS, "errors", 1)
+                await pipe.execute()
         except Exception:
             log_structured("warning", "redis_store_llm_metric_failed", exc_info=True)
 
@@ -255,47 +268,36 @@ class RedisStore:
         if not raw:
             return {}
 
-        def _int(key: str) -> int:
-            try:
-                return int(_to_text(raw.get(key, b"0") if isinstance(raw, dict) else 0))
-            except (TypeError, ValueError):
-                return 0
-
-        # redis-py returns bytes; coerce keys/values uniformly
+        # redis-py with decode_responses=True returns strings; coerce anyway
+        # so this still works against a raw bytes client (e.g. in unit tests).
         decoded: dict[str, str] = {_to_text(k): _to_text(v) for k, v in raw.items()}
 
-        def _di(key: str) -> int:
+        def _int(key: str) -> int:
             try:
                 return int(decoded.get(key, "0"))
             except (TypeError, ValueError):
                 return 0
 
         return {
-            "total_calls": _di("total_calls"),
-            "successes": _di("successes"),
-            "rate_limits": _di("rate_limits"),
-            "timeouts": _di("timeouts"),
-            "errors": _di("errors"),
+            "total_calls": _int("total_calls"),
+            "successes": _int("successes"),
+            "rate_limits": _int("rate_limits"),
+            "timeouts": _int("timeouts"),
+            "errors": _int("errors"),
             "last_success_at": decoded.get("last_success_at"),
-            "last_latency_ms": _di("last_latency_ms"),
+            "last_latency_ms": _int("last_latency_ms"),
         }
 
 
 _store_singleton: RedisStore | None = None
 
 
-def get_redis_store(redis: Redis | None = None) -> RedisStore | None:
-    """Return a process-wide RedisStore bound to ``redis``.
-
-    First call must pass the Redis client; subsequent calls may omit it and
-    will return the same singleton.
-    """
-    global _store_singleton
-    if redis is not None:
-        _store_singleton = RedisStore(redis)
+def get_redis_store() -> RedisStore | None:
+    """Return the process-wide RedisStore, or None until ``set_redis_store`` runs."""
     return _store_singleton
 
 
 def set_redis_store(store: RedisStore | None) -> None:
+    """Install (or clear) the process-wide RedisStore. Called once at startup."""
     global _store_singleton
     _store_singleton = store

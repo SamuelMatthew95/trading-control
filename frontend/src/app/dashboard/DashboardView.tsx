@@ -444,11 +444,17 @@ function formatUptime(seconds: number): string {
   return `${hours}h ${remainingMinutes}m`
 }
 
+type DecisionStats = {
+  total: number
+  last_hour: { buys: number; sells: number; holds: number }
+  last_decision: Record<string, unknown> | null
+}
+
 function RecentDecisionsPanel({
   stats,
   recent,
 }: {
-  stats: { total: number; last_hour: { buys: number; sells: number; holds: number }; last_decision: Record<string, unknown> | null } | null
+  stats: DecisionStats | null
   recent: Array<Record<string, unknown>>
 }) {
   const actionable = recent.filter((d) => {
@@ -559,11 +565,6 @@ export function DashboardView({ section }: { section: Section }) {
   const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('')
 
-  type DecisionStats = {
-    total: number
-    last_hour: { buys: number; sells: number; holds: number }
-    last_decision: Record<string, unknown> | null
-  }
   const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null)
   const [recentDecisions, setRecentDecisions] = useState<Array<Record<string, unknown>>>([])
 

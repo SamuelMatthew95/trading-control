@@ -17,6 +17,12 @@ from api.constants import (
     LLMCallResult,
 )
 
+# Strong refs to in-flight fire-and-forget tasks. asyncio only holds a weak
+# ref to a task, so without this set a fast-completing event loop may GC the
+# task before the Redis write lands, surfacing as "Task was destroyed but it
+# is pending".
+_pending_redis_tasks: set[asyncio.Task[None]] = set()
+
 
 def _async_fire_and_forget(coro) -> None:
     """Schedule ``coro`` on the running loop without awaiting it.
@@ -31,7 +37,9 @@ def _async_fire_and_forget(coro) -> None:
     except RuntimeError:
         coro.close()
         return
-    loop.create_task(coro)
+    task = loop.create_task(coro)
+    _pending_redis_tasks.add(task)
+    task.add_done_callback(_pending_redis_tasks.discard)
 
 
 async def _record_redis_outcome(outcome: str, latency_ms: float | None = None) -> None:
