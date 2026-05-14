@@ -52,9 +52,9 @@ async def test_snapshot_and_state_reads_are_stable_and_in_memory() -> None:
     assert snap1["equity_curve"] == snap2["equity_curve"]
 
 
-async def test_debug_route_available_under_dashboard_and_api_prefix(client) -> None:
-    r1 = await client.get("/dashboard/debug/state")
-    r2 = await client.get("/api/dashboard/debug/state")
+async def test_debug_route_available_under_dashboard_and_api_prefix(api_client) -> None:
+    r1 = await api_client.get("/dashboard/debug/state")
+    r2 = await api_client.get("/api/dashboard/debug/state")
     assert r1.status_code == 200
     assert r2.status_code == 200
 

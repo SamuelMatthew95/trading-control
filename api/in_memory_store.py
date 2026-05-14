@@ -37,6 +37,7 @@ DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_PROPOSAL_APPLIER: {"status": "idle"},
 }
 DEFAULT_TRADE_NOTIONAL: float = float(getattr(settings, "EQUITY_PER_TRADE", 1000.0) or 1000.0)
+POSITION_EPSILON: float = 1e-9
 
 
 @dataclass(slots=True)
@@ -300,10 +301,7 @@ class InMemoryStore:
         action = str(payload.get(FieldName.ACTION, "hold")).upper()
         symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
         price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
-        quantity = self._safe_float(payload.get(FieldName.QTY))
-        if (quantity is None or quantity <= 0) and price > 0:
-            quantity = DEFAULT_TRADE_NOTIONAL / price
-        quantity = quantity or 0.0
+        explicit_quantity = self._safe_float(payload.get(FieldName.QTY))
         event = {
             "id": payload.get("id")
             or payload.get(FieldName.TRACE_ID)
@@ -313,7 +311,7 @@ class InMemoryStore:
             FieldName.SYMBOL: symbol,
             FieldName.ACTION: action,
             FieldName.PRICE: price,
-            FieldName.QTY: quantity,
+            FieldName.QTY: explicit_quantity or 0.0,
             FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
             FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
             FieldName.REASON: payload.get(LogType.REASONING_SUMMARY)
@@ -322,7 +320,7 @@ class InMemoryStore:
         self.decisions.append(event)
         if len(self.decisions) > 500:
             self.decisions = self.decisions[-500:]
-        if action not in {"BUY", "SELL"} or not symbol or price <= 0 or quantity <= 0:
+        if action not in {"BUY", "SELL"} or not symbol or price <= 0:
             return event
         pos = self.positions.get(
             symbol, {FieldName.SYMBOL: symbol, FieldName.QTY: 0.0, "avg_entry_price": 0.0}
@@ -330,6 +328,12 @@ class InMemoryStore:
         pos_qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
         avg = self._safe_float(pos.get("avg_entry_price")) or price
         if action == "BUY":
+            quantity = explicit_quantity
+            if (quantity is None or quantity <= 0) and price > 0:
+                quantity = DEFAULT_TRADE_NOTIONAL / price
+            if quantity is None or quantity <= 0:
+                return event
+            event[FieldName.QTY] = quantity
             new_qty = pos_qty + quantity
             new_avg = ((avg * pos_qty) + (price * quantity)) / new_qty if new_qty > 0 else price
             pos.update(
@@ -343,7 +347,11 @@ class InMemoryStore:
             )
             self.positions[symbol] = pos
         else:
-            sell_qty = min(pos_qty, quantity)
+            if explicit_quantity is None or explicit_quantity <= 0:
+                sell_qty = pos_qty
+            else:
+                sell_qty = min(pos_qty, explicit_quantity)
+            event[FieldName.QTY] = sell_qty
             if sell_qty <= 0:
                 return event
             realized = (price - avg) * sell_qty
@@ -366,7 +374,7 @@ class InMemoryStore:
                     FieldName.CREATED_AT: event[FieldName.TIMESTAMP],
                 }
             )
-            if remaining <= 0:
+            if remaining <= POSITION_EPSILON:
                 self.positions.pop(symbol, None)
             else:
                 pos.update(
