@@ -207,6 +207,7 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
+        broker_order_placed = False
         try:
             async with AsyncSessionFactory() as session:
                 existing = await session.execute(
@@ -272,6 +273,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     await session.flush()
 
                     broker_result = await self.broker.place_order(symbol, side, qty, price)
+                    broker_order_placed = True
                     filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                     fill_price = float(broker_result[FieldName.FILL_PRICE])
 
@@ -330,8 +332,16 @@ class ExecutionEngine(BaseStreamConsumer):
                 "execution_db_path_failed_falling_back_to_memory",
                 symbol=symbol,
                 trace_id=trace_id,
+                broker_order_placed=broker_order_placed,
                 exc_info=True,
             )
+            if broker_order_placed:
+                await self._write_idle_heartbeat(
+                    symbol,
+                    "degraded:db_write_failed_after_broker",
+                    trace_id,
+                )
+                return
             await self._process_in_memory(data)
             return
 
