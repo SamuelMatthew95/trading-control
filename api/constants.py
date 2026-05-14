@@ -418,6 +418,11 @@ REDIS_KEY_ORDER_DEDUP: Final[str] = "order:dedup:{idempotency_key}"
 ORDER_DEDUP_TTL_SECONDS: Final[int] = 86400  # 24h — covers any realistic replay window
 REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
+# Per-day total LLM call counter — used by /llm/health to populate daily_calls
+# after a backend restart, where the in-process ring buffer is empty but the
+# durable Redis counter survives. Follows the same {date} key shape so old
+# days roll off naturally without an explicit expiry.
+REDIS_KEY_LLM_DAILY_CALLS: Final[str] = "llm:daily_calls:{date}"
 # Dynamic call delay written by GradeAgent when rate-limiting is detected
 REDIS_KEY_LLM_CALL_DELAY_MS: Final[str] = "llm:call_delay_ms"
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"

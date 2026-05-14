@@ -173,6 +173,41 @@ async def test_record_llm_call_increments_counters(fake_redis) -> None:
     assert metrics["errors"] == 1
     assert metrics["last_latency_ms"] == 80
     assert metrics["last_success_at"]
+    # daily_calls mirrors total_calls for today (per-date key)
+    assert metrics["daily_calls"] == 5
+
+
+@pytest.mark.asyncio
+async def test_record_llm_call_writes_per_day_counter(fake_redis) -> None:
+    """Each record bumps the durable ``llm:daily_calls:{date}`` key."""
+    from datetime import date
+
+    from api.constants import REDIS_KEY_LLM_DAILY_CALLS
+
+    store = RedisStore(fake_redis)
+    await store.record_llm_call(outcome="success", latency_ms=1.0)
+    await store.record_llm_call(outcome="rate_limit")
+
+    key = REDIS_KEY_LLM_DAILY_CALLS.format(date=date.today().isoformat())
+    assert int(await fake_redis.get(key)) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_llm_metrics_returns_daily_calls_only(fake_redis) -> None:
+    """Per-day counter must surface even when the lifetime hash is empty
+    (the realistic post-restart state where total_calls is 0 but today's
+    durable counter has been populated by background workers)."""
+    from datetime import date
+
+    from api.constants import REDIS_KEY_LLM_DAILY_CALLS
+
+    # Seed only the per-day key — no entries in the lifetime hash.
+    await fake_redis.set(REDIS_KEY_LLM_DAILY_CALLS.format(date=date.today().isoformat()), 17)
+
+    store = RedisStore(fake_redis)
+    metrics = await store.get_llm_metrics()
+    assert metrics["daily_calls"] == 17
+    assert metrics["total_calls"] == 0
 
 
 @pytest.mark.asyncio

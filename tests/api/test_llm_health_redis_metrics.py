@@ -106,3 +106,29 @@ async def test_in_process_total_preserved_when_larger(
     r = await client.get("/llm/health")
     body = r.json()
     assert body["total_calls_lifetime"] >= baseline + 3
+
+
+@pytest.mark.asyncio
+async def test_daily_calls_overrides_in_process_after_restart(
+    client: AsyncClient, store_with_fakeredis
+) -> None:
+    """Post-restart: in-process daily_calls is 0, Redis still has today's count.
+
+    The dashboard card reads ``daily_calls`` from the top level, so the
+    durable Redis value must flow into that field — not just live in the
+    nested ``redis_metrics`` block.
+    """
+    from datetime import date
+
+    from api.constants import REDIS_KEY_LLM_DAILY_CALLS
+
+    # Simulate: an earlier process recorded calls today, then restarted.
+    # The durable per-date counter survives.
+    await store_with_fakeredis.redis.set(
+        REDIS_KEY_LLM_DAILY_CALLS.format(date=date.today().isoformat()), 42
+    )
+
+    r = await client.get("/llm/health")
+    body = r.json()
+    assert body["daily_calls"] >= 42
+    assert body["redis_metrics"]["daily_calls"] == 42

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from datetime import date as date_cls
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,6 +22,7 @@ from redis.asyncio import Redis
 from api.constants import (
     REDIS_DECISIONS_MAX,
     REDIS_KEY_DECISIONS_RECENT,
+    REDIS_KEY_LLM_DAILY_CALLS,
     REDIS_KEY_LLM_METRICS,
     REDIS_KEY_NOTIFICATIONS_READ,
     REDIS_KEY_NOTIFICATIONS_RECENT,
@@ -28,6 +30,10 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
+
+
+def _today_iso() -> str:
+    return date_cls.today().isoformat()
 
 
 def _now_iso() -> str:
@@ -289,13 +295,18 @@ class RedisStore:
 
         ``outcome`` is one of: ``success``, ``rate_limit``, ``timeout``, ``error``.
         Counters are written in a single pipeline so a partial failure can't
-        leave totals out of step with the per-outcome buckets.
+        leave totals out of step with the per-outcome buckets. We also bump
+        the per-day call counter (``llm:daily_calls:{date}``) so ``daily_calls``
+        survives a backend restart — the in-process snapshot resets to 0,
+        but the dashboard pulls the durable Redis value via /llm/health.
         """
         outcome_field = self._OUTCOME_FIELD.get(outcome, "errors")
+        daily_key = REDIS_KEY_LLM_DAILY_CALLS.format(date=_today_iso())
         try:
             async with self.redis.pipeline(transaction=False) as pipe:
                 pipe.hincrby(REDIS_KEY_LLM_METRICS, "total_calls", 1)
                 pipe.hincrby(REDIS_KEY_LLM_METRICS, outcome_field, 1)
+                pipe.incr(daily_key)
                 if outcome == "success" and latency_ms is not None:
                     pipe.hset(
                         REDIS_KEY_LLM_METRICS,
@@ -314,12 +325,17 @@ class RedisStore:
         except Exception:
             log_structured("warning", "redis_store_llm_metrics_failed", exc_info=True)
             return {}
-        if not raw:
+
+        # ``daily_calls`` lives in its own per-date key — fetch even when the
+        # lifetime hash is empty so a fresh-restart day still reports activity.
+        daily_calls = await self._daily_call_count()
+
+        if not raw and daily_calls == 0:
             return {}
 
         # redis-py with decode_responses=True returns strings; coerce anyway
         # so this still works against a raw bytes client (e.g. in unit tests).
-        decoded: dict[str, str] = {_to_text(k): _to_text(v) for k, v in raw.items()}
+        decoded: dict[str, str] = {_to_text(k): _to_text(v) for k, v in (raw or {}).items()}
 
         def _int(key: str) -> int:
             try:
@@ -335,7 +351,22 @@ class RedisStore:
             "errors": _int("errors"),
             "last_success_at": decoded.get("last_success_at"),
             "last_latency_ms": _int("last_latency_ms"),
+            "daily_calls": daily_calls,
         }
+
+    async def _daily_call_count(self) -> int:
+        """Return today's durable LLM call count (``llm:daily_calls:{today}``)."""
+        try:
+            raw = await self.redis.get(REDIS_KEY_LLM_DAILY_CALLS.format(date=_today_iso()))
+        except Exception:
+            log_structured("warning", "redis_store_daily_calls_failed", exc_info=True)
+            return 0
+        if raw is None:
+            return 0
+        try:
+            return int(_to_text(raw))
+        except (TypeError, ValueError):
+            return 0
 
 
 _store_singleton: RedisStore | None = None
