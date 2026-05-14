@@ -344,6 +344,8 @@ class InMemoryStore:
             self.positions[symbol] = pos
         else:
             sell_qty = min(pos_qty, quantity)
+            if sell_qty <= 0:
+                return event
             realized = (price - avg) * sell_qty
             remaining = max(pos_qty - sell_qty, 0.0)
             self.closed_trades.append(

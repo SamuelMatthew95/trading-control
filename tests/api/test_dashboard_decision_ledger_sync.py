@@ -21,3 +21,12 @@ def test_action_normalization_and_notifications_shape():
     )
     assert event["action"] == "BUY"
     assert event["qty"] > 0
+
+
+def test_sell_without_open_position_does_not_create_closed_trade() -> None:
+    store = InMemoryStore()
+    store.apply_decision(
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "trace_id": "t4"}
+    )
+    assert store.closed_trades == []
+    assert store.orders == []
