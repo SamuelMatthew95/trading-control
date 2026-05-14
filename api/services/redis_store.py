@@ -95,7 +95,37 @@ class RedisStore:
                 await pipe.execute()
         except Exception:
             log_structured("warning", "redis_store_notification_push_failed", exc_info=True)
+
+        # Prune ``notifications:read`` so it stays bounded by the live list.
+        # Without this, mark-read ids accumulate forever even though the
+        # underlying notification was trimmed long ago.
+        await self._prune_read_set()
         return entry
+
+    async def _prune_read_set(self) -> None:
+        """Drop read-ids that no longer appear in ``notifications:recent``.
+
+        Called on every push so the set is bounded by ~REDIS_NOTIFICATIONS_MAX
+        ids rather than growing without limit. Best-effort: any Redis error
+        leaves the previous set untouched.
+        """
+        try:
+            live = await self.redis.lrange(REDIS_KEY_NOTIFICATIONS_RECENT, 0, -1)
+            live_ids: set[str] = set()
+            for raw in live:
+                parsed = _safe_loads(raw)
+                if parsed is None:
+                    continue
+                ident = parsed.get("id")
+                if ident:
+                    live_ids.add(str(ident))
+
+            read_ids_raw = await self.redis.smembers(REDIS_KEY_NOTIFICATIONS_READ)
+            stale = [_to_text(item) for item in read_ids_raw if _to_text(item) not in live_ids]
+            if stale:
+                await self.redis.srem(REDIS_KEY_NOTIFICATIONS_READ, *stale)
+        except Exception:
+            log_structured("warning", "redis_store_read_set_prune_failed", exc_info=True)
 
     async def list_notifications(self, limit: int = 50) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), REDIS_NOTIFICATIONS_MAX))

@@ -322,3 +322,54 @@ async def test_record_llm_call_success_without_latency(fake_redis) -> None:
     # latency / timestamp fields stay unset when no latency provided
     assert metrics["last_latency_ms"] == 0
     assert metrics["last_success_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# Bounded read-set — long-running deployments must not leak memory
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_read_set_pruned_when_id_trimmed_off_recent(fake_redis) -> None:
+    """Once a notification is trimmed off ``notifications:recent``, its id
+    must not linger in ``notifications:read`` forever."""
+    from api.constants import REDIS_KEY_NOTIFICATIONS_READ
+
+    store = RedisStore(fake_redis)
+    first = await store.push_notification({"id": "n-old", "title": "x"})
+    await store.mark_read(first["id"])
+    assert await fake_redis.sismember(REDIS_KEY_NOTIFICATIONS_READ, "n-old")
+
+    # Push enough notifications that "n-old" rolls off the bounded list.
+    for i in range(REDIS_NOTIFICATIONS_MAX + 5):
+        await store.push_notification({"id": f"n-new-{i}", "title": "x"})
+
+    # n-old has been trimmed → its read entry must have been pruned too.
+    assert not await fake_redis.sismember(REDIS_KEY_NOTIFICATIONS_READ, "n-old")
+
+
+@pytest.mark.asyncio
+async def test_read_set_preserves_live_ids(fake_redis) -> None:
+    """Ids still present in ``notifications:recent`` must survive a prune."""
+    from api.constants import REDIS_KEY_NOTIFICATIONS_READ
+
+    store = RedisStore(fake_redis)
+    live = await store.push_notification({"id": "n-live", "title": "x"})
+    await store.mark_read(live["id"])
+    # Trigger another push so prune runs.
+    await store.push_notification({"id": "n-also-live", "title": "x"})
+
+    assert await fake_redis.sismember(REDIS_KEY_NOTIFICATIONS_READ, "n-live")
+
+
+@pytest.mark.asyncio
+async def test_read_set_size_bounded_by_recent_cap(fake_redis) -> None:
+    """Worst-case: every notification marked read; set never exceeds the cap."""
+    store = RedisStore(fake_redis)
+    for i in range(REDIS_NOTIFICATIONS_MAX * 2):
+        entry = await store.push_notification({"id": f"n-{i}", "title": "x"})
+        await store.mark_read(entry["id"])
+    # One more push triggers a prune.
+    await store.push_notification({"id": "trigger", "title": "x"})
+    read_count = await fake_redis.scard("notifications:read")
+    assert read_count <= REDIS_NOTIFICATIONS_MAX

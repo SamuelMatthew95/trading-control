@@ -49,6 +49,16 @@ async def llm_health() -> dict[str, Any]:
     if store is not None:
         redis_metrics = await store.get_llm_metrics()
 
+    # Merge the durable Redis totals into the lifetime fields the existing UI
+    # already reads (`total_calls_lifetime`). The in-process snapshot keeps
+    # owning the window-bounded fields (`success_rate_pct`, `daily_calls`,
+    # `recent_results`, etc.); we only override the cumulative counters when
+    # Redis has a strictly larger value, which means "survived a restart".
+    snap_total = int(snap.get("total_calls_lifetime") or 0)
+    redis_total = int(redis_metrics.get("total_calls") or 0)
+    if redis_total > snap_total:
+        snap["total_calls_lifetime"] = redis_total
+
     return {
         "status": status,
         "provider": provider,

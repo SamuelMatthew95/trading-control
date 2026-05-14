@@ -195,8 +195,10 @@ routes in `api/routes/{notifications,decisions,llm_health}.py`.
 - Readers MUST call `get_redis_store()` — when the singleton is `None`
   (test setup, very early startup), endpoints must degrade to empty
   lists / zero counters, not raise.
-- The set in `notifications:read` only ever grows. We accept a small
-  memory cost in exchange for idempotent `POST .../{id}/read`.
+- `notifications:read` is pruned on every `push_notification` to drop
+  ids no longer present in `notifications:recent`. This keeps the set
+  bounded by the live-list cap (~200) even over a long-running
+  deployment.
 
 ```python
 # Install once at startup (api/main.py lifespan).
