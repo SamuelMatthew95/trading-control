@@ -193,3 +193,132 @@ async def test_set_and_get_singleton(fake_redis, store_singleton_reset) -> None:
     assert get_redis_store() is store
     set_redis_store(None)
     assert get_redis_store() is None
+
+
+# ---------------------------------------------------------------------------
+# Edge cases — defensive coding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_push_notification_coerces_none_id_to_uuid(fake_redis) -> None:
+    """Caller passing {'id': None} should still get a usable id back."""
+    store = RedisStore(fake_redis)
+    entry = await store.push_notification({"id": None, "title": "x"})
+    assert entry["id"]
+    assert entry["id"] != "None"
+
+
+@pytest.mark.asyncio
+async def test_push_notification_coerces_empty_id_to_uuid(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    entry = await store.push_notification({"id": "", "title": "x"})
+    assert entry["id"] != ""
+
+
+@pytest.mark.asyncio
+async def test_push_decision_coerces_none_id_and_timestamp(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    entry = await store.push_decision(
+        {"id": None, FieldName.TIMESTAMP: None, FieldName.ACTION: "hold"}
+    )
+    assert entry["id"]
+    assert entry[FieldName.TIMESTAMP]
+
+
+@pytest.mark.asyncio
+async def test_push_notification_preserves_caller_id(fake_redis) -> None:
+    """Caller-supplied id must round-trip unchanged — dedup contract."""
+    store = RedisStore(fake_redis)
+    entry = await store.push_notification({"id": "trade:buy:BTC/USD:abc123", "title": "x"})
+    assert entry["id"] == "trade:buy:BTC/USD:abc123"
+    items = await store.list_notifications(limit=10)
+    assert items[0]["id"] == "trade:buy:BTC/USD:abc123"
+
+
+@pytest.mark.asyncio
+async def test_list_notifications_skips_corrupted_json(fake_redis) -> None:
+    """A garbage entry in the list must not crash the endpoint."""
+    store = RedisStore(fake_redis)
+    await fake_redis.lpush(REDIS_KEY_NOTIFICATIONS_RECENT, "not-json-at-all")
+    await store.push_notification({"title": "valid"})
+    items = await store.list_notifications(limit=10)
+    assert len(items) == 1
+    assert items[0]["title"] == "valid"
+
+
+@pytest.mark.asyncio
+async def test_list_decisions_skips_corrupted_json(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    await fake_redis.lpush(REDIS_KEY_DECISIONS_RECENT, "{not json")
+    await store.push_decision({FieldName.ACTION: "buy", FieldName.SYMBOL: "BTC/USD"})
+    items = await store.list_decisions(limit=10)
+    assert len(items) == 1
+    assert items[0][FieldName.ACTION] == "buy"
+
+
+@pytest.mark.asyncio
+async def test_decision_stats_ignores_malformed_timestamp(fake_redis) -> None:
+    """A decision with an unparseable timestamp must not count as last-hour."""
+    store = RedisStore(fake_redis)
+    await fake_redis.lpush(
+        REDIS_KEY_DECISIONS_RECENT,
+        json.dumps(
+            {
+                "id": "bad",
+                FieldName.TIMESTAMP: "not-a-timestamp",
+                FieldName.ACTION: "buy",
+            }
+        ),
+    )
+    stats = await store.decision_stats()
+    assert stats["total"] == 1
+    assert stats["last_hour"] == {"buys": 0, "sells": 0, "holds": 0}
+
+
+@pytest.mark.asyncio
+async def test_list_decisions_limit_zero_returns_empty(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    await store.push_decision({FieldName.ACTION: "buy"})
+    items = await store.list_decisions(limit=0)
+    # limit=0 is coerced to 1 by max(1, ...)
+    assert len(items) <= 1
+
+
+@pytest.mark.asyncio
+async def test_list_decisions_filter_unknown_action_returns_empty(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    await store.push_decision({FieldName.ACTION: "buy"})
+    items = await store.list_decisions(limit=10, action="reject")
+    assert items == []
+
+
+@pytest.mark.asyncio
+async def test_mark_read_idempotent(fake_redis) -> None:
+    """Marking the same id twice is safe (SADD is idempotent by design)."""
+    store = RedisStore(fake_redis)
+    entry = await store.push_notification({"title": "a"})
+    assert await store.mark_read(entry["id"]) is True
+    assert await store.mark_read(entry["id"]) is True
+    assert await store.unread_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_record_llm_call_unknown_outcome_bucketed_as_error(fake_redis) -> None:
+    """Calling with a typo must not lose the call from the total."""
+    store = RedisStore(fake_redis)
+    await store.record_llm_call(outcome="weird_unknown_value")
+    metrics = await store.get_llm_metrics()
+    assert metrics["total_calls"] == 1
+    assert metrics["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_record_llm_call_success_without_latency(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    await store.record_llm_call(outcome="success")
+    metrics = await store.get_llm_metrics()
+    assert metrics["successes"] == 1
+    # latency / timestamp fields stay unset when no latency provided
+    assert metrics["last_latency_ms"] == 0
+    assert metrics["last_success_at"] is None

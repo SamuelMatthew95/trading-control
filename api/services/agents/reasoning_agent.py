@@ -326,6 +326,54 @@ class ReasoningAgent(BaseStreamConsumer):
             is_fallback=is_fallback,
         )
 
+    _ACTIONABLE_ACTIONS: frozenset[str] = frozenset({AgentAction.BUY, AgentAction.SELL})
+
+    @staticmethod
+    def _build_decision_payload(
+        *,
+        data: dict[str, Any],
+        summary: dict[str, Any],
+        trace_id: str,
+        action: str,
+        is_fallback: bool,
+    ) -> dict[str, Any]:
+        """Pure builder for the Redis decision payload — easy to test."""
+        symbol = str(data.get(FieldName.SYMBOL) or "")
+        price = data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE)
+        edge = str(summary.get(FieldName.PRIMARY_EDGE) or "")
+        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
+        return {
+            FieldName.TRACE_ID: trace_id,
+            FieldName.ACTION: action,
+            FieldName.SYMBOL: symbol,
+            FieldName.PRICE: price,
+            FieldName.CONFIDENCE: confidence,
+            "reasoning_summary": edge,
+            "llm_succeeded": not is_fallback,
+        }
+
+    @staticmethod
+    def _build_decision_notification(
+        *,
+        action: str,
+        symbol: str,
+        price: Any,
+        trace_id: str,
+    ) -> dict[str, Any]:
+        """Pure builder for the user-facing buy/sell notification payload."""
+        price_str = ""
+        if isinstance(price, (int, float)) and price:
+            price_str = f" at ${float(price):,.2f}"
+        return {
+            FieldName.TYPE: "trade_signal",
+            "title": f"{action.upper()} signal — {symbol}",
+            "body": f"Reasoning agent decided to {action} {symbol}{price_str}",
+            "severity": "info",
+            FieldName.SYMBOL: symbol,
+            FieldName.ACTION: action,
+            FieldName.TRACE_ID: trace_id,
+        }
+
     async def _record_decision_to_redis(
         self,
         *,
@@ -338,43 +386,27 @@ class ReasoningAgent(BaseStreamConsumer):
         store = get_redis_store()
         if store is None:
             return
-        symbol = str(data.get(FieldName.SYMBOL) or "")
-        price = data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE)
-        edge = str(summary.get(FieldName.PRIMARY_EDGE) or "")
-        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
-        payload: dict[str, Any] = {
-            FieldName.TRACE_ID: trace_id,
-            FieldName.ACTION: action,
-            FieldName.SYMBOL: symbol,
-            FieldName.PRICE: price,
-            FieldName.CONFIDENCE: confidence,
-            "reasoning_summary": edge,
-            "llm_succeeded": not is_fallback,
-        }
+        payload = self._build_decision_payload(
+            data=data,
+            summary=summary,
+            trace_id=trace_id,
+            action=action,
+            is_fallback=is_fallback,
+        )
         await store.push_decision(payload)
 
         # Surface actionable buys/sells as notifications (one per decision,
         # not per fill). The execution layer still publishes the fill
         # notification separately, but this guarantees something appears on
         # the dashboard even before the order executes.
-        if action in {"buy", "sell"}:
+        if action in self._ACTIONABLE_ACTIONS:
             await store.push_notification(
-                {
-                    FieldName.TYPE: "trade_signal",
-                    "title": f"{action.upper()} signal — {symbol}",
-                    "body": (
-                        f"Reasoning agent decided to {action} {symbol}"
-                        + (
-                            f" at ${float(price):,.2f}"
-                            if isinstance(price, (int, float)) and price
-                            else ""
-                        )
-                    ),
-                    "severity": "info",
-                    FieldName.SYMBOL: symbol,
-                    FieldName.ACTION: action,
-                    FieldName.TRACE_ID: trace_id,
-                }
+                self._build_decision_notification(
+                    action=action,
+                    symbol=str(payload[FieldName.SYMBOL]),
+                    price=payload[FieldName.PRICE],
+                    trace_id=trace_id,
+                )
             )
 
     # ------------------------------------------------------------------

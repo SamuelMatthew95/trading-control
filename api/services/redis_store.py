@@ -48,6 +48,22 @@ def _safe_loads(raw: Any) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _parse_iso_ts(raw: Any) -> float | None:
+    """Best-effort ISO-8601 → Unix epoch seconds. ``None`` for unparseable input."""
+    if raw is None:
+        return None
+    ts_str = str(raw).strip()
+    if not ts_str:
+        return None
+    try:
+        ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if ts_dt.tzinfo is None:
+        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+    return ts_dt.timestamp()
+
+
 class RedisStore:
     """Thin async wrapper around Redis lists/hashes used by REST endpoints."""
 
@@ -61,8 +77,12 @@ class RedisStore:
     async def push_notification(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Push a notification to ``notifications:recent`` (LPUSH + LTRIM)."""
         entry = dict(payload)
-        entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault(FieldName.TIMESTAMP, _now_iso())
+        # setdefault skips falsy values; explicitly coerce None / empty to a uuid
+        # so the REST consumer can rely on a non-empty id for read tracking.
+        if not entry.get("id"):
+            entry["id"] = str(uuid.uuid4())
+        if not entry.get(FieldName.TIMESTAMP):
+            entry[FieldName.TIMESTAMP] = _now_iso()
         entry.setdefault("severity", "info")
         entry.setdefault("read", False)
         encoded = json.dumps(entry, default=str)
@@ -134,8 +154,12 @@ class RedisStore:
 
     async def push_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault(FieldName.TIMESTAMP, _now_iso())
+        # Coerce missing or None id/timestamp to deterministic defaults so the
+        # REST consumer (and the dedup key on the frontend) can rely on them.
+        if not entry.get("id"):
+            entry["id"] = str(uuid.uuid4())
+        if not entry.get(FieldName.TIMESTAMP):
+            entry[FieldName.TIMESTAMP] = _now_iso()
         encoded = json.dumps(entry, default=str)
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
@@ -195,15 +219,10 @@ class RedisStore:
             total += 1
             if last_decision is None:
                 last_decision = parsed
-            ts_str = str(parsed.get(FieldName.TIMESTAMP) or "")
-            try:
-                ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                if ts_dt.tzinfo is None:
-                    ts_dt = ts_dt.replace(tzinfo=timezone.utc)
-                ts = ts_dt.timestamp()
-            except (TypeError, ValueError):
-                ts = now_ts
-            if ts < cutoff:
+            ts = _parse_iso_ts(parsed.get(FieldName.TIMESTAMP))
+            if ts is None or ts < cutoff:
+                # Treat malformed/missing timestamps as "out of window" so we
+                # never inflate last-hour counts with rows we can't time-place.
                 continue
             act = str(parsed.get(FieldName.ACTION, "")).lower()
             if act == "buy":
