@@ -2662,6 +2662,9 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     store = get_runtime_store()
     snapshot = store.dashboard_fallback_snapshot()
     paired = store.paired_pnl_payload()
+    paired_closed_trades = paired.get("closed_trades", [])
+    paired_summary = paired.get("summary", {})
+    summary_closed_trades = int(paired_summary.get("closed_trades", 0) or 0)
     db_available = is_db_available()
     return {
         "db_available": db_available,
@@ -2674,13 +2677,13 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
             "decisions": len(snapshot.get("decisions", [])),
             "notifications": len(snapshot.get("notifications", [])),
             "open_positions": len(snapshot.get("positions", [])),
-            "closed_trades": len(snapshot.get("closed_trades", [])),
+            "closed_trades": summary_closed_trades,
             "equity_points": len(snapshot.get("equity_curve", [])),
         },
         "latest_decision": (snapshot.get("decisions") or [None])[0],
         "latest_notification": (snapshot.get("notifications") or [None])[0],
         "latest_open_position": (snapshot.get("positions") or [None])[0],
-        "latest_closed_trade": (snapshot.get("closed_trades") or [None])[0],
-        "summary": paired.get("summary", {}),
+        "latest_closed_trade": (paired_closed_trades or [None])[-1],
+        "summary": paired_summary,
         "last_error": None,
     }
