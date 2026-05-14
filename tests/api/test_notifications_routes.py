@@ -138,3 +138,29 @@ async def test_notifications_route_under_api_prefix(
     r = await client.get("/api/notifications")
     assert r.status_code == 200
     assert r.json()[0]["id"] == "abc"
+
+
+@pytest.mark.asyncio
+async def test_mark_read_handles_slash_in_id(client: AsyncClient, store_with_fakeredis) -> None:
+    """Trade notification ids embed the symbol (e.g. trade:buy:BTC/USD:<trace>)
+    — the ``:path`` converter on the route must capture the slash."""
+    slash_id = "trade:buy:BTC/USD:trace-123"
+    await store_with_fakeredis.push_notification({"id": slash_id, "title": "x"})
+
+    r = await client.post(f"/notifications/{slash_id}/read")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "id": slash_id}
+
+    # Verify the read mark stuck.
+    assert (await client.get("/notifications/unread-count")).json() == {"count": 0}
+
+
+@pytest.mark.asyncio
+async def test_mark_read_handles_slash_in_id_under_api_prefix(
+    client: AsyncClient, store_with_fakeredis
+) -> None:
+    slash_id = "trade:sell:ETH/USD:trace-abc"
+    await store_with_fakeredis.push_notification({"id": slash_id, "title": "x"})
+    r = await client.post(f"/api/notifications/{slash_id}/read")
+    assert r.status_code == 200
+    assert r.json()["id"] == slash_id

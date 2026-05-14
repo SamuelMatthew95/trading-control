@@ -32,9 +32,13 @@ async def unread_count() -> dict[str, int]:
     return {"count": await store.unread_count()}
 
 
-@router.post("/notifications/{notification_id}/read")
+# Use the ``:path`` converter so slashes in the id are captured. Trade
+# notification ids come from build_trade_notification() and embed the symbol
+# (e.g. ``trade:buy:BTC/USD:<trace>``); the default converter splits on ``/``
+# and 404s for every slash-delimited symbol.
+@router.post("/notifications/{notification_id:path}/read")
 async def mark_read(
-    notification_id: str = Path(..., min_length=1, max_length=128),
+    notification_id: str = Path(..., min_length=1, max_length=256),
 ) -> dict[str, Any]:
     store = get_redis_store()
     if store is None:
