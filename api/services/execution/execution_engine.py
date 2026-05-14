@@ -207,122 +207,133 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
-        async with AsyncSessionFactory() as session:
-            existing = await session.execute(
-                text(
-                    "SELECT id, status, broker_order_id, idempotency_key FROM orders WHERE idempotency_key = :idempotency_key"
-                ),
-                {"idempotency_key": idempotency_key},
-            )
-            existing_row = existing.mappings().first()
-            if existing_row is not None:
-                log_structured(
-                    "info",
-                    "Skipping duplicate order event",
-                    idempotency_key=idempotency_key,
-                    order_id=str(existing_row["id"]),  # SQLAlchemy Row mapping key
+        try:
+            async with AsyncSessionFactory() as session:
+                existing = await session.execute(
+                    text(
+                        "SELECT id, status, broker_order_id, idempotency_key FROM orders WHERE idempotency_key = :idempotency_key"
+                    ),
+                    {"idempotency_key": idempotency_key},
                 )
-                return
-
-            lock_acquired = await self.redis.set(
-                lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
-            )
-            if not lock_acquired:
-                raise RuntimeError(f"Order lock already held for {symbol}")
-
-            order_id: str | None = None
-            vwap_plan = self._build_vwap_plan(qty)
-            # Snapshot position AFTER acquiring the lock so concurrent orders
-            # for the same symbol cannot race on a stale position read.
-            prior_position = await self.broker.get_position(symbol)
-            try:
-                if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+                existing_row = existing.mappings().first()
+                if existing_row is not None:
                     log_structured(
-                        "warning",
-                        "execution_sell_rejected_no_open_position",
-                        symbol=symbol,
-                        trace_id=trace_id,
+                        "info",
+                        "Skipping duplicate order event",
+                        idempotency_key=idempotency_key,
+                        order_id=str(existing_row["id"]),  # SQLAlchemy Row mapping key
                     )
                     return
-                inserted = await session.execute(
-                    text(
-                        # Dual-write old (qty) + new (quantity) column names so both
-                        # raw-SQL agents and ORM-based MetricsAggregator see real values.
-                        "INSERT INTO orders "
-                        "(strategy_id, symbol, side, qty, quantity, price, status, "
-                        " idempotency_key, broker_order_id, source, schema_version) "
-                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
-                        "        :idempotency_key, NULL, :source, :schema_version) "
-                        "RETURNING id"
-                    ),
-                    {
-                        "strategy_id": strategy_id,
-                        "symbol": symbol,
-                        "side": side,
-                        "qty": qty,
-                        "price": price,
-                        "idempotency_key": idempotency_key,
-                        "status": OrderStatus.PENDING,
-                        "source": SOURCE_EXECUTION,
-                        "schema_version": DB_SCHEMA_VERSION,
-                    },
-                )
-                order_id = str(inserted.scalar_one())
-                await session.flush()
 
-                broker_result = await self.broker.place_order(symbol, side, qty, price)
-                filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                fill_price = float(broker_result[FieldName.FILL_PRICE])
+                lock_acquired = await self.redis.set(
+                    lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
+                )
+                if not lock_acquired:
+                    raise RuntimeError(f"Order lock already held for {symbol}")
 
-                await session.execute(
-                    text(
-                        # Also set filled_price / filled_quantity (ORM column names) so
-                        # MetricsAggregator snapshot shows non-null fill data.
-                        "UPDATE orders SET "
-                        "  status = :status, "
-                        "  broker_order_id = :broker_order_id, "
-                        "  price = :fill_price, "
-                        "  filled_price = :fill_price, "
-                        "  filled_quantity = :qty, "
-                        "  filled_at = :filled_at "
-                        "WHERE id = :order_id"
-                    ),
-                    {
-                        "status": broker_result[FieldName.STATUS],
-                        "broker_order_id": broker_result[FieldName.BROKER_ORDER_ID],
-                        "fill_price": fill_price,
-                        "qty": qty,
-                        "filled_at": filled_at,
-                        "order_id": order_id,
-                    },
-                )
-                await self._upsert_position(
-                    session,
-                    strategy_id=strategy_id,
-                    symbol=symbol,
-                    side=side,
-                    qty=qty,
-                    fill_price=fill_price,
-                )
-                await self._insert_audit_log(
-                    session,
-                    event_type="order_placed",
-                    payload={
-                        FieldName.ORDER_ID: order_id,
-                        FieldName.STRATEGY_ID: strategy_id,
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
-                        "vwap_plan": vwap_plan,
-                    },
-                )
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-            finally:
-                await self.redis.delete(lock_key)
+                order_id: str | None = None
+                vwap_plan = self._build_vwap_plan(qty)
+                # Snapshot position AFTER acquiring the lock so concurrent orders
+                # for the same symbol cannot race on a stale position read.
+                prior_position = await self.broker.get_position(symbol)
+                try:
+                    if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+                        log_structured(
+                            "warning",
+                            "execution_sell_rejected_no_open_position",
+                            symbol=symbol,
+                            trace_id=trace_id,
+                        )
+                        return
+                    inserted = await session.execute(
+                        text(
+                            # Dual-write old (qty) + new (quantity) column names so both
+                            # raw-SQL agents and ORM-based MetricsAggregator see real values.
+                            "INSERT INTO orders "
+                            "(strategy_id, symbol, side, qty, quantity, price, status, "
+                            " idempotency_key, broker_order_id, source, schema_version) "
+                            "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
+                            "        :idempotency_key, NULL, :source, :schema_version) "
+                            "RETURNING id"
+                        ),
+                        {
+                            "strategy_id": strategy_id,
+                            "symbol": symbol,
+                            "side": side,
+                            "qty": qty,
+                            "price": price,
+                            "idempotency_key": idempotency_key,
+                            "status": OrderStatus.PENDING,
+                            "source": SOURCE_EXECUTION,
+                            "schema_version": DB_SCHEMA_VERSION,
+                        },
+                    )
+                    order_id = str(inserted.scalar_one())
+                    await session.flush()
+
+                    broker_result = await self.broker.place_order(symbol, side, qty, price)
+                    filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    fill_price = float(broker_result[FieldName.FILL_PRICE])
+
+                    await session.execute(
+                        text(
+                            # Also set filled_price / filled_quantity (ORM column names) so
+                            # MetricsAggregator snapshot shows non-null fill data.
+                            "UPDATE orders SET "
+                            "  status = :status, "
+                            "  broker_order_id = :broker_order_id, "
+                            "  price = :fill_price, "
+                            "  filled_price = :fill_price, "
+                            "  filled_quantity = :qty, "
+                            "  filled_at = :filled_at "
+                            "WHERE id = :order_id"
+                        ),
+                        {
+                            "status": broker_result[FieldName.STATUS],
+                            "broker_order_id": broker_result[FieldName.BROKER_ORDER_ID],
+                            "fill_price": fill_price,
+                            "qty": qty,
+                            "filled_at": filled_at,
+                            "order_id": order_id,
+                        },
+                    )
+                    await self._upsert_position(
+                        session,
+                        strategy_id=strategy_id,
+                        symbol=symbol,
+                        side=side,
+                        qty=qty,
+                        fill_price=fill_price,
+                    )
+                    await self._insert_audit_log(
+                        session,
+                        event_type="order_placed",
+                        payload={
+                            FieldName.ORDER_ID: order_id,
+                            FieldName.STRATEGY_ID: strategy_id,
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: side,
+                            FieldName.QTY: qty,
+                            FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
+                            "vwap_plan": vwap_plan,
+                        },
+                    )
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    raise
+                finally:
+                    await self.redis.delete(lock_key)
+        except Exception:
+            log_structured(
+                "warning",
+                "execution_db_path_failed_falling_back_to_memory",
+                symbol=symbol,
+                trace_id=trace_id,
+                exc_info=True,
+            )
+            await self._process_in_memory(data)
+            return
 
         # Compute realized PnL from prior position snapshot
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)

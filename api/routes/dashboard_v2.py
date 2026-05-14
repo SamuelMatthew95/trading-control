@@ -65,18 +65,23 @@ def _as_dict(payload: Any) -> dict[str, Any]:
 def _in_memory_pnl_payload() -> dict[str, Any]:
     """Compute dashboard PnL metrics directly from in-memory runtime state."""
     store = get_runtime_store()
+    paired_payload = store.paired_pnl_payload()
     orders = list(store.orders)
+    closed_trades = paired_payload.get("closed_trades", [])
+    equity_curve = list(store.equity_curve)
     open_positions = store.open_positions()
-    total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
-    wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
-    losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
+    summary = paired_payload.get("summary", {})
+    total_pnl = float(summary.get("total_pnl") or 0.0)
+    wins = int(summary.get("winning_trades") or 0)
+    losses = sum(1 for trade in closed_trades if float(trade.get(FieldName.PNL) or 0.0) < 0)
 
     return {
         "pnl": orders[-100:],
+        "equity_curve": equity_curve[-200:],
         "total_pnl": round(total_pnl, 2),
         "winning_trades": wins,
         "losing_trades": losses,
-        "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
+        "win_rate": round((wins / len(closed_trades)) if closed_trades else 0.0, 4),
         "active_positions": len(open_positions),
         "best_trade": round(
             max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2

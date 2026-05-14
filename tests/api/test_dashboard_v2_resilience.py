@@ -140,6 +140,25 @@ async def test_pnl_metrics_counts_short_positions_in_memory_mode():
 
 
 @pytest.mark.asyncio
+async def test_pnl_metrics_in_memory_includes_equity_curve_from_runtime_store():
+    set_db_available(False)
+    store = InMemoryStore()
+    store.apply_decision(
+        {"trace_id": "d-1", "symbol": "SPY", "action": "BUY", "price": 100.0, "qty": 1.0}
+    )
+    store.apply_decision(
+        {"trace_id": "d-2", "symbol": "SPY", "action": "SELL", "price": 110.0, "qty": 1.0}
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_pnl_metrics()
+
+    assert payload["source"] == "in_memory"
+    assert payload["total_pnl"] > 0
+    assert len(payload["equity_curve"]) >= 1
+
+
+@pytest.mark.asyncio
 async def test_paired_pnl_fallback_uses_in_memory_orders(monkeypatch):
     set_db_available(False)
     store = InMemoryStore()
