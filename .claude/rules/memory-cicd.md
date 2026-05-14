@@ -198,6 +198,77 @@ await session.execute(text("INSERT INTO agent_runs (trace_id, source, ...) VALUE
 
 ---
 
+### 10 — TrustedHostMiddleware Rejects `http://test` Base URLs
+
+`api/main.py` installs `TrustedHostMiddleware` with `ALLOWED_HOSTS`. The
+default list includes `localhost` but NOT `test`, so an `AsyncClient` built
+with `base_url="http://test"` will get **HTTP 400 "Invalid host header"** on
+every request and the failure mode looks unrelated to your test.
+
+```python
+# ❌ WRONG — fails with 400 on every request
+async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    ...
+
+# ✅ RIGHT — matches ALLOWED_HOSTS
+async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
+    ...
+```
+
+The shared `tests/api/conftest.py::api_client` fixture also uses
+`http://test` — prefer building your own client with `http://localhost`
+when you need a route-level test against the real app.
+
+---
+
+### 11 — Fire-and-Forget Tasks Get GC'd Without a Strong Ref
+
+`asyncio.create_task(...)` only holds a weak reference. A task that finishes
+slower than the event loop's next iteration can be garbage-collected mid-
+flight, surfacing as `Task was destroyed but it is pending`. The pattern in
+`api/services/llm_metrics.py` keeps a module-level set of pending tasks:
+
+```python
+_pending_redis_tasks: set[asyncio.Task[None]] = set()
+
+def _async_fire_and_forget(coro) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        coro.close()  # no loop — caller is sync; close coroutine cleanly
+        return
+    task = loop.create_task(coro)
+    _pending_redis_tasks.add(task)
+    task.add_done_callback(_pending_redis_tasks.discard)  # auto-clean
+```
+
+Use this pattern whenever you fire a Redis write (or any async I/O) from a
+synchronous code path. Tests asserting on the set's drainage must compare
+against a **baseline snapshot** taken at the start of the test — other
+tests on the same event loop may have leftover entries.
+
+---
+
+### 12 — `setdefault` Keeps `None` Values
+
+`dict.setdefault("k", default)` only inserts when the key is absent — it
+does NOT replace `None` with the default. Callers passing `{"id": None}`
+into a `setdefault("id", str(uuid4()))` get `id=None` back, which then
+serializes to the string `"None"` and breaks downstream id lookups.
+
+```python
+# ❌ WRONG — None survives
+entry.setdefault("id", str(uuid.uuid4()))
+
+# ✅ RIGHT — coerce falsy to default
+if not entry.get("id"):
+    entry["id"] = str(uuid.uuid4())
+```
+
+Hit this in `RedisStore.push_notification` / `push_decision`.
+
+---
+
 ## Code Smell Checks (run before pushing)
 
 ```bash
