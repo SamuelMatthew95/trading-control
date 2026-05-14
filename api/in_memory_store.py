@@ -315,8 +315,9 @@ class InMemoryStore:
             FieldName.PRICE: price,
             FieldName.QTY: quantity,
             FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
-            "agent": payload.get("agent") or "reasoning_agent",
-            "reason": payload.get("reasoning_summary") or payload.get("reason"),
+            FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
+            FieldName.REASON: payload.get(FieldName.REASONING_SUMMARY)
+            or payload.get(FieldName.REASON),
         }
         self.decisions.append(event)
         if len(self.decisions) > 500:
@@ -352,7 +353,7 @@ class InMemoryStore:
                     "exit_price": price,
                     FieldName.QTY: sell_qty,
                     FieldName.PNL: realized,
-                    "timestamp": event["timestamp"],
+                    FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
                 }
             )
             self.orders.append(
@@ -360,7 +361,7 @@ class InMemoryStore:
                     FieldName.SYMBOL: symbol,
                     FieldName.PNL: realized,
                     "status": "closed",
-                    "created_at": event["timestamp"],
+                    FieldName.CREATED_AT: event[FieldName.TIMESTAMP],
                 }
             )
             if remaining <= 0:
@@ -373,10 +374,10 @@ class InMemoryStore:
         paired = self.paired_pnl_payload()["summary"]
         self.equity_curve.append(
             {
-                "timestamp": event["timestamp"],
+                FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
                 "value": paired["total_pnl"],
                 "realized_pnl": paired["realized_pnl"],
-                "unrealized_pnl": paired["unrealized_pnl"],
+                FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
                 "total_pnl": paired["total_pnl"],
             }
         )
@@ -414,8 +415,9 @@ class InMemoryStore:
             FieldName.PRICE: price,
             FieldName.QTY: quantity or 0.0,
             FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
-            "agent": payload.get("agent") or "reasoning_agent",
-            "reason": payload.get("reasoning_summary") or payload.get("reason"),
+            FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
+            FieldName.REASON: payload.get(FieldName.REASONING_SUMMARY)
+            or payload.get(FieldName.REASON),
         }
         self.decisions.append(event)
         if len(self.decisions) > 500:
@@ -427,7 +429,7 @@ class InMemoryStore:
             value = payload.get(key)
             if value:
                 return f"{key}:{value}"
-        timestamp = payload.get(FieldName.TIMESTAMP) or payload.get("timestamp") or ""
+        timestamp = payload.get(FieldName.TIMESTAMP) or ""
         symbol = payload.get(FieldName.SYMBOL) or ""
         action = payload.get(FieldName.ACTION) or ""
         price = payload.get(FieldName.PRICE) or ""
