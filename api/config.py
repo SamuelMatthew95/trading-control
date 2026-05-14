@@ -15,6 +15,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: PostgresDsn | None = Field(default=None)
     REDIS_URL: str | None = Field(default=None)
+    # When True, skip all PostgreSQL connection attempts and run with Redis +
+    # InMemoryStore as the persistence layer. Production-friendly switch so we
+    # do not noise DNS-failure warnings every health check.
+    USE_MEMORY_MODE: bool = Field(default=False)
     ANTHROPIC_API_KEY: str | None = Field(default=None)
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
     LLM_FALLBACK_MODE: str = "skip_reasoning"
@@ -108,7 +112,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_requirements(self) -> Settings:
-        if self.NODE_ENV == "production" and not self.DATABASE_URL:
+        # Production permits DATABASE_URL to be empty when memory mode is
+        # explicitly requested (e.g. the platform DB is offline and the
+        # operator wants to run Redis-only without DNS noise on every health
+        # check).
+        if self.NODE_ENV == "production" and not self.DATABASE_URL and not self.USE_MEMORY_MODE:
             raise ValueError("DATABASE_URL is required in production")
         return self
 

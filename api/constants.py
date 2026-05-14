@@ -453,6 +453,14 @@ REDIS_KEY_NOTIFICATION_DEDUP: Final[str] = (
 NOTIFICATION_DEDUP_TTL_SECONDS: Final[int] = 60  # dedup window — 1 minute
 NOTIFICATIONS_STREAM_MAXLEN: Final[int] = 1000
 
+# Redis-backed REST persistence — survives across requests in memory mode
+REDIS_KEY_NOTIFICATIONS_RECENT: Final[str] = "notifications:recent"
+REDIS_KEY_NOTIFICATIONS_READ: Final[str] = "notifications:read"
+REDIS_KEY_DECISIONS_RECENT: Final[str] = "decisions:recent"
+REDIS_KEY_LLM_METRICS: Final[str] = "llm:metrics"
+REDIS_NOTIFICATIONS_MAX: Final[int] = 200
+REDIS_DECISIONS_MAX: Final[int] = 500
+
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"
 STREAM_MARKET_EVENTS: Final[str] = "market_events"

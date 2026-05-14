@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from threading import Lock
@@ -14,6 +16,34 @@ from api.constants import (
     LLM_METRICS_WINDOW_SECONDS,
     LLMCallResult,
 )
+
+
+def _async_fire_and_forget(coro) -> None:
+    """Schedule ``coro`` on the running loop without awaiting it.
+
+    Used so synchronous ``record_*`` callers can publish to Redis without
+    refactoring every callsite into an async function. If no loop is running
+    (rare — record_* is called from the LLM router which is async), the
+    coroutine is closed silently so we never leak a warning.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        coro.close()
+        return
+    loop.create_task(coro)
+
+
+async def _record_redis_outcome(outcome: str, latency_ms: float | None = None) -> None:
+    # Imported lazily to avoid a circular import (redis_store imports
+    # observability which can transitively pull in this module).
+    from api.services.redis_store import get_redis_store
+
+    store = get_redis_store()
+    if store is None:
+        return
+    with suppress(Exception):
+        await store.record_llm_call(outcome=outcome, latency_ms=latency_ms)
 
 
 @dataclass
@@ -67,12 +97,15 @@ class LLMMetricsCollector:
 
     def record_success(self, latency_ms: float) -> None:
         self._record(LLMCallResult.SUCCESS, latency_ms)
+        _async_fire_and_forget(_record_redis_outcome("success", latency_ms))
 
     def record_rate_limit(self) -> None:
         self._record(LLMCallResult.RATE_LIMITED)
+        _async_fire_and_forget(_record_redis_outcome("rate_limit"))
 
     def record_timeout(self) -> None:
         self._record(LLMCallResult.TIMEOUT)
+        _async_fire_and_forget(_record_redis_outcome("timeout"))
 
     def record_error(self, *, message: str | None = None, kind: str = "error") -> None:
         self._record(LLMCallResult.ERROR)
@@ -80,6 +113,7 @@ class LLMMetricsCollector:
             self._last_error_kind = kind
             self._last_error_message = (message or "").strip()[:240] or None
             self._last_error_at = datetime.now(timezone.utc).isoformat()
+        _async_fire_and_forget(_record_redis_outcome("error"))
 
     def snapshot(self, window_seconds: int = LLM_METRICS_WINDOW_SECONDS) -> dict:
         """Metrics snapshot for the last *window_seconds* seconds."""

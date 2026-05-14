@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from api.config import settings
 from api.constants import HealthStatus
 from api.core.schemas import HealthResponse
 from api.database import test_database_connection
@@ -29,6 +30,11 @@ class StandardResponse(BaseModel):
 
 
 async def _database_ready(request: Request) -> bool:
+    # When the operator has explicitly requested memory mode, the DB is
+    # known-absent. Skip the connection attempt so we don't spam DNS-failure
+    # warnings every health probe.
+    if settings.USE_MEMORY_MODE:
+        return False
     try:
         engine = request.app.state.db_engine
         async with engine.connect() as connection:
@@ -151,9 +157,17 @@ async def health_check(request: Request) -> dict[str, Any]:
 
     store = getattr(request.app.state, "in_memory_store", get_runtime_store())
 
+    if settings.USE_MEMORY_MODE:
+        # Operator-declared memory mode is not "degraded" — it's the intended
+        # runtime state. Report as healthy so monitoring doesn't alarm.
+        status = HealthStatus.HEALTHY if redis_ready else HealthStatus.DEGRADED
+        db_label = "memory"
+    else:
+        db_label = "connected" if db_ready else "disconnected"
+
     return {
         "status": status,
-        "database": "connected" if db_ready else "disconnected",
+        "database": db_label,
         "database_mode": runtime_mode(),
         "runtime_db_health": getattr(store, "last_health", "unknown"),
         "redis": "connected" if redis_ready else "disconnected",
@@ -184,6 +198,25 @@ async def readiness_check(request: Request, response: Response) -> dict[str, Any
 
     db_ready = await _database_ready(request)
     redis_ready = await _redis_ready(request)
+
+    # Memory mode is a first-class runtime — only Redis is required for readiness.
+    if settings.USE_MEMORY_MODE:
+        if redis_ready:
+            return {
+                "status": "ready",
+                "database": "memory",
+                "redis": "connected",
+                "uptime_seconds": uptime_seconds,
+                "check_time": now.isoformat(),
+            }
+        return {
+            "status": "degraded",
+            "message": "Redis unavailable in memory mode",
+            "database": "memory",
+            "redis": "disconnected",
+            "uptime_seconds": uptime_seconds,
+            "check_time": now.isoformat(),
+        }
 
     if db_ready and redis_ready:
         return {

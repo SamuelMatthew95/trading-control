@@ -1468,6 +1468,23 @@ class NotificationAgent(MultiStreamAgent):
         )
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
 
+        # Mirror to Redis-backed REST store so /api/notifications surfaces this
+        # notification on the next page load (the WebSocket-only path lost
+        # everything if the client wasn't connected at the moment of fire).
+        try:
+            from api.services.redis_store import get_redis_store
+
+            store = get_redis_store()
+            if store is not None:
+                rest_payload = dict(notification)
+                # Preserve the canonical notification_id as the REST list `id`
+                # so dedup with the WebSocket stream stays consistent.
+                rest_payload.setdefault("id", notification.get(FieldName.NOTIFICATION_ID) or msg_id)
+                rest_payload.setdefault("severity", severity)
+                await store.push_notification(rest_payload)
+        except Exception:
+            log_structured("warning", "notification_redis_store_mirror_failed", exc_info=True)
+
         await self._heartbeat(stream, data, event_type=event_type)
 
     async def _heartbeat(

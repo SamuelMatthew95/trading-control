@@ -59,6 +59,7 @@ from api.services.agents.vector_helpers import (
     search_vector_memory,
 )
 from api.services.llm_router import call_llm_with_system
+from api.services.redis_store import get_redis_store
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -313,6 +314,68 @@ class ReasoningAgent(BaseStreamConsumer):
             stream=STREAM_DECISIONS,
             action=action,
         )
+
+        # Persist a Redis-backed decision record so the dashboard's recent
+        # decisions panel works without a DB. Best-effort — Redis is required
+        # for streams anyway, but we never let this fail the agent.
+        await self._record_decision_to_redis(
+            data=data,
+            summary=summary,
+            trace_id=trace_id,
+            action=action,
+            is_fallback=is_fallback,
+        )
+
+    async def _record_decision_to_redis(
+        self,
+        *,
+        data: dict[str, Any],
+        summary: dict[str, Any],
+        trace_id: str,
+        action: str,
+        is_fallback: bool,
+    ) -> None:
+        store = get_redis_store()
+        if store is None:
+            return
+        symbol = str(data.get(FieldName.SYMBOL) or "")
+        price = data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE)
+        edge = str(summary.get(FieldName.PRIMARY_EDGE) or "")
+        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
+        payload: dict[str, Any] = {
+            FieldName.TRACE_ID: trace_id,
+            FieldName.ACTION: action,
+            FieldName.SYMBOL: symbol,
+            FieldName.PRICE: price,
+            FieldName.CONFIDENCE: confidence,
+            "reasoning_summary": edge,
+            "llm_succeeded": not is_fallback,
+        }
+        await store.push_decision(payload)
+
+        # Surface actionable buys/sells as notifications (one per decision,
+        # not per fill). The execution layer still publishes the fill
+        # notification separately, but this guarantees something appears on
+        # the dashboard even before the order executes.
+        if action in {"buy", "sell"}:
+            await store.push_notification(
+                {
+                    FieldName.TYPE: "trade_signal",
+                    "title": f"{action.upper()} signal — {symbol}",
+                    "body": (
+                        f"Reasoning agent decided to {action} {symbol}"
+                        + (
+                            f" at ${float(price):,.2f}"
+                            if isinstance(price, (int, float)) and price
+                            else ""
+                        )
+                    ),
+                    "severity": "info",
+                    FieldName.SYMBOL: symbol,
+                    FieldName.ACTION: action,
+                    FieldName.TRACE_ID: trace_id,
+                }
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers

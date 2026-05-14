@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from api.config import settings
 from api.constants import LLM_METRICS_WINDOW_SECONDS
 from api.services.llm_metrics import llm_metrics
+from api.services.redis_store import get_redis_store
 
 router = APIRouter(tags=["llm"])
 
@@ -40,11 +41,20 @@ async def llm_health() -> dict[str, Any]:
     _attr, _default = _model_setting.get(provider, ("", "unknown"))
     model_name: str = getattr(settings, _attr, _default) if _attr else "unknown"
 
+    # Surface the durable Redis counters so the dashboard's LLM card shows
+    # totals that survive a backend restart (the in-process ring buffer alone
+    # resets to zero on every redeploy).
+    redis_metrics: dict[str, Any] = {}
+    store = get_redis_store()
+    if store is not None:
+        redis_metrics = await store.get_llm_metrics()
+
     return {
         "status": status,
         "provider": provider,
         "model": model_name,
         "model_var": _attr if _attr else "unknown",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "redis_metrics": redis_metrics,
         **snap,
     }
