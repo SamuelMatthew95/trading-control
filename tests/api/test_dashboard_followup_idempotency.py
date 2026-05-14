@@ -57,3 +57,13 @@ async def test_debug_route_available_under_dashboard_and_api_prefix(client) -> N
     r2 = await client.get("/api/dashboard/debug/state")
     assert r1.status_code == 200
     assert r2.status_code == 200
+
+
+def test_record_decision_is_advisory_only_no_portfolio_mutation() -> None:
+    store = InMemoryStore()
+    store.record_decision({"id": "adv-1", "action": "buy", "symbol": "BTC/USD", "price": 80000.0})
+    assert len(store.decisions) == 1
+    assert store.open_positions() == []
+    assert store.orders == []
+    assert store.closed_trades == []
+    assert store.equity_curve == []

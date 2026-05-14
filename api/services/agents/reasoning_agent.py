@@ -395,7 +395,7 @@ class ReasoningAgent(BaseStreamConsumer):
         )
         await store.push_decision(payload)
         if not is_db_available():
-            get_runtime_store().apply_decision(payload)
+            get_runtime_store().record_decision(payload)
 
         # Surface actionable buys/sells as notifications (one per decision,
         # not per fill). The execution layer still publishes the fill

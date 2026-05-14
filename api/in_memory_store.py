@@ -384,6 +384,44 @@ class InMemoryStore:
             self.equity_curve = self.equity_curve[-1000:]
         return event
 
+    def record_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Record advisory decision without mutating portfolio/PNL state.
+
+        Use this for reasoning stream events; portfolio mutation belongs to
+        execution/fill handlers only.
+        """
+        decision_key = self._decision_key(payload)
+        if decision_key in self.applied_decision_keys:
+            return {
+                "id": payload.get("id") or payload.get(FieldName.TRACE_ID) or decision_key,
+                "deduplicated": True,
+            }
+        self.applied_decision_keys.add(decision_key)
+        action = str(payload.get(FieldName.ACTION, "hold")).upper()
+        symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
+        price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
+        quantity = self._safe_float(payload.get(FieldName.QTY))
+        if (quantity is None or quantity <= 0) and price > 0:
+            quantity = DEFAULT_TRADE_NOTIONAL / price
+        event = {
+            "id": payload.get("id")
+            or payload.get(FieldName.TRACE_ID)
+            or f"mem-dec-{len(self.decisions) + 1}",
+            FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
+            "timestamp": payload.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat(),
+            FieldName.SYMBOL: symbol,
+            FieldName.ACTION: action,
+            FieldName.PRICE: price,
+            FieldName.QTY: quantity or 0.0,
+            FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
+            "agent": payload.get("agent") or "reasoning_agent",
+            "reason": payload.get("reasoning_summary") or payload.get("reason"),
+        }
+        self.decisions.append(event)
+        if len(self.decisions) > 500:
+            self.decisions = self.decisions[-500:]
+        return event
+
     def _decision_key(self, payload: dict[str, Any]) -> str:
         for key in ("redis_stream_id", "stream_id", "id", FieldName.TRACE_ID):
             value = payload.get(key)
