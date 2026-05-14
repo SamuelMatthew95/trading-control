@@ -316,7 +316,7 @@ class InMemoryStore:
             FieldName.QTY: quantity,
             FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
             FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
-            FieldName.REASON: payload.get(FieldName.REASONING_SUMMARY)
+            FieldName.REASON: payload.get(LogType.REASONING_SUMMARY)
             or payload.get(FieldName.REASON),
         }
         self.decisions.append(event)
@@ -418,7 +418,7 @@ class InMemoryStore:
             FieldName.QTY: quantity or 0.0,
             FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
             FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
-            FieldName.REASON: payload.get(FieldName.REASONING_SUMMARY)
+            FieldName.REASON: payload.get(LogType.REASONING_SUMMARY)
             or payload.get(FieldName.REASON),
         }
         self.decisions.append(event)
