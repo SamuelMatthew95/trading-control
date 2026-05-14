@@ -59,6 +59,14 @@ async def test_debug_route_available_under_dashboard_and_api_prefix(api_client) 
     assert r2.status_code == 200
 
 
+async def test_debug_route_is_explicitly_runtime_store_scoped() -> None:
+    set_db_available(True)
+    payload = await dashboard_v2.get_dashboard_debug_state()
+    assert payload["db_available"] is True
+    assert payload["source"] == "in_memory"
+    assert payload["scope"] == "runtime_store"
+
+
 def test_record_decision_is_advisory_only_no_portfolio_mutation() -> None:
     store = InMemoryStore()
     store.record_decision({"id": "adv-1", "action": "buy", "symbol": "BTC/USD", "price": 80000.0})
