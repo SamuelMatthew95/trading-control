@@ -648,7 +648,7 @@ async def test_record_broker_fill_in_memory_persists_fill_without_reexecution(en
         lambda prior, side, qty, entry_price, pnl: 5.0,
     )
 
-    engine._record_broker_fill_in_memory(
+    await engine._record_broker_fill_in_memory(
         order_id="ord-1",
         strategy_id="strat-1",
         symbol="BTC/USD",
@@ -660,6 +660,9 @@ async def test_record_broker_fill_in_memory_persists_fill_without_reexecution(en
         broker_order_id="brk-1",
         status="filled",
         filled_at=datetime.now(timezone.utc),
+        price=1050.0,
+        signal_confidence=0.75,
+        vwap_plan=[],
     )
 
     store = get_runtime_store()
@@ -668,3 +671,7 @@ async def test_record_broker_fill_in_memory_persists_fill_without_reexecution(en
     assert store.orders[0]["pnl"] == pytest.approx(50.0)
     assert len(store.trade_feed) == 1
     assert store.trade_feed[0]["execution_trace_id"] == "trace-1"
+    published_streams = [call.args[0] for call in engine.bus.publish.call_args_list]
+    assert "executions" in published_streams
+    assert "trade_performance" in published_streams
+    assert "trade_lifecycle" in published_streams

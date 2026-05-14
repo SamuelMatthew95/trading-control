@@ -341,7 +341,7 @@ class ExecutionEngine(BaseStreamConsumer):
             )
             if broker_order_placed:
                 if broker_result is not None and fill_price is not None and filled_at is not None:
-                    self._record_broker_fill_in_memory(
+                    await self._record_broker_fill_in_memory(
                         order_id=order_id or str(uuid.uuid4()),
                         strategy_id=strategy_id,
                         symbol=symbol,
@@ -353,6 +353,9 @@ class ExecutionEngine(BaseStreamConsumer):
                         broker_order_id=str(broker_result.get(FieldName.BROKER_ORDER_ID) or ""),
                         status=str(broker_result.get(FieldName.STATUS) or OrderStatus.FILLED),
                         filled_at=filled_at,
+                        price=price,
+                        signal_confidence=signal_confidence,
+                        vwap_plan=vwap_plan,
                     )
                 await self._write_idle_heartbeat(
                     symbol,
@@ -1103,7 +1106,7 @@ class ExecutionEngine(BaseStreamConsumer):
             },
         )
 
-    def _record_broker_fill_in_memory(
+    async def _record_broker_fill_in_memory(
         self,
         *,
         order_id: str,
@@ -1117,6 +1120,9 @@ class ExecutionEngine(BaseStreamConsumer):
         broker_order_id: str,
         status: str,
         filled_at: datetime,
+        price: float,
+        signal_confidence: float,
+        vwap_plan: list[dict[str, Any]],
     ) -> None:
         """Persist an already-executed broker fill to runtime store without re-ordering."""
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
@@ -1162,6 +1168,129 @@ class ExecutionEngine(BaseStreamConsumer):
                 FieldName.STATUS: status,
                 FieldName.FILLED_AT: filled_at.isoformat(),
             }
+        )
+        signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
+        existing_pos = store.positions.get(symbol, {})
+        existing_signed = float(existing_pos.get(FieldName.QTY, 0)) * (
+            1
+            if str(existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
+            in {PositionSide.LONG, OrderSide.BUY}
+            else -1
+        )
+        new_signed = existing_signed + signed_qty
+        new_abs_qty = abs(new_signed)
+        new_side = (
+            PositionSide.FLAT
+            if new_abs_qty < 1e-9
+            else (PositionSide.LONG if new_signed > 0 else PositionSide.SHORT)
+        )
+        if new_side == PositionSide.FLAT:
+            store.positions.pop(symbol, None)
+        else:
+            store.upsert_position(
+                symbol,
+                {
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: new_side,
+                    FieldName.QTY: new_abs_qty,
+                    FieldName.QUANTITY: new_abs_qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.AVG_COST: entry_price,
+                    "current_price": fill_price,
+                    FieldName.LAST_PRICE: fill_price,
+                    FieldName.MARKET_VALUE: round(new_abs_qty * fill_price, 8),
+                    "unrealized_pnl": 0.0,
+                    FieldName.STRATEGY_ID: strategy_id,
+                },
+            )
+        execution_payload: dict[str, Any] = {
+            FieldName.TYPE: "order_filled",
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.ORDER_ID: order_id,
+            FieldName.STRATEGY_ID: strategy_id,
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: side,
+            FieldName.QTY: qty,
+            FieldName.PRICE: price,
+            FieldName.FILL_PRICE: fill_price,
+            FieldName.PNL: pnl_value,
+            FieldName.CONFIDENCE: signal_confidence,
+            FieldName.FILLED_AT: filled_at.isoformat(),
+            "executed_at": filled_at.isoformat(),
+            FieldName.SESSION_ID: strategy_id,
+            FieldName.TRACE_ID: trace_id,
+            "vwap_plan": vwap_plan,
+            FieldName.SOURCE: SOURCE_EXECUTION,
+        }
+        await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
+        filled_at_iso = filled_at.isoformat()
+        await self.bus.publish(
+            STREAM_TRADE_PERFORMANCE,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.TYPE: "trade_performance",
+                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                FieldName.ORDER_ID: order_id,
+                FieldName.TRADE_ID: order_id,
+                FieldName.STRATEGY_ID: strategy_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.QUANTITY: qty,
+                FieldName.FILL_PRICE: fill_price,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                FieldName.PNL: pnl_value,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.FILLED_AT: filled_at_iso,
+                FieldName.ENTRY_TIME: filled_at_iso,
+                FieldName.EXIT_TIME: filled_at_iso if is_round_trip_close else None,
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.SOURCE: SOURCE_EXECUTION,
+                FieldName.SESSION_ID: strategy_id,
+            },
+        )
+        if is_round_trip_close:
+            await self.bus.publish(
+                STREAM_TRADE_COMPLETED,
+                {
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.TYPE: "trade_completed",
+                    FieldName.SOURCE: SOURCE_EXECUTION,
+                    FieldName.TRACE_ID: trace_id,
+                    FieldName.SESSION_ID: strategy_id,
+                    FieldName.ORDER_ID: order_id,
+                    FieldName.SYMBOL: symbol,
+                    FieldName.SIDE: side,
+                    FieldName.QTY: qty,
+                    FieldName.ENTRY_PRICE: entry_price,
+                    FieldName.EXIT_PRICE: fill_price,
+                    FieldName.PNL: realized_pnl,
+                    FieldName.PNL_PERCENT: pnl_percent,
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    "executed_at": filled_at_iso,
+                },
+            )
+        await self.bus.publish(
+            STREAM_TRADE_LIFECYCLE,
+            {
+                FieldName.TYPE: "trade_filled",
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                FieldName.PNL: pnl_value,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.ORDER_ID: order_id,
+                FieldName.EXECUTION_TRACE_ID: trace_id,
+                FieldName.STATUS: OrderStatus.FILLED,
+                FieldName.FILLED_AT: filled_at_iso,
+                FieldName.TIMESTAMP: filled_at_iso,
+                FieldName.SESSION_ID: strategy_id,
+                FieldName.SOURCE: SOURCE_EXECUTION,
+            },
         )
 
     async def _insert_audit_log(self, session, event_type: str, payload: dict[str, Any]) -> None:
