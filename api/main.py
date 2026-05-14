@@ -29,10 +29,12 @@ from api.observability import (
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
+from api.routes.decisions import router as decisions_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
 from api.routes.learning import router as learning_router
 from api.routes.llm_health import router as llm_health_router
+from api.routes.notifications import router as notifications_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
@@ -54,6 +56,7 @@ from api.services.agents.risk_guardian import RiskGuardian
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
+from api.services.redis_store import set_redis_store
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
 from api.workers.price_poller import poll_prices
@@ -103,31 +106,38 @@ async def lifespan(app: FastAPI):
     agent_state = AgentStateRegistry()
 
     try:
-        # Try to initialize database with exponential-backoff retry (2s, 4s, 8s)
         _db_ok = False
-        _db_delays = [2, 4, 8]
-        for _attempt, _delay in enumerate([0] + _db_delays, start=1):
-            if _delay > 0:
-                log_structured(
-                    "info",
-                    "database_init_retry",
-                    attempt=_attempt,
-                    backoff_seconds=_delay,
-                )
-                await asyncio.sleep(_delay)
-            try:
-                await init_database()
-                if await test_database_connection():
-                    _db_ok = True
-                    break
-            except Exception:
-                log_structured(
-                    "warning",
-                    "database_init_attempt_failed",
-                    attempt=_attempt,
-                    max_attempts=len(_db_delays) + 1,
-                    exc_info=True,
-                )
+        if settings.USE_MEMORY_MODE:
+            log_structured(
+                "info",
+                "database_skipped_use_memory_mode",
+                event_name="database_skipped_use_memory_mode",
+            )
+        else:
+            # Try to initialize database with exponential-backoff retry (2s, 4s, 8s)
+            _db_delays = [2, 4, 8]
+            for _attempt, _delay in enumerate([0] + _db_delays, start=1):
+                if _delay > 0:
+                    log_structured(
+                        "info",
+                        "database_init_retry",
+                        attempt=_attempt,
+                        backoff_seconds=_delay,
+                    )
+                    await asyncio.sleep(_delay)
+                try:
+                    await init_database()
+                    if await test_database_connection():
+                        _db_ok = True
+                        break
+                except Exception:
+                    log_structured(
+                        "warning",
+                        "database_init_attempt_failed",
+                        attempt=_attempt,
+                        max_attempts=len(_db_delays) + 1,
+                        exc_info=True,
+                    )
 
         if _db_ok:
             app.state.db_available = True
@@ -154,6 +164,13 @@ async def lifespan(app: FastAPI):
 
         redis_client = await get_redis()
         app.state.redis_client = redis_client
+        # RedisStore powers the REST notifications / decisions / llm-health
+        # endpoints. Works in DB mode too — Redis is a hard dependency.
+        from api.services.redis_store import RedisStore
+
+        redis_store = RedisStore(redis_client)
+        app.state.redis_store = redis_store
+        set_redis_store(redis_store)
         log_structured(
             "info",
             "redis_connected",
@@ -346,6 +363,11 @@ app.include_router(dashboard_v2_router)
 app.include_router(dashboard_v2_router, prefix="/api")
 app.include_router(learning_router)
 app.include_router(learning_router, prefix="/api")
+# Redis-backed REST persistence — required for in-memory mode UI hydration
+app.include_router(notifications_router)
+app.include_router(notifications_router, prefix="/api")
+app.include_router(decisions_router)
+app.include_router(decisions_router, prefix="/api")
 app.include_router(ws_router)
 
 

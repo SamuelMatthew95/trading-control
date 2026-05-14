@@ -100,6 +100,12 @@ export const API_ENDPOINTS = {
 
   // LLM
   LLM_HEALTH: "/llm/health",
+
+  // Redis-backed REST persistence (works in memory mode and DB mode)
+  NOTIFICATIONS_RECENT: "/notifications",
+  NOTIFICATIONS_UNREAD_COUNT: "/notifications/unread-count",
+  DECISIONS_RECENT: "/decisions",
+  DECISIONS_STATS: "/decisions/stats",
 } as const;
 
 /**

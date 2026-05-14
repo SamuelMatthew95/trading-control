@@ -250,9 +250,37 @@ How the dashboard is hydrated on load / reconnect:
 | `agent_statuses` | Redis `REDIS_AGENT_STATUS_KEY.format(name=n)` | `/dashboard/state` enrichment |
 | `ic_weights` | Redis `REDIS_KEY_IC_WEIGHTS` | `/dashboard/state` enrichment |
 | `prices` | Redis `REDIS_KEY_PRICES.format(symbol=s)` | `/dashboard/state` enrichment |
+| `notifications` (REST catch-up) | Redis list `notifications:recent` (cap 200) | `GET /notifications` |
+| `decisions` (REST catch-up) | Redis list `decisions:recent` (cap 500) | `GET /decisions` |
+| `llm_metrics` (durable) | Redis hash `llm:metrics` | `GET /llm/health` (`redis_metrics` block) |
 
 REST hydration endpoint: `GET /dashboard/state`
 Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_agent_constants.py`
+
+### Redis-backed REST persistence (memory-mode UI)
+`api/services/redis_store.RedisStore` writes notifications, decisions, and
+LLM call outcomes to Redis lists/hashes so the dashboard works without
+Postgres. Producers:
+
+| Producer | Writes |
+|---|---|
+| `ReasoningAgent.process()` | every decision → `decisions:recent`; buy/sell → `notifications:recent` |
+| `NotificationAgent.process()` | every fired notification → `notifications:recent` (mirror) |
+| `LLMMetricsCollector.record_*` | fire-and-forget → `llm:metrics` hash |
+
+Install once at startup: `set_redis_store(RedisStore(redis_client))`.
+Consumers (REST routes) read via `get_redis_store()` — graceful no-op when
+the singleton is `None`.
+
+### Memory mode (`USE_MEMORY_MODE=true`)
+Operator-declared "no Postgres" runtime. Effects:
+- `api/main.py` lifespan skips DB init entirely (no DNS retries).
+- `api/routes/health.py::_database_ready()` short-circuits to `False` — no
+  `database health check failed` warnings on every probe.
+- `/health` returns `database: "memory"` (not "disconnected"); `/readiness`
+  is "ready" iff Redis is up.
+- Frontend dashboard hydrates from the Redis-backed REST endpoints above
+  on mount + every WebSocket reconnect (see `frontend/CLAUDE.md`).
 
 ## Claude Code Workflow
 - **Commits**: One commit per file — never bundle multiple files into one commit

@@ -444,6 +444,75 @@ function formatUptime(seconds: number): string {
   return `${hours}h ${remainingMinutes}m`
 }
 
+type DecisionStats = {
+  total: number
+  last_hour: { buys: number; sells: number; holds: number }
+  last_decision: Record<string, unknown> | null
+}
+
+function RecentDecisionsPanel({
+  stats,
+  recent,
+}: {
+  stats: DecisionStats | null
+  recent: Array<Record<string, unknown>>
+}) {
+  const actionable = recent.filter((d) => {
+    const action = String(d.action ?? '').toLowerCase()
+    return action === 'buy' || action === 'sell'
+  })
+  return (
+    <div className={cardClass}>
+      <div className="mb-3 flex items-center justify-between">
+        <p className={sectionTitleClass}>Recent Decisions</p>
+        {stats && (
+          <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
+            <span className="text-emerald-600 dark:text-emerald-400">Buys: {stats.last_hour.buys}</span>
+            <span className="text-rose-600 dark:text-rose-400">Sells: {stats.last_hour.sells}</span>
+            <span>Holds: {stats.last_hour.holds}</span>
+            <span>Total: {stats.total}</span>
+          </div>
+        )}
+      </div>
+      {actionable.length === 0 ? (
+        <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+          No buy/sell decisions yet
+        </div>
+      ) : (
+        <div className="max-h-64 space-y-2 overflow-y-auto">
+          {actionable.slice(0, 10).map((d, index) => {
+            const action = String(d.action ?? '').toLowerCase()
+            const symbol = String(d.symbol ?? '--')
+            const priceNum = Number(d.price)
+            const priceTxt = Number.isFinite(priceNum) ? `$${priceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '--'
+            const confNum = Number(d.confidence)
+            const confTxt = Number.isFinite(confNum) ? `${(confNum * 100).toFixed(0)}%` : '--'
+            const ts = formatTimestamp(d.timestamp ? String(d.timestamp) : null)
+            const badgeClass = action === 'buy'
+              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+            return (
+              <div key={`${String(d.id ?? d.trace_id ?? index)}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <span className={cn('rounded px-2 py-0.5 text-xs font-black uppercase', badgeClass)}>{action || 'hold'}</span>
+                  <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">{symbol}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                  <span>{priceTxt}</span>
+                  <span className="text-slate-400">·</span>
+                  <span>{confTxt}</span>
+                  <span className="text-slate-400">·</span>
+                  <span>{ts}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
@@ -495,6 +564,9 @@ export function DashboardView({ section }: { section: Section }) {
   // null = not yet fetched, true/false = fetched from /dashboard/state
   const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('')
+
+  const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null)
+  const [recentDecisions, setRecentDecisions] = useState<Array<Record<string, unknown>>>([])
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -646,6 +718,70 @@ export function DashboardView({ section }: { section: Section }) {
     const interval = setInterval(fetchTradeFeed, 30_000)
     return () => clearInterval(interval)
   }, [])
+
+  // Hydrate notifications + decisions from the Redis-backed REST endpoints on
+  // mount and every time the WebSocket reconnects. Without this the dashboard
+  // shows nothing in memory mode unless the client was connected at the
+  // exact moment each event fired.
+  useEffect(() => {
+    const addNotification = useCodexStore.getState().addNotification
+    const fetchNotifications = async () => {
+      try {
+        const r = await fetch(api(API_ENDPOINTS.NOTIFICATIONS_RECENT))
+        if (!r.ok) return
+        const items = (await r.json()) as Array<Record<string, unknown>>
+        for (const raw of [...items].reverse()) {
+          const message = String(
+            raw.body ?? raw.message ?? raw.title ?? '',
+          ).trim()
+          if (!message) continue
+          const severity = String(raw.severity ?? 'info').toUpperCase()
+          addNotification({
+            notification_id: typeof raw.id === 'string' ? raw.id : undefined,
+            severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
+            title: raw.title ? String(raw.title) : undefined,
+            message,
+            notification_type: String(raw.type ?? raw.notification_type ?? 'system'),
+            stream_source: 'rest',
+            symbol: raw.symbol ? String(raw.symbol) : undefined,
+            action: raw.action ? String(raw.action) : undefined,
+            trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
+            timestamp: String(raw.timestamp ?? new Date().toISOString()),
+          })
+        }
+      } catch {
+        // non-fatal — WebSocket may still deliver realtime events
+      }
+    }
+    fetchNotifications()
+    const interval = setInterval(fetchNotifications, 30_000)
+    return () => clearInterval(interval)
+  }, [wsConnected])
+
+  // Decisions stats + recent decisions REST hydration.
+  useEffect(() => {
+    const fetchDecisions = async () => {
+      try {
+        const [statsRes, recentRes] = await Promise.all([
+          fetch(api(API_ENDPOINTS.DECISIONS_STATS)),
+          fetch(api(`${API_ENDPOINTS.DECISIONS_RECENT}?limit=20`)),
+        ])
+        if (statsRes.ok) {
+          const stats = await statsRes.json()
+          setDecisionStats(stats)
+        }
+        if (recentRes.ok) {
+          const recent = (await recentRes.json()) as Array<Record<string, unknown>>
+          setRecentDecisions(recent)
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchDecisions()
+    const interval = setInterval(fetchDecisions, 15_000)
+    return () => clearInterval(interval)
+  }, [wsConnected])
 
   // Fetch performance summary on mount, every 30 s, and on WS reconnect.
   // Without the interval, a single transient fetch failure on initial mount
@@ -1488,6 +1624,8 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             )}
           </div>
+
+          <RecentDecisionsPanel stats={decisionStats} recent={recentDecisions} />
 
           <NotificationFeed notifications={notifications} wsConnected={wsConnected} />
         </div>

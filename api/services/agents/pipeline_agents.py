@@ -107,6 +107,7 @@ from api.services.agents.trade_scorer import (
     score_trade,
 )
 from api.services.llm_metrics import llm_metrics as _llm_metrics
+from api.services.redis_store import get_redis_store as _get_redis_store
 
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
@@ -1468,7 +1469,42 @@ class NotificationAgent(MultiStreamAgent):
         )
         log_structured("debug", "notification_forwarded", stream=stream, severity=severity)
 
+        # Mirror to Redis-backed REST store so /api/notifications surfaces this
+        # notification on the next page load (the WebSocket-only path lost
+        # everything if the client wasn't connected at the moment of fire).
+        await self._mirror_notification_to_redis_store(
+            notification, severity=severity, observed_msg_id=msg_id
+        )
+
         await self._heartbeat(stream, data, event_type=event_type)
+
+    @staticmethod
+    async def _mirror_notification_to_redis_store(
+        notification: dict[str, Any],
+        *,
+        severity: str,
+        observed_msg_id: str,
+    ) -> None:
+        """Push a copy of the freshly-fired notification into RedisStore.
+
+        Best-effort: a failure here must never crash the agent loop, since the
+        primary delivery channel (WS broadcast) has already succeeded by the
+        time we get called.
+        """
+        store = _get_redis_store()
+        if store is None:
+            return
+        try:
+            rest_payload = dict(notification)
+            # Preserve the canonical notification_id as the REST list `id` so
+            # dedup with the WebSocket stream stays consistent.
+            rest_payload.setdefault(
+                "id", notification.get(FieldName.NOTIFICATION_ID) or observed_msg_id
+            )
+            rest_payload.setdefault("severity", severity)
+            await store.push_notification(rest_payload)
+        except Exception:
+            log_structured("warning", "notification_redis_store_mirror_failed", exc_info=True)
 
     async def _heartbeat(
         self, stream: str, data: dict[str, Any], *, event_type: str | None = None

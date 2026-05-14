@@ -175,6 +175,46 @@ Worker heartbeats and DLQ metadata.
 | `REDIS_KEY_WORKER_HEARTBEAT` | `worker:heartbeat` | 120s | PricePoller |
 | `REDIS_KEY_DLQ` | `dlq:{stream}` | 86400s (retries) | DLQManager |
 
+### Category 9 — REST-queryable activity lists (`RedisStore`)
+Capped lists + a counter hash that back the dashboard's notifications,
+decisions, and LLM-health panels. Written by agents, read by the REST
+routes in `api/routes/{notifications,decisions,llm_health}.py`.
+
+| Constant | Key Pattern | TTL | Owner |
+|----------|------------|-----|-------|
+| `REDIS_KEY_NOTIFICATIONS_RECENT` | `notifications:recent` (LPUSH, LTRIM cap 200) | None | NotificationAgent + ReasoningAgent |
+| `REDIS_KEY_NOTIFICATIONS_READ` | `notifications:read` (SET of read ids) | None | REST POST `/notifications/{id}/read` |
+| `REDIS_KEY_DECISIONS_RECENT` | `decisions:recent` (LPUSH, LTRIM cap 500) | None | ReasoningAgent |
+| `REDIS_KEY_LLM_METRICS` | `llm:metrics` hash: `total_calls`, `successes`, `rate_limits`, `timeouts`, `errors`, `last_success_at`, `last_latency_ms` | None | `LLMMetricsCollector` fire-and-forget |
+
+**Rules:**
+- Writers MUST go through `RedisStore.push_notification` /
+  `push_decision` / `record_llm_call` — they wrap LPUSH+LTRIM in a
+  pipeline so concurrent writers can't transiently exceed the cap, and
+  they coerce missing/None `id` and `timestamp` to defaults.
+- Readers MUST call `get_redis_store()` — when the singleton is `None`
+  (test setup, very early startup), endpoints must degrade to empty
+  lists / zero counters, not raise.
+- `notifications:read` is pruned on every `push_notification` to drop
+  ids no longer present in `notifications:recent`. This keeps the set
+  bounded by the live-list cap (~200) even over a long-running
+  deployment.
+
+```python
+# Install once at startup (api/main.py lifespan).
+from api.services.redis_store import RedisStore, set_redis_store
+set_redis_store(RedisStore(redis_client))
+
+# Read from anywhere — never crash if the singleton is missing.
+from api.services.redis_store import get_redis_store
+store = get_redis_store()
+if store is not None:
+    items = await store.list_notifications(limit=50)
+```
+
+**Fallback if absent:** Endpoints return empty lists / zero counters and
+log a single warning. UI shows "no notifications yet" / "no decisions yet".
+
 ---
 
 ## Postgres — Durable Records
@@ -283,6 +323,11 @@ await redis.set(REDIS_AGENT_STATUS_KEY.format(name=...), ...)  # use write_heart
 
 # ❌ Reading DB-table data from Redis
 position = json.loads(await redis.get("paper:positions:BTC/USD"))  # only PaperBroker reads this
+
+# ❌ Writing REST-queryable activity lists raw — use RedisStore
+await redis.lpush("notifications:recent", json.dumps(payload))     # use store.push_notification(payload)
+await redis.lpush("decisions:recent", json.dumps(payload))         # use store.push_decision(payload)
+await redis.hincrby("llm:metrics", "successes", 1)                 # use store.record_llm_call(outcome="success", ...)
 ```
 
 ---
