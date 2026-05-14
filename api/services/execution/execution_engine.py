@@ -208,6 +208,12 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_value = str(uuid.uuid4())
 
         broker_order_placed = False
+        fill_price: float | None = None
+        filled_at: datetime | None = None
+        broker_result: dict[str, Any] | None = None
+        prior_position: dict[str, Any] = {}
+        order_id: str | None = None
+        vwap_plan: list[dict[str, Any]] = self._build_vwap_plan(qty)
         try:
             async with AsyncSessionFactory() as session:
                 existing = await session.execute(
@@ -232,8 +238,6 @@ class ExecutionEngine(BaseStreamConsumer):
                 if not lock_acquired:
                     raise RuntimeError(f"Order lock already held for {symbol}")
 
-                order_id: str | None = None
-                vwap_plan = self._build_vwap_plan(qty)
                 # Snapshot position AFTER acquiring the lock so concurrent orders
                 # for the same symbol cannot race on a stale position read.
                 prior_position = await self.broker.get_position(symbol)
@@ -336,6 +340,20 @@ class ExecutionEngine(BaseStreamConsumer):
                 exc_info=True,
             )
             if broker_order_placed:
+                if broker_result is not None and fill_price is not None and filled_at is not None:
+                    self._record_broker_fill_in_memory(
+                        order_id=order_id or str(uuid.uuid4()),
+                        strategy_id=strategy_id,
+                        symbol=symbol,
+                        side=side,
+                        qty=qty,
+                        fill_price=fill_price,
+                        trace_id=trace_id,
+                        prior_position=prior_position,
+                        broker_order_id=str(broker_result.get(FieldName.BROKER_ORDER_ID) or ""),
+                        status=str(broker_result.get(FieldName.STATUS) or OrderStatus.FILLED),
+                        filled_at=filled_at,
+                    )
                 await self._write_idle_heartbeat(
                     symbol,
                     "degraded:db_write_failed_after_broker",
@@ -1083,6 +1101,67 @@ class ExecutionEngine(BaseStreamConsumer):
                 "market_value": new_market_value,
                 "position_id": row["id"],
             },
+        )
+
+    def _record_broker_fill_in_memory(
+        self,
+        *,
+        order_id: str,
+        strategy_id: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        fill_price: float,
+        trace_id: str,
+        prior_position: dict[str, Any],
+        broker_order_id: str,
+        status: str,
+        filled_at: datetime,
+    ) -> None:
+        """Persist an already-executed broker fill to runtime store without re-ordering."""
+        realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
+        entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
+        is_round_trip_close = self._is_round_trip_close(prior_position, side, qty)
+        pnl_value = realized_pnl if is_round_trip_close else None
+        pnl_percent = self._compute_pnl_percent(
+            prior_position, side, qty, entry_price, realized_pnl
+        )
+        store = get_runtime_store()
+        store.add_order(
+            {
+                FieldName.ORDER_ID: order_id,
+                FieldName.STRATEGY_ID: strategy_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.QUANTITY: qty,
+                FieldName.PRICE: fill_price,
+                FieldName.FILLED_PRICE: fill_price,
+                FieldName.STATUS: status,
+                FieldName.BROKER_ORDER_ID: broker_order_id,
+                FieldName.PNL: pnl_value,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.SESSION_ID: strategy_id,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.FILLED_AT: filled_at.isoformat(),
+            }
+        )
+        store.upsert_trade_fill(
+            {
+                "id": trace_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                FieldName.PNL: pnl_value,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.SESSION_ID: strategy_id,
+                FieldName.ORDER_ID: order_id,
+                FieldName.EXECUTION_TRACE_ID: trace_id,
+                FieldName.STATUS: status,
+                FieldName.FILLED_AT: filled_at.isoformat(),
+            }
         )
 
     async def _insert_audit_log(self, session, event_type: str, payload: dict[str, Any]) -> None:

@@ -624,3 +624,47 @@ async def test_process_in_memory_deduplicates_replayed_messages(
     assert mock_broker.place_order.call_count == 1, (
         "Broker must NOT be called a second time for a replayed message"
     )
+
+
+async def test_record_broker_fill_in_memory_persists_fill_without_reexecution(engine, monkeypatch):
+    """When broker fill already happened, fallback should persist in-memory without a second order."""
+    from api.in_memory_store import InMemoryStore
+    from api.runtime_state import get_runtime_store, set_runtime_store
+
+    set_runtime_store(InMemoryStore())
+    monkeypatch.setattr(
+        engine,
+        "_compute_realized_pnl",
+        lambda prior, side, qty, fill: 50.0,
+    )
+    monkeypatch.setattr(
+        engine,
+        "_is_round_trip_close",
+        lambda prior, side, qty: True,
+    )
+    monkeypatch.setattr(
+        engine,
+        "_compute_pnl_percent",
+        lambda prior, side, qty, entry_price, pnl: 5.0,
+    )
+
+    engine._record_broker_fill_in_memory(
+        order_id="ord-1",
+        strategy_id="strat-1",
+        symbol="BTC/USD",
+        side="sell",
+        qty=1.0,
+        fill_price=1050.0,
+        trace_id="trace-1",
+        prior_position={"entry_price": 1000.0, "qty": 1.0, "side": "long"},
+        broker_order_id="brk-1",
+        status="filled",
+        filled_at=datetime.now(timezone.utc),
+    )
+
+    store = get_runtime_store()
+    assert len(store.orders) == 1
+    assert store.orders[0]["order_id"] == "ord-1"
+    assert store.orders[0]["pnl"] == pytest.approx(50.0)
+    assert len(store.trade_feed) == 1
+    assert store.trade_feed[0]["execution_trace_id"] == "trace-1"
