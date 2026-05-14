@@ -76,6 +76,50 @@ async def test_debug_route_is_explicitly_runtime_store_scoped() -> None:
     assert payload["scope"] == "runtime_store"
 
 
+async def test_debug_state_closed_trades_uses_paired_orders_in_memory_path() -> None:
+    store = InMemoryStore()
+    store.add_order(
+        {
+            "id": "ord-1",
+            "symbol": "BTC/USD",
+            "side": "sell",
+            "qty": 0.1,
+            "price": 81000.0,
+            "pnl": 100.0,
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    payload = await dashboard_v2.get_dashboard_debug_state()
+
+    assert payload["source"] == "in_memory"
+    assert payload["counts"]["closed_trades"] == 1
+    assert payload["summary"]["closed_trades"] == 1
+    assert payload["latest_closed_trade"]["id"] == "ord-1"
+
+
+async def test_debug_state_closed_trade_count_matches_summary_for_breakeven_orders() -> None:
+    store = InMemoryStore()
+    store.add_order(
+        {
+            "id": "ord-0",
+            "symbol": "ETH/USD",
+            "side": "sell",
+            "qty": 1.0,
+            "price": 3000.0,
+            "pnl": 0.0,
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    payload = await dashboard_v2.get_dashboard_debug_state()
+
+    assert payload["counts"]["closed_trades"] == payload["summary"]["closed_trades"] == 0
+    assert payload["latest_closed_trade"]["id"] == "ord-0"
+
+
 def test_record_decision_is_advisory_only_no_portfolio_mutation() -> None:
     store = InMemoryStore()
     store.record_decision({"id": "adv-1", "action": "buy", "symbol": "BTC/USD", "price": 80000.0})
