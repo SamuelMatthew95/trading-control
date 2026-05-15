@@ -347,9 +347,16 @@ class ExecutionEngine(BaseStreamConsumer):
                 _fill_price = float(_db_broker_result[FieldName.FILL_PRICE])
                 _filled_at = datetime.now(timezone.utc)
                 _realized_pnl = self._compute_realized_pnl(prior_position, side, qty, _fill_price)
+                _entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or _fill_price)
                 _is_close = self._is_round_trip_close(prior_position, side, qty)
                 _pnl_value = _realized_pnl if _is_close else None
+                _pnl_pct = self._compute_pnl_percent(
+                    prior_position, side, qty, _entry_price, _realized_pnl
+                )
+                _fallback_order_id = str(uuid.uuid4())
                 store = get_runtime_store()
+                # add_order only — do NOT call apply_decision, which also appends
+                # to store.orders on SELL and would double-count the realized PnL.
                 store.add_order(
                     {
                         FieldName.SYMBOL: symbol,
@@ -365,14 +372,98 @@ class ExecutionEngine(BaseStreamConsumer):
                         FieldName.STRATEGY_ID: strategy_id,
                     }
                 )
-                store.apply_decision(
+                # Publish to the same streams as the normal DB path so GradeAgent,
+                # ICUpdater, ReflectionAgent, and the trade-feed all see the fill.
+                _filled_at_iso = _filled_at.isoformat()
+                await self.bus.publish(
+                    STREAM_EXECUTIONS,
                     {
-                        FieldName.ACTION: side,
+                        FieldName.TYPE: "order_filled",
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.STRATEGY_ID: strategy_id,
                         FieldName.SYMBOL: symbol,
-                        FieldName.PRICE: _fill_price,
+                        FieldName.SIDE: side,
                         FieldName.QTY: qty,
+                        FieldName.PRICE: price,
+                        FieldName.FILL_PRICE: _fill_price,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.CONFIDENCE: signal_confidence,
+                        FieldName.FILLED_AT: _filled_at_iso,
+                        "executed_at": _filled_at_iso,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.IDEMPOTENCY_KEY: idempotency_key,
                         FieldName.TRACE_ID: trace_id,
-                    }
+                        "vwap_plan": vwap_plan,
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                    },
+                )
+                await self.bus.publish(
+                    STREAM_TRADE_PERFORMANCE,
+                    {
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.TYPE: "trade_performance",
+                        FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.TRADE_ID: _fallback_order_id,
+                        FieldName.STRATEGY_ID: strategy_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.QUANTITY: qty,
+                        FieldName.FILL_PRICE: _fill_price,
+                        FieldName.ENTRY_PRICE: _entry_price,
+                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.PNL_PERCENT: _pnl_pct,
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.FILLED_AT: _filled_at_iso,
+                        FieldName.ENTRY_TIME: _filled_at_iso,
+                        FieldName.EXIT_TIME: _filled_at_iso if _is_close else None,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                        FieldName.SESSION_ID: strategy_id,
+                    },
+                )
+                if _is_close:
+                    await self.bus.publish(
+                        STREAM_TRADE_COMPLETED,
+                        {
+                            FieldName.MSG_ID: str(uuid.uuid4()),
+                            FieldName.TYPE: "trade_completed",
+                            FieldName.SOURCE: SOURCE_EXECUTION,
+                            FieldName.TRACE_ID: trace_id,
+                            FieldName.SESSION_ID: strategy_id,
+                            FieldName.ORDER_ID: _fallback_order_id,
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: side,
+                            FieldName.QTY: qty,
+                            FieldName.ENTRY_PRICE: _entry_price,
+                            FieldName.EXIT_PRICE: _fill_price,
+                            FieldName.PNL: _realized_pnl,
+                            FieldName.PNL_PERCENT: _pnl_pct,
+                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+                await self.bus.publish(
+                    STREAM_TRADE_LIFECYCLE,
+                    {
+                        FieldName.TYPE: "trade_filled",
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.ENTRY_PRICE: _entry_price,
+                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.PNL_PERCENT: _pnl_pct,
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.EXECUTION_TRACE_ID: trace_id,
+                        FieldName.STATUS: OrderStatus.FILLED,
+                        FieldName.FILLED_AT: _filled_at_iso,
+                        FieldName.TIMESTAMP: _filled_at_iso,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                    },
                 )
                 log_structured(
                     "warning",
