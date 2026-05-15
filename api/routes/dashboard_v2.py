@@ -119,6 +119,25 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
     return diagnostics
 
 
+def _attach_runtime_hydration_metadata(
+    payload: dict[str, Any], diagnostics: dict[str, Any]
+) -> dict[str, Any]:
+    """Attach consistent hydration/source metadata to runtime payloads."""
+    payload["source"] = diagnostics["source"]
+    payload["ledger_source"] = diagnostics["ledger_source"]
+    payload["persistence_source"] = diagnostics["persistence_source"]
+    payload["hydration"] = {
+        "status": diagnostics["hydration_status"],
+        "redis_decisions_seen": diagnostics["redis_decisions_seen"],
+        "redis_decisions_applied": diagnostics["redis_decisions_applied"],
+        "redis_notifications_seen": diagnostics["redis_notifications_seen"],
+        "redis_notifications_applied": diagnostics["redis_notifications_applied"],
+        "applied_decision_keys": diagnostics["applied_decision_keys"],
+        "last_error": diagnostics["last_error"],
+    }
+    return payload
+
+
 def _as_dict(payload: Any) -> dict[str, Any]:
     """Return payload as dict for mixed JSONB/text storage compatibility."""
     if isinstance(payload, dict):
@@ -434,18 +453,7 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
     if not is_db_available():
         diagnostics = await hydrate_dashboard_state_from_redis()
         payload = get_runtime_store().dashboard_fallback_snapshot()
-        payload["source"] = diagnostics["source"]
-        payload["ledger_source"] = diagnostics["ledger_source"]
-        payload["persistence_source"] = diagnostics["persistence_source"]
-        payload["hydration"] = {
-            "status": diagnostics["hydration_status"],
-            "redis_decisions_seen": diagnostics["redis_decisions_seen"],
-            "redis_decisions_applied": diagnostics["redis_decisions_applied"],
-            "redis_notifications_seen": diagnostics["redis_notifications_seen"],
-            "redis_notifications_applied": diagnostics["redis_notifications_applied"],
-            "last_error": diagnostics["last_error"],
-        }
-        return payload
+        return _attach_runtime_hydration_metadata(payload, diagnostics)
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
@@ -470,17 +478,7 @@ async def get_dashboard_state() -> dict[str, Any]:
             diagnostics = await hydrate_dashboard_state_from_redis()
             store = get_runtime_store()
             data = store.dashboard_fallback_snapshot()
-            data["source"] = diagnostics["source"]
-            data["ledger_source"] = diagnostics["ledger_source"]
-            data["persistence_source"] = diagnostics["persistence_source"]
-            data["hydration"] = {
-                "status": diagnostics["hydration_status"],
-                "redis_decisions_seen": diagnostics["redis_decisions_seen"],
-                "redis_decisions_applied": diagnostics["redis_decisions_applied"],
-                "redis_notifications_seen": diagnostics["redis_notifications_seen"],
-                "redis_notifications_applied": diagnostics["redis_notifications_applied"],
-                "last_error": diagnostics["last_error"],
-            }
+            data = _attach_runtime_hydration_metadata(data, diagnostics)
             data["mode"] = runtime_mode()  # "in_memory_fallback" when DB is unavailable
         else:
             try:

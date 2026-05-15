@@ -86,6 +86,8 @@ async def test_dashboard_hydrates_from_redis_decisions_when_db_unavailable(fake_
         assert state["persistence_source"] == "redis"
         assert snap["hydration"]["status"] == "completed"
         assert state["hydration"]["status"] == "completed"
+        assert snap["hydration"]["applied_decision_keys"] >= 1
+        assert state["hydration"]["applied_decision_keys"] >= 1
     finally:
         set_redis_store(previous)
 
