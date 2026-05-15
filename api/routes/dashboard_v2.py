@@ -79,7 +79,11 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
         diagnostics["redis_decisions_seen"] = len(decisions)
         decisions_before = len(store.applied_decision_keys)
         for decision in reversed(decisions):
-            store.apply_decision(decision)
+            # Redis ``decisions:recent`` is advisory output from ReasoningAgent.
+            # Replaying it as executed fills creates phantom positions/PnL.
+            # Hydrate via advisory path only; portfolio mutation must come from
+            # execution/fill sources.
+            store.record_decision(decision)
         diagnostics["redis_decisions_applied"] = max(
             0, len(store.applied_decision_keys) - decisions_before
         )
@@ -87,17 +91,27 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
         notifications = await redis_store.list_notifications(limit=500)
         diagnostics["redis_notifications_seen"] = len(notifications)
         notifications_before = len(store.notifications)
-        existing_notification_keys = {
-            str(item.get("id") or item.get(FieldName.NOTIFICATION_ID) or "")
-            or json.dumps(item, sort_keys=True, default=str)
-            for item in store.notifications
-        }
+
+        def _notification_key(item: dict[str, Any]) -> str:
+            notif_id = str(item.get("id") or item.get(FieldName.NOTIFICATION_ID) or "").strip()
+            if notif_id:
+                return f"id:{notif_id}"
+            trace_id = str(item.get(FieldName.TRACE_ID) or "").strip()
+            notif_type = str(
+                item.get(FieldName.TYPE) or item.get("notification_type") or ""
+            ).strip()
+            action = str(item.get(FieldName.ACTION) or "").strip().upper()
+            symbol = str(item.get(FieldName.SYMBOL) or "").strip().upper()
+            title = str(item.get("title") or "").strip()
+            body = str(item.get("body") or item.get("message") or "").strip()
+            stable = "|".join([trace_id, notif_type, action, symbol, title, body])
+            if stable.strip("|"):
+                return f"stable:{stable}"
+            return f"raw:{json.dumps(item, sort_keys=True, default=str)}"
+
+        existing_notification_keys = {_notification_key(item) for item in store.notifications}
         for notification in reversed(notifications):
-            notification_key = str(
-                notification.get("id") or notification.get(FieldName.NOTIFICATION_ID) or ""
-            )
-            if not notification_key:
-                notification_key = json.dumps(notification, sort_keys=True, default=str)
+            notification_key = _notification_key(notification)
             if notification_key in existing_notification_keys:
                 continue
             store.record_notification(notification)
