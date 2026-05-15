@@ -391,7 +391,11 @@ class ExecutionEngine(BaseStreamConsumer):
                 )
                 # Update position to match the fill (mirrors _process_in_memory logic).
                 _signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
-                _existing_pos = store.positions.get(symbol, {})
+                # The DB path writes positions to Postgres, not store.positions.
+                # Fall back to prior_position (broker state before this fill) so a
+                # closing SELL correctly sees the existing long rather than defaulting
+                # to {} and creating a phantom short.
+                _existing_pos = store.positions.get(symbol) or prior_position
                 _existing_signed = float(_existing_pos.get(FieldName.QTY, 0)) * (
                     1
                     if str(_existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
