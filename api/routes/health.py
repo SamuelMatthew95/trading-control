@@ -12,7 +12,7 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import HealthStatus
 from api.core.schemas import HealthResponse
-from api.database import test_database_connection
+from api.database import get_async_session, test_database_connection
 from api.observability import log_structured, metrics_store
 from api.runtime_state import get_runtime_store, runtime_mode
 
@@ -60,8 +60,6 @@ async def _redis_ready(request: Request) -> bool:
 async def _oldest_pending_score_age_seconds() -> float | None:
     """Return the age in seconds of the oldest pending score job when available."""
     try:
-        from api.database import get_async_session
-
         async with get_async_session() as session:
             table_result = await session.execute(
                 text("""

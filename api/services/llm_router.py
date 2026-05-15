@@ -113,7 +113,7 @@ def _get_provider_key(provider: str) -> str:
 
 
 async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    from groq import AsyncGroq
+    from groq import AsyncGroq  # noqa: PLC0415
 
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     response = await client.chat.completions.create(
@@ -133,7 +133,7 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
 
 
 async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    import aiohttp
+    import aiohttp  # noqa: PLC0415
 
     payload = {
         "model": settings.ANTHROPIC_MODEL,
@@ -168,7 +168,7 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
 
 
 async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    from openai import AsyncOpenAI
+    from openai import AsyncOpenAI  # noqa: PLC0415
 
     client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
     response = await client.chat.completions.create(
@@ -230,8 +230,8 @@ def _get_gemini_api_key() -> str:
 
 
 def _get_gemini_sdk():
-    from google import genai
-    from google.genai import errors as genai_errors
+    from google import genai  # noqa: PLC0415
+    from google.genai import errors as genai_errors  # noqa: PLC0415
 
     return genai, genai_errors
 
@@ -304,7 +304,7 @@ async def _call_provider_raw(
 ) -> tuple[str, int, float]:
     """Call a provider and return raw text (not parsed as trading JSON)."""
     if provider == "groq":
-        from groq import AsyncGroq
+        from groq import AsyncGroq  # noqa: PLC0415
 
         client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.chat.completions.create(
@@ -323,7 +323,7 @@ async def _call_provider_raw(
         return text, tokens, 0.0
 
     if provider == "anthropic":
-        import aiohttp
+        import aiohttp  # noqa: PLC0415
 
         payload = {
             "model": settings.ANTHROPIC_MODEL,
@@ -356,7 +356,7 @@ async def _call_provider_raw(
         return text, tokens, round(tokens * 0.000003, 6)
 
     if provider == "openai":
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI  # noqa: PLC0415
 
         client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
         response = await client.chat.completions.create(

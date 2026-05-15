@@ -21,9 +21,11 @@ from api.constants import (
     AgentStatus,
     FieldName,
 )
+from api.database import AsyncSessionFactory
 from api.events.bus import STREAMS
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
+from api.services.metrics_aggregator import MetricsAggregator
 
 router = APIRouter(tags=["ws"])
 
@@ -39,16 +41,12 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     type — orders[], positions[], agent_logs[], prices{} — so every client
     starts with the same consistent view without any REST calls.
     """
-    from api.services.metrics_aggregator import MetricsAggregator
-
     if not is_db_available():
         data = get_runtime_store().dashboard_fallback_snapshot()
         data["mode"] = runtime_mode()
         data[FieldName.PNL] = get_runtime_store().paired_pnl_payload()
     else:
         try:
-            from api.database import AsyncSessionFactory
-
             async with AsyncSessionFactory() as session:
                 aggregator = MetricsAggregator(session)
                 data = await aggregator.get_raw_snapshot()

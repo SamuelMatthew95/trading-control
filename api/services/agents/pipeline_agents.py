@@ -160,7 +160,7 @@ class GradeAgent(MultiStreamAgent):
             # Write idle heartbeat so dashboard shows GradeAgent as active even
             # between grading cycles.
             try:
-                from api.redis_client import get_redis as _get_redis
+                from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
 
                 _redis = await _get_redis()
                 await _write_heartbeat(
@@ -272,7 +272,7 @@ class GradeAgent(MultiStreamAgent):
 
         # Write heartbeat with last grade score for dashboard display
         try:
-            from api.redis_client import get_redis as _get_redis
+            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
 
             _redis = await _get_redis()
             await _write_heartbeat(
@@ -292,8 +292,8 @@ class GradeAgent(MultiStreamAgent):
         if not is_db_available():
             return
         try:
-            from api.database import AsyncSessionFactory
-            from api.services.agents.db_helpers import upsert_trade_lifecycle
+            from api.database import AsyncSessionFactory  # noqa: PLC0415
+            from api.services.agents.db_helpers import upsert_trade_lifecycle  # noqa: PLC0415
 
             grade_label = (
                 f"Grade {grade}: accuracy={payload[FieldName.METRICS]['accuracy']:.0%} "
@@ -785,7 +785,7 @@ class ReflectionAgent(MultiStreamAgent):
         trigger = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
         if self._fills == 0 or self._fills % trigger != 0:
             try:
-                from api.redis_client import get_redis as _get_redis_lazy
+                from api.redis_client import get_redis as _get_redis_lazy  # noqa: PLC0415
 
                 _redis = await _get_redis_lazy()
                 await _write_heartbeat(
@@ -809,7 +809,7 @@ class ReflectionAgent(MultiStreamAgent):
         today = datetime.now(timezone.utc).date().isoformat()
         redis = None
         try:
-            from api.redis_client import get_redis  # avoid circular import at module level
+            from api.redis_client import get_redis  # noqa: PLC0415  (circular import)
 
             redis = await get_redis()
             budget_used = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
@@ -835,7 +835,7 @@ class ReflectionAgent(MultiStreamAgent):
         reflection_data: dict[str, Any] = {}
 
         try:
-            from api.services.llm_router import call_llm_with_system
+            from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
 
             raw_text, tokens_used, cost_usd = await call_llm_with_system(
                 prompt, REFLECTION_SYSTEM_PROMPT, trace_id
@@ -869,7 +869,7 @@ class ReflectionAgent(MultiStreamAgent):
             try:
                 budget_now = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
                 if budget_now < settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
-                    from api.services.llm_router import call_llm_with_system
+                    from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
 
                     raw_improved, tokens_imp, cost_imp = await call_llm_with_system(
                         prompt, REFLECTION_IMPROVE_PROMPT, trace_id
@@ -953,8 +953,8 @@ class ReflectionAgent(MultiStreamAgent):
 
         # If no evals yet, fall back to in-memory store
         if not evaluations:
-            from api.runtime_state import get_runtime_store
-            from api.runtime_state import is_db_available as _is_db_available
+            from api.runtime_state import get_runtime_store  # noqa: PLC0415
+            from api.runtime_state import is_db_available as _is_db_available  # noqa: PLC0415
 
             if not _is_db_available():
                 evaluations = get_runtime_store().get_trade_evaluations(50)
@@ -962,7 +962,7 @@ class ReflectionAgent(MultiStreamAgent):
         if not evaluations:
             # Synthesize minimal evaluations from recent fills as last resort
             for fill in list(self._recent_fills):
-                from api.services.agents.trade_scorer import score_trade as _st
+                from api.services.agents.trade_scorer import score_trade as _st  # noqa: PLC0415
 
                 try:
                     evaluations.append(_st(fill))
@@ -1135,7 +1135,7 @@ class StrategyProposer(MultiStreamAgent):
 
         # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE
         try:
-            from api.redis_client import get_redis as _get_redis
+            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
 
             _redis = await _get_redis()
             await _write_heartbeat(
@@ -1160,7 +1160,7 @@ class StrategyProposer(MultiStreamAgent):
         Falls back to the original order on any error.
         """
         try:
-            from api.services.llm_router import call_llm_with_system
+            from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
 
             plan_prompt = json.dumps(
                 {"all_hypotheses": all_hypotheses, "strong_hypotheses": strong},
@@ -1435,7 +1435,7 @@ class NotificationAgent(MultiStreamAgent):
 
         if is_db_available():
             try:
-                from api.core.writer.safe_writer import SafeWriter
+                from api.core.writer.safe_writer import SafeWriter  # noqa: PLC0415
 
                 writer = SafeWriter(AsyncSessionFactory)
                 await writer.write_notification(
@@ -1447,7 +1447,7 @@ class NotificationAgent(MultiStreamAgent):
                 )
                 # DB write failed mid-flight — keep the dashboard hydrated by
                 # mirroring to the in-memory store as a best-effort fallback.
-                from api.runtime_state import get_runtime_store
+                from api.runtime_state import get_runtime_store  # noqa: PLC0415
 
                 get_runtime_store().record_notification(notification)
                 log_structured(
@@ -1458,7 +1458,7 @@ class NotificationAgent(MultiStreamAgent):
                     trace_id=notification.get(FieldName.TRACE_ID),
                 )
         else:
-            from api.runtime_state import get_runtime_store
+            from api.runtime_state import get_runtime_store  # noqa: PLC0415
 
             get_runtime_store().record_notification(notification)
 
@@ -1589,9 +1589,7 @@ class ChallengerAgent(MultiStreamAgent):
         max_fills: int = DEFAULT_MAX_FILLS,
         agent_state: AgentStateRegistry | None = None,
     ) -> None:
-        import uuid as _uuid_mod
-
-        self._challenger_id = str(_uuid_mod.uuid4())[:8]
+        self._challenger_id = str(uuid.uuid4())[:8]
         super().__init__(
             bus,
             dlq,

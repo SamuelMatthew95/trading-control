@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, insert, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -182,8 +182,6 @@ class SafeWriter:
                     order_id = order.id  # Capture the actual persisted ID after flush
                 except IntegrityError:
                     # Verify the idempotency key maps to the same existing order
-                    from sqlalchemy import select
-
                     existing = await session.execute(
                         select(Order).where(Order.idempotency_key == idempotency_key)
                     )

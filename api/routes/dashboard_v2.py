@@ -41,6 +41,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
+from api.services.agents.pipeline_agents import ChallengerAgent
 from api.services.metrics_aggregator import MetricsAggregator
 from api.services.redis_store import get_redis_store
 
@@ -1099,8 +1100,6 @@ async def get_recent_events() -> dict[str, Any]:
 
     try:
         async with AsyncSessionFactory() as session:
-            from sqlalchemy import text
-
             result = await session.execute(
                 text("""
                     SELECT id, event_type, entity_type, source, created_at
@@ -2690,8 +2689,6 @@ async def spawn_challenger(
     publishing a summary to the proposals stream.
     """
     try:
-        from api.services.agents.pipeline_agents import ChallengerAgent
-
         event_bus = getattr(request.app.state, "event_bus", None)
         dlq_manager = getattr(request.app.state, "dlq_manager", None)
         agents: list[Any] = getattr(request.app.state, "agents", [])
@@ -2737,8 +2734,6 @@ async def spawn_challenger(
 async def list_challengers(request: Request) -> dict[str, Any]:
     """List all active challenger agent instances."""
     try:
-        from api.services.agents.pipeline_agents import ChallengerAgent
-
         agents: list[Any] = getattr(request.app.state, "agents", [])
         challengers = [a for a in agents if isinstance(a, ChallengerAgent)]
 

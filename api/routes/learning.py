@@ -24,8 +24,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import text
 
 from api.constants import FieldName, GradeType
+from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agents.trade_scorer import compute_learning_metrics
@@ -213,10 +215,6 @@ async def list_trade_evaluations(
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             # trade_evaluations is empty if no STREAM_TRADE_COMPLETED events have been
             # processed yet; bridge to agent_grades so the UI has real scoring data.
@@ -311,10 +309,6 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Trade evaluation not found")
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             # trade_evaluations may not exist during a partial migration; guard
             # each query independently so the agent_grades bridge always runs.
@@ -439,10 +433,6 @@ async def get_learning_metrics() -> dict[str, Any]:
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             # trade_evaluations is the primary source; bridge to agent_grades when
             # the table is empty (no trade completions have cycled through yet).
@@ -525,10 +515,6 @@ async def list_reflections(
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             count_row = await session.execute(text("SELECT COUNT(*) FROM reflections"))
             total = int(count_row.scalar() or 0)
@@ -584,10 +570,6 @@ async def list_strategies(
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             count_row = await session.execute(text("SELECT COUNT(*) FROM strategies"))
             total = int(count_row.scalar() or 0)
@@ -678,10 +660,6 @@ async def get_pipeline_status() -> dict[str, Any]:
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             eval_count, eval_last = 0, None
             try:

@@ -76,7 +76,7 @@ class MultiStreamAgent:
     async def _register_instance(self) -> None:
         """Register this agent instance in the DB. Non-fatal on error."""
         try:
-            from api.services.agents.db_helpers import (
+            from api.services.agents.db_helpers import (  # noqa: PLC0415
                 register_agent_instance,
                 write_agent_lifecycle_event,
             )
@@ -105,7 +105,7 @@ class MultiStreamAgent:
         if self._instance_id is None:
             return
         try:
-            from api.services.agents.db_helpers import (
+            from api.services.agents.db_helpers import (  # noqa: PLC0415
                 retire_agent_instance,
                 write_agent_lifecycle_event,
             )
@@ -175,8 +175,10 @@ class MultiStreamAgent:
         if not self._state_name:
             return
         try:
-            from api.redis_client import get_redis as _get_redis
-            from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
+            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
+            from api.services.agent_heartbeat import (  # noqa: PLC0415
+                write_heartbeat as _write_heartbeat,
+            )
 
             redis = await _get_redis()
             await _write_heartbeat(
@@ -234,7 +236,7 @@ class MultiStreamAgent:
                         # Best-effort event counter on instance row
                         if self._instance_id:
                             try:
-                                from api.services.agents.db_helpers import (
+                                from api.services.agents.db_helpers import (  # noqa: PLC0415
                                     increment_instance_event_count,
                                 )
 
@@ -244,7 +246,7 @@ class MultiStreamAgent:
                     except Exception as exc:  # noqa: BLE001
                         if self._instance_id:
                             try:
-                                from api.services.agents.db_helpers import (
+                                from api.services.agents.db_helpers import (  # noqa: PLC0415
                                     write_agent_lifecycle_event,
                                 )
 

@@ -110,7 +110,7 @@ def _engine_kwargs() -> dict:
     kwargs: dict = {"echo": False, "pool_pre_ping": True}
     if _uses_postgres(database_url):
         try:
-            from api.config import settings as _s
+            from api.config import settings as _s  # noqa: PLC0415
 
             kwargs["pool_size"] = _s.DB_POOL_SIZE
             kwargs["max_overflow"] = _s.DB_MAX_OVERFLOW

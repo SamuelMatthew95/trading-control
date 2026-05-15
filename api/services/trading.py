@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from api.constants import FieldName
+from api.observability import log_structured
 
 try:
     from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
@@ -30,8 +31,6 @@ class TradingService:
         self, symbol: str, price: float, extra_signals: list[dict[str, Any]]
     ) -> dict[str, Any]:
         if not self.orchestrator:
-            from api.observability import log_structured
-
             log_structured(
                 "warning",
                 "MOCK MODE: Trading analysis using mock response",

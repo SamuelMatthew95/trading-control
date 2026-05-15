@@ -46,7 +46,7 @@ def _async_fire_and_forget(coro) -> None:
 async def _record_redis_outcome(outcome: str, latency_ms: float | None = None) -> None:
     # Imported lazily to avoid a circular import (redis_store imports
     # observability which can transitively pull in this module).
-    from api.services.redis_store import get_redis_store
+    from api.services.redis_store import get_redis_store  # noqa: PLC0415
 
     store = get_redis_store()
     if store is None:

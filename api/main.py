@@ -167,7 +167,7 @@ async def lifespan(app: FastAPI):
         app.state.redis_client = redis_client
         # RedisStore powers the REST notifications / decisions / llm-health
         # endpoints. Works in DB mode too — Redis is a hard dependency.
-        from api.services.redis_store import RedisStore
+        from api.services.redis_store import RedisStore  # noqa: PLC0415
 
         redis_store = RedisStore(redis_client)
         app.state.redis_store = redis_store

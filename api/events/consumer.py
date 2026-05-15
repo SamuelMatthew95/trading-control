@@ -62,7 +62,7 @@ class BaseStreamConsumer(ABC):
         if not self._heartbeat_agent_name:
             return
         try:
-            from api.services.agent_heartbeat import write_heartbeat as _hb
+            from api.services.agent_heartbeat import write_heartbeat as _hb  # noqa: PLC0415
 
             await _hb(
                 self.bus.redis,
@@ -107,7 +107,7 @@ class BaseStreamConsumer(ABC):
         self._shutdown_event.clear()
         self._backoff = 1  # Reset backoff
         try:
-            from api.services.agents.db_helpers import (
+            from api.services.agents.db_helpers import (  # noqa: PLC0415
                 register_agent_instance,
                 write_agent_lifecycle_event,
             )
@@ -162,7 +162,7 @@ class BaseStreamConsumer(ABC):
         finally:
             if self._instance_id:
                 try:
-                    from api.services.agents.db_helpers import (
+                    from api.services.agents.db_helpers import (  # noqa: PLC0415
                         retire_agent_instance,
                         write_agent_lifecycle_event,
                     )
@@ -285,7 +285,9 @@ class BaseStreamConsumer(ABC):
                 )
                 if self._instance_id:
                     try:
-                        from api.services.agents.db_helpers import write_agent_lifecycle_event
+                        from api.services.agents.db_helpers import (  # noqa: PLC0415
+                            write_agent_lifecycle_event,
+                        )
 
                         await write_agent_lifecycle_event(
                             pool_name=self.consumer,
@@ -317,7 +319,9 @@ class BaseStreamConsumer(ABC):
                 )
                 if self._instance_id:
                     try:
-                        from api.services.agents.db_helpers import write_agent_lifecycle_event
+                        from api.services.agents.db_helpers import (  # noqa: PLC0415
+                            write_agent_lifecycle_event,
+                        )
 
                         await write_agent_lifecycle_event(
                             pool_name=self.consumer,

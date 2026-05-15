@@ -19,6 +19,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -336,7 +337,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Persist end-to-end trade lifecycle row (best-effort, never raises)
         try:
-            from api.services.agents.db_helpers import upsert_trade_lifecycle
+            from api.services.agents.db_helpers import upsert_trade_lifecycle  # noqa: PLC0415
 
             await upsert_trade_lifecycle(
                 execution_trace_id=trace_id,
@@ -836,8 +837,6 @@ class ExecutionEngine(BaseStreamConsumer):
             return True
 
         try:
-            from zoneinfo import ZoneInfo
-
             et_tz = ZoneInfo("America/New_York")
             now_et = datetime.now(et_tz)
             if now_et.weekday() >= 5:

@@ -251,9 +251,7 @@ async def get_last_reflection() -> dict[str, Any]:
                 return {}
             payload = row[0]
             if isinstance(payload, str):
-                import json as _json
-
-                return _json.loads(payload)
+                return json.loads(payload)
             return payload or {}
     except Exception:
         log_structured("error", "get_last_reflection_failed", exc_info=True)

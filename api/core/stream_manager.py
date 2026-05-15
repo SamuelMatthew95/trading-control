@@ -61,7 +61,7 @@ class StreamManager:
             self.redis_client = redis.from_url(self.settings.REDIS_URL)
 
         if not self.safe_writer:
-            from .db import AsyncSessionFactory
+            from .db import AsyncSessionFactory  # noqa: PLC0415
 
             self.safe_writer = SafeWriter(AsyncSessionFactory)
 
@@ -176,7 +176,7 @@ class StreamManager:
                 # Trigger event-driven monitoring (non-blocking)
                 if stream == STREAM_ORDERS:
                     try:
-                        from api.main import on_message_processed
+                        from api.main import on_message_processed  # noqa: PLC0415
 
                         # Get current lag info
                         stream_info = await self.redis_client.xinfo_stream(stream)
