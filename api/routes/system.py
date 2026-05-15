@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED, FieldName
+from api.runtime_state import is_db_available
 
 from ..config import get_database_url
 from ..core.models import Order, SystemMetrics
@@ -111,6 +112,19 @@ async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> di
 @router.get("/status")
 async def get_system_status():
     """Aggregate system status including stream lag, agent pulse, and database health."""
+    if not is_db_available():
+        stream_lag = await get_stream_lag()
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "memory",
+            "agent_pulse": [],
+            "database_health": {
+                "pending_orders_last_hour": 0,
+                "filled_orders_last_hour": 0,
+                "total_orders_last_hour": 0,
+            },
+            "stream_lag": stream_lag,
+        }
 
     async with _make_session() as session:
         # Agent Pulse - schema compatible for legacy/new agent_logs layouts
@@ -250,6 +264,16 @@ async def stream_agent_logs(
     limit: int = Query(100, description="Maximum number of recent logs to stream"),
 ):
     """Stream agent logs using Server-Sent Events."""
+    if not is_db_available():
+
+        async def _empty_generator():
+            yield f"data: {json.dumps({'mode': 'memory', 'logs': []})}\n\n"
+
+        return StreamingResponse(
+            _empty_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
 
     async def log_generator():
         """SSE generator for agent logs."""
@@ -373,6 +397,8 @@ async def get_system_metrics(
     hours: int = Query(1, description="Hours of history to fetch"),
 ):
     """Get system metrics for monitoring."""
+    if not is_db_available():
+        return {"metrics": [], "count": 0, "mode": "memory"}
 
     async with _make_session() as session:
         since = datetime.now(timezone.utc) - timedelta(hours=hours)
