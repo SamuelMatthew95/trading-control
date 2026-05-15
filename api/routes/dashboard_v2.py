@@ -54,7 +54,7 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
     """Hydrate runtime ledger from Redis decisions/notifications in DB-down mode."""
     store = get_runtime_store()
     diagnostics: dict[str, Any] = {
-        "source": "in_memory",
+        FieldName.SOURCE: "in_memory",
         "hydration_status": "skipped",
         "persistence_source": "memory_only",
         "ledger_source": "runtime_store",
@@ -122,7 +122,7 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
 
         diagnostics["applied_decision_keys"] = len(store.applied_decision_keys)
         if diagnostics["redis_decisions_seen"] > 0 or diagnostics["redis_notifications_seen"] > 0:
-            diagnostics["source"] = "redis_hydrated"
+            diagnostics[FieldName.SOURCE] = "redis_hydrated"
             diagnostics["persistence_source"] = "redis"
         diagnostics["hydration_status"] = "completed"
     except Exception as exc:
@@ -137,7 +137,7 @@ def _attach_runtime_hydration_metadata(
     payload: dict[str, Any], diagnostics: dict[str, Any]
 ) -> dict[str, Any]:
     """Attach consistent hydration/source metadata to runtime payloads."""
-    payload["source"] = diagnostics["source"]
+    payload[FieldName.SOURCE] = diagnostics[FieldName.SOURCE]
     payload["ledger_source"] = diagnostics["ledger_source"]
     payload["persistence_source"] = diagnostics["persistence_source"]
     payload["hydration"] = {
@@ -2776,7 +2776,7 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     db_available = is_db_available()
     return {
         "db_available": db_available,
-        "source": diagnostics["source"],
+        FieldName.SOURCE: diagnostics[FieldName.SOURCE],
         "ledger_source": diagnostics["ledger_source"],
         "persistence_source": diagnostics["persistence_source"],
         "scope": "runtime_store",
