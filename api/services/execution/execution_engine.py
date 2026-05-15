@@ -372,6 +372,57 @@ class ExecutionEngine(BaseStreamConsumer):
                         FieldName.STRATEGY_ID: strategy_id,
                     }
                 )
+                store.upsert_trade_fill(
+                    {
+                        "id": trace_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.ENTRY_PRICE: _entry_price,
+                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.PNL_PERCENT: _pnl_pct,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.EXECUTION_TRACE_ID: trace_id,
+                        FieldName.STATUS: OrderStatus.FILLED,
+                        FieldName.FILLED_AT: _filled_at.isoformat(),
+                    }
+                )
+                # Update position to match the fill (mirrors _process_in_memory logic).
+                _signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
+                _existing_pos = store.positions.get(symbol, {})
+                _existing_signed = float(_existing_pos.get(FieldName.QTY, 0)) * (
+                    1
+                    if str(_existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
+                    in {PositionSide.LONG, OrderSide.BUY}
+                    else -1
+                )
+                _new_signed = _existing_signed + _signed_qty
+                _new_abs_qty = abs(_new_signed)
+                _new_side = (
+                    PositionSide.FLAT
+                    if _new_abs_qty < 1e-9
+                    else (PositionSide.LONG if _new_signed > 0 else PositionSide.SHORT)
+                )
+                if _new_side == PositionSide.FLAT:
+                    store.positions.pop(symbol, None)
+                else:
+                    store.upsert_position(
+                        symbol,
+                        {
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: _new_side,
+                            FieldName.QTY: _new_abs_qty,
+                            FieldName.QUANTITY: _new_abs_qty,
+                            FieldName.ENTRY_PRICE: _entry_price,
+                            FieldName.AVG_COST: _entry_price,
+                            FieldName.LAST_PRICE: _fill_price,
+                            FieldName.MARKET_VALUE: round(_new_abs_qty * _fill_price, 8),
+                            FieldName.UNREALIZED_PNL: 0.0,
+                            FieldName.STRATEGY_ID: strategy_id,
+                        },
+                    )
                 # Publish to the same streams as the normal DB path so GradeAgent,
                 # ICUpdater, ReflectionAgent, and the trade-feed all see the fill.
                 _filled_at_iso = _filled_at.isoformat()
