@@ -158,15 +158,24 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # --- Execution gate 2: weighted decision score -----------------------
         # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
+        # Use explicit falsy-string guard: Redis encodes 0.0 as the string "0.0"
+        # which is truthy in Python, so a plain `or` chain would pick "0.0" over
+        # the 0.5 default — causing the gate to always fail for zero-scored signals.
+        _sc_raw = data.get(FieldName.SIGNAL_CONFIDENCE)
+        _cc_raw = data.get(FieldName.COMPOSITE_SCORE)
+        _cf_raw = data.get(FieldName.CONFIDENCE)
         signal_confidence = float(
-            data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get(FieldName.COMPOSITE_SCORE)
-            or data.get(FieldName.CONFIDENCE)
+            (_sc_raw if _sc_raw not in (None, "", "0", "0.0") else None)
+            or (_cc_raw if _cc_raw not in (None, "", "0", "0.0") else None)
+            or (_cf_raw if _cf_raw not in (None, "", "0", "0.0") else None)
             or 0.5
         )
         # Use reasoning_score if present; fall back to signal_confidence so
         # legacy test payloads (no reasoning_score field) still clear the gate.
-        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
+        _rs_raw = data.get(FieldName.REASONING_SCORE)
+        reasoning_score = float(
+            (_rs_raw if _rs_raw not in (None, "", "0", "0.0") else None) or signal_confidence
+        )
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         # Use the same threshold in paper and live so a strategy that loses in
         # paper does not magically clear a higher bar in live. Previously paper
@@ -774,20 +783,54 @@ class ExecutionEngine(BaseStreamConsumer):
             return
         trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
 
+        log_structured(
+            "info",
+            "execution_engine_decision_received",
+            action=side,
+            symbol=symbol,
+            price=price,
+            qty=qty,
+            trace_id=trace_id,
+        )
+
         if side in NO_ORDER_ACTIONS:
+            log_structured(
+                "info",
+                "execution_skipped_advisory_action",
+                symbol=symbol,
+                action=side,
+                trace_id=trace_id,
+            )
             await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
             return
 
+        raw_signal_conf = data.get(FieldName.SIGNAL_CONFIDENCE)
+        raw_composite = data.get(FieldName.COMPOSITE_SCORE)
+        raw_confidence = data.get(FieldName.CONFIDENCE)
         signal_confidence = float(
-            data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get(FieldName.COMPOSITE_SCORE)
-            or data.get(FieldName.CONFIDENCE)
+            (raw_signal_conf if raw_signal_conf not in (None, "", "0", "0.0") else None)
+            or (raw_composite if raw_composite not in (None, "", "0", "0.0") else None)
+            or (raw_confidence if raw_confidence not in (None, "", "0", "0.0") else None)
             or 0.5
         )
-        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
+        raw_reasoning = data.get(FieldName.REASONING_SCORE)
+        reasoning_score = float(
+            (raw_reasoning if raw_reasoning not in (None, "", "0", "0.0") else None)
+            or signal_confidence
+        )
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         threshold = EXECUTION_DECISION_THRESHOLD
         if final_score < threshold:
+            log_structured(
+                "info",
+                "execution_gated_score_below_threshold",
+                symbol=symbol,
+                final_score=round(final_score, 4),
+                threshold=threshold,
+                signal_confidence=round(signal_confidence, 4),
+                reasoning_score=round(reasoning_score, 4),
+                trace_id=trace_id,
+            )
             await self._write_idle_heartbeat(
                 symbol,
                 f"gated:score score={final_score:.3f}<{threshold}",
@@ -796,6 +839,12 @@ class ExecutionEngine(BaseStreamConsumer):
             return
 
         if not self._is_market_open(symbol):
+            log_structured(
+                "info",
+                "execution_blocked_market_closed",
+                symbol=symbol,
+                trace_id=trace_id,
+            )
             await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
             return
 
