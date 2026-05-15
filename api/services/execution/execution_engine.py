@@ -207,6 +207,7 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
+        _db_exception: Exception | None = None
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
                 text(
@@ -318,11 +319,25 @@ class ExecutionEngine(BaseStreamConsumer):
                     },
                 )
                 await session.commit()
-            except Exception:
+            except Exception as exc:
                 await session.rollback()
-                raise
+                _db_exception = exc
             finally:
                 await self.redis.delete(lock_key)
+
+        if _db_exception is not None:
+            try:
+                raise _db_exception
+            except Exception:
+                log_structured(
+                    "error",
+                    "execution_db_path_failed_using_memory_fallback",
+                    symbol=symbol,
+                    trace_id=trace_id,
+                    exc_info=True,
+                )
+            await self._process_in_memory(data)
+            return
 
         # Compute realized PnL from prior position snapshot
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
