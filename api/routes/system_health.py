@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.constants import ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY, FieldName
 
-from ..config import settings
+from ..config import get_database_url
 from ..core.models import Event, Order, Position
 from ..observability import log_structured
 from ..redis_client import get_redis
@@ -35,7 +35,7 @@ _session_factory = None
 def _get_session_factory():
     global _engine, _session_factory
     if _session_factory is None:
-        url = (settings.DATABASE_URL or "").replace("postgresql://", "postgresql+asyncpg://")
+        url = get_database_url()
         _engine = create_async_engine(url, pool_size=10, max_overflow=20)
         _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     return _session_factory

@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED, FieldName
 
-from ..config import settings
+from ..config import get_database_url
 from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
 from ..redis_client import get_redis
@@ -36,7 +36,7 @@ _session_factory = None
 def _get_session_factory():
     global _engine, _session_factory
     if _session_factory is None:
-        url = (settings.DATABASE_URL or "").replace("postgresql://", "postgresql+asyncpg://")
+        url = get_database_url()
         _engine = create_async_engine(url, pool_size=10, max_overflow=20)
         _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     return _session_factory
@@ -96,7 +96,12 @@ async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> di
         else:
             await redis_client.set(REDIS_KEY_TRADING_PAUSED, "1")
             log_structured("info", "system_trading_mode_paused_via_api")
-        return {"status": status, "ok": True}
+        # Report the actual effective status — kill switch takes precedence over the
+        # learning-loop pause key, so a "resume" request must not claim trading is
+        # active when the manual kill switch is still engaged.
+        kill_switch = await redis_client.get(REDIS_KEY_KILL_SWITCH)
+        effective_status = "KILL_SWITCH" if kill_switch == "1" else status
+        return {"status": effective_status, "ok": True}
     except HTTPException:
         raise
     except Exception as exc:
