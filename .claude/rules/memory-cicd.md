@@ -292,3 +292,29 @@ tests/integration/test_{flow}.py      # end-to-end flows
 ```
 
 Every bug fix must include a regression test that would have caught the bug.
+
+## Bug Documentation (MANDATORY — no prompt needed)
+
+Every time a bug is found and fixed, add an entry to the relevant file in
+`docs/troubleshooting/` **as part of the same commit**. Do not wait to be asked.
+
+Pick the right file:
+- `docs/troubleshooting/notifications.md` — notification pipeline, WebSocket delivery
+- `docs/troubleshooting/execution-engine.md` — order execution, score parsing, fills
+- `docs/troubleshooting/system-routes.md` — `/system/*` endpoints, stream lag, memory mode
+- New subsystem → create `docs/troubleshooting/<subsystem>.md` and add it to `docs/troubleshooting/README.md`
+
+Required entry format:
+```markdown
+## <Short title — what broke>
+
+**Symptom:** What the operator or developer observed.
+
+**Root cause:** Why it happened (one sentence).
+
+**Fix:** What changed and where (`file:line` if helpful).
+
+**Regression test:** `tests/path/test_file.py::test_function_name`
+```
+
+This keeps the troubleshooting folder self-updating — no separate "update the docs" step required.
