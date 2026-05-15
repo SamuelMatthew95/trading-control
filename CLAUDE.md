@@ -291,6 +291,7 @@ Operator-declared "no Postgres" runtime. Effects:
 - **Reusable skills**: Use `.claude/skills/` — `run-ci` (full pipeline), `schema-check` (schema audit), `karpathy-guidelines` (think/simplify/surgical/verify), `reverse-prompt` (clarify before coding)
 - **XML tags**: Use `<tags>` in prompts with 2+ components — Claude reads them with greater precision
 - **Subdirectory context**: `api/CLAUDE.md` and `frontend/CLAUDE.md` load lazily when working in those dirs
+- **Bug log**: When a bug is found and fixed, add it to the right file in `docs/troubleshooting/` — symptom, root cause, regression test. Pick the closest existing file (`notifications.md`, `execution-engine.md`, `system-routes.md`) or create a new one for a new subsystem.
 
 ## Additional Rules (Always Loaded)
 @./.claude/rules/memory-trading.md     # Alpaca trading specifics

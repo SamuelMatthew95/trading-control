@@ -219,6 +219,7 @@ See [docs/deployment-guide.md](docs/deployment-guide.md) for the full checklist 
 | Resource | Link |
 |---|---|
 | Architecture | [docs/architecture.md](docs/architecture.md) |
+| Troubleshooting | [docs/troubleshooting/](docs/troubleshooting/README.md) |
 | Development Guide | [docs/development-guide.md](docs/development-guide.md) |
 | Deployment Guide | [docs/deployment-guide.md](docs/deployment-guide.md) |
 | Agent Guide | [docs/AGENTS.md](docs/AGENTS.md) |
