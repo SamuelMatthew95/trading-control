@@ -42,9 +42,12 @@ SignalGenerator     → signals
 ReasoningAgent      → decisions
      │
      ▼
+ExecutionEngine     → executions / trade_performance / trade_lifecycle
+     │
+     ▼
 GradeAgent          → agent_grades
      │
-     ├── ICUpdater          → ic_weights
+     ├── ICUpdater          → factor_ic_history
      ├── ReflectionAgent    → reflection_outputs
      ├── StrategyProposer   → proposals
      └── NotificationAgent  → notifications
@@ -55,9 +58,21 @@ GradeAgent          → agent_grades
 | Stream | Producer | Consumer(s) |
 |---|---|---|
 | `market_ticks` | Price poller (Alpaca) | SignalGenerator |
+| `market_events` | Price poller (Alpaca) | Dashboard/WS |
 | `signals` | SignalGenerator | ReasoningAgent |
-| `decisions` | ReasoningAgent | GradeAgent |
-| `graded_decisions` | GradeAgent | ICUpdater, ReflectionAgent, StrategyProposer, NotificationAgent |
+| `decisions` | ReasoningAgent, RiskGuardian | ExecutionEngine |
+| `executions` | ExecutionEngine | GradeAgent, ICUpdater, NotificationAgent |
+| `trade_performance` | ExecutionEngine | GradeAgent, ICUpdater, ReflectionAgent |
+| `trade_completed` | ExecutionEngine (round-trips only) | GradeAgent |
+| `trade_lifecycle` | ExecutionEngine | Dashboard/WS |
+| `agent_grades` | GradeAgent | Dashboard |
+| `factor_ic_history` | ICUpdater | ReflectionAgent |
+| `reflection_outputs` | ReflectionAgent | StrategyProposer |
+| `proposals` | StrategyProposer | NotificationAgent |
+| `notifications` | NotificationAgent | Dashboard/WS |
+| `risk_alerts` | RiskGuardian, AgentSupervisor | NotificationAgent |
+| `agent_logs` | All agents | NotificationAgent |
+| `dlq` | DLQManager | DLQManager (retry) |
 
 ### Agent responsibilities
 
@@ -105,31 +120,30 @@ api/
 ├── main.py                      # App wiring, middleware, router registration, startup
 ├── database.py                  # Async engine, session factory, health checks
 ├── config.py                    # Pydantic settings — all env vars live here
+├── constants.py                 # ALL Redis keys, TTLs, agent names, FieldName enum
 ├── observability.py             # log_structured() — the only logging function to use
+├── runtime_state.py             # is_db_available() routing switch + InMemoryStore
+├── schema_version.py            # DB_SCHEMA_VERSION constant ("v3")
 ├── events/
-│   └── bus.py                   # Redis Streams EventBus (xread, xadd, xgroup_create)
-├── routes/                      # 13 HTTP route modules (one file per feature)
+│   └── bus.py                   # Redis Streams EventBus — DEFAULT_GROUP = "workers"
+├── routes/                      # HTTP route modules (one file per feature)
 │   ├── health.py
-│   ├── analyze.py
-│   ├── trades.py
-│   ├── performance.py
-│   ├── dashboard.py
-│   ├── feedback.py
-│   ├── monitoring.py
-│   ├── system.py
-│   ├── system_health.py
-│   ├── dlq.py
-│   └── ws.py
+│   ├── system.py                # /system/* observability + SSE log stream
+│   ├── dashboard_v2.py
+│   ├── ws.py
+│   └── ...
 ├── services/
-│   ├── event_pipeline.py        # Redis Streams → transform → WebSocket
-│   ├── persistence_routing.py   # Explicit DB/MEMORY/SKIP route selection for pipeline writes
-│   └── agents/
-│       ├── pipeline_agents.py   # GradeAgent, ICUpdater, ReflectionAgent, StrategyProposer, NotificationAgent
-│       └── reasoning_agent.py   # LLM-powered ReasoningAgent
+│   ├── agent_heartbeat.py       # Shared heartbeat writer (Redis + Postgres)
+│   ├── redis_store.py           # RedisStore — notifications/decisions/llm_metrics lists
+│   ├── metrics_aggregator.py    # DB/memory snapshot for dashboard hydration
+│   └── execution/
+│       ├── execution_engine.py  # Orchestrator — process() delegates to sub-modules
+│       ├── position_math.py     # Pure PnL / position-delta functions (no IO)
+│       ├── fill_publisher.py    # FillContext dataclass + publish_fill_events()
+│       ├── order_writer.py      # Session-level DB write helpers (insert/update/upsert)
+│       └── decision_utils.py    # extract_decision_scores(), _as_score() helpers
 └── core/
-    ├── db/                      # Session management, migrations
-    └── writer/
-        └── safe_writer.py       # The ONLY authorized write path to the database
+    └── models.py                # SQLAlchemy ORM models (Order, Position, SystemMetrics, …)
 ```
 
 ## Request flow

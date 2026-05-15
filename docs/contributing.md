@@ -42,7 +42,8 @@ ruff format --check .
 ruff check . --select=E9,F63,F7,F82
 
 # 4. Full test suite
-pytest tests/ -v --tb=short
+pytest tests/core tests/api -v --tb=short
+pytest tests/integration -v --tb=short
 
 # 5. No print statements
 grep -rn "^[[:space:]]*print(" api/ --include="*.py" | grep -v ".pyc"
@@ -59,7 +60,8 @@ Before committing or opening a PR, always run this exact sequence:
 ruff check . --fix
 ruff format .
 ruff format --check .
-pytest tests/ -v --tb=short
+pytest tests/core tests/api -v --tb=short
+pytest tests/integration -v --tb=short
 ```
 
 If `ruff format --check .` prints `Would reformat: ...`, do **not** commit yet.
@@ -68,7 +70,8 @@ Run `ruff format .` and re-run the full sequence until everything is green.
 ## PR checklist
 
 - [ ] Scope is focused and understandable.
-- [ ] All tests pass (`pytest tests/ -v --tb=short`).
+- [ ] All tests pass (`pytest tests/core tests/api -v --tb=short
+pytest tests/integration -v --tb=short`).
 - [ ] Ruff lint and format pass.
 - [ ] No `print()` statements in `api/`.
 - [ ] Docs updated (`README.md`, `docs/` as needed).

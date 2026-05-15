@@ -10,7 +10,8 @@ For **every** code change (especially Codex/agent-authored changes), run this ex
 ruff check . --fix
 ruff format .
 ruff format --check .
-pytest tests/ -v --tb=short
+pytest tests/core tests/api -v --tb=short
+pytest tests/integration -v --tb=short
 ```
 
 Rules:
