@@ -208,15 +208,27 @@ class _MemoryModeRedis:
 
 
 @pytest.mark.asyncio
-async def test_performance_trends_falls_back_when_query_fails(monkeypatch):
+async def test_performance_trends_falls_back_to_runtime_store_when_query_fails(monkeypatch):
+    """DB failure should return runtime store data, not empty zeros."""
     _enable_db(monkeypatch)
+    store = InMemoryStore()
+    store.apply_decision(
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "pt1"}
+    )
+    store.apply_decision(
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "pt2"}
+    )
+    set_runtime_store(store)
     monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+
     payload = await dashboard_v2.get_performance_trends()
 
-    assert payload["summary"]["total_trades"] == 0
+    assert payload["source"] == "db_error"
+    assert payload["summary"]["total_trades"] > 0
+    assert payload["summary"]["total_pnl"] > 0
     assert payload["daily_pnl"] == []
     assert payload["grade_trend"] == []
-    assert payload["error"] == "performance_trends_unavailable"
+    assert "error" not in payload
 
 
 @pytest.mark.asyncio
