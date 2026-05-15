@@ -2462,53 +2462,58 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
 
 
 @router.get("/performance-trends")
+def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[str, Any]:
+    """Build a performance-trends payload from the runtime store (no DB needed)."""
+    store = get_runtime_store()
+    paired = store.paired_pnl_payload()
+    summary_data = paired["summary"]
+    orders = list(store.orders)
+    total_trades = summary_data["closed_trades"]
+    wins = summary_data["winning_trades"]
+    losses = total_trades - wins
+    avg_win = 0.0
+    avg_loss = 0.0
+    if wins > 0:
+        win_pnls = [
+            float(o.get(FieldName.PNL) or 0.0)
+            for o in orders
+            if float(o.get(FieldName.PNL) or 0.0) > 0
+        ]
+        avg_win = round(sum(win_pnls) / wins, 2) if win_pnls else 0.0
+    if losses > 0:
+        loss_pnls = [
+            float(o.get(FieldName.PNL) or 0.0)
+            for o in orders
+            if float(o.get(FieldName.PNL) or 0.0) < 0
+        ]
+        avg_loss = round(sum(loss_pnls) / losses, 2) if loss_pnls else 0.0
+    return {
+        "summary": {
+            "total_pnl": summary_data["total_pnl"],
+            "total_trades": total_trades,
+            "win_rate": round(summary_data["win_rate_percent"] / 100.0, 4),
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "best_trade": round(
+                max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
+            ),
+            "worst_trade": round(
+                min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
+            ),
+        },
+        "daily_pnl": [],
+        "grade_trend": [],
+        "equity_curve": list(store.equity_curve[-200:]),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        "has_data": bool(orders or store.open_positions()),
+    }
+
+
 async def get_performance_trends() -> dict[str, Any]:
     """Return agent grade history and daily P&L for the last 30 days."""
     if not is_db_available():
-        store = get_runtime_store()
-        paired = store.paired_pnl_payload()
-        summary_data = paired["summary"]
-        orders = list(store.orders)
-        total_trades = summary_data["closed_trades"]
-        wins = summary_data["winning_trades"]
-        losses = total_trades - wins
-        avg_win = 0.0
-        avg_loss = 0.0
-        if wins > 0:
-            win_pnls = [
-                float(o.get(FieldName.PNL) or 0.0)
-                for o in orders
-                if float(o.get(FieldName.PNL) or 0.0) > 0
-            ]
-            avg_win = round(sum(win_pnls) / wins, 2) if win_pnls else 0.0
-        if losses > 0:
-            loss_pnls = [
-                float(o.get(FieldName.PNL) or 0.0)
-                for o in orders
-                if float(o.get(FieldName.PNL) or 0.0) < 0
-            ]
-            avg_loss = round(sum(loss_pnls) / losses, 2) if loss_pnls else 0.0
-        return {
-            "summary": {
-                "total_pnl": summary_data["total_pnl"],
-                "total_trades": total_trades,
-                "win_rate": round(summary_data["win_rate_percent"] / 100.0, 4),
-                "avg_win": avg_win,
-                "avg_loss": avg_loss,
-                "best_trade": round(
-                    max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
-                ),
-                "worst_trade": round(
-                    min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
-                ),
-            },
-            "daily_pnl": [],
-            "grade_trend": [],
-            "equity_curve": list(store.equity_curve[-200:]),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-            "has_data": bool(orders or store.open_positions()),
-        }
+        return _performance_trends_from_runtime_store()
 
     try:
         async with AsyncSessionFactory() as session:
@@ -2597,7 +2602,7 @@ async def get_performance_trends() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "performance_trends_failed", exc_info=True)
-        return _performance_trends_empty_payload(error="performance_trends_unavailable")
+        return _performance_trends_from_runtime_store(source="db_error")
 
 
 # ---------------------------------------------------------------------------
