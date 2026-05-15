@@ -2461,7 +2461,6 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
 # ---------------------------------------------------------------------------
 
 
-@router.get("/performance-trends")
 def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[str, Any]:
     """Build a performance-trends payload from the runtime store (no DB needed)."""
     store = get_runtime_store()
@@ -2510,6 +2509,7 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
     }
 
 
+@router.get("/performance-trends")
 async def get_performance_trends() -> dict[str, Any]:
     """Return agent grade history and daily P&L for the last 30 days."""
     if not is_db_available():
