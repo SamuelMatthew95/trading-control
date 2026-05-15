@@ -14,12 +14,11 @@ import aiohttp
 from sqlalchemy import text
 
 from api.config import settings
-from api.constants import FieldName
+from api.constants import EMBED_DIMENSIONS, FieldName
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 
-EMBED_DIMENSIONS = 1536
 _OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
 
 

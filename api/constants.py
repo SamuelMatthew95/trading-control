@@ -511,6 +511,7 @@ TICK_INTERVAL_SECONDS: Final[float] = 0.25
 MAX_BACKOFF_SECONDS: Final[int] = 60
 LARGE_ORDER_THRESHOLD: Final[float] = 10.0  # qty threshold for VWAP slicing (e.g. 10 BTC)
 VECTOR_SEARCH_LIMIT: Final[int] = 5
+EMBED_DIMENSIONS: Final[int] = 1536  # pgvector column width — embedding vector length
 STRATEGY_MAP_REFRESH_SECONDS: Final[int] = 300
 IC_LOOKBACK_DAYS: Final[int] = int(settings.IC_LOOKBACK_DAYS)
 SCORE_BUY_THRESHOLD: Final[float] = 0.6
@@ -536,6 +537,10 @@ LLM_METRICS_WINDOW_SECONDS: Final[int] = 300  # 5 minutes
 # Max call records kept in the in-memory metrics ring buffer
 LLM_METRICS_MAX_RECORDS: Final[int] = 200
 MAX_CONSUMER_LAG_ALERT: Final[int] = 5000  # 5 seconds lag alert
+# Per-stream health thresholds — MetricsAggregator marks a stream stale / lagging.
+STALE_THRESHOLD_SECONDS: Final[int] = 30  # no update in 30s → stale
+CRITICAL_LAG_MS: Final[int] = 5000  # lag > 5s → critical
+WARNING_LAG_MS: Final[int] = 1000  # lag > 1s → warning
 PROCESS_TIMEOUT_SECONDS: Final[int] = 120  # Max time for a single message process() call
 SUPERVISOR_CHECK_INTERVAL_SECONDS: Final[int] = 30  # AgentSupervisor health-check cadence
 SUPERVISOR_MAX_RESTARTS_PER_WINDOW: Final[int] = 3  # Prevent restart thrashing per agent

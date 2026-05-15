@@ -5,22 +5,29 @@ Provides clean, normalized metrics for the UI and eliminates NaN issues.
 Computes lag per stream, system health, and PnL safely.
 """
 
+import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..constants import FieldName, LogType, OrderSide, OrderStatus, PositionSide
+from ..constants import (
+    CRITICAL_LAG_MS,
+    REDIS_KEY_PRICES,
+    STALE_THRESHOLD_SECONDS,
+    WARNING_LAG_MS,
+    FieldName,
+    LogType,
+    OrderSide,
+    OrderStatus,
+    PositionSide,
+)
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 from ..runtime_state import get_runtime_store
 from .notification_summary import compute_notification_summary
-
-# Health validation thresholds
-STALE_THRESHOLD_SECONDS = 30  # Mark stream as stale if no update in 30s
-CRITICAL_LAG_MS = 5000  # Mark stream as critical if lag > 5 seconds
-WARNING_LAG_MS = 1000  # Mark stream as warning if lag > 1 second
 
 
 class MetricsAggregator:
@@ -619,10 +626,8 @@ class MetricsAggregator:
                 for row in grades_result:
                     metrics_val = row[3]
                     if isinstance(metrics_val, str):
-                        import json as _json
-
                         try:
-                            metrics_val = _json.loads(metrics_val)
+                            metrics_val = json.loads(metrics_val)
                         except Exception:
                             metrics_val = {}
                     learning_events.append(
@@ -660,10 +665,8 @@ class MetricsAggregator:
                 for row in proposals_result:
                     p = row[1]
                     if isinstance(p, str):
-                        import json as _json
-
                         try:
-                            p = _json.loads(p)
+                            p = json.loads(p)
                         except Exception:
                             p = {}
                     if not isinstance(p, dict):
@@ -744,10 +747,8 @@ class MetricsAggregator:
                 for row in notif_result:
                     payload = row[0]
                     if isinstance(payload, str):
-                        import json as _json
-
                         try:
-                            payload = _json.loads(payload)
+                            payload = json.loads(payload)
                         except Exception:
                             payload = {}
                     if not isinstance(payload, dict):
@@ -815,8 +816,6 @@ class MetricsAggregator:
         Open positions are read from ``positions`` and enriched with current price
         from Redis (when ``redis_client`` is provided) to show unrealized P&L.
         """
-        import json as _json
-
         if self._using_memory_store():
             return self._memory_paired_pnl()
 
@@ -892,11 +891,9 @@ class MetricsAggregator:
             current_price = avg_cost  # fallback
             if redis_client is not None:
                 try:
-                    from api.constants import REDIS_KEY_PRICES
-
                     raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
                     if raw:
-                        price_data = _json.loads(raw)
+                        price_data = json.loads(raw)
                         current_price = float(
                             price_data.get(FieldName.PRICE)
                             or price_data.get(FieldName.LAST_PRICE)
@@ -955,7 +952,6 @@ class MetricsAggregator:
         Returns:
             Sanitized snapshot with no NaN values
         """
-        import math
 
         def sanitize_value(value):
             if isinstance(value, float):
