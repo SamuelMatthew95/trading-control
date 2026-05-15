@@ -9,18 +9,18 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.constants import FieldName
+from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED, FieldName
 
-from ..core.config import get_settings
+from ..config import settings
 from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
 from ..redis_client import get_redis
@@ -28,19 +28,79 @@ from ..redis_client import get_redis
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
 
-settings = get_settings()
+# Database connection — built lazily so import succeeds when DATABASE_URL is None
+_engine = None
+_session_factory = None
 
-# Database connection
-database_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-engine = create_async_engine(database_url, pool_size=10, max_overflow=20)
-session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+def _get_session_factory():
+    global _engine, _session_factory
+    if _session_factory is None:
+        url = (settings.DATABASE_URL or "").replace("postgresql://", "postgresql+asyncpg://")
+        _engine = create_async_engine(url, pool_size=10, max_overflow=20)
+        _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    return _session_factory
+
+
+# Legacy alias used by get_system_status below
+def _make_session():
+    return _get_session_factory()()
+
+
+@router.get("/trading-mode")
+async def get_trading_mode() -> dict[str, Any]:
+    """Simple Redis-backed trading status — works without DB.
+
+    Returns "PAUSED" when the learning-loop circuit breaker is active or
+    the kill switch is set, "TRADING" otherwise.
+    """
+    try:
+        redis_client = await get_redis()
+        kill_switch = await redis_client.get(REDIS_KEY_KILL_SWITCH)
+        trading_paused = await redis_client.get(REDIS_KEY_TRADING_PAUSED)
+        if kill_switch == "1":
+            status = "KILL_SWITCH"
+        elif trading_paused == "1":
+            status = "PAUSED"
+        else:
+            status = "TRADING"
+        return {
+            "status": status,
+            "kill_switch_active": kill_switch == "1",
+            "circuit_breaker_active": trading_paused == "1",
+        }
+    except Exception:
+        log_structured("warning", "system_trading_mode_check_failed", exc_info=True)
+        return {"status": "TRADING", "kill_switch_active": False, "circuit_breaker_active": False}
+
+
+@router.post("/trading-mode")
+async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> dict[str, Any]:
+    """Pause or resume trading via the learning-loop circuit breaker key.
+
+    POST body: {"status": "TRADING"} to resume, {"status": "PAUSED"} to pause.
+    """
+    if body is None:
+        body = {}
+    status = str(body.get(FieldName.STATUS, "TRADING")).upper()
+    try:
+        redis_client = await get_redis()
+        if status == "TRADING":
+            await redis_client.delete(REDIS_KEY_TRADING_PAUSED)
+            log_structured("info", "system_trading_mode_resumed_via_api")
+        else:
+            await redis_client.set(REDIS_KEY_TRADING_PAUSED, "1")
+            log_structured("info", "system_trading_mode_paused_via_api")
+        return {"status": status if status in ("TRADING", "PAUSED") else "TRADING", "ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from None
 
 
 @router.get("/status")
 async def get_system_status():
     """Aggregate system status including stream lag, agent pulse, and database health."""
 
-    async with session_factory() as session:
+    async with _make_session() as session:
         # Agent Pulse - schema compatible for legacy/new agent_logs layouts
         col_result = await session.execute(
             text(
@@ -183,7 +243,7 @@ async def stream_agent_logs(
         """SSE generator for agent logs."""
         try:
             # Get initial logs
-            async with session_factory() as session:
+            async with _make_session() as session:
                 col_result = await session.execute(
                     text(
                         """
@@ -252,7 +312,7 @@ async def stream_agent_logs(
                 while True:
                     await asyncio.sleep(1)  # Log streaming interval - allowed
 
-                    async with session_factory() as session:
+                    async with _make_session() as session:
                         poll_sql = base_sql.replace(
                             f" ORDER BY {time_col} DESC LIMIT :limit",
                             f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
@@ -302,7 +362,7 @@ async def get_system_metrics(
 ):
     """Get system metrics for monitoring."""
 
-    async with session_factory() as session:
+    async with _make_session() as session:
         since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         query = select(SystemMetrics).where(SystemMetrics.timestamp >= since)
@@ -335,7 +395,7 @@ async def health_check():
     """Simple health check endpoint."""
     try:
         # Test database connection
-        async with session_factory() as session:
+        async with _make_session() as session:
             await session.execute(text("SELECT 1"))
 
         # Test Redis connection
