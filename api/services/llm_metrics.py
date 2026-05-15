@@ -14,6 +14,7 @@ from api.constants import (
     LLM_CALL_DELAY_MS,
     LLM_METRICS_MAX_RECORDS,
     LLM_METRICS_WINDOW_SECONDS,
+    FieldName,
     LLMCallResult,
 )
 
@@ -163,13 +164,13 @@ class LLMMetricsCollector:
             "grade_adjusted_delay": grade_adjusted,
             "last_error": {
                 "kind": last_error_kind,
-                "message": last_error_message,
+                FieldName.MESSAGE: last_error_message,
                 "at": last_error_at,
             },
             "recent_results": [
                 {
                     "result": r.result,
-                    "latency_ms": round(r.latency_ms)
+                    FieldName.LATENCY_MS: round(r.latency_ms)
                     if r.result == LLMCallResult.SUCCESS
                     else None,
                 }
