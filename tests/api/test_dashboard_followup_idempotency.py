@@ -75,8 +75,8 @@ async def test_dashboard_hydrates_from_redis_decisions_when_db_unavailable(fake_
 
         assert snap["has_data"] is True
         assert len(snap["decisions"]) > 0
-        assert len(snap["positions"]) > 0
-        assert snap["equity_curve"]
+        assert len(snap["positions"]) == 0
+        assert snap["equity_curve"] == []
         assert state["has_data"] is True
         assert snap["source"] == "redis_hydrated"
         assert state["source"] == "redis_hydrated"

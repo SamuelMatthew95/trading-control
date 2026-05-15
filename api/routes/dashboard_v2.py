@@ -98,12 +98,12 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
                 return f"id:{notif_id}"
             trace_id = str(item.get(FieldName.TRACE_ID) or "").strip()
             notif_type = str(
-                item.get(FieldName.TYPE) or item.get("notification_type") or ""
+                item.get(FieldName.TYPE) or item.get(FieldName.NOTIFICATION_TYPE) or ""
             ).strip()
             action = str(item.get(FieldName.ACTION) or "").strip().upper()
             symbol = str(item.get(FieldName.SYMBOL) or "").strip().upper()
-            title = str(item.get("title") or "").strip()
-            body = str(item.get("body") or item.get("message") or "").strip()
+            title = str(item.get(FieldName.TITLE) or "").strip()
+            body = str(item.get(FieldName.BODY) or item.get(FieldName.MESSAGE) or "").strip()
             stable = "|".join([trace_id, notif_type, action, symbol, title, body])
             if stable.strip("|"):
                 return f"stable:{stable}"
