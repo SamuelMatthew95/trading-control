@@ -173,6 +173,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
     wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
     losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
+    equity_curve = list(store.equity_curve[-200:])
 
     return {
         "pnl": orders[-100:],
@@ -187,6 +188,8 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
         "worst_trade": round(
             min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
         ),
+        "equity_curve": equity_curve,
+        "has_data": bool(orders or open_positions or equity_curve),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "in_memory",
     }
@@ -2462,7 +2465,50 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
 async def get_performance_trends() -> dict[str, Any]:
     """Return agent grade history and daily P&L for the last 30 days."""
     if not is_db_available():
-        return _performance_trends_empty_payload(source="in_memory")
+        store = get_runtime_store()
+        paired = store.paired_pnl_payload()
+        summary_data = paired["summary"]
+        orders = list(store.orders)
+        total_trades = summary_data["closed_trades"]
+        wins = summary_data["winning_trades"]
+        losses = total_trades - wins
+        avg_win = 0.0
+        avg_loss = 0.0
+        if wins > 0:
+            win_pnls = [
+                float(o.get(FieldName.PNL) or 0.0)
+                for o in orders
+                if float(o.get(FieldName.PNL) or 0.0) > 0
+            ]
+            avg_win = round(sum(win_pnls) / wins, 2) if win_pnls else 0.0
+        if losses > 0:
+            loss_pnls = [
+                float(o.get(FieldName.PNL) or 0.0)
+                for o in orders
+                if float(o.get(FieldName.PNL) or 0.0) < 0
+            ]
+            avg_loss = round(sum(loss_pnls) / losses, 2) if loss_pnls else 0.0
+        return {
+            "summary": {
+                "total_pnl": summary_data["total_pnl"],
+                "total_trades": total_trades,
+                "win_rate": round(summary_data["win_rate_percent"] / 100.0, 4),
+                "avg_win": avg_win,
+                "avg_loss": avg_loss,
+                "best_trade": round(
+                    max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
+                ),
+                "worst_trade": round(
+                    min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
+                ),
+            },
+            "daily_pnl": [],
+            "grade_trend": [],
+            "equity_curve": list(store.equity_curve[-200:]),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+            "has_data": bool(orders or store.open_positions()),
+        }
 
     try:
         async with AsyncSessionFactory() as session:
@@ -2774,15 +2820,34 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     paired_summary = paired.get("summary", {})
     summary_closed_trades = int(paired_summary.get("closed_trades", 0) or 0)
     db_available = is_db_available()
+    equity_curve = snapshot.get("equity_curve", [])
+    open_positions_list = snapshot.get("positions", [])
+    decisions_list = snapshot.get("decisions", [])
+    notifications_list = snapshot.get("notifications", [])
+    has_data = bool(decisions_list or open_positions_list or snapshot.get("orders"))
     return {
         "db_available": db_available,
         FieldName.SOURCE: diagnostics[FieldName.SOURCE],
+        "has_data": has_data,
+        "last_error": diagnostics["last_error"],
         "ledger_source": diagnostics["ledger_source"],
         "persistence_source": diagnostics["persistence_source"],
         "scope": "runtime_store",
-        "has_data": bool(
-            snapshot.get("decisions") or snapshot.get("positions") or snapshot.get("orders")
-        ),
+        "runtime_store": {
+            "decisions_count": len(decisions_list),
+            "notifications_count": len(notifications_list),
+            "open_positions": len(open_positions_list),
+            "closed_trades": summary_closed_trades,
+            "equity_points": len(equity_curve),
+        },
+        "pnl": {
+            "total_pnl": paired_summary.get("total_pnl", 0.0),
+            "realized_pnl": paired_summary.get("realized_pnl", 0.0),
+            "unrealized_pnl": paired_summary.get(FieldName.UNREALIZED_PNL, 0.0),
+            "win_rate": round(paired_summary.get("win_rate_percent", 0.0) / 100.0, 4),
+            "active_positions": paired_summary.get("open_positions", 0),
+            "equity_curve_points": len(equity_curve),
+        },
         "counts": {
             "redis_hydration_status": diagnostics["hydration_status"],
             "redis_decisions_seen": diagnostics["redis_decisions_seen"],
@@ -2790,16 +2855,15 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
             "redis_notifications_seen": diagnostics["redis_notifications_seen"],
             "redis_notifications_applied": diagnostics["redis_notifications_applied"],
             "applied_decision_keys": diagnostics["applied_decision_keys"],
-            "decisions": len(snapshot.get("decisions", [])),
-            "notifications": len(snapshot.get("notifications", [])),
-            "open_positions": len(snapshot.get("positions", [])),
+            "decisions": len(decisions_list),
+            "notifications": len(notifications_list),
+            "open_positions": len(open_positions_list),
             "closed_trades": summary_closed_trades,
-            "equity_points": len(snapshot.get("equity_curve", [])),
+            "equity_points": len(equity_curve),
         },
-        "latest_decision": (snapshot.get("decisions") or [None])[0],
-        "latest_notification": (snapshot.get("notifications") or [None])[0],
-        "latest_open_position": (snapshot.get("positions") or [None])[0],
+        "latest_decision": (decisions_list or [None])[0],
+        "latest_notification": (notifications_list or [None])[0],
+        "latest_open_position": (open_positions_list or [None])[0],
         "latest_closed_trade": (paired_closed_trades or [None])[-1],
         "summary": paired_summary,
-        "last_error": diagnostics["last_error"],
     }
