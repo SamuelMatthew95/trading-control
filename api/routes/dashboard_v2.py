@@ -56,6 +56,8 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
     diagnostics: dict[str, Any] = {
         "source": "in_memory",
         "hydration_status": "skipped",
+        "persistence_source": "memory_only",
+        "ledger_source": "runtime_store",
         "redis_decisions_seen": 0,
         "redis_notifications_seen": 0,
         "redis_decisions_applied": 0,
@@ -64,6 +66,7 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
         "last_error": None,
     }
     if is_db_available():
+        diagnostics["persistence_source"] = "postgres"
         return diagnostics
 
     redis_store = get_redis_store()
@@ -106,6 +109,7 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
         diagnostics["applied_decision_keys"] = len(store.applied_decision_keys)
         if diagnostics["redis_decisions_seen"] > 0 or diagnostics["redis_notifications_seen"] > 0:
             diagnostics["source"] = "redis_hydrated"
+            diagnostics["persistence_source"] = "redis"
         diagnostics["hydration_status"] = "completed"
     except Exception as exc:
         diagnostics["hydration_status"] = "failed"
@@ -431,6 +435,16 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
         diagnostics = await hydrate_dashboard_state_from_redis()
         payload = get_runtime_store().dashboard_fallback_snapshot()
         payload["source"] = diagnostics["source"]
+        payload["ledger_source"] = diagnostics["ledger_source"]
+        payload["persistence_source"] = diagnostics["persistence_source"]
+        payload["hydration"] = {
+            "status": diagnostics["hydration_status"],
+            "redis_decisions_seen": diagnostics["redis_decisions_seen"],
+            "redis_decisions_applied": diagnostics["redis_decisions_applied"],
+            "redis_notifications_seen": diagnostics["redis_notifications_seen"],
+            "redis_notifications_applied": diagnostics["redis_notifications_applied"],
+            "last_error": diagnostics["last_error"],
+        }
         return payload
     try:
         async with AsyncSessionFactory() as session:
@@ -457,6 +471,16 @@ async def get_dashboard_state() -> dict[str, Any]:
             store = get_runtime_store()
             data = store.dashboard_fallback_snapshot()
             data["source"] = diagnostics["source"]
+            data["ledger_source"] = diagnostics["ledger_source"]
+            data["persistence_source"] = diagnostics["persistence_source"]
+            data["hydration"] = {
+                "status": diagnostics["hydration_status"],
+                "redis_decisions_seen": diagnostics["redis_decisions_seen"],
+                "redis_decisions_applied": diagnostics["redis_decisions_applied"],
+                "redis_notifications_seen": diagnostics["redis_notifications_seen"],
+                "redis_notifications_applied": diagnostics["redis_notifications_applied"],
+                "last_error": diagnostics["last_error"],
+            }
             data["mode"] = runtime_mode()  # "in_memory_fallback" when DB is unavailable
         else:
             try:
@@ -2741,6 +2765,8 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     return {
         "db_available": db_available,
         "source": diagnostics["source"],
+        "ledger_source": diagnostics["ledger_source"],
+        "persistence_source": diagnostics["persistence_source"],
         "scope": "runtime_store",
         "has_data": bool(
             snapshot.get("decisions") or snapshot.get("positions") or snapshot.get("orders")

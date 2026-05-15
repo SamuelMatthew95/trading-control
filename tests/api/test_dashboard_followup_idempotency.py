@@ -80,6 +80,12 @@ async def test_dashboard_hydrates_from_redis_decisions_when_db_unavailable(fake_
         assert state["has_data"] is True
         assert snap["source"] == "redis_hydrated"
         assert state["source"] == "redis_hydrated"
+        assert snap["ledger_source"] == "runtime_store"
+        assert state["ledger_source"] == "runtime_store"
+        assert snap["persistence_source"] == "redis"
+        assert state["persistence_source"] == "redis"
+        assert snap["hydration"]["status"] == "completed"
+        assert state["hydration"]["status"] == "completed"
     finally:
         set_redis_store(previous)
 
@@ -114,6 +120,8 @@ async def test_dashboard_hydration_is_idempotent_across_repeated_reads(fake_redi
         second = await dashboard_v2.get_dashboard_debug_state()
 
         assert first["counts"]["redis_hydration_status"] == "completed"
+        assert first["ledger_source"] == "runtime_store"
+        assert first["persistence_source"] == "redis"
         assert first["counts"]["decisions"] == second["counts"]["decisions"] == 2
         assert first["counts"]["notifications"] == second["counts"]["notifications"] == 2
         assert first["counts"]["closed_trades"] == second["counts"]["closed_trades"] == 1
