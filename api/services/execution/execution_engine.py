@@ -22,7 +22,6 @@ from api.constants import (
     AGENT_EXECUTION,
     EXECUTION_DECISION_THRESHOLD,
     LARGE_ORDER_THRESHOLD,
-    NO_ORDER_ACTIONS,
     ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
@@ -51,6 +50,15 @@ from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
+from api.services.execution.decision_utils import (
+    ParsedDecision as _ParsedDecision,
+)
+from api.services.execution.decision_utils import (
+    check_execution_gate,
+    compute_execution_score,
+    extract_decision_scores,
+    parse_decision_fields,
+)
 
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
@@ -107,103 +115,32 @@ class ExecutionEngine(BaseStreamConsumer):
             await self._process_in_memory(data)
             return
 
-        # Validate required fields before any DB/broker interaction
-        # Accepts both "action" (from STREAM_DECISIONS) and "side" (backward compat)
-        side_or_action = str(data.get(FieldName.ACTION) or data.get(FieldName.SIDE) or "").lower()
-        missing = [f for f in (FieldName.SYMBOL, FieldName.QTY, FieldName.PRICE) if not data.get(f)]
-        if not side_or_action:
-            missing.append("action/side")
-        if missing:
-            log_structured("warning", "order_missing_required_fields", missing=missing)
-            symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
-            await self._write_idle_heartbeat(symbol_hint, "error:missing_fields")
+        parsed = await self._parse_and_validate(data)
+        if parsed is None:
             return
 
-        # strategy_id is required by the DB; fall back to a generated UUID if absent
-        strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
-        symbol = str(data[FieldName.SYMBOL])
-        side = side_or_action
-        try:
-            qty = float(data[FieldName.QTY])
-            price = float(data[FieldName.PRICE])
-        except (TypeError, ValueError):
-            log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
-            await self._write_idle_heartbeat(symbol, "error:invalid_fields")
-            return
-        # Reject non-positive quantity / price to prevent broker-side errors and
-        # accidental zero-size orders slipping past the gate.
-        if qty <= 0 or price <= 0:
-            log_structured(
-                "warning",
-                "order_non_positive_numeric_fields",
-                symbol=symbol,
-                qty=qty,
-                price=price,
-            )
-            await self._write_idle_heartbeat(symbol, "error:non_positive_fields")
-            return
-        trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
-
-        # --- Execution gate 1: skip non-order actions (hold, reject, flat) ----
-        if side in NO_ORDER_ACTIONS:
-            log_structured(
-                "info",
-                "execution_skipped_advisory_action",
-                symbol=symbol,
-                action=side,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
-            return
-
-        # --- Execution gate 2: weighted decision score -----------------------
-        # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
-        # Absent fields are serialised as "" by the EventBus (None → ""), which is
-        # falsy, so the plain `or` chain correctly falls through to the 0.5 default
-        # only when the field was never published. An explicit 0.0 stays as 0.0 —
-        # a zero-confidence signal must remain gated, not be promoted to 0.5.
-        signal_confidence = float(
-            data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get(FieldName.COMPOSITE_SCORE)
-            or data.get(FieldName.CONFIDENCE)
-            or 0.5
+        signal_confidence, reasoning_score = self._extract_scores(data)
+        log_structured(
+            "info",
+            "execution_engine_decision_received",
+            action=parsed.side,
+            symbol=parsed.symbol,
+            price=parsed.price,
+            qty=parsed.qty,
+            trace_id=parsed.trace_id,
         )
-        # Use reasoning_score if present; fall back to signal_confidence so
-        # legacy test payloads (no reasoning_score field) still clear the gate.
-        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
-        final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        # Use the same threshold in paper and live so a strategy that loses in
-        # paper does not magically clear a higher bar in live. Previously paper
-        # used 0.45 and live used 0.55 — that asymmetry let weak momentum
-        # signals (confidence ~0.55) execute in paper and rack up losses that
-        # never would have made it past the live gate.
-        threshold = EXECUTION_DECISION_THRESHOLD
-        if final_score < threshold:
-            log_structured(
-                "info",
-                "execution_gated_score_below_threshold",
-                symbol=symbol,
-                final_score=round(final_score, 4),
-                threshold=threshold,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(
-                symbol,
-                f"gated:score score={final_score:.3f}<{threshold}",
-                trace_id,
-            )
+        if await self._check_pre_execution_gates(
+            parsed.side, parsed.symbol, signal_confidence, reasoning_score, parsed.trace_id
+        ):
             return
 
-        # --- Execution gate 3: market clock (equities only) ------------------
-        if not self._is_market_open(symbol):
-            log_structured(
-                "info",
-                "execution_blocked_market_closed",
-                symbol=symbol,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
-            return
+        strategy_id = parsed.strategy_id
+        symbol = parsed.symbol
+        side = parsed.side
+        qty = parsed.qty
+        price = parsed.price
+        trace_id = parsed.trace_id
+
         order_timestamp = self._parse_timestamp(data.get(FieldName.TIMESTAMP))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
@@ -739,56 +676,41 @@ class ExecutionEngine(BaseStreamConsumer):
         except Exception:
             log_structured("warning", "execution_idle_heartbeat_failed", exc_info=True)
 
-    async def _process_in_memory(self, data: dict[str, Any]) -> None:
-        """Execute an order entirely in-memory when the DB is unavailable.
-
-        Runs the same validation gates and broker call as the DB path, then
-        writes the filled order and updated position to InMemoryStore so the
-        dashboard fallback snapshot reflects real activity.
-        """
-        side_or_action = str(data.get(FieldName.ACTION) or data.get(FieldName.SIDE) or "").lower()
-        missing = [f for f in (FieldName.SYMBOL, FieldName.QTY, FieldName.PRICE) if not data.get(f)]
-        if not side_or_action:
-            missing.append("action/side")
-        if missing:
-            log_structured("warning", "order_missing_required_fields_memory", missing=missing)
+    async def _parse_and_validate(self, data: dict[str, Any]) -> _ParsedDecision | None:
+        """Delegate to the pure ``parse_decision_fields`` util, adding logging and heartbeat."""
+        parsed, error = parse_decision_fields(data)
+        if error is not None:
             symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
-            await self._write_idle_heartbeat(symbol_hint, "error:missing_fields")
-            return
+            log_structured("warning", "order_validation_failed", reason=error, symbol=symbol_hint)
+            # heartbeat_status is the first two colon-separated components of the error
+            # code, e.g. "error:missing_fields" from "error:missing_fields:symbol,qty"
+            heartbeat_status = ":".join(error.split(":")[:2])
+            await self._write_idle_heartbeat(symbol_hint, heartbeat_status)
+            return None
+        return parsed
 
-        strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
-        symbol = str(data[FieldName.SYMBOL])
-        side = side_or_action
-        try:
-            qty = float(data[FieldName.QTY])
-            price = float(data[FieldName.PRICE])
-        except (TypeError, ValueError):
-            log_structured("warning", "order_invalid_numeric_fields_memory", symbol=symbol)
-            await self._write_idle_heartbeat(symbol, "error:invalid_fields")
-            return
-        if qty <= 0 or price <= 0:
-            log_structured(
-                "warning",
-                "order_non_positive_numeric_fields_memory",
-                symbol=symbol,
-                qty=qty,
-                price=price,
-            )
-            await self._write_idle_heartbeat(symbol, "error:non_positive_fields")
-            return
-        trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
+    @staticmethod
+    def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:
+        """Thin alias for ``extract_decision_scores`` kept for call-site symmetry."""
+        return extract_decision_scores(data)
 
-        log_structured(
-            "info",
-            "execution_engine_decision_received",
-            action=side,
-            symbol=symbol,
-            price=price,
-            qty=qty,
-            trace_id=trace_id,
+    async def _check_pre_execution_gates(
+        self,
+        side: str,
+        symbol: str,
+        signal_confidence: float,
+        reasoning_score: float,
+        trace_id: str,
+    ) -> str | None:
+        """Delegate to pure gate check, then log and write heartbeat if blocked."""
+        final_score = compute_execution_score(signal_confidence, reasoning_score)
+        market_open = self._is_market_open(symbol)
+        gate = check_execution_gate(
+            side, symbol, final_score, EXECUTION_DECISION_THRESHOLD, market_open
         )
-
-        if side in NO_ORDER_ACTIONS:
+        if gate is None:
+            return None
+        if gate.startswith("hold:"):
             log_structured(
                 "info",
                 "execution_skipped_advisory_action",
@@ -797,36 +719,23 @@ class ExecutionEngine(BaseStreamConsumer):
                 trace_id=trace_id,
             )
             await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
-            return
-
-        signal_confidence = float(
-            data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get(FieldName.COMPOSITE_SCORE)
-            or data.get(FieldName.CONFIDENCE)
-            or 0.5
-        )
-        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
-        final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        threshold = EXECUTION_DECISION_THRESHOLD
-        if final_score < threshold:
+        elif gate.startswith("gated:score:"):
             log_structured(
                 "info",
                 "execution_gated_score_below_threshold",
                 symbol=symbol,
                 final_score=round(final_score, 4),
-                threshold=threshold,
+                threshold=EXECUTION_DECISION_THRESHOLD,
                 signal_confidence=round(signal_confidence, 4),
                 reasoning_score=round(reasoning_score, 4),
                 trace_id=trace_id,
             )
             await self._write_idle_heartbeat(
                 symbol,
-                f"gated:score score={final_score:.3f}<{threshold}",
+                f"gated:score score={final_score:.3f}<{EXECUTION_DECISION_THRESHOLD}",
                 trace_id,
             )
-            return
-
-        if not self._is_market_open(symbol):
+        elif gate == "blocked:market_closed":
             log_structured(
                 "info",
                 "execution_blocked_market_closed",
@@ -834,7 +743,40 @@ class ExecutionEngine(BaseStreamConsumer):
                 trace_id=trace_id,
             )
             await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
+        return gate
+
+    async def _process_in_memory(self, data: dict[str, Any]) -> None:
+        """Execute an order entirely in-memory when the DB is unavailable.
+
+        Runs the same validation gates and broker call as the DB path, then
+        writes the filled order and updated position to InMemoryStore so the
+        dashboard fallback snapshot reflects real activity.
+        """
+        parsed = await self._parse_and_validate(data)
+        if parsed is None:
             return
+
+        signal_confidence, reasoning_score = self._extract_scores(data)
+        log_structured(
+            "info",
+            "execution_engine_decision_received",
+            action=parsed.side,
+            symbol=parsed.symbol,
+            price=parsed.price,
+            qty=parsed.qty,
+            trace_id=parsed.trace_id,
+        )
+        if await self._check_pre_execution_gates(
+            parsed.side, parsed.symbol, signal_confidence, reasoning_score, parsed.trace_id
+        ):
+            return
+
+        symbol = parsed.symbol
+        side = parsed.side
+        qty = parsed.qty
+        price = parsed.price
+        strategy_id = parsed.strategy_id
+        trace_id = parsed.trace_id
 
         # --- Idempotency guard (mirrors the DB-path SELECT on idempotency_key) ---
         # BaseStreamConsumer is at-least-once; redelivered messages must not
@@ -1203,14 +1145,7 @@ class ExecutionEngine(BaseStreamConsumer):
         reasoning_score: float,
         historical_perf: float = 0.6,
     ) -> float:
-        """Weighted execution score used as a gate before submitting orders.
-
-        Weights: signal 50%, reasoning 30%, historical performance 20%.
-        ``historical_perf`` defaults to 0.6 (slight optimism for new systems with
-        no trading history — allows MOMENTUM-tier signals, score=0.55, to clear
-        the 0.55 gate: 0.55*0.5 + 0.55*0.3 + 0.6*0.2 = 0.56 > 0.55).
-        """
-        return (signal_confidence * 0.50) + (reasoning_score * 0.30) + (historical_perf * 0.20)
+        return compute_execution_score(signal_confidence, reasoning_score, historical_perf)
 
     def _is_market_open(self, symbol: str) -> bool:
         """Return True if trading is currently allowed for this symbol.
