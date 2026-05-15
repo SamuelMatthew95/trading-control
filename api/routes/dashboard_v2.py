@@ -42,11 +42,114 @@ from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.services.metrics_aggregator import MetricsAggregator
+from api.services.redis_store import get_redis_store
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 # Track process start time for startup grace period
 PROCESS_START_TIME = datetime.now(timezone.utc)
+
+
+async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
+    """Hydrate runtime ledger from Redis decisions/notifications in DB-down mode."""
+    store = get_runtime_store()
+    diagnostics: dict[str, Any] = {
+        FieldName.SOURCE: "in_memory",
+        "hydration_status": "skipped",
+        "persistence_source": "memory_only",
+        "ledger_source": "runtime_store",
+        "redis_decisions_seen": 0,
+        "redis_notifications_seen": 0,
+        "redis_decisions_applied": 0,
+        "redis_notifications_applied": 0,
+        "applied_decision_keys": len(store.applied_decision_keys),
+        "last_error": None,
+    }
+    if is_db_available():
+        diagnostics["persistence_source"] = "postgres"
+        return diagnostics
+
+    redis_store = get_redis_store()
+    if redis_store is None:
+        return diagnostics
+
+    try:
+        diagnostics["hydration_status"] = "attempted"
+        decisions = await redis_store.list_decisions(limit=500)
+        diagnostics["redis_decisions_seen"] = len(decisions)
+        decisions_before = len(store.applied_decision_keys)
+        for decision in reversed(decisions):
+            # Redis ``decisions:recent`` is advisory output from ReasoningAgent.
+            # Replaying it as executed fills creates phantom positions/PnL.
+            # Hydrate via advisory path only; portfolio mutation must come from
+            # execution/fill sources.
+            store.record_decision(decision)
+        diagnostics["redis_decisions_applied"] = max(
+            0, len(store.applied_decision_keys) - decisions_before
+        )
+
+        notifications = await redis_store.list_notifications(limit=500)
+        diagnostics["redis_notifications_seen"] = len(notifications)
+        notifications_before = len(store.notifications)
+
+        def _notification_key(item: dict[str, Any]) -> str:
+            notif_id = str(item.get("id") or item.get(FieldName.NOTIFICATION_ID) or "").strip()
+            if notif_id:
+                return f"id:{notif_id}"
+            trace_id = str(item.get(FieldName.TRACE_ID) or "").strip()
+            notif_type = str(
+                item.get(FieldName.TYPE) or item.get(FieldName.NOTIFICATION_TYPE) or ""
+            ).strip()
+            action = str(item.get(FieldName.ACTION) or "").strip().upper()
+            symbol = str(item.get(FieldName.SYMBOL) or "").strip().upper()
+            title = str(item.get(FieldName.TITLE) or "").strip()
+            body = str(item.get(FieldName.BODY) or item.get(FieldName.MESSAGE) or "").strip()
+            stable = "|".join([trace_id, notif_type, action, symbol, title, body])
+            if stable.strip("|"):
+                return f"stable:{stable}"
+            return f"raw:{json.dumps(item, sort_keys=True, default=str)}"
+
+        existing_notification_keys = {_notification_key(item) for item in store.notifications}
+        for notification in reversed(notifications):
+            notification_key = _notification_key(notification)
+            if notification_key in existing_notification_keys:
+                continue
+            store.record_notification(notification)
+            existing_notification_keys.add(notification_key)
+        diagnostics["redis_notifications_applied"] = max(
+            0, len(store.notifications) - notifications_before
+        )
+
+        diagnostics["applied_decision_keys"] = len(store.applied_decision_keys)
+        if diagnostics["redis_decisions_seen"] > 0 or diagnostics["redis_notifications_seen"] > 0:
+            diagnostics[FieldName.SOURCE] = "redis_hydrated"
+            diagnostics["persistence_source"] = "redis"
+        diagnostics["hydration_status"] = "completed"
+    except Exception as exc:
+        diagnostics["hydration_status"] = "failed"
+        diagnostics["last_error"] = str(exc)
+        log_structured("warning", "dashboard_redis_hydration_failed", exc_info=True)
+
+    return diagnostics
+
+
+def _attach_runtime_hydration_metadata(
+    payload: dict[str, Any], diagnostics: dict[str, Any]
+) -> dict[str, Any]:
+    """Attach consistent hydration/source metadata to runtime payloads."""
+    payload[FieldName.SOURCE] = diagnostics[FieldName.SOURCE]
+    payload["ledger_source"] = diagnostics["ledger_source"]
+    payload["persistence_source"] = diagnostics["persistence_source"]
+    payload["hydration"] = {
+        "status": diagnostics["hydration_status"],
+        "redis_decisions_seen": diagnostics["redis_decisions_seen"],
+        "redis_decisions_applied": diagnostics["redis_decisions_applied"],
+        "redis_notifications_seen": diagnostics["redis_notifications_seen"],
+        "redis_notifications_applied": diagnostics["redis_notifications_applied"],
+        "applied_decision_keys": diagnostics["applied_decision_keys"],
+        "last_error": diagnostics["last_error"],
+    }
+    return payload
 
 
 def _as_dict(payload: Any) -> dict[str, Any]:
@@ -362,7 +465,9 @@ async def get_dashboard_snapshot() -> dict[str, Any]:
     Uses in-memory store directly when the database is unavailable.
     """
     if not is_db_available():
-        return get_runtime_store().dashboard_fallback_snapshot()
+        diagnostics = await hydrate_dashboard_state_from_redis()
+        payload = get_runtime_store().dashboard_fallback_snapshot()
+        return _attach_runtime_hydration_metadata(payload, diagnostics)
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
@@ -384,8 +489,10 @@ async def get_dashboard_state() -> dict[str, Any]:
     try:
         # Route determined once upfront; no silent try/except routing.
         if not is_db_available():
+            diagnostics = await hydrate_dashboard_state_from_redis()
             store = get_runtime_store()
             data = store.dashboard_fallback_snapshot()
+            data = _attach_runtime_hydration_metadata(data, diagnostics)
             data["mode"] = runtime_mode()  # "in_memory_fallback" when DB is unavailable
         else:
             try:
@@ -2660,6 +2767,7 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     payload is DB-sourced when db_available=True.
     """
     store = get_runtime_store()
+    diagnostics = await hydrate_dashboard_state_from_redis()
     snapshot = store.dashboard_fallback_snapshot()
     paired = store.paired_pnl_payload()
     paired_closed_trades = paired.get("closed_trades", [])
@@ -2668,12 +2776,20 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     db_available = is_db_available()
     return {
         "db_available": db_available,
-        "source": "in_memory",
+        FieldName.SOURCE: diagnostics[FieldName.SOURCE],
+        "ledger_source": diagnostics["ledger_source"],
+        "persistence_source": diagnostics["persistence_source"],
         "scope": "runtime_store",
         "has_data": bool(
             snapshot.get("decisions") or snapshot.get("positions") or snapshot.get("orders")
         ),
         "counts": {
+            "redis_hydration_status": diagnostics["hydration_status"],
+            "redis_decisions_seen": diagnostics["redis_decisions_seen"],
+            "redis_decisions_applied": diagnostics["redis_decisions_applied"],
+            "redis_notifications_seen": diagnostics["redis_notifications_seen"],
+            "redis_notifications_applied": diagnostics["redis_notifications_applied"],
+            "applied_decision_keys": diagnostics["applied_decision_keys"],
             "decisions": len(snapshot.get("decisions", [])),
             "notifications": len(snapshot.get("notifications", [])),
             "open_positions": len(snapshot.get("positions", [])),
@@ -2685,5 +2801,5 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
         "latest_open_position": (snapshot.get("positions") or [None])[0],
         "latest_closed_trade": (paired_closed_trades or [None])[-1],
         "summary": paired_summary,
-        "last_error": None,
+        "last_error": diagnostics["last_error"],
     }
