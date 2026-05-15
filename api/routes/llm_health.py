@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from api.config import settings
-from api.constants import LLM_METRICS_WINDOW_SECONDS
+from api.constants import LLM_METRICS_WINDOW_SECONDS, FieldName
 from api.services.llm_metrics import llm_metrics
 from api.services.redis_store import get_redis_store
 
@@ -65,11 +65,11 @@ async def llm_health() -> dict[str, Any]:
         snap["daily_calls"] = redis_daily
 
     return {
-        "status": status,
+        FieldName.STATUS: status,
         "provider": provider,
         "model": model_name,
         "model_var": _attr if _attr else "unknown",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         "redis_metrics": redis_metrics,
         **snap,
     }
