@@ -207,6 +207,8 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
+        _db_exception: Exception | None = None
+        _db_broker_result: dict[str, Any] | None = None
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
                 text(
@@ -271,6 +273,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 await session.flush()
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
+                _db_broker_result = (
+                    broker_result  # captured so fallback knows fill already happened
+                )
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 fill_price = float(broker_result[FieldName.FILL_PRICE])
 
@@ -318,11 +323,223 @@ class ExecutionEngine(BaseStreamConsumer):
                     },
                 )
                 await session.commit()
-            except Exception:
+            except Exception as exc:
                 await session.rollback()
-                raise
+                _db_exception = exc
             finally:
                 await self.redis.delete(lock_key)
+
+        if _db_exception is not None:
+            try:
+                raise _db_exception
+            except Exception:
+                log_structured(
+                    "error",
+                    "execution_db_path_failed_using_memory_fallback",
+                    symbol=symbol,
+                    trace_id=trace_id,
+                    exc_info=True,
+                )
+            if _db_broker_result is not None:
+                # Broker already filled the order before the DB failure — record in memory
+                # without re-submitting. Calling _process_in_memory here would place a
+                # second order with the broker.
+                _fill_price = float(_db_broker_result[FieldName.FILL_PRICE])
+                _filled_at = datetime.now(timezone.utc)
+                _realized_pnl = self._compute_realized_pnl(prior_position, side, qty, _fill_price)
+                _entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or _fill_price)
+                _is_close = self._is_round_trip_close(prior_position, side, qty)
+                _pnl_value = _realized_pnl if _is_close else None
+                _pnl_pct = self._compute_pnl_percent(
+                    prior_position, side, qty, _entry_price, _realized_pnl
+                )
+                _fallback_order_id = str(uuid.uuid4())
+                store = get_runtime_store()
+                # add_order only — do NOT call apply_decision, which also appends
+                # to store.orders on SELL and would double-count the realized PnL.
+                store.add_order(
+                    {
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.PRICE: _fill_price,
+                        FieldName.FILL_PRICE: _fill_price,
+                        FieldName.STATUS: _db_broker_result[FieldName.STATUS],
+                        FieldName.BROKER_ORDER_ID: _db_broker_result[FieldName.BROKER_ORDER_ID],
+                        FieldName.PNL: _pnl_value,
+                        FieldName.FILLED_AT: _filled_at.isoformat(),
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.STRATEGY_ID: strategy_id,
+                    }
+                )
+                store.upsert_trade_fill(
+                    {
+                        "id": trace_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.ENTRY_PRICE: _entry_price,
+                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.PNL_PERCENT: _pnl_pct,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.EXECUTION_TRACE_ID: trace_id,
+                        FieldName.STATUS: OrderStatus.FILLED,
+                        FieldName.FILLED_AT: _filled_at.isoformat(),
+                    }
+                )
+                # Update position to match the fill (mirrors _process_in_memory logic).
+                _signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
+                # The DB path writes positions to Postgres, not store.positions.
+                # Fall back to prior_position (broker state before this fill) so a
+                # closing SELL correctly sees the existing long rather than defaulting
+                # to {} and creating a phantom short.
+                _existing_pos = store.positions.get(symbol) or prior_position
+                _existing_signed = float(_existing_pos.get(FieldName.QTY, 0)) * (
+                    1
+                    if str(_existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
+                    in {PositionSide.LONG, OrderSide.BUY}
+                    else -1
+                )
+                _new_signed = _existing_signed + _signed_qty
+                _new_abs_qty = abs(_new_signed)
+                _new_side = (
+                    PositionSide.FLAT
+                    if _new_abs_qty < 1e-9
+                    else (PositionSide.LONG if _new_signed > 0 else PositionSide.SHORT)
+                )
+                if _new_side == PositionSide.FLAT:
+                    store.positions.pop(symbol, None)
+                else:
+                    store.upsert_position(
+                        symbol,
+                        {
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: _new_side,
+                            FieldName.QTY: _new_abs_qty,
+                            FieldName.QUANTITY: _new_abs_qty,
+                            FieldName.ENTRY_PRICE: _entry_price,
+                            FieldName.AVG_COST: _entry_price,
+                            FieldName.LAST_PRICE: _fill_price,
+                            FieldName.MARKET_VALUE: round(_new_abs_qty * _fill_price, 8),
+                            FieldName.UNREALIZED_PNL: 0.0,
+                            FieldName.STRATEGY_ID: strategy_id,
+                        },
+                    )
+                # Publish to the same streams as the normal DB path so GradeAgent,
+                # ICUpdater, ReflectionAgent, and the trade-feed all see the fill.
+                _filled_at_iso = _filled_at.isoformat()
+                await self.bus.publish(
+                    STREAM_EXECUTIONS,
+                    {
+                        FieldName.TYPE: "order_filled",
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.STRATEGY_ID: strategy_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.PRICE: price,
+                        FieldName.FILL_PRICE: _fill_price,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.CONFIDENCE: signal_confidence,
+                        FieldName.FILLED_AT: _filled_at_iso,
+                        "executed_at": _filled_at_iso,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.IDEMPOTENCY_KEY: idempotency_key,
+                        FieldName.TRACE_ID: trace_id,
+                        "vwap_plan": vwap_plan,
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                    },
+                )
+                await self.bus.publish(
+                    STREAM_TRADE_PERFORMANCE,
+                    {
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.TYPE: "trade_performance",
+                        FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.TRADE_ID: _fallback_order_id,
+                        FieldName.STRATEGY_ID: strategy_id,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.QUANTITY: qty,
+                        FieldName.FILL_PRICE: _fill_price,
+                        FieldName.ENTRY_PRICE: _entry_price,
+                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.PNL_PERCENT: _pnl_pct,
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.FILLED_AT: _filled_at_iso,
+                        FieldName.ENTRY_TIME: _filled_at_iso,
+                        FieldName.EXIT_TIME: _filled_at_iso if _is_close else None,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                        FieldName.SESSION_ID: strategy_id,
+                    },
+                )
+                if _is_close:
+                    await self.bus.publish(
+                        STREAM_TRADE_COMPLETED,
+                        {
+                            FieldName.MSG_ID: str(uuid.uuid4()),
+                            FieldName.TYPE: "trade_completed",
+                            FieldName.SOURCE: SOURCE_EXECUTION,
+                            FieldName.TRACE_ID: trace_id,
+                            FieldName.SESSION_ID: strategy_id,
+                            FieldName.ORDER_ID: _fallback_order_id,
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: side,
+                            FieldName.QTY: qty,
+                            FieldName.ENTRY_PRICE: _entry_price,
+                            FieldName.EXIT_PRICE: _fill_price,
+                            FieldName.PNL: _realized_pnl,
+                            FieldName.PNL_PERCENT: _pnl_pct,
+                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+                await self.bus.publish(
+                    STREAM_TRADE_LIFECYCLE,
+                    {
+                        FieldName.TYPE: "trade_filled",
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.ENTRY_PRICE: _entry_price,
+                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
+                        FieldName.PNL: _pnl_value,
+                        FieldName.PNL_PERCENT: _pnl_pct,
+                        FieldName.ORDER_ID: _fallback_order_id,
+                        FieldName.EXECUTION_TRACE_ID: trace_id,
+                        FieldName.STATUS: OrderStatus.FILLED,
+                        FieldName.FILLED_AT: _filled_at_iso,
+                        FieldName.TIMESTAMP: _filled_at_iso,
+                        FieldName.SESSION_ID: strategy_id,
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                    },
+                )
+                log_structured(
+                    "warning",
+                    "execution_db_fill_recorded_in_memory_no_resubmit",
+                    symbol=symbol,
+                    fill_price=_fill_price,
+                    trace_id=trace_id,
+                )
+                try:
+                    await _write_heartbeat(
+                        self.redis,
+                        _STATE_NAME,
+                        f"db_fail_fill_recorded:{symbol}",
+                        self._decisions_evaluated,
+                    )
+                except Exception:
+                    pass
+            else:
+                # Broker was never called; safe to run the full in-memory path.
+                await self._process_in_memory(data)
+            return
 
         # Compute realized PnL from prior position snapshot
         realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)

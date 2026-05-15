@@ -129,7 +129,15 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.MESSAGE: applied.get("message", ""),
             FieldName.PAYLOAD: applied,
         }
-        await write_agent_log(trace_id, LogType.PROPOSAL, log_payload)
+        try:
+            await write_agent_log(trace_id, LogType.PROPOSAL, log_payload)
+        except Exception:
+            log_structured(
+                "warning",
+                "proposal_applier_log_write_failed",
+                trace_id=trace_id,
+                exc_info=True,
+            )
 
         log_structured(
             "info",
