@@ -158,24 +158,19 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # --- Execution gate 2: weighted decision score -----------------------
         # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
-        # Use explicit falsy-string guard: Redis encodes 0.0 as the string "0.0"
-        # which is truthy in Python, so a plain `or` chain would pick "0.0" over
-        # the 0.5 default — causing the gate to always fail for zero-scored signals.
-        _sc_raw = data.get(FieldName.SIGNAL_CONFIDENCE)
-        _cc_raw = data.get(FieldName.COMPOSITE_SCORE)
-        _cf_raw = data.get(FieldName.CONFIDENCE)
+        # Absent fields are serialised as "" by the EventBus (None → ""), which is
+        # falsy, so the plain `or` chain correctly falls through to the 0.5 default
+        # only when the field was never published. An explicit 0.0 stays as 0.0 —
+        # a zero-confidence signal must remain gated, not be promoted to 0.5.
         signal_confidence = float(
-            (_sc_raw if _sc_raw not in (None, "", "0", "0.0") else None)
-            or (_cc_raw if _cc_raw not in (None, "", "0", "0.0") else None)
-            or (_cf_raw if _cf_raw not in (None, "", "0", "0.0") else None)
+            data.get(FieldName.SIGNAL_CONFIDENCE)
+            or data.get(FieldName.COMPOSITE_SCORE)
+            or data.get(FieldName.CONFIDENCE)
             or 0.5
         )
         # Use reasoning_score if present; fall back to signal_confidence so
         # legacy test payloads (no reasoning_score field) still clear the gate.
-        _rs_raw = data.get(FieldName.REASONING_SCORE)
-        reasoning_score = float(
-            (_rs_raw if _rs_raw not in (None, "", "0", "0.0") else None) or signal_confidence
-        )
+        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         # Use the same threshold in paper and live so a strategy that loses in
         # paper does not magically clear a higher bar in live. Previously paper
@@ -804,20 +799,13 @@ class ExecutionEngine(BaseStreamConsumer):
             await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
             return
 
-        raw_signal_conf = data.get(FieldName.SIGNAL_CONFIDENCE)
-        raw_composite = data.get(FieldName.COMPOSITE_SCORE)
-        raw_confidence = data.get(FieldName.CONFIDENCE)
         signal_confidence = float(
-            (raw_signal_conf if raw_signal_conf not in (None, "", "0", "0.0") else None)
-            or (raw_composite if raw_composite not in (None, "", "0", "0.0") else None)
-            or (raw_confidence if raw_confidence not in (None, "", "0", "0.0") else None)
+            data.get(FieldName.SIGNAL_CONFIDENCE)
+            or data.get(FieldName.COMPOSITE_SCORE)
+            or data.get(FieldName.CONFIDENCE)
             or 0.5
         )
-        raw_reasoning = data.get(FieldName.REASONING_SCORE)
-        reasoning_score = float(
-            (raw_reasoning if raw_reasoning not in (None, "", "0", "0.0") else None)
-            or signal_confidence
-        )
+        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
         final_score = self._compute_final_score(signal_confidence, reasoning_score)
         threshold = EXECUTION_DECISION_THRESHOLD
         if final_score < threshold:
