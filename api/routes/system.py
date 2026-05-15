@@ -82,7 +82,12 @@ async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> di
     """
     if body is None:
         body = {}
-    status = str(body.get(FieldName.STATUS, "TRADING")).upper()
+    status = str(body.get(FieldName.STATUS, "TRADING")).strip().upper()
+    if status not in ("TRADING", "PAUSED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status {status!r}. Use 'TRADING' or 'PAUSED'.",
+        )
     try:
         redis_client = await get_redis()
         if status == "TRADING":
@@ -91,7 +96,9 @@ async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> di
         else:
             await redis_client.set(REDIS_KEY_TRADING_PAUSED, "1")
             log_structured("info", "system_trading_mode_paused_via_api")
-        return {"status": status if status in ("TRADING", "PAUSED") else "TRADING", "ok": True}
+        return {"status": status, "ok": True}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from None
 
