@@ -208,6 +208,7 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_value = str(uuid.uuid4())
 
         _db_exception: Exception | None = None
+        _db_broker_result: dict[str, Any] | None = None
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
                 text(
@@ -272,6 +273,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 await session.flush()
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
+                _db_broker_result = (
+                    broker_result  # captured so fallback knows fill already happened
+                )
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 fill_price = float(broker_result[FieldName.FILL_PRICE])
 
@@ -336,7 +340,59 @@ class ExecutionEngine(BaseStreamConsumer):
                     trace_id=trace_id,
                     exc_info=True,
                 )
-            await self._process_in_memory(data)
+            if _db_broker_result is not None:
+                # Broker already filled the order before the DB failure — record in memory
+                # without re-submitting. Calling _process_in_memory here would place a
+                # second order with the broker.
+                _fill_price = float(_db_broker_result[FieldName.FILL_PRICE])
+                _filled_at = datetime.now(timezone.utc)
+                _realized_pnl = self._compute_realized_pnl(prior_position, side, qty, _fill_price)
+                _is_close = self._is_round_trip_close(prior_position, side, qty)
+                _pnl_value = _realized_pnl if _is_close else None
+                store = get_runtime_store()
+                store.add_order(
+                    {
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.PRICE: _fill_price,
+                        FieldName.FILL_PRICE: _fill_price,
+                        FieldName.STATUS: _db_broker_result[FieldName.STATUS],
+                        FieldName.BROKER_ORDER_ID: _db_broker_result[FieldName.BROKER_ORDER_ID],
+                        FieldName.PNL: _pnl_value,
+                        FieldName.FILLED_AT: _filled_at.isoformat(),
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.STRATEGY_ID: strategy_id,
+                    }
+                )
+                store.apply_decision(
+                    {
+                        FieldName.ACTION: side,
+                        FieldName.SYMBOL: symbol,
+                        FieldName.PRICE: _fill_price,
+                        FieldName.QTY: qty,
+                        FieldName.TRACE_ID: trace_id,
+                    }
+                )
+                log_structured(
+                    "warning",
+                    "execution_db_fill_recorded_in_memory_no_resubmit",
+                    symbol=symbol,
+                    fill_price=_fill_price,
+                    trace_id=trace_id,
+                )
+                try:
+                    await _write_heartbeat(
+                        self.redis,
+                        _STATE_NAME,
+                        f"db_fail_fill_recorded:{symbol}",
+                        self._decisions_evaluated,
+                    )
+                except Exception:
+                    pass
+            else:
+                # Broker was never called; safe to run the full in-memory path.
+                await self._process_in_memory(data)
             return
 
         # Compute realized PnL from prior position snapshot
