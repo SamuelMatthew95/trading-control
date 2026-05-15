@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED, FieldName
+from api.events.bus import DEFAULT_GROUP
 from api.runtime_state import is_db_available
 
 from ..config import get_database_url
@@ -72,7 +73,12 @@ async def get_trading_mode() -> dict[str, Any]:
         }
     except Exception:
         log_structured("warning", "system_trading_mode_check_failed", exc_info=True)
-        return {"status": "TRADING", "kill_switch_active": False, "circuit_breaker_active": False}
+        return {
+            "status": "UNKNOWN",
+            "kill_switch_active": None,
+            "circuit_breaker_active": None,
+            "error": "redis_unavailable",
+        }
 
 
 @router.post("/trading-mode")
@@ -228,7 +234,7 @@ async def get_stream_lag() -> dict[str, Any]:
                 try:
                     groups = await redis_client.xinfo_groups(stream)
                     for group in groups:
-                        if group.get("name") == "trading_workers":
+                        if group.get("name") == DEFAULT_GROUP:
                             last_delivered = group.get("last-delivered-id", "0-0")
                             # Calculate lag (simplified - just comparing timestamps)
                             head_timestamp = int(head_id.split("-")[0])
