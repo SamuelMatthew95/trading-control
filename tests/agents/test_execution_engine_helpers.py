@@ -85,10 +85,31 @@ def test_extract_scores_empty_string_means_absent():
 
 
 def test_extract_scores_zero_string_stays_zero():
-    """Redis stores '0.0'; the string is truthy so float('0.0')=0.0 is preserved."""
+    """Redis stores '0.0'; must stay 0.0, not be promoted to the 0.5 default."""
     sc, rs = extract_decision_scores({"composite_score": "0.0"})
     assert sc == pytest.approx(0.0)
     assert rs == pytest.approx(0.0)
+
+
+def test_extract_scores_python_float_zero_stays_zero():
+    """Python float 0.0 is falsy; must stay 0.0, not be promoted to 0.5."""
+    sc, rs = extract_decision_scores({"signal_confidence": 0.0})
+    assert sc == pytest.approx(0.0)
+    assert rs == pytest.approx(0.0)
+
+
+def test_extract_scores_malformed_string_falls_through():
+    """'n/a' (or any non-numeric) must fall through gracefully, not raise ValueError."""
+    sc, rs = extract_decision_scores({"signal_confidence": "n/a", "composite_score": "0.7"})
+    assert sc == pytest.approx(0.7)  # falls through to composite_score
+    assert rs == pytest.approx(0.7)
+
+
+def test_extract_scores_all_malformed_defaults_to_half():
+    """All fields malformed → default 0.5, no exception raised."""
+    sc, rs = extract_decision_scores({"signal_confidence": "n/a", "composite_score": "bad"})
+    assert sc == pytest.approx(0.5)
+    assert rs == pytest.approx(0.5)
 
 
 def test_extract_scores_signal_confidence_takes_priority_over_composite():

@@ -7,7 +7,7 @@ The ExecutionEngine methods call these and add logging / heartbeat writes on top
 from __future__ import annotations
 
 import uuid
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from api.constants import (
     EXECUTION_DECISION_THRESHOLD,
@@ -65,22 +65,39 @@ def parse_decision_fields(data: dict) -> tuple[ParsedDecision | None, str | None
     )
 
 
+def _as_score(v: Any) -> float | None:
+    """Parse a score value from any wire format into a float, or None if absent/invalid.
+
+    Handles:
+    - None / "" (EventBus serialises None → "") → None (treat as absent)
+    - "0.0" (Redis string for zero confidence) → 0.0 (preserved, not promoted)
+    - 0.0 (Python float, e.g. from tests) → 0.0 (preserved, not promoted)
+    - "n/a" or any non-numeric string → None (treat as absent, never raises)
+    """
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def extract_decision_scores(data: dict) -> tuple[float, float]:
     """Return ``(signal_confidence, reasoning_score)`` from a decision payload.
 
-    Absent fields are serialised as ``""`` by the EventBus (None → ""), which is
-    falsy, so the ``or`` chain falls through to 0.5 only when the field was never
-    set.  An explicit ``"0.0"`` string from Redis is truthy, so
-    ``float("0.0") = 0.0`` correctly stays at zero — a zero-confidence signal
-    must remain gated and not be promoted to the default.
+    Falls back to 0.5 only when the field is truly absent (None or "").
+    Python float 0.0 and Redis string "0.0" both correctly stay at 0.0 so a
+    zero-confidence signal stays gated and is never promoted to the default.
+    Malformed values like "n/a" are treated as absent (fall through) rather
+    than raising ValueError and sending the decision to the DLQ.
     """
-    signal_confidence = float(
-        data.get(FieldName.SIGNAL_CONFIDENCE)
-        or data.get(FieldName.COMPOSITE_SCORE)
-        or data.get(FieldName.CONFIDENCE)
-        or 0.5
+    _sc_keys = [FieldName.SIGNAL_CONFIDENCE, FieldName.COMPOSITE_SCORE, FieldName.CONFIDENCE]
+    signal_confidence = next(
+        (s for k in _sc_keys if (s := _as_score(data.get(k))) is not None),
+        0.5,
     )
-    reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
+    rs = _as_score(data.get(FieldName.REASONING_SCORE))
+    reasoning_score = rs if rs is not None else signal_confidence
     return signal_confidence, reasoning_score
 
 
