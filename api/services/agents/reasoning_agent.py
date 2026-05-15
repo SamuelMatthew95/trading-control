@@ -393,9 +393,11 @@ class ReasoningAgent(BaseStreamConsumer):
             action=action,
             is_fallback=is_fallback,
         )
-        await store.push_decision(payload)
+        persisted_decision = await store.push_decision(payload)
         if not is_db_available():
-            get_runtime_store().record_decision(payload)
+            # Record the persisted payload so in-memory and Redis copies share
+            # the same canonical id/timestamp and dedupe key material.
+            get_runtime_store().record_decision(persisted_decision)
 
         # Surface actionable buys/sells as notifications (one per decision,
         # not per fill). The execution layer still publishes the fill
