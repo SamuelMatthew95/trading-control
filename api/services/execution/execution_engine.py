@@ -4,6 +4,12 @@ Architecture note: ExecutionEngine is the SOLE authority for BUY/SELL orders.
 It consumes advisory decisions from STREAM_DECISIONS (published by ReasoningAgent),
 applies a weighted execution gate, checks the market clock, and only then
 submits the order to the broker.
+
+Sub-modules (pure, no IO):
+  decision_utils  — decision validation and gate scoring
+  position_math   — position state and PnL calculations
+  fill_publisher  — stream event publishing (FillContext + publish_fill_events)
+  order_writer    — DB INSERT/UPDATE for orders, positions, audit_log
 """
 
 from __future__ import annotations
@@ -22,7 +28,6 @@ from api.constants import (
     AGENT_EXECUTION,
     EXECUTION_DECISION_THRESHOLD,
     LARGE_ORDER_THRESHOLD,
-    NO_ORDER_ACTIONS,
     ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
     REDIS_KEY_KILL_SWITCH,
@@ -30,16 +35,9 @@ from api.constants import (
     REDIS_KEY_ORDER_LOCK,
     REDIS_KEY_TRADING_PAUSED,
     REDIS_KEY_TRADING_PAUSED_REASON,
-    SOURCE_EXECUTION,
     STREAM_DECISIONS,
-    STREAM_EXECUTIONS,
-    STREAM_TRADE_COMPLETED,
-    STREAM_TRADE_LIFECYCLE,
-    STREAM_TRADE_PERFORMANCE,
     FieldName,
-    OrderSide,
     OrderStatus,
-    PositionSide,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -47,10 +45,32 @@ from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
-from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.execution.brokers.paper import PaperBroker
+from api.services.execution.decision_utils import (
+    ParsedDecision as _ParsedDecision,
+)
+from api.services.execution.decision_utils import (
+    check_execution_gate,
+    compute_execution_score,
+    extract_decision_scores,
+    parse_decision_fields,
+)
+from api.services.execution.fill_publisher import FillContext, publish_fill_events
+from api.services.execution.order_writer import (
+    insert_audit_log,
+    insert_pending_order,
+    update_order_fill,
+    upsert_position_db,
+)
+from api.services.execution.position_math import (
+    apply_signed_delta,
+    compute_pnl_percent,
+    compute_realized_pnl,
+    is_round_trip_close,
+    reject_unmatched_sell,
+)
 
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
@@ -80,12 +100,17 @@ class ExecutionEngine(BaseStreamConsumer):
         self.agent_state = agent_state
         self._decisions_evaluated: int = 0  # total decisions received (holds + gated + executed)
 
+    # -------------------------------------------------------------------------
+    # Public entry point
+    # -------------------------------------------------------------------------
+
     async def process(self, data: dict[str, Any]) -> None:
         # Check kill switch BEFORE incrementing so that retried messages (which are
         # not acked when KillSwitchActive is raised) don't inflate the counter.
         if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
             raise RuntimeError("KillSwitchActive")
         self._decisions_evaluated += 1
+
         # Learning-loop circuit breaker — set by ProposalApplier when GradeAgent
         # publishes a Grade F retirement proposal. Distinct from the manual
         # kill switch so the dashboard can distinguish "operator paused" from
@@ -103,103 +128,44 @@ class ExecutionEngine(BaseStreamConsumer):
             )
             await self._write_idle_heartbeat(symbol, "blocked:trading_paused", trace_id)
             return
+
         if not is_db_available():
             await self._process_in_memory(data)
             return
 
-        # Validate required fields before any DB/broker interaction
-        # Accepts both "action" (from STREAM_DECISIONS) and "side" (backward compat)
-        side_or_action = str(data.get(FieldName.ACTION) or data.get(FieldName.SIDE) or "").lower()
-        missing = [f for f in (FieldName.SYMBOL, FieldName.QTY, FieldName.PRICE) if not data.get(f)]
-        if not side_or_action:
-            missing.append("action/side")
-        if missing:
-            log_structured("warning", "order_missing_required_fields", missing=missing)
-            symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
-            await self._write_idle_heartbeat(symbol_hint, "error:missing_fields")
+        await self._process_with_db(data)
+
+    # -------------------------------------------------------------------------
+    # DB path
+    # -------------------------------------------------------------------------
+
+    async def _process_with_db(self, data: dict[str, Any]) -> None:
+        parsed = await self._parse_and_validate(data)
+        if parsed is None:
             return
 
-        # strategy_id is required by the DB; fall back to a generated UUID if absent
-        strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
-        symbol = str(data[FieldName.SYMBOL])
-        side = side_or_action
-        try:
-            qty = float(data[FieldName.QTY])
-            price = float(data[FieldName.PRICE])
-        except (TypeError, ValueError):
-            log_structured("warning", "order_invalid_numeric_fields", symbol=symbol)
-            await self._write_idle_heartbeat(symbol, "error:invalid_fields")
-            return
-        # Reject non-positive quantity / price to prevent broker-side errors and
-        # accidental zero-size orders slipping past the gate.
-        if qty <= 0 or price <= 0:
-            log_structured(
-                "warning",
-                "order_non_positive_numeric_fields",
-                symbol=symbol,
-                qty=qty,
-                price=price,
-            )
-            await self._write_idle_heartbeat(symbol, "error:non_positive_fields")
-            return
-        trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
-
-        # --- Execution gate 1: skip non-order actions (hold, reject, flat) ----
-        if side in NO_ORDER_ACTIONS:
-            log_structured(
-                "info",
-                "execution_skipped_advisory_action",
-                symbol=symbol,
-                action=side,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
-            return
-
-        # --- Execution gate 2: weighted decision score -----------------------
-        # final_score = signal_confidence * 0.50 + reasoning_score * 0.30 + perf * 0.20
-        signal_confidence = float(
-            data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get(FieldName.COMPOSITE_SCORE)
-            or data.get(FieldName.CONFIDENCE)
-            or 0.5
+        signal_confidence, reasoning_score = self._extract_scores(data)
+        log_structured(
+            "info",
+            "execution_engine_decision_received",
+            action=parsed.side,
+            symbol=parsed.symbol,
+            price=parsed.price,
+            qty=parsed.qty,
+            trace_id=parsed.trace_id,
         )
-        # Use reasoning_score if present; fall back to signal_confidence so
-        # legacy test payloads (no reasoning_score field) still clear the gate.
-        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
-        final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        # Use the same threshold in paper and live so a strategy that loses in
-        # paper does not magically clear a higher bar in live. Previously paper
-        # used 0.45 and live used 0.55 — that asymmetry let weak momentum
-        # signals (confidence ~0.55) execute in paper and rack up losses that
-        # never would have made it past the live gate.
-        threshold = EXECUTION_DECISION_THRESHOLD
-        if final_score < threshold:
-            log_structured(
-                "info",
-                "execution_gated_score_below_threshold",
-                symbol=symbol,
-                final_score=round(final_score, 4),
-                threshold=threshold,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(
-                symbol,
-                f"gated:score score={final_score:.3f}<{threshold}",
-                trace_id,
-            )
+        if await self._check_pre_execution_gates(
+            parsed.side, parsed.symbol, signal_confidence, reasoning_score, parsed.trace_id
+        ):
             return
 
-        # --- Execution gate 3: market clock (equities only) ------------------
-        if not self._is_market_open(symbol):
-            log_structured(
-                "info",
-                "execution_blocked_market_closed",
-                symbol=symbol,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
-            return
+        symbol = parsed.symbol
+        side = parsed.side
+        qty = parsed.qty
+        price = parsed.price
+        strategy_id = parsed.strategy_id
+        trace_id = parsed.trace_id
+
         order_timestamp = self._parse_timestamp(data.get(FieldName.TIMESTAMP))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
@@ -211,18 +177,14 @@ class ExecutionEngine(BaseStreamConsumer):
         _db_broker_result: dict[str, Any] | None = None
         async with AsyncSessionFactory() as session:
             existing = await session.execute(
-                text(
-                    "SELECT id, status, broker_order_id, idempotency_key FROM orders WHERE idempotency_key = :idempotency_key"
-                ),
+                text("SELECT id, status FROM orders WHERE idempotency_key = :idempotency_key"),
                 {"idempotency_key": idempotency_key},
             )
-            existing_row = existing.mappings().first()
-            if existing_row is not None:
+            if existing.mappings().first() is not None:
                 log_structured(
                     "info",
                     "Skipping duplicate order event",
                     idempotency_key=idempotency_key,
-                    order_id=str(existing_row["id"]),  # SQLAlchemy Row mapping key
                 )
                 return
 
@@ -238,7 +200,7 @@ class ExecutionEngine(BaseStreamConsumer):
             # for the same symbol cannot race on a stale position read.
             prior_position = await self.broker.get_position(symbol)
             try:
-                if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+                if reject_unmatched_sell(side=side, prior_position=prior_position):
                     log_structured(
                         "warning",
                         "execution_sell_rejected_no_open_position",
@@ -246,62 +208,34 @@ class ExecutionEngine(BaseStreamConsumer):
                         trace_id=trace_id,
                     )
                     return
-                inserted = await session.execute(
-                    text(
-                        # Dual-write old (qty) + new (quantity) column names so both
-                        # raw-SQL agents and ORM-based MetricsAggregator see real values.
-                        "INSERT INTO orders "
-                        "(strategy_id, symbol, side, qty, quantity, price, status, "
-                        " idempotency_key, broker_order_id, source, schema_version) "
-                        "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
-                        "        :idempotency_key, NULL, :source, :schema_version) "
-                        "RETURNING id"
-                    ),
-                    {
-                        "strategy_id": strategy_id,
-                        "symbol": symbol,
-                        "side": side,
-                        "qty": qty,
-                        "price": price,
-                        "idempotency_key": idempotency_key,
-                        "status": OrderStatus.PENDING,
-                        "source": SOURCE_EXECUTION,
-                        "schema_version": DB_SCHEMA_VERSION,
-                    },
+
+                order_id = await insert_pending_order(
+                    session,
+                    strategy_id=strategy_id,
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    price=price,
+                    idempotency_key=idempotency_key,
+                    status=OrderStatus.PENDING,
                 )
-                order_id = str(inserted.scalar_one())
                 await session.flush()
 
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
-                _db_broker_result = (
-                    broker_result  # captured so fallback knows fill already happened
-                )
+                _db_broker_result = broker_result
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 fill_price = float(broker_result[FieldName.FILL_PRICE])
 
-                await session.execute(
-                    text(
-                        # Also set filled_price / filled_quantity (ORM column names) so
-                        # MetricsAggregator snapshot shows non-null fill data.
-                        "UPDATE orders SET "
-                        "  status = :status, "
-                        "  broker_order_id = :broker_order_id, "
-                        "  price = :fill_price, "
-                        "  filled_price = :fill_price, "
-                        "  filled_quantity = :qty, "
-                        "  filled_at = :filled_at "
-                        "WHERE id = :order_id"
-                    ),
-                    {
-                        "status": broker_result[FieldName.STATUS],
-                        "broker_order_id": broker_result[FieldName.BROKER_ORDER_ID],
-                        "fill_price": fill_price,
-                        "qty": qty,
-                        "filled_at": filled_at,
-                        "order_id": order_id,
-                    },
+                await update_order_fill(
+                    session,
+                    order_id=order_id,
+                    status=broker_result[FieldName.STATUS],
+                    broker_order_id=broker_result[FieldName.BROKER_ORDER_ID],
+                    fill_price=fill_price,
+                    qty=qty,
+                    filled_at=filled_at,
                 )
-                await self._upsert_position(
+                await upsert_position_db(
                     session,
                     strategy_id=strategy_id,
                     symbol=symbol,
@@ -309,7 +243,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     qty=qty,
                     fill_price=fill_price,
                 )
-                await self._insert_audit_log(
+                await insert_audit_log(
                     session,
                     event_type="order_placed",
                     payload={
@@ -330,317 +264,65 @@ class ExecutionEngine(BaseStreamConsumer):
                 await self.redis.delete(lock_key)
 
         if _db_exception is not None:
-            try:
-                raise _db_exception
-            except Exception:
-                log_structured(
-                    "error",
-                    "execution_db_path_failed_using_memory_fallback",
-                    symbol=symbol,
-                    trace_id=trace_id,
-                    exc_info=True,
-                )
-            if _db_broker_result is not None:
-                # Broker already filled the order before the DB failure — record in memory
-                # without re-submitting. Calling _process_in_memory here would place a
-                # second order with the broker.
-                _fill_price = float(_db_broker_result[FieldName.FILL_PRICE])
-                _filled_at = datetime.now(timezone.utc)
-                _realized_pnl = self._compute_realized_pnl(prior_position, side, qty, _fill_price)
-                _entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or _fill_price)
-                _is_close = self._is_round_trip_close(prior_position, side, qty)
-                _pnl_value = _realized_pnl if _is_close else None
-                _pnl_pct = self._compute_pnl_percent(
-                    prior_position, side, qty, _entry_price, _realized_pnl
-                )
-                _fallback_order_id = str(uuid.uuid4())
-                store = get_runtime_store()
-                # add_order only — do NOT call apply_decision, which also appends
-                # to store.orders on SELL and would double-count the realized PnL.
-                store.add_order(
-                    {
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.PRICE: _fill_price,
-                        FieldName.FILL_PRICE: _fill_price,
-                        FieldName.STATUS: _db_broker_result[FieldName.STATUS],
-                        FieldName.BROKER_ORDER_ID: _db_broker_result[FieldName.BROKER_ORDER_ID],
-                        FieldName.PNL: _pnl_value,
-                        FieldName.FILLED_AT: _filled_at.isoformat(),
-                        FieldName.TRACE_ID: trace_id,
-                        FieldName.STRATEGY_ID: strategy_id,
-                    }
-                )
-                store.upsert_trade_fill(
-                    {
-                        "id": trace_id,
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.ENTRY_PRICE: _entry_price,
-                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
-                        FieldName.PNL: _pnl_value,
-                        FieldName.PNL_PERCENT: _pnl_pct,
-                        FieldName.SESSION_ID: strategy_id,
-                        FieldName.ORDER_ID: _fallback_order_id,
-                        FieldName.EXECUTION_TRACE_ID: trace_id,
-                        FieldName.STATUS: OrderStatus.FILLED,
-                        FieldName.FILLED_AT: _filled_at.isoformat(),
-                    }
-                )
-                # Update position to match the fill (mirrors _process_in_memory logic).
-                _signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
-                # The DB path writes positions to Postgres, not store.positions.
-                # Fall back to prior_position (broker state before this fill) so a
-                # closing SELL correctly sees the existing long rather than defaulting
-                # to {} and creating a phantom short.
-                _existing_pos = store.positions.get(symbol) or prior_position
-                _existing_signed = float(_existing_pos.get(FieldName.QTY, 0)) * (
-                    1
-                    if str(_existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
-                    in {PositionSide.LONG, OrderSide.BUY}
-                    else -1
-                )
-                _new_signed = _existing_signed + _signed_qty
-                _new_abs_qty = abs(_new_signed)
-                _new_side = (
-                    PositionSide.FLAT
-                    if _new_abs_qty < 1e-9
-                    else (PositionSide.LONG if _new_signed > 0 else PositionSide.SHORT)
-                )
-                if _new_side == PositionSide.FLAT:
-                    store.positions.pop(symbol, None)
-                else:
-                    store.upsert_position(
-                        symbol,
-                        {
-                            FieldName.SYMBOL: symbol,
-                            FieldName.SIDE: _new_side,
-                            FieldName.QTY: _new_abs_qty,
-                            FieldName.QUANTITY: _new_abs_qty,
-                            FieldName.ENTRY_PRICE: _entry_price,
-                            FieldName.AVG_COST: _entry_price,
-                            FieldName.LAST_PRICE: _fill_price,
-                            FieldName.MARKET_VALUE: round(_new_abs_qty * _fill_price, 8),
-                            FieldName.UNREALIZED_PNL: 0.0,
-                            FieldName.STRATEGY_ID: strategy_id,
-                        },
-                    )
-                # Publish to the same streams as the normal DB path so GradeAgent,
-                # ICUpdater, ReflectionAgent, and the trade-feed all see the fill.
-                _filled_at_iso = _filled_at.isoformat()
-                await self.bus.publish(
-                    STREAM_EXECUTIONS,
-                    {
-                        FieldName.TYPE: "order_filled",
-                        FieldName.MSG_ID: str(uuid.uuid4()),
-                        FieldName.ORDER_ID: _fallback_order_id,
-                        FieldName.STRATEGY_ID: strategy_id,
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.PRICE: price,
-                        FieldName.FILL_PRICE: _fill_price,
-                        FieldName.PNL: _pnl_value,
-                        FieldName.CONFIDENCE: signal_confidence,
-                        FieldName.FILLED_AT: _filled_at_iso,
-                        "executed_at": _filled_at_iso,
-                        FieldName.SESSION_ID: strategy_id,
-                        FieldName.IDEMPOTENCY_KEY: idempotency_key,
-                        FieldName.TRACE_ID: trace_id,
-                        "vwap_plan": vwap_plan,
-                        FieldName.SOURCE: SOURCE_EXECUTION,
-                    },
-                )
-                await self.bus.publish(
-                    STREAM_TRADE_PERFORMANCE,
-                    {
-                        FieldName.MSG_ID: str(uuid.uuid4()),
-                        FieldName.TYPE: "trade_performance",
-                        FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
-                        FieldName.ORDER_ID: _fallback_order_id,
-                        FieldName.TRADE_ID: _fallback_order_id,
-                        FieldName.STRATEGY_ID: strategy_id,
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.QUANTITY: qty,
-                        FieldName.FILL_PRICE: _fill_price,
-                        FieldName.ENTRY_PRICE: _entry_price,
-                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
-                        FieldName.PNL: _pnl_value,
-                        FieldName.PNL_PERCENT: _pnl_pct,
-                        FieldName.TRACE_ID: trace_id,
-                        FieldName.FILLED_AT: _filled_at_iso,
-                        FieldName.ENTRY_TIME: _filled_at_iso,
-                        FieldName.EXIT_TIME: _filled_at_iso if _is_close else None,
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                        FieldName.SOURCE: SOURCE_EXECUTION,
-                        FieldName.SESSION_ID: strategy_id,
-                    },
-                )
-                if _is_close:
-                    await self.bus.publish(
-                        STREAM_TRADE_COMPLETED,
-                        {
-                            FieldName.MSG_ID: str(uuid.uuid4()),
-                            FieldName.TYPE: "trade_completed",
-                            FieldName.SOURCE: SOURCE_EXECUTION,
-                            FieldName.TRACE_ID: trace_id,
-                            FieldName.SESSION_ID: strategy_id,
-                            FieldName.ORDER_ID: _fallback_order_id,
-                            FieldName.SYMBOL: symbol,
-                            FieldName.SIDE: side,
-                            FieldName.QTY: qty,
-                            FieldName.ENTRY_PRICE: _entry_price,
-                            FieldName.EXIT_PRICE: _fill_price,
-                            FieldName.PNL: _realized_pnl,
-                            FieldName.PNL_PERCENT: _pnl_pct,
-                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
-                await self.bus.publish(
-                    STREAM_TRADE_LIFECYCLE,
-                    {
-                        FieldName.TYPE: "trade_filled",
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.ENTRY_PRICE: _entry_price,
-                        FieldName.EXIT_PRICE: _fill_price if _is_close else None,
-                        FieldName.PNL: _pnl_value,
-                        FieldName.PNL_PERCENT: _pnl_pct,
-                        FieldName.ORDER_ID: _fallback_order_id,
-                        FieldName.EXECUTION_TRACE_ID: trace_id,
-                        FieldName.STATUS: OrderStatus.FILLED,
-                        FieldName.FILLED_AT: _filled_at_iso,
-                        FieldName.TIMESTAMP: _filled_at_iso,
-                        FieldName.SESSION_ID: strategy_id,
-                        FieldName.SOURCE: SOURCE_EXECUTION,
-                    },
-                )
-                log_structured(
-                    "warning",
-                    "execution_db_fill_recorded_in_memory_no_resubmit",
-                    symbol=symbol,
-                    fill_price=_fill_price,
-                    trace_id=trace_id,
-                )
-                try:
-                    await _write_heartbeat(
-                        self.redis,
-                        _STATE_NAME,
-                        f"db_fail_fill_recorded:{symbol}",
-                        self._decisions_evaluated,
-                    )
-                except Exception:
-                    pass
-            else:
-                # Broker was never called; safe to run the full in-memory path.
-                await self._process_in_memory(data)
+            await self._handle_db_failure(
+                _db_exception,
+                _db_broker_result,
+                data=data,
+                prior_position=prior_position,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                strategy_id=strategy_id,
+                trace_id=trace_id,
+                signal_confidence=signal_confidence,
+                idempotency_key=idempotency_key,
+                vwap_plan=vwap_plan,
+            )
             return
 
-        # Compute realized PnL from prior position snapshot
-        realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
+        # Happy path: compute PnL and publish stream events
+        realized_pnl = compute_realized_pnl(prior_position, side, qty, fill_price)
         entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
-        is_round_trip_close = self._is_round_trip_close(prior_position, side, qty)
-        pnl_value = realized_pnl if is_round_trip_close else None
+        is_close = is_round_trip_close(prior_position, side, qty)
+        pnl_value = realized_pnl if is_close else None
+        pnl_percent = compute_pnl_percent(prior_position, side, qty, entry_price, realized_pnl)
 
-        # Retrieve the agent's confidence from agent_runs so GradeAgent gets a real value
-        confidence = 0.5
+        # Retrieve confidence from agent_runs so GradeAgent gets a real value
+        confidence = signal_confidence
         try:
-            async with AsyncSessionFactory() as _conf_session:
-                _conf_result = await _conf_session.execute(
+            async with AsyncSessionFactory() as _s:
+                _row = await _s.execute(
                     text("SELECT confidence FROM agent_runs WHERE trace_id = :tid LIMIT 1"),
                     {"tid": trace_id},
                 )
-                _conf_val = _conf_result.scalar()
-                if _conf_val is not None:
-                    confidence = float(_conf_val)
+                _val = _row.scalar()
+                if _val is not None:
+                    confidence = float(_val)
         except Exception:
-            pass  # Fall back to 0.5; best-effort only
+            pass
 
-        execution_payload: dict[str, Any] = {
-            FieldName.TYPE: "order_filled",
-            FieldName.MSG_ID: str(uuid.uuid4()),
-            FieldName.ORDER_ID: order_id,
-            FieldName.STRATEGY_ID: strategy_id,
-            FieldName.SYMBOL: symbol,
-            FieldName.SIDE: side,
-            FieldName.QTY: qty,
-            FieldName.PRICE: price,
-            FieldName.FILL_PRICE: fill_price,
-            FieldName.PNL: pnl_value,
-            FieldName.CONFIDENCE: confidence,
-            FieldName.FILLED_AT: filled_at.isoformat(),
-            "executed_at": filled_at.isoformat(),
-            FieldName.SESSION_ID: strategy_id,
-            FieldName.IDEMPOTENCY_KEY: idempotency_key,
-            FieldName.TRACE_ID: trace_id,
-            "vwap_plan": vwap_plan,
-            FieldName.SOURCE: SOURCE_EXECUTION,
-        }
-        await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
+        ctx = FillContext(
+            order_id=order_id,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            price=price,
+            fill_price=fill_price,
+            entry_price=entry_price,
+            signal_confidence=confidence,
+            pnl_value=pnl_value,
+            pnl_percent=pnl_percent,
+            realized_pnl=realized_pnl,
+            is_round_trip_close=is_close,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            vwap_plan=vwap_plan,
+            filled_at=datetime.now(timezone.utc),
+        )
+        await publish_fill_events(self.bus, ctx)
 
-        # Publish to trade_performance stream so GradeAgent / ICUpdater / ReflectionAgent
-        # have real fill data with realized PnL to work with
-        pnl_percent = self._compute_pnl_percent(
-            prior_position, side, qty, entry_price, realized_pnl
-        )
-        # SafeWriter.write_trade_performance requires trade_id, quantity,
-        # entry_time, and schema_version (v3). Without these the persist layer
-        # raises, the pipeline swallows it as best-effort, and the row never
-        # lands -> trade_performance table stays empty -> PnL shows as zero.
-        filled_at_iso = filled_at.isoformat()
-        await self.bus.publish(
-            STREAM_TRADE_PERFORMANCE,
-            {
-                FieldName.MSG_ID: str(uuid.uuid4()),
-                FieldName.TYPE: "trade_performance",
-                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
-                FieldName.ORDER_ID: order_id,
-                FieldName.TRADE_ID: order_id,
-                FieldName.STRATEGY_ID: strategy_id,
-                FieldName.SYMBOL: symbol,
-                FieldName.SIDE: side,
-                FieldName.QTY: qty,
-                FieldName.QUANTITY: qty,
-                FieldName.FILL_PRICE: fill_price,
-                FieldName.ENTRY_PRICE: entry_price,
-                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
-                FieldName.PNL: pnl_value,
-                FieldName.PNL_PERCENT: pnl_percent,
-                FieldName.TRACE_ID: trace_id,
-                FieldName.FILLED_AT: filled_at_iso,
-                FieldName.ENTRY_TIME: filled_at_iso,
-                FieldName.EXIT_TIME: filled_at_iso if is_round_trip_close else None,
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                FieldName.SOURCE: SOURCE_EXECUTION,
-                FieldName.SESSION_ID: strategy_id,
-            },
-        )
-        if is_round_trip_close:
-            await self.bus.publish(
-                STREAM_TRADE_COMPLETED,
-                {
-                    FieldName.MSG_ID: str(uuid.uuid4()),
-                    FieldName.TYPE: "trade_completed",
-                    FieldName.SOURCE: SOURCE_EXECUTION,
-                    FieldName.TRACE_ID: trace_id,
-                    FieldName.SESSION_ID: strategy_id,
-                    FieldName.ORDER_ID: order_id,
-                    FieldName.SYMBOL: symbol,
-                    FieldName.SIDE: side,
-                    FieldName.QTY: qty,
-                    FieldName.ENTRY_PRICE: entry_price,
-                    FieldName.EXIT_PRICE: fill_price,
-                    FieldName.PNL: realized_pnl,
-                    FieldName.PNL_PERCENT: pnl_percent,
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                    "executed_at": filled_at_iso,
-                },
-            )
         log_structured(
             "info",
             "order_executed",
@@ -662,12 +344,12 @@ class ExecutionEngine(BaseStreamConsumer):
                 side=side,
                 qty=qty,
                 entry_price=entry_price,
-                exit_price=fill_price if is_round_trip_close else None,
+                exit_price=fill_price if is_close else None,
                 pnl=pnl_value,
                 pnl_percent=pnl_percent,
                 order_id=order_id,
                 status=OrderStatus.FILLED,
-                filled_at=filled_at.isoformat(),
+                filled_at=ctx.filled_at.isoformat(),
                 session_id=strategy_id,
             )
         except Exception:
@@ -675,32 +357,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 "warning", "trade_lifecycle_write_failed", trace_id=trace_id, exc_info=True
             )
 
-        # Broadcast fill to dashboard WS so trade feed updates live
-        await self.bus.publish(
-            STREAM_TRADE_LIFECYCLE,
-            {
-                FieldName.TYPE: "trade_filled",
-                FieldName.SYMBOL: symbol,
-                FieldName.SIDE: side,
-                FieldName.QTY: qty,
-                FieldName.ENTRY_PRICE: entry_price,
-                FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
-                FieldName.PNL: pnl_value,
-                FieldName.PNL_PERCENT: pnl_percent,
-                FieldName.ORDER_ID: order_id,
-                FieldName.EXECUTION_TRACE_ID: trace_id,
-                FieldName.STATUS: OrderStatus.FILLED,
-                FieldName.FILLED_AT: filled_at.isoformat(),
-                FieldName.TIMESTAMP: filled_at.isoformat(),
-                FieldName.SESSION_ID: strategy_id,
-                FieldName.SOURCE: SOURCE_EXECUTION,
-            },
-        )
-
         if self.agent_state:
             self.agent_state.record_event(_STATE_NAME, task=f"order_filled:{symbol}")
 
-        # Write Redis + Postgres heartbeat so dashboard shows EXECUTION_ENGINE as ACTIVE
         try:
             await _write_heartbeat(
                 self.redis,
@@ -711,29 +370,147 @@ class ExecutionEngine(BaseStreamConsumer):
         except Exception:
             log_structured("warning", "execution_heartbeat_failed", exc_info=True)
 
-    async def _write_idle_heartbeat(
-        self, symbol: str, exec_status: str, trace_id: str = ""
-    ) -> None:
-        """Write a heartbeat even when no order executes so dashboard always shows EE status.
+    # -------------------------------------------------------------------------
+    # DB failure fallback
+    # -------------------------------------------------------------------------
 
-        The ``exec_status`` string encodes the gate reason:
-          idle:hold           — decision action was hold/reject/flat
-          gated:score         — weighted score below EXECUTION_DECISION_THRESHOLD
-          blocked:market_closed  — equity market hours check failed
-          blocked:trading_paused — learning-loop circuit breaker active
-          error:missing_fields   — required payload fields absent
-          error:invalid_fields   — numeric field conversion failed
-        """
+    async def _handle_db_failure(
+        self,
+        exc: Exception,
+        broker_result: dict[str, Any] | None,
+        *,
+        data: dict[str, Any],
+        prior_position: dict[str, Any],
+        symbol: str,
+        side: str,
+        qty: float,
+        price: float,
+        strategy_id: str,
+        trace_id: str,
+        signal_confidence: float,
+        idempotency_key: str,
+        vwap_plan: list[float] | None,
+    ) -> None:
+        try:
+            raise exc
+        except Exception:
+            log_structured(
+                "error",
+                "execution_db_path_failed_using_memory_fallback",
+                symbol=symbol,
+                trace_id=trace_id,
+                exc_info=True,
+            )
+
+        if broker_result is None:
+            # Broker was never called; safe to run the full in-memory path.
+            await self._process_in_memory(data)
+            return
+
+        # Broker already filled the order before the DB failure — record in memory
+        # without re-submitting a second order.
+        fill_price = float(broker_result[FieldName.FILL_PRICE])
+        filled_at = datetime.now(timezone.utc)
+
+        realized_pnl = compute_realized_pnl(prior_position, side, qty, fill_price)
+        entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
+        is_close = is_round_trip_close(prior_position, side, qty)
+        pnl_value = realized_pnl if is_close else None
+        pnl_percent = compute_pnl_percent(prior_position, side, qty, entry_price, realized_pnl)
+        fallback_order_id = str(uuid.uuid4())
+
+        store = get_runtime_store()
+        # add_order only — do NOT call apply_decision, which also appends
+        # to store.orders on SELL and would double-count realized PnL.
+        store.add_order(
+            {
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.PRICE: fill_price,
+                FieldName.FILL_PRICE: fill_price,
+                FieldName.STATUS: broker_result[FieldName.STATUS],
+                FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
+                FieldName.PNL: pnl_value,
+                FieldName.FILLED_AT: filled_at.isoformat(),
+                FieldName.TRACE_ID: trace_id,
+                FieldName.STRATEGY_ID: strategy_id,
+            }
+        )
+        store.upsert_trade_fill(
+            {
+                "id": trace_id,
+                FieldName.SYMBOL: symbol,
+                FieldName.SIDE: side,
+                FieldName.QTY: qty,
+                FieldName.ENTRY_PRICE: entry_price,
+                FieldName.EXIT_PRICE: fill_price if is_close else None,
+                FieldName.PNL: pnl_value,
+                FieldName.PNL_PERCENT: pnl_percent,
+                FieldName.SESSION_ID: strategy_id,
+                FieldName.ORDER_ID: fallback_order_id,
+                FieldName.EXECUTION_TRACE_ID: trace_id,
+                FieldName.STATUS: OrderStatus.FILLED,
+                FieldName.FILLED_AT: filled_at.isoformat(),
+            }
+        )
+
+        # Reconcile position in InMemoryStore (mirrors _process_in_memory logic).
+        _existing = store.positions.get(symbol) or prior_position
+        new_pos = apply_signed_delta(
+            _existing,
+            side,
+            qty,
+            fill_price,
+            strategy_id=strategy_id,
+            symbol=symbol,
+        )
+        if new_pos is None:
+            store.positions.pop(symbol, None)
+        else:
+            store.upsert_position(symbol, new_pos)
+
+        ctx = FillContext(
+            order_id=fallback_order_id,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            price=price,
+            fill_price=fill_price,
+            entry_price=entry_price,
+            signal_confidence=signal_confidence,
+            pnl_value=pnl_value,
+            pnl_percent=pnl_percent,
+            realized_pnl=realized_pnl,
+            is_round_trip_close=is_close,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            vwap_plan=vwap_plan,
+            filled_at=filled_at,
+        )
+        await publish_fill_events(self.bus, ctx)
+
+        log_structured(
+            "warning",
+            "execution_db_fill_recorded_in_memory_no_resubmit",
+            symbol=symbol,
+            fill_price=fill_price,
+            trace_id=trace_id,
+        )
         try:
             await _write_heartbeat(
                 self.redis,
                 _STATE_NAME,
-                f"decision:{symbol} {exec_status}",
+                f"db_fail_fill_recorded:{symbol}",
                 self._decisions_evaluated,
-                extra={"exec_status": exec_status, "last_trace_id": trace_id},
             )
         except Exception:
-            log_structured("warning", "execution_idle_heartbeat_failed", exc_info=True)
+            pass
+
+    # -------------------------------------------------------------------------
+    # In-memory path
+    # -------------------------------------------------------------------------
 
     async def _process_in_memory(self, data: dict[str, Any]) -> None:
         """Execute an order entirely in-memory when the DB is unavailable.
@@ -742,74 +519,41 @@ class ExecutionEngine(BaseStreamConsumer):
         writes the filled order and updated position to InMemoryStore so the
         dashboard fallback snapshot reflects real activity.
         """
-        side_or_action = str(data.get(FieldName.ACTION) or data.get(FieldName.SIDE) or "").lower()
-        missing = [f for f in (FieldName.SYMBOL, FieldName.QTY, FieldName.PRICE) if not data.get(f)]
-        if not side_or_action:
-            missing.append("action/side")
-        if missing:
-            log_structured("warning", "order_missing_required_fields_memory", missing=missing)
-            symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
-            await self._write_idle_heartbeat(symbol_hint, "error:missing_fields")
+        parsed = await self._parse_and_validate(data)
+        if parsed is None:
             return
 
-        strategy_id = str(data.get(FieldName.STRATEGY_ID) or uuid.uuid4())
-        symbol = str(data[FieldName.SYMBOL])
-        side = side_or_action
-        try:
-            qty = float(data[FieldName.QTY])
-            price = float(data[FieldName.PRICE])
-        except (TypeError, ValueError):
-            log_structured("warning", "order_invalid_numeric_fields_memory", symbol=symbol)
-            await self._write_idle_heartbeat(symbol, "error:invalid_fields")
-            return
-        if qty <= 0 or price <= 0:
-            log_structured(
-                "warning",
-                "order_non_positive_numeric_fields_memory",
-                symbol=symbol,
-                qty=qty,
-                price=price,
-            )
-            await self._write_idle_heartbeat(symbol, "error:non_positive_fields")
-            return
-        trace_id = str(data.get(FieldName.TRACE_ID) or uuid.uuid4())
-
-        if side in NO_ORDER_ACTIONS:
-            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
-            return
-
-        signal_confidence = float(
-            data.get(FieldName.SIGNAL_CONFIDENCE)
-            or data.get(FieldName.COMPOSITE_SCORE)
-            or data.get(FieldName.CONFIDENCE)
-            or 0.5
+        signal_confidence, reasoning_score = self._extract_scores(data)
+        log_structured(
+            "info",
+            "execution_engine_decision_received",
+            action=parsed.side,
+            symbol=parsed.symbol,
+            price=parsed.price,
+            qty=parsed.qty,
+            trace_id=parsed.trace_id,
         )
-        reasoning_score = float(data.get(FieldName.REASONING_SCORE) or signal_confidence)
-        final_score = self._compute_final_score(signal_confidence, reasoning_score)
-        threshold = EXECUTION_DECISION_THRESHOLD
-        if final_score < threshold:
-            await self._write_idle_heartbeat(
-                symbol,
-                f"gated:score score={final_score:.3f}<{threshold}",
-                trace_id,
-            )
+        if await self._check_pre_execution_gates(
+            parsed.side, parsed.symbol, signal_confidence, reasoning_score, parsed.trace_id
+        ):
             return
 
-        if not self._is_market_open(symbol):
-            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
-            return
+        symbol = parsed.symbol
+        side = parsed.side
+        qty = parsed.qty
+        price = parsed.price
+        strategy_id = parsed.strategy_id
+        trace_id = parsed.trace_id
 
-        # --- Idempotency guard (mirrors the DB-path SELECT on idempotency_key) ---
+        # Idempotency guard — mirrors the DB-path SELECT on idempotency_key.
         # BaseStreamConsumer is at-least-once; redelivered messages must not
-        # produce duplicate fills. Use Redis SET NX with a 24-hour TTL so any
-        # realistic replay window is covered even when DB is unavailable.
+        # produce duplicate fills. Use Redis SET NX with a 24-hour TTL.
         order_timestamp = self._parse_timestamp(data.get(FieldName.TIMESTAMP))
         idempotency_key = self._build_idempotency_key(
             strategy_id, symbol, side, order_timestamp, data
         )
         dedup_key = REDIS_KEY_ORDER_DEDUP.format(idempotency_key=idempotency_key)
-        is_new = await self.redis.set(dedup_key, "1", ex=ORDER_DEDUP_TTL_SECONDS, nx=True)
-        if not is_new:
+        if not await self.redis.set(dedup_key, "1", ex=ORDER_DEDUP_TTL_SECONDS, nx=True):
             log_structured(
                 "info",
                 "memory_order_duplicate_skipped",
@@ -824,17 +568,14 @@ class ExecutionEngine(BaseStreamConsumer):
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
-        lock_acquired = await self.redis.set(
-            lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True
-        )
-        if not lock_acquired:
+        if not await self.redis.set(lock_key, lock_value, ex=ORDER_LOCK_TTL_SECONDS, nx=True):
             raise RuntimeError(f"Order lock already held for {symbol}")
 
         try:
             # Snapshot position AFTER acquiring the lock so concurrent orders
             # for the same symbol cannot race on a stale position read.
             prior_position = await self.broker.get_position(symbol)
-            if self._reject_unmatched_sell(side=side, prior_position=prior_position):
+            if reject_unmatched_sell(side=side, prior_position=prior_position):
                 log_structured(
                     "warning",
                     "execution_sell_rejected_no_open_position_memory",
@@ -842,17 +583,16 @@ class ExecutionEngine(BaseStreamConsumer):
                     trace_id=trace_id,
                 )
                 return
+
             broker_result = await self.broker.place_order(symbol, side, qty, price)
             fill_price = float(broker_result[FieldName.FILL_PRICE])
             filled_at = datetime.now(timezone.utc)
 
-            realized_pnl = self._compute_realized_pnl(prior_position, side, qty, fill_price)
+            realized_pnl = compute_realized_pnl(prior_position, side, qty, fill_price)
             entry_price = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
-            is_round_trip_close = self._is_round_trip_close(prior_position, side, qty)
-            pnl_value = realized_pnl if is_round_trip_close else None
-            pnl_percent = self._compute_pnl_percent(
-                prior_position, side, qty, entry_price, realized_pnl
-            )
+            is_close = is_round_trip_close(prior_position, side, qty)
+            pnl_value = realized_pnl if is_close else None
+            pnl_percent = compute_pnl_percent(prior_position, side, qty, entry_price, realized_pnl)
 
             store = get_runtime_store()
             store.add_order(
@@ -874,7 +614,6 @@ class ExecutionEngine(BaseStreamConsumer):
                     FieldName.TRACE_ID: trace_id,
                 }
             )
-            # Surface on the dashboard trade_feed panel even when DB is down.
             store.upsert_trade_fill(
                 {
                     "id": trace_id,
@@ -882,7 +621,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     FieldName.SIDE: side,
                     FieldName.QTY: qty,
                     FieldName.ENTRY_PRICE: entry_price,
-                    FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
+                    FieldName.EXIT_PRICE: fill_price if is_close else None,
                     FieldName.PNL: pnl_value,
                     FieldName.PNL_PERCENT: pnl_percent,
                     FieldName.SESSION_ID: strategy_id,
@@ -893,135 +632,41 @@ class ExecutionEngine(BaseStreamConsumer):
                 }
             )
 
-            # Update position in InMemoryStore
-            signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
             existing_pos = store.positions.get(symbol, {})
-            existing_signed = float(existing_pos.get(FieldName.QTY, 0)) * (
-                1
-                if str(existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
-                in {PositionSide.LONG, OrderSide.BUY}
-                else -1
+            new_pos = apply_signed_delta(
+                existing_pos,
+                side,
+                qty,
+                fill_price,
+                strategy_id=strategy_id,
+                symbol=symbol,
             )
-            new_signed = existing_signed + signed_qty
-            new_abs_qty = abs(new_signed)
-            new_side = (
-                PositionSide.FLAT
-                if new_abs_qty < 1e-9
-                else (PositionSide.LONG if new_signed > 0 else PositionSide.SHORT)
-            )
-            if new_side == PositionSide.FLAT:
+            if new_pos is None:
                 store.positions.pop(symbol, None)
             else:
-                store.upsert_position(
-                    symbol,
-                    {
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: new_side,
-                        FieldName.QTY: new_abs_qty,
-                        FieldName.QUANTITY: new_abs_qty,
-                        FieldName.ENTRY_PRICE: entry_price,
-                        FieldName.AVG_COST: entry_price,
-                        "current_price": fill_price,
-                        FieldName.LAST_PRICE: fill_price,
-                        FieldName.MARKET_VALUE: round(new_abs_qty * fill_price, 8),
-                        "unrealized_pnl": 0.0,
-                        FieldName.STRATEGY_ID: strategy_id,
-                    },
-                )
+                store.upsert_position(symbol, new_pos)
 
-            # Publish stream events (same as DB path)
-            execution_payload: dict[str, Any] = {
-                FieldName.TYPE: "order_filled",
-                FieldName.MSG_ID: str(uuid.uuid4()),
-                FieldName.ORDER_ID: order_id,
-                FieldName.STRATEGY_ID: strategy_id,
-                FieldName.SYMBOL: symbol,
-                FieldName.SIDE: side,
-                FieldName.QTY: qty,
-                FieldName.PRICE: price,
-                FieldName.FILL_PRICE: fill_price,
-                FieldName.PNL: pnl_value,
-                FieldName.CONFIDENCE: signal_confidence,
-                FieldName.FILLED_AT: filled_at.isoformat(),
-                "executed_at": filled_at.isoformat(),
-                FieldName.SESSION_ID: strategy_id,
-                FieldName.TRACE_ID: trace_id,
-                "vwap_plan": vwap_plan,
-                FieldName.SOURCE: SOURCE_EXECUTION,
-            }
-            await self.bus.publish(STREAM_EXECUTIONS, execution_payload)
-            # Mirror of the DB-mode payload so the in-memory path also
-            # satisfies SafeWriter.write_trade_performance if the pipeline
-            # persists it once DB availability returns.
-            filled_at_iso = filled_at.isoformat()
-            await self.bus.publish(
-                STREAM_TRADE_PERFORMANCE,
-                {
-                    FieldName.MSG_ID: str(uuid.uuid4()),
-                    FieldName.TYPE: "trade_performance",
-                    FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
-                    FieldName.ORDER_ID: order_id,
-                    FieldName.TRADE_ID: order_id,
-                    FieldName.STRATEGY_ID: strategy_id,
-                    FieldName.SYMBOL: symbol,
-                    FieldName.SIDE: side,
-                    FieldName.QTY: qty,
-                    FieldName.QUANTITY: qty,
-                    FieldName.FILL_PRICE: fill_price,
-                    FieldName.ENTRY_PRICE: entry_price,
-                    FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
-                    FieldName.PNL: pnl_value,
-                    FieldName.PNL_PERCENT: pnl_percent,
-                    FieldName.TRACE_ID: trace_id,
-                    FieldName.FILLED_AT: filled_at_iso,
-                    FieldName.ENTRY_TIME: filled_at_iso,
-                    FieldName.EXIT_TIME: filled_at_iso if is_round_trip_close else None,
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                    FieldName.SOURCE: SOURCE_EXECUTION,
-                    FieldName.SESSION_ID: strategy_id,
-                },
+            ctx = FillContext(
+                order_id=order_id,
+                strategy_id=strategy_id,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                fill_price=fill_price,
+                entry_price=entry_price,
+                signal_confidence=signal_confidence,
+                pnl_value=pnl_value,
+                pnl_percent=pnl_percent,
+                realized_pnl=realized_pnl,
+                is_round_trip_close=is_close,
+                idempotency_key=idempotency_key,
+                trace_id=trace_id,
+                vwap_plan=vwap_plan,
+                filled_at=filled_at,
             )
-            if is_round_trip_close:
-                await self.bus.publish(
-                    STREAM_TRADE_COMPLETED,
-                    {
-                        FieldName.MSG_ID: str(uuid.uuid4()),
-                        FieldName.TYPE: "trade_completed",
-                        FieldName.SOURCE: SOURCE_EXECUTION,
-                        FieldName.TRACE_ID: trace_id,
-                        FieldName.SESSION_ID: strategy_id,
-                        FieldName.ORDER_ID: order_id,
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.ENTRY_PRICE: entry_price,
-                        FieldName.EXIT_PRICE: fill_price,
-                        FieldName.PNL: realized_pnl,
-                        FieldName.PNL_PERCENT: pnl_percent,
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                        "executed_at": filled_at_iso,
-                    },
-                )
-            await self.bus.publish(
-                STREAM_TRADE_LIFECYCLE,
-                {
-                    FieldName.TYPE: "trade_filled",
-                    FieldName.SYMBOL: symbol,
-                    FieldName.SIDE: side,
-                    FieldName.QTY: qty,
-                    FieldName.ENTRY_PRICE: entry_price,
-                    FieldName.EXIT_PRICE: fill_price if is_round_trip_close else None,
-                    FieldName.PNL: pnl_value,
-                    FieldName.PNL_PERCENT: pnl_percent,
-                    FieldName.ORDER_ID: order_id,
-                    FieldName.EXECUTION_TRACE_ID: trace_id,
-                    FieldName.STATUS: OrderStatus.FILLED,
-                    FieldName.FILLED_AT: filled_at.isoformat(),
-                    FieldName.TIMESTAMP: filled_at.isoformat(),
-                    FieldName.SESSION_ID: strategy_id,
-                    FieldName.SOURCE: SOURCE_EXECUTION,
-                },
-            )
+            await publish_fill_events(self.bus, ctx)
+
             log_structured(
                 "info",
                 "order_executed_memory",
@@ -1048,76 +693,95 @@ class ExecutionEngine(BaseStreamConsumer):
         except Exception:
             log_structured("warning", "execution_heartbeat_failed_memory", exc_info=True)
 
-    def _compute_pnl_percent(
+    # -------------------------------------------------------------------------
+    # Gate helpers — add logging and heartbeats on top of pure utils
+    # -------------------------------------------------------------------------
+
+    async def _write_idle_heartbeat(
+        self, symbol: str, exec_status: str, trace_id: str = ""
+    ) -> None:
+        """Write a heartbeat even when no order executes so the dashboard always shows EE status."""
+        try:
+            await _write_heartbeat(
+                self.redis,
+                _STATE_NAME,
+                f"decision:{symbol} {exec_status}",
+                self._decisions_evaluated,
+                extra={"exec_status": exec_status, "last_trace_id": trace_id},
+            )
+        except Exception:
+            log_structured("warning", "execution_idle_heartbeat_failed", exc_info=True)
+
+    async def _parse_and_validate(self, data: dict[str, Any]) -> _ParsedDecision | None:
+        """Delegate to ``parse_decision_fields``, adding logging and a heartbeat on failure."""
+        parsed, error = parse_decision_fields(data)
+        if error is not None:
+            symbol_hint = str(data.get(FieldName.SYMBOL) or "?")
+            log_structured("warning", "order_validation_failed", reason=error, symbol=symbol_hint)
+            heartbeat_status = ":".join(error.split(":")[:2])
+            await self._write_idle_heartbeat(symbol_hint, heartbeat_status)
+            return None
+        return parsed
+
+    @staticmethod
+    def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:
+        """Thin alias for ``extract_decision_scores`` kept for call-site symmetry."""
+        return extract_decision_scores(data)
+
+    async def _check_pre_execution_gates(
         self,
-        prior_position: dict[str, Any],
         side: str,
-        qty: float,
-        entry_price: float,
-        realized_pnl: float,
-    ) -> float:
-        """Return percentage return on the closed position's cost basis.
+        symbol: str,
+        signal_confidence: float,
+        reasoning_score: float,
+        trace_id: str,
+    ) -> str | None:
+        """Delegate to the pure gate check, then log and write a heartbeat if blocked."""
+        final_score = compute_execution_score(signal_confidence, reasoning_score)
+        market_open = self._is_market_open(symbol)
+        gate = check_execution_gate(
+            side, symbol, final_score, EXECUTION_DECISION_THRESHOLD, market_open
+        )
+        if gate is None:
+            return None
+        if gate.startswith("hold:"):
+            log_structured(
+                "info",
+                "execution_skipped_advisory_action",
+                symbol=symbol,
+                action=side,
+                trace_id=trace_id,
+            )
+            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
+        elif gate.startswith("gated:score:"):
+            log_structured(
+                "info",
+                "execution_gated_score_below_threshold",
+                symbol=symbol,
+                final_score=round(final_score, 4),
+                threshold=EXECUTION_DECISION_THRESHOLD,
+                signal_confidence=round(signal_confidence, 4),
+                reasoning_score=round(reasoning_score, 4),
+                trace_id=trace_id,
+            )
+            await self._write_idle_heartbeat(
+                symbol,
+                f"gated:score score={final_score:.3f}<{EXECUTION_DECISION_THRESHOLD}",
+                trace_id,
+            )
+        elif gate == "blocked:market_closed":
+            log_structured(
+                "info",
+                "execution_blocked_market_closed",
+                symbol=symbol,
+                trace_id=trace_id,
+            )
+            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
+        return gate
 
-        Uses actual closed_qty (not order qty) so oversell scenarios don't
-        inflate the denominator and produce an artificially small percentage.
-        """
-        if entry_price <= 0 or realized_pnl == 0.0:
-            return 0.0
-        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
-        closed_qty = min(qty, prior_qty) if prior_qty > 0 else qty
-        cost_basis = entry_price * (closed_qty if closed_qty > 0 else qty)
-        return (realized_pnl / cost_basis) * 100 if cost_basis > 0 else 0.0
-
-    def _compute_realized_pnl(
-        self,
-        prior_position: dict[str, Any],
-        side: str,
-        qty: float,
-        fill_price: float,
-    ) -> float:
-        """Compute realized PnL when closing or partially closing a position."""
-        prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
-        prior_entry = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
-        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
-
-        # Closing a long position with a sell
-        if (
-            prior_side == PositionSide.LONG
-            and side in (OrderSide.SELL, PositionSide.SHORT)
-            and prior_qty > 0
-        ):
-            closed_qty = min(qty, prior_qty)
-            return round((fill_price - prior_entry) * closed_qty, 8)
-
-        # Closing a short position with a buy
-        if (
-            prior_side == PositionSide.SHORT
-            and side in (OrderSide.BUY, PositionSide.LONG)
-            and prior_qty > 0
-        ):
-            closed_qty = min(qty, prior_qty)
-            return round((prior_entry - fill_price) * closed_qty, 8)
-
-        # Opening or adding to a position — no realized PnL yet
-        return 0.0
-
-    def _is_round_trip_close(self, prior_position: dict[str, Any], side: str, qty: float) -> bool:
-        prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
-        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
-        if prior_qty <= 0:
-            return False
-        if side in (OrderSide.SELL, PositionSide.SHORT) and prior_side == PositionSide.LONG:
-            return True
-        if side in (OrderSide.BUY, PositionSide.LONG) and prior_side == PositionSide.SHORT:
-            return True
-        return False
-
-    def _reject_unmatched_sell(self, side: str, prior_position: dict[str, Any]) -> bool:
-        if side not in (OrderSide.SELL, PositionSide.SHORT):
-            return False
-        prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
-        prior_qty = float(prior_position.get(FieldName.QTY) or 0)
-        return not (prior_side == PositionSide.LONG and prior_qty > 0)
+    # -------------------------------------------------------------------------
+    # Scheduling / clock helpers
+    # -------------------------------------------------------------------------
 
     def _build_idempotency_key(
         self,
@@ -1128,7 +792,6 @@ class ExecutionEngine(BaseStreamConsumer):
         signal_data: dict[str, Any] | None = None,
     ) -> str:
         ts_minute = timestamp.astimezone(timezone.utc).strftime("%Y%m%d%H%M")
-        # Include signal hash for better granularity
         signal_hash = ""
         if signal_data:
             signal_content = json.dumps(
@@ -1160,21 +823,6 @@ class ExecutionEngine(BaseStreamConsumer):
         parsed = datetime.fromisoformat(s)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
-    def _compute_final_score(
-        self,
-        signal_confidence: float,
-        reasoning_score: float,
-        historical_perf: float = 0.6,
-    ) -> float:
-        """Weighted execution score used as a gate before submitting orders.
-
-        Weights: signal 50%, reasoning 30%, historical performance 20%.
-        ``historical_perf`` defaults to 0.6 (slight optimism for new systems with
-        no trading history — allows MOMENTUM-tier signals, score=0.55, to clear
-        the 0.55 gate: 0.55*0.5 + 0.55*0.3 + 0.6*0.2 = 0.56 > 0.55).
-        """
-        return (signal_confidence * 0.50) + (reasoning_score * 0.30) + (historical_perf * 0.20)
-
     def _is_market_open(self, symbol: str) -> bool:
         """Return True if trading is currently allowed for this symbol.
 
@@ -1185,106 +833,57 @@ class ExecutionEngine(BaseStreamConsumer):
         if settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER:
             return True
         if "/" in symbol:
-            return True  # Crypto: BTC/USD, ETH/USD, SOL/USD — always open
+            return True
 
         try:
             from zoneinfo import ZoneInfo
 
             et_tz = ZoneInfo("America/New_York")
             now_et = datetime.now(et_tz)
-            if now_et.weekday() >= 5:  # Saturday=5, Sunday=6
+            if now_et.weekday() >= 5:
                 return False
             market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
             market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
             return market_open <= now_et < market_close
         except Exception:
             log_structured("warning", "market_clock_check_failed", exc_info=True)
-            return True  # Fail open — never silently block a valid order
+            return True
 
-    async def _upsert_position(
+    # -------------------------------------------------------------------------
+    # Backward-compat delegates — thin wrappers so existing tests don't break
+    # -------------------------------------------------------------------------
+
+    def _compute_final_score(
+        self, signal_confidence: float, reasoning_score: float, historical_perf: float = 0.6
+    ) -> float:
+        return compute_execution_score(signal_confidence, reasoning_score, historical_perf)
+
+    def _compute_realized_pnl(
+        self, prior_position: dict, side: str, qty: float, fill_price: float
+    ) -> float:
+        return compute_realized_pnl(prior_position, side, qty, fill_price)
+
+    def _compute_pnl_percent(
         self,
-        session,
-        strategy_id: str,
-        symbol: str,
+        prior_position: dict,
         side: str,
         qty: float,
-        fill_price: float,
+        entry_price: float,
+        realized_pnl: float,
+    ) -> float:
+        return compute_pnl_percent(prior_position, side, qty, entry_price, realized_pnl)
+
+    async def _upsert_position(
+        self, session, strategy_id: str, symbol: str, side: str, qty: float, fill_price: float
     ) -> None:
-        existing = await session.execute(
-            text(
-                "SELECT id, side, qty FROM positions WHERE strategy_id = :strategy_id AND symbol = :symbol"
-            ),
-            {"strategy_id": strategy_id, "symbol": symbol},
-        )
-        row = existing.mappings().first()
-        signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
-        if row is None:
-            pos_qty = abs(signed_qty)
-            pos_side = PositionSide.LONG if signed_qty >= 0 else PositionSide.SHORT
-            market_value = round(pos_qty * fill_price, 8)
-            await session.execute(
-                text(
-                    # Dual-write old (qty/entry_price/current_price/unrealised_pnl) +
-                    # new (quantity/avg_cost/last_price/market_value/unrealized_pnl)
-                    # column names so MetricsAggregator ORM queries return real values.
-                    "INSERT INTO positions "
-                    "(symbol, side, qty, quantity, entry_price, avg_cost, "
-                    " current_price, last_price, market_value, "
-                    " unrealised_pnl, unrealized_pnl, strategy_id,"
-                    " schema_version, source) "
-                    "VALUES (:symbol, :side, :qty, :qty, :entry_price, :entry_price, "
-                    "        :current_price, :current_price, :market_value, "
-                    "        0.0, 0.0, :strategy_id, :schema_version, :source)"
-                ),
-                {
-                    "symbol": symbol,
-                    "side": pos_side,
-                    "qty": pos_qty,
-                    "entry_price": fill_price,
-                    "current_price": fill_price,
-                    "market_value": market_value,
-                    "strategy_id": strategy_id,
-                    "schema_version": DB_SCHEMA_VERSION,
-                    "source": SOURCE_EXECUTION,
-                },
-            )
-            return
-        existing_side = str(row[FieldName.SIDE]).lower()
-        existing_qty = float(row[FieldName.QTY])
-        existing_signed_qty = (
-            existing_qty
-            if existing_side in {PositionSide.LONG, OrderSide.BUY}
-            else (-1 * existing_qty)
-        )
-        new_qty = existing_signed_qty + signed_qty
-        next_side = (
-            PositionSide.FLAT
-            if abs(new_qty) < 1e-9
-            else (PositionSide.LONG if new_qty > 0 else PositionSide.SHORT)
-        )
-        new_abs_qty = abs(new_qty)
-        new_market_value = round(new_abs_qty * fill_price, 8)
-        await session.execute(
-            text(
-                # Keep old (qty/current_price) and new (quantity/last_price/market_value)
-                # column names in sync so MetricsAggregator ORM queries return real values.
-                "UPDATE positions SET side = :side, qty = :qty, quantity = :qty,"
-                " current_price = :current_price, last_price = :current_price,"
-                " market_value = :market_value WHERE id = :position_id"
-            ),
-            {
-                "side": next_side,
-                "qty": new_abs_qty,
-                "current_price": fill_price,
-                "market_value": new_market_value,
-                "position_id": row["id"],
-            },
+        await upsert_position_db(
+            session,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            fill_price=fill_price,
         )
 
-    async def _insert_audit_log(self, session, event_type: str, payload: dict[str, Any]) -> None:
-        await session.execute(
-            text(
-                "INSERT INTO audit_log (event_type, payload) VALUES (:event_type, CAST(:payload AS JSONB))"
-            ),
-            {"event_type": event_type, "payload": json.dumps(payload, default=str)},
-        )
+    async def _insert_audit_log(self, session, event_type: str, payload: dict) -> None:
+        await insert_audit_log(session, event_type=event_type, payload=payload)

@@ -1,5 +1,26 @@
 # Changelog
 
+## [2026-05-15] — Execution engine modularisation and observability fixes
+
+### Added
+- `api/services/execution/position_math.py` — pure PnL / position-delta functions extracted from `ExecutionEngine`; fully testable without mocking
+- `api/services/execution/fill_publisher.py` — `FillContext` dataclass + `publish_fill_events()` replacing three near-identical stream-publishing blocks
+- `api/services/execution/order_writer.py` — session-agnostic DB write helpers (`insert_pending_order`, `update_order_fill`, `upsert_position_db`, `insert_audit_log`)
+- `tests/agents/test_position_math.py` — 35 unit tests covering all pure position-math functions
+- `docs/known-issues.md` — living document for active and resolved bugs with mandatory regression-test references
+
+### Changed
+- `api/services/execution/execution_engine.py` — reduced from 1262 to ~560 lines; `process()` delegates to `_process_with_db()` / `_process_in_memory()`; backward-compat shims preserved for existing tests
+- `api/services/execution/decision_utils.py` — `_as_score()` helper fixes two bugs: `"n/a"` no longer raises `ValueError` to DLQ, and `float(0.0)` is no longer promoted to `0.5`
+- `docs/architecture.md` — updated stream chain table (now includes `executions`, `trade_performance`, `trade_lifecycle`, etc.) and repository structure (includes new execution sub-modules)
+- `docs/index.md` — added link to `known-issues.md`
+- `AGENTS.md` — fixed stale pytest command to use split subsets per CI requirements
+
+### Fixed
+- `GET /system/trading-mode` — now returns `UNKNOWN` when Redis is unreachable (was silently returning `TRADING`, which is fail-open)
+- `GET /system/status` — stream lag now uses `DEFAULT_GROUP` constant instead of hardcoded `"trading_workers"` (was always showing "Consumer group not found" for healthy streams)
+- `GET /system/status`, `GET /system/logs`, `GET /system/metrics` — guard on `is_db_available()` before creating SQLAlchemy sessions (were probing DB in memory mode)
+
 ## [2026-04-26] — Legacy frontend cleanup
 
 ### Removed

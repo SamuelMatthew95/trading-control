@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.constants import ALL_AGENT_NAMES, REDIS_AGENT_STATUS_KEY, FieldName
 
-from ..core.config import get_settings
+from ..config import get_database_url
 from ..core.models import Event, Order, Position
 from ..observability import log_structured
 from ..redis_client import get_redis
@@ -27,12 +27,22 @@ from ..redis_client import get_redis
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["system-health"])
 
-settings = get_settings()
+# Database connection — built lazily so import succeeds when DATABASE_URL is None
+_engine = None
+_session_factory = None
 
-# Database connection
-database_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-engine = create_async_engine(database_url, pool_size=10, max_overflow=20)
-session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+def _get_session_factory():
+    global _engine, _session_factory
+    if _session_factory is None:
+        url = get_database_url()
+        _engine = create_async_engine(url, pool_size=10, max_overflow=20)
+        _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    return _session_factory
+
+
+def _make_session():
+    return _get_session_factory()()
 
 
 # ============================================================================
@@ -84,7 +94,7 @@ async def get_system_pulse():
 async def get_idempotency_audit():
     """Audit idempotency by comparing processed_events vs orders."""
     try:
-        async with session_factory() as session:
+        async with _make_session() as session:
             # Count processed events in last hour
             hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
 
@@ -118,7 +128,7 @@ async def get_idempotency_audit():
 async def get_position_sync_status():
     """Check position sync status - highlight mismatches."""
     try:
-        async with session_factory() as session:
+        async with _make_session() as session:
             # Get recent fills that should have updated positions
             hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
 
@@ -181,7 +191,7 @@ async def stream_agent_logs(
 
     async def log_generator():
         try:
-            async with session_factory() as session:
+            async with _make_session() as session:
                 col_result = await session.execute(
                     text(
                         """
@@ -252,7 +262,7 @@ async def stream_agent_logs(
                 while True:
                     await asyncio.sleep(1)  # Health log streaming interval - allowed
 
-                    async with session_factory() as session:
+                    async with _make_session() as session:
                         poll_sql = base_sql.replace(
                             f" ORDER BY {time_col} DESC LIMIT :limit",
                             f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
@@ -435,7 +445,7 @@ async def get_worker_heartbeats(redis_client) -> dict[str, Any]:
 async def get_db_pool_status() -> dict[str, Any]:
     """Get simplified DB pool status."""
     try:
-        async with session_factory() as session:
+        async with _make_session() as session:
             # Simple health check
             await session.execute(text("SELECT 1"))
 

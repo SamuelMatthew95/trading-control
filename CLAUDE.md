@@ -291,6 +291,7 @@ Operator-declared "no Postgres" runtime. Effects:
 - **Reusable skills**: Use `.claude/skills/` — `run-ci` (full pipeline), `schema-check` (schema audit), `karpathy-guidelines` (think/simplify/surgical/verify), `reverse-prompt` (clarify before coding)
 - **XML tags**: Use `<tags>` in prompts with 2+ components — Claude reads them with greater precision
 - **Subdirectory context**: `api/CLAUDE.md` and `frontend/CLAUDE.md` load lazily when working in those dirs
+- **Bug log (MANDATORY)**: Every bug fix must update `docs/troubleshooting/<subsystem>.md` in the same commit — no separate prompt needed. Files: `notifications.md`, `execution-engine.md`, `system-routes.md`. New subsystem → new file + update `docs/troubleshooting/README.md`. Format and full rule in `memory-cicd.md`.
 
 ## Additional Rules (Always Loaded)
 @./.claude/rules/memory-trading.md     # Alpaca trading specifics

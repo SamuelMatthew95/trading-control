@@ -7,6 +7,7 @@ This folder contains focused reference docs for contributors working on Trading 
 | File | What it covers |
 |---|---|
 | [architecture.md](architecture.md) | Full agent pipeline, stream chain, DB schema, system guarantees |
+| [troubleshooting/](troubleshooting/README.md) | Per-subsystem breakpoint guides — add new bugs here when fixed |
 | [development-guide.md](development-guide.md) | Local setup, all env vars, run commands, logging standards |
 | [testing.md](testing.md) | Test structure, how to write agent and DB tests, CI requirements |
 | [deployment-guide.md](deployment-guide.md) | Render + Vercel deployment, all required env vars, smoke checks |

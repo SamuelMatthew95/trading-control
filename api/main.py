@@ -35,6 +35,7 @@ from api.routes.health import router as health_router
 from api.routes.learning import router as learning_router
 from api.routes.llm_health import router as llm_health_router
 from api.routes.notifications import router as notifications_router
+from api.routes.system import router as system_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
@@ -368,6 +369,8 @@ app.include_router(notifications_router)
 app.include_router(notifications_router, prefix="/api")
 app.include_router(decisions_router)
 app.include_router(decisions_router, prefix="/api")
+app.include_router(system_router)
+app.include_router(system_router, prefix="/api")
 app.include_router(ws_router)
 
 

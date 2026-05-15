@@ -9,18 +9,20 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.constants import FieldName
+from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED, FieldName
+from api.events.bus import DEFAULT_GROUP
+from api.runtime_state import is_db_available
 
-from ..core.config import get_settings
+from ..config import get_database_url
 from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
 from ..redis_client import get_redis
@@ -28,19 +30,109 @@ from ..redis_client import get_redis
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
 
-settings = get_settings()
+# Database connection — built lazily so import succeeds when DATABASE_URL is None
+_engine = None
+_session_factory = None
 
-# Database connection
-database_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-engine = create_async_engine(database_url, pool_size=10, max_overflow=20)
-session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+def _get_session_factory():
+    global _engine, _session_factory
+    if _session_factory is None:
+        url = get_database_url()
+        _engine = create_async_engine(url, pool_size=10, max_overflow=20)
+        _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    return _session_factory
+
+
+# Legacy alias used by get_system_status below
+def _make_session():
+    return _get_session_factory()()
+
+
+@router.get("/trading-mode")
+async def get_trading_mode() -> dict[str, Any]:
+    """Simple Redis-backed trading status — works without DB.
+
+    Returns "PAUSED" when the learning-loop circuit breaker is active or
+    the kill switch is set, "TRADING" otherwise.
+    """
+    try:
+        redis_client = await get_redis()
+        kill_switch = await redis_client.get(REDIS_KEY_KILL_SWITCH)
+        trading_paused = await redis_client.get(REDIS_KEY_TRADING_PAUSED)
+        if kill_switch == "1":
+            status = "KILL_SWITCH"
+        elif trading_paused == "1":
+            status = "PAUSED"
+        else:
+            status = "TRADING"
+        return {
+            "status": status,
+            "kill_switch_active": kill_switch == "1",
+            "circuit_breaker_active": trading_paused == "1",
+        }
+    except Exception:
+        log_structured("warning", "system_trading_mode_check_failed", exc_info=True)
+        return {
+            "status": "UNKNOWN",
+            "kill_switch_active": None,
+            "circuit_breaker_active": None,
+            "error": "redis_unavailable",
+        }
+
+
+@router.post("/trading-mode")
+async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> dict[str, Any]:
+    """Pause or resume trading via the learning-loop circuit breaker key.
+
+    POST body: {"status": "TRADING"} to resume, {"status": "PAUSED"} to pause.
+    """
+    if body is None:
+        body = {}
+    status = str(body.get(FieldName.STATUS, "TRADING")).strip().upper()
+    if status not in ("TRADING", "PAUSED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status {status!r}. Use 'TRADING' or 'PAUSED'.",
+        )
+    try:
+        redis_client = await get_redis()
+        if status == "TRADING":
+            await redis_client.delete(REDIS_KEY_TRADING_PAUSED)
+            log_structured("info", "system_trading_mode_resumed_via_api")
+        else:
+            await redis_client.set(REDIS_KEY_TRADING_PAUSED, "1")
+            log_structured("info", "system_trading_mode_paused_via_api")
+        # Report the actual effective status — kill switch takes precedence over the
+        # learning-loop pause key, so a "resume" request must not claim trading is
+        # active when the manual kill switch is still engaged.
+        kill_switch = await redis_client.get(REDIS_KEY_KILL_SWITCH)
+        effective_status = "KILL_SWITCH" if kill_switch == "1" else status
+        return {"status": effective_status, "ok": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from None
 
 
 @router.get("/status")
 async def get_system_status():
     """Aggregate system status including stream lag, agent pulse, and database health."""
+    if not is_db_available():
+        stream_lag = await get_stream_lag()
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "memory",
+            "agent_pulse": [],
+            "database_health": {
+                "pending_orders_last_hour": 0,
+                "filled_orders_last_hour": 0,
+                "total_orders_last_hour": 0,
+            },
+            "stream_lag": stream_lag,
+        }
 
-    async with session_factory() as session:
+    async with _make_session() as session:
         # Agent Pulse - schema compatible for legacy/new agent_logs layouts
         col_result = await session.execute(
             text(
@@ -142,7 +234,7 @@ async def get_stream_lag() -> dict[str, Any]:
                 try:
                     groups = await redis_client.xinfo_groups(stream)
                     for group in groups:
-                        if group.get("name") == "trading_workers":
+                        if group.get("name") == DEFAULT_GROUP:
                             last_delivered = group.get("last-delivered-id", "0-0")
                             # Calculate lag (simplified - just comparing timestamps)
                             head_timestamp = int(head_id.split("-")[0])
@@ -178,12 +270,22 @@ async def stream_agent_logs(
     limit: int = Query(100, description="Maximum number of recent logs to stream"),
 ):
     """Stream agent logs using Server-Sent Events."""
+    if not is_db_available():
+
+        async def _empty_generator():
+            yield f"data: {json.dumps({'mode': 'memory', 'logs': []})}\n\n"
+
+        return StreamingResponse(
+            _empty_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
 
     async def log_generator():
         """SSE generator for agent logs."""
         try:
             # Get initial logs
-            async with session_factory() as session:
+            async with _make_session() as session:
                 col_result = await session.execute(
                     text(
                         """
@@ -252,7 +354,7 @@ async def stream_agent_logs(
                 while True:
                     await asyncio.sleep(1)  # Log streaming interval - allowed
 
-                    async with session_factory() as session:
+                    async with _make_session() as session:
                         poll_sql = base_sql.replace(
                             f" ORDER BY {time_col} DESC LIMIT :limit",
                             f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
@@ -301,8 +403,10 @@ async def get_system_metrics(
     hours: int = Query(1, description="Hours of history to fetch"),
 ):
     """Get system metrics for monitoring."""
+    if not is_db_available():
+        return {"metrics": [], "count": 0, "mode": "memory"}
 
-    async with session_factory() as session:
+    async with _make_session() as session:
         since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         query = select(SystemMetrics).where(SystemMetrics.timestamp >= since)
@@ -335,7 +439,7 @@ async def health_check():
     """Simple health check endpoint."""
     try:
         # Test database connection
-        async with session_factory() as session:
+        async with _make_session() as session:
             await session.execute(text("SELECT 1"))
 
         # Test Redis connection
