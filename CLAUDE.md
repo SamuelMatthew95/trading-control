@@ -98,6 +98,8 @@ tests/agents/test_signal_generator_schema_fix.py — regression for column names
 - ❌ Hardcoded Redis keys anywhere → Use constants from `api/constants.py`
 - ❌ Hardcoded TTL values (`ex=30`, `ex=90000`) → Use named constants
 - ❌ String-literal dict keys for event payloads (`data.get("side")`, `pos["symbol"]`) → Use `FieldName` enum from `api/constants.py`
+- ❌ Bare constants defined in a service/route file (`CRITICAL_LAG_MS = 5000`) → Cross-cutting values live in `api/constants.py` (see placement rule in `api/CLAUDE.md`)
+- ❌ Inline imports inside functions → Imports go at file top; circular-import breaks and optional-dep loads are the only exceptions and MUST carry `# noqa: PLC0415` (enforced by ruff)
 
 ## Event Payload Field Access (CRITICAL — no raw string keys, ENFORCED BY CI)
 
