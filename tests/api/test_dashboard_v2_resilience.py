@@ -827,3 +827,193 @@ async def test_dashboard_state_sets_mode_even_if_redis_unavailable(monkeypatch):
     payload = await dashboard_v2.get_dashboard_state()
 
     assert payload["mode"] == "in_memory_fallback"
+
+
+# ---------------------------------------------------------------------------
+# New tests: Tasks 10A–10E
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pnl_route_returns_real_data_after_buy_sell():
+    """10A: /dashboard/pnl returns real data after BUY then SELL in memory mode."""
+    set_db_available(False)
+    store = InMemoryStore()
+    store.apply_decision(
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t1"}
+    )
+    store.apply_decision(
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "t2"}
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_pnl_metrics()
+
+    assert payload["source"] == "in_memory"
+    assert payload["total_pnl"] > 0
+    assert len(payload["equity_curve"]) > 0
+    assert payload["winning_trades"] > 0
+    assert payload["has_data"] is True
+
+
+@pytest.mark.asyncio
+async def test_snapshot_returns_equity_curve_when_runtime_store_has_data():
+    """10B: /dashboard/pnl equity_curve is non-empty when runtime store has BUY/SELL data."""
+    set_db_available(False)
+    store = InMemoryStore()
+    store.apply_decision(
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t3"}
+    )
+    store.apply_decision(
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "t4"}
+    )
+    set_runtime_store(store)
+
+    pnl_payload = await dashboard_v2.get_pnl_metrics()
+    perf_payload = await dashboard_v2.get_performance_trends()
+
+    assert len(pnl_payload["equity_curve"]) > 0
+    assert pnl_payload["total_pnl"] > 0
+    assert perf_payload["summary"]["total_pnl"] > 0
+    assert len(perf_payload["equity_curve"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_buy_only_creates_active_position_and_equity_point():
+    """10C: BUY-only creates an active open position and an equity curve entry."""
+    set_db_available(False)
+    store = InMemoryStore()
+    store.apply_decision(
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t5"}
+    )
+    set_runtime_store(store)
+
+    payload = await dashboard_v2.get_pnl_metrics()
+
+    assert payload["source"] == "in_memory"
+    assert payload["active_positions"] > 0
+    assert len(payload["equity_curve"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_execution_engine_db_failure_falls_back_to_memory(monkeypatch):
+    """10D: ExecutionEngine falls back to _process_in_memory when DB session raises."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from api.events.bus import EventBus
+    from api.events.dlq import DLQManager
+    from api.services.execution.brokers.paper import PaperBroker
+    from api.services.execution.execution_engine import ExecutionEngine
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock(return_value=True)
+    mock_redis.delete = AsyncMock()
+
+    mock_broker = MagicMock(spec=PaperBroker)
+    mock_broker.place_order = AsyncMock(
+        return_value={"broker_order_id": "b-1", "fill_price": 81000.0, "status": "filled"}
+    )
+    mock_broker.get_position = AsyncMock(return_value={})
+
+    mock_bus = MagicMock(spec=EventBus)
+    mock_bus.publish = AsyncMock()
+    mock_dlq = MagicMock(spec=DLQManager)
+    mock_dlq.push = AsyncMock()
+
+    engine = ExecutionEngine(
+        bus=mock_bus, dlq=mock_dlq, redis_client=mock_redis, broker=mock_broker
+    )
+
+    memory_called = []
+
+    async def _spy_memory(data):
+        memory_called.append(data)
+
+    monkeypatch.setattr(engine, "_process_in_memory", _spy_memory)
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: True)
+
+    class _FailAfterIdempotencySession:
+        """Passes the idempotency SELECT (first execute), fails on INSERT (second execute)."""
+
+        def __init__(self):
+            self._call_count = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def execute(self, *_, **__):
+            self._call_count += 1
+            if self._call_count == 1:
+                # Idempotency check: no existing duplicate order
+                result = MagicMock()
+                result.mappings.return_value.first.return_value = None
+                return result
+            raise RuntimeError("simulated db failure on INSERT")
+
+        async def rollback(self):
+            pass
+
+    monkeypatch.setattr(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        lambda: _FailAfterIdempotencySession(),
+    )
+
+    data = {
+        "action": "buy",
+        "symbol": "BTC/USD",
+        "qty": 0.1,
+        "price": 80000.0,
+        "trace_id": "t-db-fail",
+        "composite_score": 0.9,
+        "timestamp": "2024-01-01T12:00:00+00:00",
+    }
+    await engine.process(data)
+
+    assert len(memory_called) == 1, "Expected _process_in_memory to be called once"
+
+
+@pytest.mark.asyncio
+async def test_proposal_applier_log_failure_does_not_stop_process(monkeypatch):
+    """10E: ProposalApplier continues and writes heartbeat even if write_agent_log raises."""
+    from unittest.mock import AsyncMock
+
+    from api.constants import ProposalType
+    from api.events.bus import EventBus
+    from api.events.dlq import DLQManager
+    from api.services.agents.proposal_applier import ProposalApplier
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"1.0")
+    mock_redis.set = AsyncMock(return_value=True)
+
+    mock_bus = AsyncMock(spec=EventBus)
+    mock_dlq = AsyncMock(spec=DLQManager)
+
+    applier = ProposalApplier(bus=mock_bus, dlq=mock_dlq, redis_client=mock_redis)
+
+    heartbeat_calls = []
+
+    async def _fake_heartbeat(redis, agent_name, **kwargs):
+        heartbeat_calls.append(agent_name)
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", _fake_heartbeat)
+
+    async def _failing_write_agent_log(*_args, **_kwargs):
+        raise RuntimeError("log write failed")
+
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.write_agent_log", _failing_write_agent_log
+    )
+
+    data = {
+        "proposal_type": ProposalType.SIGNAL_WEIGHT_REDUCTION,
+        "content": {"reason": "test"},
+        "trace_id": "t-proposal-fail",
+    }
+    await applier.process(stream="proposals", redis_id="0-1", data=data)
+
+    assert len(heartbeat_calls) == 1, "Heartbeat must fire despite log write failure"
