@@ -311,7 +311,7 @@ class WebSocketBroadcaster:
             payload.get("stream_source") or payload.get(FieldName.SOURCE) or ""
         ).lower()
         message = str(
-            payload.get(FieldName.MESSAGE) or payload.get("summary") or payload.get("title") or ""
+            payload.get(FieldName.MESSAGE) or payload.get("summary") or payload.get(FieldName.TITLE) or ""
         )
 
         if not message.strip() or not notification_type or notification_type == "event":
