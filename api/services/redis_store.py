@@ -85,12 +85,12 @@ class RedisStore:
         entry = dict(payload)
         # setdefault skips falsy values; explicitly coerce None / empty to a uuid
         # so the REST consumer can rely on a non-empty id for read tracking.
-        if not entry.get("id"):
-            entry["id"] = str(uuid.uuid4())
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = str(uuid.uuid4())
         if not entry.get(FieldName.TIMESTAMP):
             entry[FieldName.TIMESTAMP] = _now_iso()
         entry.setdefault(FieldName.SEVERITY, "info")
-        entry.setdefault("read", False)
+        entry.setdefault(FieldName.READ, False)
         encoded = json.dumps(entry, default=str)
         try:
             # Atomic LPUSH + LTRIM in a single round trip — keeps the list
@@ -122,7 +122,7 @@ class RedisStore:
                 parsed = _safe_loads(raw)
                 if parsed is None:
                     continue
-                ident = parsed.get("id")
+                ident = parsed.get(FieldName.ID)
                 if ident:
                     live_ids.add(str(ident))
 
@@ -151,8 +151,8 @@ class RedisStore:
             parsed = _safe_loads(raw)
             if parsed is None:
                 continue
-            if str(parsed.get("id", "")) in read_set:
-                parsed["read"] = True
+            if str(parsed.get(FieldName.ID, "")) in read_set:
+                parsed[FieldName.READ] = True
             items.append(parsed)
         return items
 
@@ -169,9 +169,9 @@ class RedisStore:
             parsed = _safe_loads(raw)
             if parsed is None:
                 continue
-            if parsed.get("read"):
+            if parsed.get(FieldName.READ):
                 continue
-            if str(parsed.get("id", "")) in read_set:
+            if str(parsed.get(FieldName.ID, "")) in read_set:
                 continue
             count += 1
         return count
@@ -192,8 +192,8 @@ class RedisStore:
         entry = dict(payload)
         # Coerce missing or None id/timestamp to deterministic defaults so the
         # REST consumer (and the dedup key on the frontend) can rely on them.
-        if not entry.get("id"):
-            entry["id"] = str(uuid.uuid4())
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = str(uuid.uuid4())
         if not entry.get(FieldName.TIMESTAMP):
             entry[FieldName.TIMESTAMP] = _now_iso()
         encoded = json.dumps(entry, default=str)
@@ -236,9 +236,9 @@ class RedisStore:
         except Exception:
             log_structured("warning", "redis_store_decision_stats_failed", exc_info=True)
             return {
-                "total": 0,
-                "last_hour": {"buys": 0, "sells": 0, "holds": 0},
-                "last_decision": None,
+                FieldName.TOTAL: 0,
+                FieldName.LAST_HOUR: {FieldName.BUYS: 0, FieldName.SELLS: 0, FieldName.HOLDS: 0},
+                FieldName.LAST_DECISION: None,
             }
 
         now_ts = time.time()
@@ -269,9 +269,13 @@ class RedisStore:
                 holds += 1
 
         return {
-            "total": total,
-            "last_hour": {"buys": buys, "sells": sells, "holds": holds},
-            "last_decision": last_decision,
+            FieldName.TOTAL: total,
+            FieldName.LAST_HOUR: {
+                FieldName.BUYS: buys,
+                FieldName.SELLS: sells,
+                FieldName.HOLDS: holds,
+            },
+            FieldName.LAST_DECISION: last_decision,
         }
 
     # ------------------------------------------------------------------ #
@@ -279,9 +283,9 @@ class RedisStore:
     # ------------------------------------------------------------------ #
 
     _OUTCOME_FIELD: dict[str, str] = {
-        "success": "successes",
-        "rate_limit": "rate_limits",
-        "timeout": "timeouts",
+        FieldName.SUCCESS: "successes",
+        FieldName.RATE_LIMIT: "rate_limits",
+        FieldName.TIMEOUT: "timeouts",
         "error": "errors",
     }
 
@@ -311,8 +315,8 @@ class RedisStore:
                     pipe.hset(
                         REDIS_KEY_LLM_METRICS,
                         mapping={
-                            "last_success_at": _now_iso(),
-                            "last_latency_ms": int(latency_ms),
+                            FieldName.LAST_SUCCESS_AT: _now_iso(),
+                            FieldName.LAST_LATENCY_MS: int(latency_ms),
                         },
                     )
                 await pipe.execute()
@@ -345,12 +349,12 @@ class RedisStore:
 
         return {
             "total_calls": _int("total_calls"),
-            "successes": _int("successes"),
-            "rate_limits": _int("rate_limits"),
-            "timeouts": _int("timeouts"),
-            "errors": _int("errors"),
-            "last_success_at": decoded.get("last_success_at"),
-            "last_latency_ms": _int("last_latency_ms"),
+            FieldName.SUCCESSES: _int("successes"),
+            FieldName.RATE_LIMITS: _int("rate_limits"),
+            FieldName.TIMEOUTS: _int("timeouts"),
+            FieldName.ERRORS: _int("errors"),
+            FieldName.LAST_SUCCESS_AT: decoded.get(FieldName.LAST_SUCCESS_AT),
+            FieldName.LAST_LATENCY_MS: _int("last_latency_ms"),
             "daily_calls": daily_calls,
         }
 
