@@ -104,12 +104,12 @@ class MemoryGuard:
                     self.risk_memory_store[risk_key] = self.risk_memory_store.get(risk_key, 0) + 1
                     if self.risk_memory_store[risk_key] > 3:
                         return {
-                            "similarity": 1.0,
+                            FieldName.SIMILARITY: 1.0,
                             "reason": "repeated_risk_violation",
                             "content": f"Pattern failed {self.risk_memory_store[risk_key]} times",
                         }
                     return {
-                        "similarity": round(similarity, 3),
+                        FieldName.SIMILARITY: round(similarity, 3),
                         "reason": metadata.get(
                             FieldName.REASON, "blocked by prior negative memory"
                         ),
@@ -170,7 +170,7 @@ class AnthropicReasoningModel:
                     model=self.model_name,
                     max_tokens=1024,
                     system=system_prompt,
-                    messages=[{"role": "user", "content": json.dumps(payload)}],
+                    messages=[{FieldName.ROLE: "user", "content": json.dumps(payload)}],
                 )
                 text = response.content[0].text
                 return json.loads(text)
@@ -199,16 +199,16 @@ class DeterministicReasoningModel:
                     "source": "heuristic",
                     "direction": direction,
                     "confidence": 0.7,
-                    "timeframe": payload["timeframe"],
+                    FieldName.TIMEFRAME: payload[FieldName.TIMEFRAME],
                 }
             ]
         if "compute consensus" in system_prompt.lower():
-            signals = payload.get("signals", [])
+            signals = payload.get(FieldName.SIGNALS, [])
             if not signals:
                 return {
                     "direction": "FLAT",
-                    "agreement_ratio": 0.0,
-                    "signal_strength": 0.0,
+                    FieldName.AGREEMENT_RATIO: 0.0,
+                    FieldName.SIGNAL_STRENGTH: 0.0,
                 }
             direction = signals[0][FieldName.DIRECTION]
             agreement = sum(1 for s in signals if s[FieldName.DIRECTION] == direction) / len(
@@ -217,26 +217,28 @@ class DeterministicReasoningModel:
             confidence = sum(float(s.get(FieldName.CONFIDENCE, 0)) for s in signals) / len(signals)
             return {
                 "direction": direction,
-                "agreement_ratio": agreement,
-                "signal_strength": round(agreement * confidence, 3),
+                FieldName.AGREEMENT_RATIO: agreement,
+                FieldName.SIGNAL_STRENGTH: round(agreement * confidence, 3),
             }
         if "enforce risk limits" in system_prompt.lower():
             drawdown = float(get_nested(payload, "portfolio", "drawdown", default=0))
             veto = drawdown < -0.15
             return {
-                "approved": not veto,
-                "veto": veto,
-                "risk_score": min(1.0, abs(drawdown) * 2 + 0.1),
-                "size_multiplier": 0.5 if veto else 1.0,
-                "flags": ["MAX_DRAWDOWN"] if veto else [],
+                FieldName.APPROVED: not veto,
+                FieldName.VETO: veto,
+                FieldName.RISK_SCORE: min(1.0, abs(drawdown) * 2 + 0.1),
+                FieldName.SIZE_MULTIPLIER: 0.5 if veto else 1.0,
+                FieldName.FLAGS: ["MAX_DRAWDOWN"] if veto else [],
             }
-        price = float(payload.get("asset_price", 100))
-        atr = float(payload.get("atr", 5))
+        price = float(payload.get(FieldName.ASSET_PRICE, 100))
+        atr = float(payload.get(FieldName.ATR, 5))
         return {
-            "units": int(max(1, payload.get("portfolio_value", 100000) * 0.01 / max(price, 1))),
-            "entry": price,
-            "stop": max(0.01, price - atr),
-            "target": price + atr * 2,
+            FieldName.UNITS: int(
+                max(1, payload.get(FieldName.PORTFOLIO_VALUE, 100000) * 0.01 / max(price, 1))
+            ),
+            FieldName.ENTRY: price,
+            FieldName.STOP: max(0.01, price - atr),
+            FieldName.TARGET: price + atr * 2,
             "rr_ratio": 2.0,
         }
 
@@ -260,7 +262,7 @@ class DocumentRetriever:
             if score:
                 scored.append((score, name, doc_text[:500]))
         scored.sort(reverse=True)
-        return [{"source": name, "snippet": snippet} for _, name, snippet in scored[:top_k]]
+        return [{"source": name, FieldName.SNIPPET: snippet} for _, name, snippet in scored[:top_k]]
 
 
 class TradeTools:
@@ -315,7 +317,7 @@ class TradeTools:
         raise ToolError(f"Price lookup failed after retries: {last_error}")
 
     def get_atr(self, asset: str, timeframe: str) -> float:
-        self._guard("get_atr", {"asset": asset, "timeframe": timeframe})
+        self._guard("get_atr", {"asset": asset, FieldName.TIMEFRAME: timeframe})
         if timeframe not in {"1H", "4H", "1D", "1W"}:
             raise ToolError(f"Unsupported timeframe '{timeframe}'")
         _ = asset
@@ -351,10 +353,10 @@ class PersistentMemory:
     def _load(self) -> dict[str, Any]:
         if self.path.exists():
             return json.loads(self.path.read_text(encoding="utf-8"))
-        return {"trades": []}
+        return {FieldName.TRADES: []}
 
     def append_trade(self, trade: dict[str, Any]) -> None:
-        self._store.setdefault("trades", []).append(trade)
+        self._store.setdefault(FieldName.TRADES, []).append(trade)
         self.path.write_text(json.dumps(self._store, indent=2, default=str), encoding="utf-8")
 
 
@@ -389,12 +391,12 @@ class ExecutionEngine:
     def run_step(self, step: PlanStep, context: dict[str, Any]) -> dict[str, Any]:
         if step.name == "signal":
             grounding = self.retriever.retrieve(
-                f"{context[FieldName.ASSET]} {context['timeframe']} signal"
+                f"{context[FieldName.ASSET]} {context[FieldName.TIMEFRAME]} signal"
             )
             payload = {
                 "asset": context[FieldName.ASSET],
-                "timeframe": context["timeframe"],
-                "grounding": grounding,
+                FieldName.TIMEFRAME: context[FieldName.TIMEFRAME],
+                FieldName.GROUNDING: grounding,
             }
             return self.model.complete_json(
                 system_prompt=self.AGENT_PROMPTS["SIGNAL_AGENT"], payload=payload
@@ -402,25 +404,29 @@ class ExecutionEngine:
         if step.name == "consensus":
             return self.model.complete_json(
                 system_prompt=self.AGENT_PROMPTS["CONSENSUS_AGENT"],
-                payload={"signals": context["signals"]},
+                payload={FieldName.SIGNALS: context[FieldName.SIGNALS]},
             )
         if step.name == "risk":
             return self.model.complete_json(
                 system_prompt=self.AGENT_PROMPTS["RISK_AGENT"],
                 payload={
-                    "consensus": context["consensus"],
-                    "portfolio": context["portfolio_state"],
+                    FieldName.CONSENSUS: context[FieldName.CONSENSUS],
+                    FieldName.PORTFOLIO: context[FieldName.PORTFOLIO_STATE],
                 },
             )
         if step.name == "sizing":
             return self.model.complete_json(
                 system_prompt=self.AGENT_PROMPTS["SIZING_AGENT"],
                 payload={
-                    "consensus": context["consensus"],
-                    "risk": context["risk"],
-                    "asset_price": self.tools.get_current_price(context[FieldName.ASSET]),
-                    "atr": self.tools.get_atr(context[FieldName.ASSET], context["timeframe"]),
-                    "portfolio_value": context["portfolio_state"].get("total_value", 100000),
+                    FieldName.CONSENSUS: context[FieldName.CONSENSUS],
+                    FieldName.RISK: context[FieldName.RISK],
+                    FieldName.ASSET_PRICE: self.tools.get_current_price(context[FieldName.ASSET]),
+                    FieldName.ATR: self.tools.get_atr(
+                        context[FieldName.ASSET], context[FieldName.TIMEFRAME]
+                    ),
+                    FieldName.PORTFOLIO_VALUE: context[FieldName.PORTFOLIO_STATE].get(
+                        FieldName.TOTAL_VALUE, 100000
+                    ),
                 },
             )
         if step.name == "decision":
@@ -428,30 +434,30 @@ class ExecutionEngine:
         raise ValueError(f"Unknown plan step {step.name}")
 
     def _format_decision(self, context: dict[str, Any]) -> dict[str, Any]:
-        consensus = context["consensus"]
-        risk = context["risk"]
-        sizing = context["sizing"]
-        signal_strength = float(consensus.get("signal_strength", 0))
+        consensus = context[FieldName.CONSENSUS]
+        risk = context[FieldName.RISK]
+        sizing = context[FieldName.SIZING]
+        signal_strength = float(consensus.get(FieldName.SIGNAL_STRENGTH, 0))
         confidence = (
             "HIGH" if signal_strength > 0.8 else "MEDIUM" if signal_strength > 0.6 else "LOW"
         )
         return {
             "DECISION": consensus.get(FieldName.DIRECTION, "FLAT"),
             "ASSET": context[FieldName.ASSET],
-            "SIZE": f"{sizing.get('units', 0)} units",
-            "ENTRY": f"{float(sizing.get('entry', 0)):.2f}",
-            "STOP": f"{float(sizing.get('stop', 0)):.2f}",
-            "TARGET": f"{float(sizing.get('target', 0)):.2f}",
+            "SIZE": f"{sizing.get(FieldName.UNITS, 0)} units",
+            "ENTRY": f"{float(sizing.get(FieldName.ENTRY, 0)):.2f}",
+            "STOP": f"{float(sizing.get(FieldName.STOP, 0)):.2f}",
+            "TARGET": f"{float(sizing.get(FieldName.TARGET, 0)):.2f}",
             "R/R RATIO": f"{float(sizing.get(FieldName.RR_RATIO, 0)):.1f}:1",
             "CONFIDENCE": confidence,
             "SIGNAL SUMMARY": [
-                f"Consensus={consensus.get('agreement_ratio', 0):.1%}",
-                f"Risk veto={risk.get('veto', False)}",
+                f"Consensus={consensus.get(FieldName.AGREEMENT_RATIO, 0):.1%}",
+                f"Risk veto={risk.get(FieldName.VETO, False)}",
             ],
-            "RISK FLAGS": risk.get("flags", []),
+            "RISK FLAGS": risk.get(FieldName.FLAGS, []),
             "RATIONALE": "Grounded decision via planner/executor pipeline.",
-            "INVALIDATION": f"Below stop {float(sizing.get('stop', 0)):.2f}",
-            "TRACE SUMMARY": {"guard_hits": self.tools.guard_hits},
+            "INVALIDATION": f"Below stop {float(sizing.get(FieldName.STOP, 0)):.2f}",
+            "TRACE SUMMARY": {FieldName.GUARD_HITS: self.tools.guard_hits},
         }
 
 
@@ -499,7 +505,7 @@ class MultiAgentOrchestrator:
         }
         step_name = step_map.get(prompt_key)
         if not step_name:
-            return {"success": False, "error": "Unknown agent"}
+            return {FieldName.SUCCESS: False, "error": "Unknown agent"}
 
         start = time.time()
         try:
@@ -513,7 +519,7 @@ class MultiAgentOrchestrator:
                 duration_ms=int((time.time() - start) * 1000),
             )
             self.agent_calls.append(call)
-            return {"success": True, "data": output}
+            return {FieldName.SUCCESS: True, "data": output}
         except Exception as exc:  # noqa: BLE001
             error_text = str(exc)
             call = AgentCall(
@@ -526,7 +532,7 @@ class MultiAgentOrchestrator:
                 duration_ms=int((time.time() - start) * 1000),
             )
             self.agent_calls.append(call)
-            return {"success": False, "error": str(exc)}
+            return {FieldName.SUCCESS: False, "error": str(exc)}
 
     def analyze_trade(
         self,
@@ -558,9 +564,9 @@ class MultiAgentOrchestrator:
             current_timeframe = self._next_timeframe(current_timeframe)
             self.conversation_memory.add(
                 {
-                    "loop_event": "retry",
-                    "iteration": iteration,
-                    "next_timeframe": current_timeframe,
+                    FieldName.LOOP_EVENT: "retry",
+                    FieldName.ITERATION: iteration,
+                    FieldName.NEXT_TIMEFRAME: current_timeframe,
                     "reason": "low_confidence_or_validation_issues",
                 }
             )
@@ -583,45 +589,51 @@ class MultiAgentOrchestrator:
         plan = self.planner.build_plan(asset, timeframe)
         context: dict[str, Any] = {
             "asset": asset,
-            "timeframe": timeframe,
-            "portfolio_state": portfolio_state,
+            FieldName.TIMEFRAME: timeframe,
+            FieldName.PORTFOLIO_STATE: portfolio_state,
         }
 
         for step in plan.steps:
             step_start = time.time()
             try:
                 if step.name == "signal":
-                    context["signals"] = self.executor.run_step(step, context)
+                    context[FieldName.SIGNALS] = self.executor.run_step(step, context)
                 elif step.name == "consensus":
-                    context["consensus"] = self.executor.run_step(step, context)
-                    if float(context["consensus"].get("agreement_ratio", 0.0)) < 0.5:
-                        context["risk"] = {"veto": True, "flags": ["LOW_CONSENSUS"]}
-                        context["sizing"] = {
-                            "units": 0,
-                            "entry": 0,
-                            "stop": 0,
-                            "target": 0,
+                    context[FieldName.CONSENSUS] = self.executor.run_step(step, context)
+                    if (
+                        float(context[FieldName.CONSENSUS].get(FieldName.AGREEMENT_RATIO, 0.0))
+                        < 0.5
+                    ):
+                        context[FieldName.RISK] = {
+                            FieldName.VETO: True,
+                            FieldName.FLAGS: ["LOW_CONSENSUS"],
+                        }
+                        context[FieldName.SIZING] = {
+                            FieldName.UNITS: 0,
+                            FieldName.ENTRY: 0,
+                            FieldName.STOP: 0,
+                            FieldName.TARGET: 0,
                             "rr_ratio": 0,
                         }
                         break
                 elif step.name == "risk":
-                    context["risk"] = self.executor.run_step(step, context)
-                    if bool(context["risk"].get("veto", False)):
-                        context["sizing"] = {
-                            "units": 0,
-                            "entry": 0,
-                            "stop": 0,
-                            "target": 0,
+                    context[FieldName.RISK] = self.executor.run_step(step, context)
+                    if bool(context[FieldName.RISK].get(FieldName.VETO, False)):
+                        context[FieldName.SIZING] = {
+                            FieldName.UNITS: 0,
+                            FieldName.ENTRY: 0,
+                            FieldName.STOP: 0,
+                            FieldName.TARGET: 0,
                             "rr_ratio": 0,
                         }
                         break
                 elif step.name == "sizing":
-                    context["sizing"] = self.executor.run_step(step, context)
+                    context[FieldName.SIZING] = self.executor.run_step(step, context)
             except Exception as exc:  # noqa: BLE001
                 error_text = str(exc)
                 agent_name = (
                     "skipped_by_memory_guard"
-                    if "skipped_by_memory_guard" in error_text
+                    if FieldName.SKIPPED_BY_MEMORY_GUARD in error_text
                     else step.name.upper()
                 )
                 self.agent_calls.append(
@@ -636,9 +648,9 @@ class MultiAgentOrchestrator:
                     )
                 )
                 decision = self._error_decision(asset, error_text)
-                decision["context_dump"] = {
-                    "task_state": self.task_memory.get(task_id),
-                    "retrieved_context": context.get("signals", []),
+                decision[FieldName.CONTEXT_DUMP] = {
+                    FieldName.TASK_STATE: self.task_memory.get(task_id),
+                    FieldName.RETRIEVED_CONTEXT: context.get(FieldName.SIGNALS, []),
                 }
                 self._persist(task_id, decision)
                 return decision, ["step_failure"], []
@@ -653,7 +665,9 @@ class MultiAgentOrchestrator:
                     duration_ms=int((time.time() - step_start) * 1000),
                 )
             )
-            self.task_memory.put(task_id, {"last_step": step.name, "context": context.copy()})
+            self.task_memory.put(
+                task_id, {FieldName.LAST_STEP: step.name, FieldName.CONTEXT: context.copy()}
+            )
 
         decision = self.executor.run_step(PlanStep("decision"), context)
         trajectory_issues = self.evaluator.validate_trajectory(self.agent_calls)
@@ -687,19 +701,19 @@ class MultiAgentOrchestrator:
         symbol = signals[0].get(FieldName.SYMBOL, "AAPL") if signals else "AAPL"
         price = float(signals[0].get(FieldName.PRICE, 100)) if signals else 100
         portfolio = {
-            "total_value": 100000,
-            "cash": 50000,
-            "positions": {},
-            "drawdown": -0.03,
-            "price_hint": price,
+            FieldName.TOTAL_VALUE: 100000,
+            FieldName.CASH: 50000,
+            FieldName.POSITIONS: {},
+            FieldName.DRAWDOWN: -0.03,
+            FieldName.PRICE_HINT: price,
         }
         decision = self.analyze_trade(symbol, "1D", portfolio)
         return {
             "DECISION": decision["DECISION"],
             "confidence": 0.8 if decision["CONFIDENCE"] == "HIGH" else 0.6,
-            "reasoning": decision["RATIONALE"],
-            "position_size": 0.02,
-            "risk_assessment": {"flags": decision.get("RISK FLAGS", [])},
+            FieldName.REASONING: decision["RATIONALE"],
+            FieldName.POSITION_SIZE: 0.02,
+            FieldName.RISK_ASSESSMENT: {FieldName.FLAGS: decision.get("RISK FLAGS", [])},
         }
 
     def _error_decision(self, asset: str, message: str) -> dict[str, Any]:
@@ -720,11 +734,11 @@ class MultiAgentOrchestrator:
 
     def _persist(self, task_id: str, decision: dict[str, Any]) -> None:
         log_entry = {
-            "trace_summary": {"guard_hits": self.executor.tools.guard_hits},
-            "task_id": task_id,
+            FieldName.TRACE_SUMMARY: {FieldName.GUARD_HITS: self.executor.tools.guard_hits},
+            FieldName.TASK_ID: task_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "decision": decision,
-            "trace": [asdict(call) for call in self.agent_calls],
+            FieldName.DECISION: decision,
+            FieldName.TRACE: [asdict(call) for call in self.agent_calls],
         }
         self.conversation_memory.add(log_entry)
         self.trade_log.append(log_entry)
@@ -737,20 +751,22 @@ class MultiAgentOrchestrator:
         return self.trade_log
 
     def get_performance_stats(self) -> dict[str, Any]:
-        decisions = [entry["decision"]["DECISION"] for entry in self.trade_log]
+        decisions = [entry[FieldName.DECISION]["DECISION"] for entry in self.trade_log]
         total = len(decisions)
         if total == 0:
-            return {"total_trades": 0}
+            return {FieldName.TOTAL_TRADES: 0}
         return {
-            "total_trades": total,
-            "long_trades": decisions.count("LONG"),
-            "short_trades": decisions.count("SHORT"),
-            "flat_trades": decisions.count("FLAT"),
-            "trade_rate": (decisions.count("LONG") + decisions.count("SHORT")) / total,
+            FieldName.TOTAL_TRADES: total,
+            FieldName.LONG_TRADES: decisions.count("LONG"),
+            FieldName.SHORT_TRADES: decisions.count("SHORT"),
+            FieldName.FLAT_TRADES: decisions.count("FLAT"),
+            FieldName.TRADE_RATE: (decisions.count("LONG") + decisions.count("SHORT")) / total,
         }
 
 
 if __name__ == "__main__":
     orchestrator = MultiAgentOrchestrator(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    result = orchestrator.analyze_trade("AAPL", "1D", {"total_value": 100000, "drawdown": -0.02})
+    result = orchestrator.analyze_trade(
+        "AAPL", "1D", {FieldName.TOTAL_VALUE: 100000, FieldName.DRAWDOWN: -0.02}
+    )
     log_structured("info", "trade analysis result", result=result)
