@@ -168,7 +168,7 @@ class GradeAgent(MultiStreamAgent):
                     self._state_name,
                     f"fill_buffered:{self._fills}/{trigger}",
                     self._fills,
-                    extra={"exec_status": "idle:buffering"},
+                    extra={FieldName.EXEC_STATUS: "idle:buffering"},
                 )
             except Exception:
                 log_structured("warning", "grade_idle_heartbeat_failed", exc_info=True)
@@ -229,26 +229,30 @@ class GradeAgent(MultiStreamAgent):
             FieldName.TRACE_ID: trace_id,
             "grade": grade,
             FieldName.SCORE: score,
-            "confidence_score": round(score * 100, 2),
-            "reasoning": (
+            FieldName.CONFIDENCE_SCORE: round(score * 100, 2),
+            FieldName.REASONING: (
                 f"accuracy={accuracy:.3f}, ic={ic:.3f}, cost_eff={cost_eff:.3f}, "
                 f"latency={latency:.3f}, llm_health={llm_health:.3f}"
             ),
             "score_pct": round(score * 100, 1),
             FieldName.METRICS: {
-                "accuracy": round(accuracy, 4),
-                "ic": round(ic, 4),
-                "ic_normalized": round(ic_norm, 4),
-                "cost_efficiency": round(cost_eff, 4),
-                "cost_normalized": round(cost_norm, 4),
-                "latency_score": round(latency, 4),
-                "llm_health_score": llm_health,
-                "llm_rate_limited": llm_snap.get("rate_limited_count", 0),
-                "llm_timeout_count": llm_snap.get("timeout_count", 0),
-                "llm_success_rate_pct": round(llm_snap.get(FieldName.SUCCESS_RATE_PCT, 100.0), 1),
-                "llm_effective_delay_ms": llm_snap.get("effective_delay_ms", LLM_CALL_DELAY_MS),
+                FieldName.ACCURACY: round(accuracy, 4),
+                FieldName.IC: round(ic, 4),
+                FieldName.IC_NORMALIZED: round(ic_norm, 4),
+                FieldName.COST_EFFICIENCY: round(cost_eff, 4),
+                FieldName.COST_NORMALIZED: round(cost_norm, 4),
+                FieldName.LATENCY_SCORE: round(latency, 4),
+                FieldName.LLM_HEALTH_SCORE: llm_health,
+                FieldName.LLM_RATE_LIMITED: llm_snap.get(FieldName.RATE_LIMITED_COUNT, 0),
+                FieldName.LLM_TIMEOUT_COUNT: llm_snap.get(FieldName.TIMEOUT_COUNT, 0),
+                FieldName.LLM_SUCCESS_RATE_PCT: round(
+                    llm_snap.get(FieldName.SUCCESS_RATE_PCT, 100.0), 1
+                ),
+                FieldName.LLM_EFFECTIVE_DELAY_MS: llm_snap.get(
+                    FieldName.EFFECTIVE_DELAY_MS, LLM_CALL_DELAY_MS
+                ),
             },
-            "fills_graded": self._fills,
+            FieldName.FILLS_GRADED: self._fills,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         }
 
@@ -261,7 +265,7 @@ class GradeAgent(MultiStreamAgent):
             fills=self._fills,
             ic=ic,
             llm_health=llm_health,
-            llm_rate_limited=llm_snap.get("rate_limited_count", 0),
+            llm_rate_limited=llm_snap.get(FieldName.RATE_LIMITED_COUNT, 0),
         )
 
         await write_agent_log(trace_id, LogType.GRADE, payload)
@@ -280,7 +284,7 @@ class GradeAgent(MultiStreamAgent):
                 self._state_name,
                 f"grade={grade} score={payload[FieldName.SCORE_PCT]}",
                 self._fills,
-                extra={"last_grade_score": payload[FieldName.SCORE_PCT]},
+                extra={FieldName.LAST_GRADE_SCORE: payload[FieldName.SCORE_PCT]},
             )
         except Exception:
             log_structured("warning", "grade_heartbeat_failed", exc_info=True)
@@ -296,8 +300,8 @@ class GradeAgent(MultiStreamAgent):
             from api.services.agents.db_helpers import upsert_trade_lifecycle  # noqa: PLC0415
 
             grade_label = (
-                f"Grade {grade}: accuracy={payload[FieldName.METRICS]['accuracy']:.0%} "
-                f"IC={payload[FieldName.METRICS]['ic']:+.3f}"
+                f"Grade {grade}: accuracy={payload[FieldName.METRICS][FieldName.ACCURACY]:.0%} "
+                f"IC={payload[FieldName.METRICS][FieldName.IC]:+.3f}"
             )
             async with AsyncSessionFactory() as _sess:
                 row = await _sess.execute(
@@ -343,7 +347,7 @@ class GradeAgent(MultiStreamAgent):
                             ORDER BY ar.created_at DESC
                             LIMIT :n
                         """),
-                        {"n": lookback_n},
+                        {FieldName.N: lookback_n},
                     )
                     rows = result.all()
                     if len(rows) >= 3:
@@ -372,7 +376,7 @@ class GradeAgent(MultiStreamAgent):
                             SELECT COALESCE(SUM(cost_usd), 0)
                             FROM (SELECT cost_usd FROM agent_runs ORDER BY created_at DESC LIMIT :n) sub
                         """),
-                        {"n": lookback_n},
+                        {FieldName.N: lookback_n},
                     )
                     total_cost = float(result.scalar() or 0.0)
             except Exception:
@@ -415,8 +419,8 @@ class GradeAgent(MultiStreamAgent):
         """
         snap = _llm_metrics.snapshot()
         success_rate = snap.get(FieldName.SUCCESS_RATE_PCT, 100.0) / 100.0
-        rate_limited = snap.get("rate_limited_count", 0)
-        timeout_count = snap.get("timeout_count", 0)
+        rate_limited = snap.get(FieldName.RATE_LIMITED_COUNT, 0)
+        timeout_count = snap.get(FieldName.TIMEOUT_COUNT, 0)
         penalty = min(1.0, rate_limited * 0.10 + timeout_count * 0.15)
         health = round(max(0.0, success_rate - penalty), 4)
         return health, snap
@@ -429,7 +433,7 @@ class GradeAgent(MultiStreamAgent):
         on whether rate_limited_count has *increased* since the last time we
         adjusted — preventing repeated ratcheting from a single burst.
         """
-        rate_limited = llm_snap.get("rate_limited_count", 0)
+        rate_limited = llm_snap.get(FieldName.RATE_LIMITED_COUNT, 0)
         if rate_limited < LLM_RATE_LIMIT_GRADE_THRESHOLD:
             # Count dropped below threshold; reset so a future burst can act.
             self._last_rl_count_at_adjustment = 0
@@ -460,14 +464,14 @@ class GradeAgent(MultiStreamAgent):
                 FieldName.TYPE: "proposal",
                 "proposal_type": ProposalType.PARAMETER_CHANGE,
                 "content": {
-                    "parameter": "LLM_CALL_DELAY_MS",
-                    "previous_value": current_delay,
-                    "new_value": new_delay,
+                    FieldName.PARAMETER: "LLM_CALL_DELAY_MS",
+                    FieldName.PREVIOUS_VALUE: current_delay,
+                    FieldName.NEW_VALUE: new_delay,
                     "reason": (
                         f"GradeAgent detected {rate_limited} rate-limited calls "
                         f"in the last 5-minute window (threshold={LLM_RATE_LIMIT_GRADE_THRESHOLD})"
                     ),
-                    "auto_applied": True,
+                    FieldName.AUTO_APPLIED: True,
                 },
                 FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             },
@@ -487,8 +491,8 @@ class GradeAgent(MultiStreamAgent):
                     "notification_type": "agent_grade",
                     "message": (
                         f"Agent grade {grade} ({payload[FieldName.SCORE_PCT]}%) — "
-                        f"accuracy={payload[FieldName.METRICS]['accuracy']:.1%} "
-                        f"IC={payload[FieldName.METRICS]['ic']:+.3f}"
+                        f"accuracy={payload[FieldName.METRICS][FieldName.ACCURACY]:.1%} "
+                        f"IC={payload[FieldName.METRICS][FieldName.IC]:+.3f}"
                     ),
                     FieldName.PAYLOAD: payload,
                     FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
@@ -505,9 +509,9 @@ class GradeAgent(MultiStreamAgent):
                     "proposal_type": ProposalType.SIGNAL_WEIGHT_REDUCTION,
                     "content": {
                         "action": "reduce_signal_weight",
-                        "reduction_pct": 30,
+                        FieldName.REDUCTION_PCT: 30,
                         "reason": f"Grade {grade}: score {payload[FieldName.SCORE_PCT]}%",
-                        "grade_payload": payload,
+                        FieldName.GRADE_PAYLOAD: payload,
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
@@ -526,7 +530,7 @@ class GradeAgent(MultiStreamAgent):
                         "proposal_type": ProposalType.AGENT_SUSPENSION,
                         "content": {
                             "action": "suspend_from_live_stream",
-                            "consecutive_low_grades": self._consecutive_low_grades,
+                            FieldName.CONSECUTIVE_LOW_GRADES: self._consecutive_low_grades,
                             "reason": f"{self._consecutive_low_grades} consecutive D grades",
                         },
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -601,7 +605,7 @@ class ICUpdater(MultiStreamAgent):
                     self._state_name,
                     f"fill_buffered:{self._fills}/{trigger}",
                     self._fills,
-                    extra={"exec_status": "idle:buffering"},
+                    extra={FieldName.EXEC_STATUS: "idle:buffering"},
                 )
             except Exception:
                 log_structured("warning", "ic_updater_idle_heartbeat_failed", exc_info=True)
@@ -645,7 +649,7 @@ class ICUpdater(MultiStreamAgent):
 
         raw_factors: dict[str, float] = {
             "composite_score": composite_ic,
-            "momentum": momentum_ic,
+            FieldName.MOMENTUM: momentum_ic,
         }
 
         threshold = float(settings.IC_ZERO_THRESHOLD)
@@ -680,9 +684,9 @@ class ICUpdater(MultiStreamAgent):
                     "source": SOURCE_IC_UPDATER,
                     "type": "ic_update",
                     "factor_name": factor,
-                    "ic_score": round(ic_val, 6),
-                    "weight": weights.get(factor, 0.0),
-                    "fills": self._fills,
+                    FieldName.IC_SCORE: round(ic_val, 6),
+                    FieldName.WEIGHT: weights.get(factor, 0.0),
+                    FieldName.FILLS: self._fills,
                     "timestamp": now_iso,
                 },
             )
@@ -700,7 +704,7 @@ class ICUpdater(MultiStreamAgent):
                     f"IC weights updated after {self._fills} fills — "
                     f"composite={composite_ic:+.3f} momentum={momentum_ic:+.3f}"
                 ),
-                "weights": weights,
+                FieldName.WEIGHTS: weights,
                 "timestamp": now_iso,
             },
         )
@@ -712,7 +716,7 @@ class ICUpdater(MultiStreamAgent):
                 self._state_name,
                 f"ic_update fills={self._fills} composite_ic={composite_ic:+.3f}",
                 self._fills,
-                extra={"composite_ic": round(composite_ic, 4), "weights": weights},
+                extra={FieldName.COMPOSITE_IC: round(composite_ic, 4), FieldName.WEIGHTS: weights},
             )
         except Exception:
             log_structured("warning", "ic_updater_heartbeat_failed", exc_info=True)
@@ -775,9 +779,9 @@ class ReflectionAgent(MultiStreamAgent):
         elif stream == STREAM_FACTOR_IC_HISTORY:
             self._recent_ic.append(
                 {
-                    "factor": data.get(FieldName.FACTOR_NAME),
-                    "ic": data.get("ic_score"),
-                    "weight": data.get("weight"),
+                    FieldName.FACTOR: data.get(FieldName.FACTOR_NAME),
+                    FieldName.IC: data.get(FieldName.IC_SCORE),
+                    FieldName.WEIGHT: data.get(FieldName.WEIGHT),
                     FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP),
                 }
             )
@@ -793,7 +797,7 @@ class ReflectionAgent(MultiStreamAgent):
                     self._state_name,
                     f"fill_buffered:{self._fills}/{trigger}",
                     self._fills,
-                    extra={"exec_status": "idle:buffering"},
+                    extra={FieldName.EXEC_STATUS: "idle:buffering"},
                 )
             except Exception:
                 log_structured("warning", "reflection_idle_heartbeat_failed", exc_info=True)
@@ -850,7 +854,7 @@ class ReflectionAgent(MultiStreamAgent):
                 "info",
                 "reflection_completed",
                 trace_id=trace_id,
-                hypotheses=len(reflection_data.get("hypotheses", [])),
+                hypotheses=len(reflection_data.get(FieldName.HYPOTHESES, [])),
                 tokens=tokens_used,
             )
         except Exception:
@@ -864,7 +868,7 @@ class ReflectionAgent(MultiStreamAgent):
 
         # Evaluator-Optimizer: if the first pass produced too few actionable hypotheses,
         # call the LLM once more with a targeted improve prompt to force richer output.
-        hypotheses = reflection_data.get("hypotheses", [])
+        hypotheses = reflection_data.get(FieldName.HYPOTHESES, [])
         if len(hypotheses) < REFLECTION_MIN_HYPOTHESES and redis is not None:
             try:
                 budget_now = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
@@ -875,7 +879,7 @@ class ReflectionAgent(MultiStreamAgent):
                         prompt, REFLECTION_IMPROVE_PROMPT, trace_id
                     )
                     improved = self._parse_llm_response(raw_improved)
-                    if len(improved.get("hypotheses", [])) > len(hypotheses):
+                    if len(improved.get(FieldName.HYPOTHESES, [])) > len(hypotheses):
                         reflection_data = improved
                         await redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_imp)
                         await redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_imp)
@@ -884,7 +888,7 @@ class ReflectionAgent(MultiStreamAgent):
                             "reflection_refined_by_evaluator_optimizer",
                             trace_id=trace_id,
                             original_hypotheses=len(hypotheses),
-                            refined_hypotheses=len(improved.get("hypotheses", [])),
+                            refined_hypotheses=len(improved.get(FieldName.HYPOTHESES, [])),
                         )
             except Exception:
                 log_structured("warning", "reflection_refinement_failed", exc_info=True)
@@ -897,7 +901,7 @@ class ReflectionAgent(MultiStreamAgent):
             "source": SOURCE_REFLECTION,
             "type": "reflection_output",
             "trace_id": trace_id,
-            "fills_analyzed": self._fills,
+            FieldName.FILLS_ANALYZED: self._fills,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **reflection_data,
             # Merge quant fields — these override any LLM-generated equivalents
@@ -922,7 +926,7 @@ class ReflectionAgent(MultiStreamAgent):
                 "severity": Severity.INFO,
                 "notification_type": "reflection",
                 "message": reflection_data.get(FieldName.SUMMARY, "Reflection completed."),
-                "hypothesis_count": len(reflection_data.get("hypotheses", [])),
+                FieldName.HYPOTHESIS_COUNT: len(reflection_data.get(FieldName.HYPOTHESES, [])),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
@@ -933,7 +937,7 @@ class ReflectionAgent(MultiStreamAgent):
                 await _write_heartbeat(
                     redis,
                     self._state_name,
-                    f"reflection fills={self._fills} hypotheses={len(reflection_data.get('hypotheses', []))}",
+                    f"reflection fills={self._fills} hypotheses={len(reflection_data.get(FieldName.HYPOTHESES, []))}",
                     self._fills,
                 )
             except Exception:
@@ -996,12 +1000,12 @@ class ReflectionAgent(MultiStreamAgent):
         )
         return json.dumps(
             {
-                "fills_analyzed": len(recent_fills),
-                "total_pnl": round(total_pnl, 4),
+                FieldName.FILLS_ANALYZED: len(recent_fills),
+                FieldName.TOTAL_PNL: round(total_pnl, 4),
                 "win_rate": round(win_rate, 4),
-                "recent_fills": recent_fills,
-                "recent_grades": list(self._recent_grades)[-5:],
-                "recent_ic_changes": list(self._recent_ic)[-5:],
+                FieldName.RECENT_FILLS: recent_fills,
+                FieldName.RECENT_GRADES: list(self._recent_grades)[-5:],
+                FieldName.RECENT_IC_CHANGES: list(self._recent_ic)[-5:],
             },
             default=str,
         )
@@ -1050,7 +1054,7 @@ class StrategyProposer(MultiStreamAgent):
         )
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        hypotheses: list[dict[str, Any]] = data.get("hypotheses") or []
+        hypotheses: list[dict[str, Any]] = data.get(FieldName.HYPOTHESES) or []
         min_confidence = float(settings.HYPOTHESIS_MIN_CONFIDENCE)
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -1084,9 +1088,9 @@ class StrategyProposer(MultiStreamAgent):
                         "title": f"Strategy rule proposal: {hypothesis.get(FieldName.DESCRIPTION, '')[:80]}",
                         "body": json.dumps(
                             {
-                                "hypothesis": hypothesis,
+                                FieldName.HYPOTHESIS: hypothesis,
                                 "reflection_trace_id": data.get(FieldName.TRACE_ID),
-                                "fills_analyzed": data.get("fills_analyzed"),
+                                FieldName.FILLS_ANALYZED: data.get(FieldName.FILLS_ANALYZED),
                             },
                             default=str,
                         ),
@@ -1163,7 +1167,7 @@ class StrategyProposer(MultiStreamAgent):
             from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
 
             plan_prompt = json.dumps(
-                {"all_hypotheses": all_hypotheses, "strong_hypotheses": strong},
+                {FieldName.ALL_HYPOTHESES: all_hypotheses, FieldName.STRONG_HYPOTHESES: strong},
                 default=str,
             )
             raw_text, _, _ = await call_llm_with_system(
@@ -1179,7 +1183,7 @@ class StrategyProposer(MultiStreamAgent):
                 if cleaned.rstrip().endswith("```"):
                     cleaned = cleaned.rstrip()[:-3].strip()
             plan = json.loads(cleaned)
-            ranked_indices = plan.get("ranked_indices", [])
+            ranked_indices = plan.get(FieldName.RANKED_INDICES, [])
 
             if ranked_indices and all(isinstance(i, int) for i in ranked_indices):
                 reordered = [strong[i] for i in ranked_indices if 0 <= i < len(strong)]
@@ -1215,33 +1219,37 @@ class StrategyProposer(MultiStreamAgent):
             "content": {
                 "description": description,
                 "confidence": confidence,
-                "hypothesis_type": hyp_type,
+                FieldName.HYPOTHESIS_TYPE: hyp_type,
             },
         }
 
         if hyp_type == HypothesisType.PARAMETER:
             base[FieldName.PROPOSAL_TYPE] = ProposalType.PARAMETER_CHANGE
-            base[FieldName.CONTENT]["implementation"] = "db_update"
-            base[FieldName.CONTENT]["note"] = "Update config parameter via DB — no deploy required."
+            base[FieldName.CONTENT][FieldName.IMPLEMENTATION] = "db_update"
+            base[FieldName.CONTENT][FieldName.NOTE] = (
+                "Update config parameter via DB — no deploy required."
+            )
         elif hyp_type == HypothesisType.RULE:
             base[FieldName.PROPOSAL_TYPE] = ProposalType.CODE_CHANGE
-            base[FieldName.CONTENT]["implementation"] = "github_pr"
-            base[FieldName.CONTENT]["note"] = "Rule change requires PR review and deploy."
+            base[FieldName.CONTENT][FieldName.IMPLEMENTATION] = "github_pr"
+            base[FieldName.CONTENT][FieldName.NOTE] = "Rule change requires PR review and deploy."
         elif hyp_type == HypothesisType.NEW_AGENT:
             # Propose spawning a challenger agent instance with different config
             base[FieldName.PROPOSAL_TYPE] = ProposalType.NEW_AGENT
             base[FieldName.REQUIRES_APPROVAL] = True
-            base[FieldName.CONTENT]["implementation"] = "challenger_spawn"
-            base[FieldName.CONTENT]["challenger_config"] = reflection_data.get(
-                "challenger_config", {}
+            base[FieldName.CONTENT][FieldName.IMPLEMENTATION] = "challenger_spawn"
+            base[FieldName.CONTENT][FieldName.CHALLENGER_CONFIG] = reflection_data.get(
+                FieldName.CHALLENGER_CONFIG, {}
             )
-            base[FieldName.CONTENT]["note"] = (
+            base[FieldName.CONTENT][FieldName.NOTE] = (
                 "Spawn a parallel challenger agent with the proposed config changes. "
                 "It runs alongside the current agent; retire it via the dashboard."
             )
         else:
             base[FieldName.PROPOSAL_TYPE] = ProposalType.REGIME_ADJUSTMENT
-            base[FieldName.CONTENT]["regime_context"] = reflection_data.get("regime_edge", {})
+            base[FieldName.CONTENT][FieldName.REGIME_CONTEXT] = reflection_data.get(
+                FieldName.REGIME_EDGE, {}
+            )
 
         return base
 
@@ -1499,7 +1507,7 @@ class NotificationAgent(MultiStreamAgent):
             # Preserve the canonical notification_id as the REST list `id` so
             # dedup with the WebSocket stream stays consistent.
             rest_payload.setdefault(
-                "id", notification.get(FieldName.NOTIFICATION_ID) or observed_msg_id
+                FieldName.ID, notification.get(FieldName.NOTIFICATION_ID) or observed_msg_id
             )
             rest_payload.setdefault(FieldName.SEVERITY, severity)
             await store.push_notification(rest_payload)
@@ -1612,7 +1620,10 @@ class ChallengerAgent(MultiStreamAgent):
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
 
-        if self._fills > 0 and self._fills % max(int(self._config.get("grade_every", 10)), 1) == 0:
+        if (
+            self._fills > 0
+            and self._fills % max(int(self._config.get(FieldName.GRADE_EVERY, 10)), 1) == 0
+        ):
             await self._grade()
 
         if self._fills >= self._max_fills:
@@ -1626,12 +1637,12 @@ class ChallengerAgent(MultiStreamAgent):
         win_rate = sum(1 for p in recent if p > 0) / len(recent)
         avg_pnl = sum(recent) / len(recent)
         grade_result = {
-            "challenger_id": self._challenger_id,
-            "instance_id": self._instance_id,
-            "fills": self._fills,
+            FieldName.CHALLENGER_ID: self._challenger_id,
+            FieldName.INSTANCE_ID: self._instance_id,
+            FieldName.FILLS: self._fills,
             "win_rate": round(win_rate, 4),
-            "avg_pnl": round(avg_pnl, 4),
-            "config": self._config,
+            FieldName.AVG_PNL: round(avg_pnl, 4),
+            FieldName.CONFIG: self._config,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         self._grade_history.append(grade_result)
@@ -1671,13 +1682,13 @@ class ChallengerAgent(MultiStreamAgent):
             "msg_id": str(uuid.uuid4()),
             "type": "challenger_summary",
             "source": f"challenger-{self._challenger_id}",
-            "challenger_id": self._challenger_id,
-            "instance_id": self._instance_id,
-            "total_fills": self._fills,
-            "total_pnl": round(total_pnl, 4),
+            FieldName.CHALLENGER_ID: self._challenger_id,
+            FieldName.INSTANCE_ID: self._instance_id,
+            FieldName.TOTAL_FILLS: self._fills,
+            FieldName.TOTAL_PNL: round(total_pnl, 4),
             "win_rate": round(win_rate, 4),
-            "config": self._config,
-            "grade_history": self._grade_history[-5:],
+            FieldName.CONFIG: self._config,
+            FieldName.GRADE_HISTORY: self._grade_history[-5:],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await self.bus.publish(
