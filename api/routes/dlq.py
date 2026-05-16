@@ -20,7 +20,7 @@ async def get_dlq(request: Request):
     # Group by stream before returning:
     grouped: dict = {}
     for item in items:
-        grouped.setdefault(item["stream"], []).append(item)
+        grouped.setdefault(item[FieldName.STREAM], []).append(item)
     return {"items": items, "total": len(items), "by_stream": grouped}
 
 
