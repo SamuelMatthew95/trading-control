@@ -46,10 +46,10 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         timestamp = self.safe_parse_dt(data.get(FieldName.TIMESTAMP)) or datetime.now(timezone.utc)
 
         # Map input data to DB columns
-        metric_name = data.get("metric_name")
-        metric_value = data.get("value")
-        metric_unit = data.get("unit") or None
-        tags = data.get("tags") or {}
+        metric_name = data.get(FieldName.METRIC_NAME)
+        metric_value = data.get(FieldName.VALUE)
+        metric_unit = data.get(FieldName.UNIT) or None
+        tags = data.get(FieldName.TAGS) or {}
 
         # Write to database via SafeWriter
         await self.safe_writer.write_system_metric(
