@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from api.config import settings
+from api.constants import AgentStatus, Source
 
 
 async def with_retries(operation: Callable[[], Awaitable[Any]]) -> Any:
@@ -69,3 +70,23 @@ def get_nested(data: Mapping[str, Any] | None, *keys: str, default: Any = None) 
         if current is None:
             return default
     return current
+
+
+def parse_source(value: str | None) -> Source:
+    """Parse a raw source label into a ``Source``; unknown/blank values map to FALLBACK."""
+    if not value:
+        return Source.FALLBACK
+    try:
+        return Source(str(value).strip().lower())
+    except ValueError:
+        return Source.FALLBACK
+
+
+def parse_agent_status(value: str | None) -> AgentStatus:
+    """Parse a raw status label into an ``AgentStatus``; unknown/blank values map to UNKNOWN."""
+    if not value:
+        return AgentStatus.UNKNOWN
+    try:
+        return AgentStatus(str(value).strip().upper())
+    except ValueError:
+        return AgentStatus.UNKNOWN
