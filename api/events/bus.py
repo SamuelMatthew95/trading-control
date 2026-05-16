@@ -33,6 +33,7 @@ from api.constants import (
     STREAM_TRADE_COMPLETED,
     STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
+    FieldName,
 )
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
@@ -150,8 +151,8 @@ class EventBus:
     async def publish(self, stream: str, event: dict[str, Any], maxlen: int | None = None) -> str:
         """Publish event to Redis stream with schema version."""
         # Bug fix: always include schema_version so consumer never sends to DLQ
-        event.setdefault("schema_version", DB_SCHEMA_VERSION)
-        event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        event.setdefault(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION)
+        event.setdefault(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat())
 
         # Serialize all values to strings with defensive fallback
         serialized_event = {}
