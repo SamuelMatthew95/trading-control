@@ -93,7 +93,7 @@ class DLQManager:
                 continue
             raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
             record = json.loads(raw)
-            await self.bus.publish(record["stream"], record[FieldName.PAYLOAD])
+            await self.bus.publish(record[FieldName.STREAM], record[FieldName.PAYLOAD])
             await self.clear(event_id)
             return True
         return False
