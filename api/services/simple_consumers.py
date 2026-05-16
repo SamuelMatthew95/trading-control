@@ -51,7 +51,7 @@ class SimpleConsumer(BaseStreamConsumer):
             extra={
                 FieldName.STREAM: self.stream,
                 FieldName.MSG_ID: msg_id,
-                "consumer": self.consumer,
+                FieldName.CONSUMER: self.consumer,
                 FieldName.PAYLOAD: data,
             },
         )
