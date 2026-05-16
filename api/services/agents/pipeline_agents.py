@@ -245,7 +245,7 @@ class GradeAgent(MultiStreamAgent):
                 "llm_health_score": llm_health,
                 "llm_rate_limited": llm_snap.get("rate_limited_count", 0),
                 "llm_timeout_count": llm_snap.get("timeout_count", 0),
-                "llm_success_rate_pct": round(llm_snap.get("success_rate_pct", 100.0), 1),
+                "llm_success_rate_pct": round(llm_snap.get(FieldName.SUCCESS_RATE_PCT, 100.0), 1),
                 "llm_effective_delay_ms": llm_snap.get("effective_delay_ms", LLM_CALL_DELAY_MS),
             },
             "fills_graded": self._fills,
@@ -414,7 +414,7 @@ class GradeAgent(MultiStreamAgent):
         window contains many blocked calls.
         """
         snap = _llm_metrics.snapshot()
-        success_rate = snap.get("success_rate_pct", 100.0) / 100.0
+        success_rate = snap.get(FieldName.SUCCESS_RATE_PCT, 100.0) / 100.0
         rate_limited = snap.get("rate_limited_count", 0)
         timeout_count = snap.get("timeout_count", 0)
         penalty = min(1.0, rate_limited * 0.10 + timeout_count * 0.15)
@@ -921,7 +921,7 @@ class ReflectionAgent(MultiStreamAgent):
                 "type": "notification",
                 "severity": Severity.INFO,
                 "notification_type": "reflection",
-                "message": reflection_data.get("summary", "Reflection completed."),
+                "message": reflection_data.get(FieldName.SUMMARY, "Reflection completed."),
                 "hypothesis_count": len(reflection_data.get("hypotheses", [])),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
@@ -1404,7 +1404,7 @@ class NotificationAgent(MultiStreamAgent):
             await self._heartbeat(stream, data)
             return
 
-        symbol_key = str(data.get(FieldName.SYMBOL) or data.get("asset") or "")
+        symbol_key = str(data.get(FieldName.SYMBOL) or data.get(FieldName.ASSET) or "")
         msg_id = str(data.get(FieldName.MSG_ID) or redis_id)
         trace_key = str(data.get(FieldName.TRACE_ID) or msg_id)
         dedup_key = REDIS_KEY_NOTIFICATION_DEDUP.format(
@@ -1529,7 +1529,7 @@ class NotificationAgent(MultiStreamAgent):
             log_structured("warning", "notification_heartbeat_failed", exc_info=True)
 
     def _classify_severity(self, stream: str, data: dict[str, Any]) -> str:
-        if explicit := data.get("severity"):
+        if explicit := data.get(FieldName.SEVERITY):
             return str(explicit)
         grade = str(data.get(FieldName.GRADE) or "")
         if grade == Grade.F:
