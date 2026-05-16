@@ -56,7 +56,7 @@ def _format_signed_percent(value: Any) -> str:
 
 
 def build_trade_details(data: dict[str, Any], side: str) -> dict[str, Any]:
-    symbol = str(data.get(FieldName.SYMBOL) or data.get("asset") or "?")
+    symbol = str(data.get(FieldName.SYMBOL) or data.get(FieldName.ASSET) or "?")
     qty = _float_or_none(data.get(FieldName.QTY) or data.get(FieldName.QUANTITY))
     fill_price = _float_or_none(
         data.get(FieldName.FILL_PRICE)
@@ -77,14 +77,14 @@ def build_trade_details(data: dict[str, Any], side: str) -> dict[str, Any]:
         FieldName.QTY: qty,
         FieldName.PRICE: _float_or_none(data.get(FieldName.PRICE)),
         FieldName.FILL_PRICE: fill_price,
-        "notional": notional,
+        FieldName.NOTIONAL: notional,
         FieldName.PNL: _float_or_none(data.get(FieldName.PNL)),
         FieldName.PNL_PERCENT: _float_or_none(data.get(FieldName.PNL_PERCENT)),
-        "stop_price": stop_price,
-        "take_profit_price": take_profit_price,
+        FieldName.STOP_PRICE: stop_price,
+        FieldName.TAKE_PROFIT_PRICE: take_profit_price,
         FieldName.ORDER_ID: data.get(FieldName.ORDER_ID),
         FieldName.TRACE_ID: data.get(FieldName.TRACE_ID),
-        FieldName.FILLED_AT: data.get(FieldName.FILLED_AT) or data.get("executed_at"),
+        FieldName.FILLED_AT: data.get(FieldName.FILLED_AT) or data.get(FieldName.EXECUTED_AT),
         FieldName.CONFIDENCE: _float_or_none(data.get(FieldName.CONFIDENCE)),
         FieldName.SESSION_ID: data.get(FieldName.SESSION_ID),
     }
@@ -112,17 +112,17 @@ def build_execution_message(data: dict[str, Any]) -> str:
         parts.append(f"Fill {_format_money(trade[FieldName.FILL_PRICE])}")
     if trade.get(FieldName.QTY) is not None:
         parts.append(f"Qty {_format_qty(trade[FieldName.QTY])}")
-    if trade.get("notional") is not None:
-        parts.append(f"{notional_label} {_format_money(trade['notional'])}")
+    if trade.get(FieldName.NOTIONAL) is not None:
+        parts.append(f"{notional_label} {_format_money(trade[FieldName.NOTIONAL])}")
     if trade.get(FieldName.PNL) is not None:
         pnl_text = _format_signed_money(trade[FieldName.PNL])
         if trade.get(FieldName.PNL_PERCENT) is not None:
             pnl_text = f"{pnl_text} ({_format_signed_percent(trade[FieldName.PNL_PERCENT])})"
         parts.append(f"Realized PnL {pnl_text}")
-    elif side == OrderSide.BUY and trade.get("stop_price") is not None:
+    elif side == OrderSide.BUY and trade.get(FieldName.STOP_PRICE) is not None:
         parts.append(
-            f"Stop {_format_money(trade['stop_price'])} / "
-            f"Target {_format_money(trade['take_profit_price'])}"
+            f"Stop {_format_money(trade[FieldName.STOP_PRICE])} / "
+            f"Target {_format_money(trade[FieldName.TAKE_PROFIT_PRICE])}"
         )
     return " | ".join(parts)
 
@@ -135,8 +135,8 @@ def _trade_facts(trade: dict[str, Any]) -> list[dict[str, str]]:
         {"label": "Qty", "value": _format_qty(trade.get(FieldName.QTY))},
         {"label": "Fill", "value": _format_money(trade.get(FieldName.FILL_PRICE))},
     ]
-    if trade.get("notional") is not None:
-        facts.append({"label": notional_label, "value": _format_money(trade["notional"])})
+    if trade.get(FieldName.NOTIONAL) is not None:
+        facts.append({"label": notional_label, "value": _format_money(trade[FieldName.NOTIONAL])})
     if trade.get(FieldName.PNL) is not None:
         pnl_text = _format_signed_money(trade[FieldName.PNL])
         if trade.get(FieldName.PNL_PERCENT) is not None:
@@ -148,10 +148,12 @@ def _trade_facts(trade: dict[str, Any]) -> list[dict[str, str]]:
                 "tone": "gain" if float(trade[FieldName.PNL]) >= 0 else "loss",
             }
         )
-    if action == "BUY" and trade.get("stop_price") is not None:
-        facts.append({"label": "Stop", "value": _format_money(trade["stop_price"])})
-    if action == "BUY" and trade.get("take_profit_price") is not None:
-        facts.append({"label": "Target", "value": _format_money(trade["take_profit_price"])})
+    if action == "BUY" and trade.get(FieldName.STOP_PRICE) is not None:
+        facts.append({"label": "Stop", "value": _format_money(trade[FieldName.STOP_PRICE])})
+    if action == "BUY" and trade.get(FieldName.TAKE_PROFIT_PRICE) is not None:
+        facts.append(
+            {"label": "Target", "value": _format_money(trade[FieldName.TAKE_PROFIT_PRICE])}
+        )
     return facts
 
 
@@ -249,24 +251,24 @@ def build_trade_notification(
         FieldName.NOTIFICATION_ID: notification_id,
         FieldName.SCHEMA_VERSION: schema_version,
         FieldName.SOURCE: source,
-        "severity": severity,
+        FieldName.SEVERITY: severity,
         FieldName.NOTIFICATION_TYPE: notification_type,
-        "stream_source": stream,
+        FieldName.STREAM_SOURCE: stream,
         FieldName.TITLE: title,
         FieldName.MESSAGE: message,
-        "summary": message,
+        FieldName.SUMMARY: message,
         FieldName.ACTION: side,
         FieldName.SYMBOL: trade[FieldName.SYMBOL],
         FieldName.QTY: trade[FieldName.QTY],
         FieldName.FILL_PRICE: trade[FieldName.FILL_PRICE],
-        "notional": trade["notional"],
+        FieldName.NOTIONAL: trade[FieldName.NOTIONAL],
         FieldName.PNL: trade[FieldName.PNL],
         FieldName.PNL_PERCENT: trade[FieldName.PNL_PERCENT],
         FieldName.ORDER_ID: trade[FieldName.ORDER_ID],
         FieldName.TRACE_ID: trace_id,
-        "state": "open",
-        "acknowledged": False,
-        "display": _display_payload(
+        FieldName.STATE: "open",
+        FieldName.ACKNOWLEDGED: False,
+        FieldName.DISPLAY: _display_payload(
             trade=trade,
             title=title,
             message=message,
@@ -274,12 +276,12 @@ def build_trade_notification(
             notification_type=notification_type,
             stream=stream,
         ),
-        "delivery": _delivery_payload(trade, title, message),
+        FieldName.DELIVERY: _delivery_payload(trade, title, message),
         FieldName.METADATA: {
-            "observed_msg_id": observed_msg_id,
-            "stream": stream,
+            FieldName.OBSERVED_MSG_ID: observed_msg_id,
+            FieldName.STREAM: stream,
             FieldName.EVENT_TYPE: event_type,
-            "trade": trade,
+            FieldName.TRADE: trade,
         },
         FieldName.TIMESTAMP: timestamp,
     }
