@@ -536,7 +536,7 @@ export function TradingView({
         : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
     const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
-    const wins = performanceSummary?.wins ?? tradeFeed.filter((t) => (t.pnl ?? 0) > 0).length
+    const wins = tradeFeed.filter((t) => (t.pnl ?? 0) > 0).length
 
     const winRatePct =
       performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
