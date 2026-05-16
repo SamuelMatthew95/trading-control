@@ -15,6 +15,7 @@ import redis.asyncio as redis
 
 from api.constants import STREAM_DLQ, STREAM_ORDERS, FieldName
 from api.observability import log_structured
+from api.utils import get_nested
 
 from .config import get_settings
 from .stream_logic import BackpressureController, MessageProcessor
@@ -114,7 +115,7 @@ class StreamManager:
                 for message_id, fields in message_list:
                     result.append(
                         {
-                            "stream": stream_name,
+                            FieldName.STREAM: stream_name,
                             "message_id": message_id,
                             FieldName.DATA: fields,
                         }
@@ -139,7 +140,7 @@ class StreamManager:
             dlq_data = self.message_processor.create_dlq_entry(message, error)
 
             await self.redis_client.xadd(STREAM_DLQ, dlq_data)
-            await self._atomic_ack(message["stream"], message["message_id"])
+            await self._atomic_ack(message[FieldName.STREAM], message["message_id"])
 
             log_structured("warning", "sent to dlq", message_id=message["message_id"])
 
@@ -153,7 +154,7 @@ class StreamManager:
 
     async def _process_message(self, message: dict[str, Any]) -> bool:
         """Process a single message with atomic guarantees."""
-        stream = message["stream"]
+        stream = message[FieldName.STREAM]
         message_id = message["message_id"]
         data = message[FieldName.DATA]
         msg_id = data.get(FieldName.MSG_ID, message_id)
@@ -181,7 +182,7 @@ class StreamManager:
                         # Get current lag info
                         stream_info = await self.redis_client.xinfo_stream(stream)
                         lag = float(
-                            stream_info.get("groups", {}).get(self.consumer_group, {}).get("lag", 0)
+                            get_nested(stream_info, "groups", self.consumer_group, "lag", default=0)
                         )
                         asyncio.create_task(on_message_processed(self.event_bus, stream, lag))
                     except Exception:
