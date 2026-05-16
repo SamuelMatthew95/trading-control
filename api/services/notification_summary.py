@@ -10,18 +10,18 @@ from api.constants import FieldName
 def compute_notification_summary(notifications: list[dict[str, Any]]) -> dict[str, Any]:
     """Return a stable, UI-ready summary object for notification panels."""
     by_severity = {
-        "success": sum(
+        FieldName.SUCCESS: sum(
             1 for n in notifications if str(n.get(FieldName.SEVERITY, "")).lower() == "success"
         ),
-        "info": sum(
+        FieldName.INFO: sum(
             1
             for n in notifications
             if str(n.get(FieldName.SEVERITY, "")).lower() in {"info", "urgent"}
         ),
-        "warning": sum(
+        FieldName.WARNING: sum(
             1 for n in notifications if str(n.get(FieldName.SEVERITY, "")).lower() == "warning"
         ),
-        "critical": sum(
+        FieldName.CRITICAL: sum(
             1
             for n in notifications
             if str(n.get(FieldName.SEVERITY, "")).lower() in {"critical", "error"}
@@ -34,21 +34,21 @@ def compute_notification_summary(notifications: list[dict[str, Any]]) -> dict[st
     resolved_count = total - open_count
 
     return {
-        "summary_version": 1,
-        "counts": {
-            "total": total,
-            "open": open_count,
-            "resolved": resolved_count,
+        FieldName.SUMMARY_VERSION: 1,
+        FieldName.COUNTS: {
+            FieldName.TOTAL: total,
+            FieldName.OPEN: open_count,
+            FieldName.RESOLVED: resolved_count,
         },
-        "severity_counts": [
-            {FieldName.SEVERITY: "success", "count": by_severity["success"]},
-            {FieldName.SEVERITY: "info", "count": by_severity["info"]},
-            {FieldName.SEVERITY: "warning", "count": by_severity["warning"]},
-            {FieldName.SEVERITY: "critical", "count": by_severity["critical"]},
+        FieldName.SEVERITY_COUNTS: [
+            {FieldName.SEVERITY: "success", FieldName.COUNT: by_severity[FieldName.SUCCESS]},
+            {FieldName.SEVERITY: "info", FieldName.COUNT: by_severity[FieldName.INFO]},
+            {FieldName.SEVERITY: "warning", FieldName.COUNT: by_severity[FieldName.WARNING]},
+            {FieldName.SEVERITY: "critical", FieldName.COUNT: by_severity[FieldName.CRITICAL]},
         ],
         # Backward-compatible fields:
-        "total": total,
-        "open": open_count,
-        "resolved": resolved_count,
-        "by_severity": by_severity,
+        FieldName.TOTAL: total,
+        FieldName.OPEN: open_count,
+        FieldName.RESOLVED: resolved_count,
+        FieldName.BY_SEVERITY: by_severity,
     }
