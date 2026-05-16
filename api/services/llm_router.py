@@ -11,6 +11,7 @@ from api.config import settings
 from api.constants import AgentAction, FieldName
 from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
+from api.utils import get_nested
 
 _GEMINI_RPM = 15
 _GEMINI_WINDOW = 60.0
@@ -136,7 +137,7 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
     import aiohttp  # noqa: PLC0415
 
     payload = {
-        "model": settings.ANTHROPIC_MODEL,
+        FieldName.MODEL: settings.ANTHROPIC_MODEL,
         "max_tokens": 300,
         "temperature": 0.2,
         "system": SYSTEM_PROMPT,
@@ -160,8 +161,8 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
         for b in body.get(FieldName.CONTENT, [])
         if b.get(FieldName.TYPE) == "text"
     )
-    tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
-        body.get("usage", {}).get("output_tokens", 0)
+    tokens = int(get_nested(body, "usage", "input_tokens", default=0)) + int(
+        get_nested(body, "usage", "output_tokens", default=0)
     )
     cost_usd = round(tokens * 0.000003, 6)
     return _parse_response(text, trace_id, cost_usd), tokens, cost_usd
@@ -326,7 +327,7 @@ async def _call_provider_raw(
         import aiohttp  # noqa: PLC0415
 
         payload = {
-            "model": settings.ANTHROPIC_MODEL,
+            FieldName.MODEL: settings.ANTHROPIC_MODEL,
             "max_tokens": 800,
             "temperature": 0.3,
             "system": system_prompt,
@@ -350,8 +351,8 @@ async def _call_provider_raw(
             for b in body.get(FieldName.CONTENT, [])
             if b.get(FieldName.TYPE) == "text"
         )
-        tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
-            body.get("usage", {}).get("output_tokens", 0)
+        tokens = int(get_nested(body, "usage", "input_tokens", default=0)) + int(
+            get_nested(body, "usage", "output_tokens", default=0)
         )
         return text, tokens, round(tokens * 0.000003, 6)
 
