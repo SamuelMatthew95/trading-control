@@ -149,17 +149,17 @@ class LLMMetricsCollector:
 
         return {
             "window_seconds": window_seconds,
-            "total_in_window": total_w,
+            FieldName.TOTAL_IN_WINDOW: total_w,
             "success_count": success_count,
-            "success_rate_pct": round(success_count / total_w * 100, 1) if total_w else 0.0,
+            FieldName.SUCCESS_RATE_PCT: round(success_count / total_w * 100, 1) if total_w else 0.0,
             "avg_latency_ms": (
                 round(sum(r.latency_ms for r in successes) / success_count) if successes else 0.0
             ),
             "rate_limited_count": sum(1 for r in window if r.result == LLMCallResult.RATE_LIMITED),
             "timeout_count": sum(1 for r in window if r.result == LLMCallResult.TIMEOUT),
             "error_count": sum(1 for r in window if r.result == LLMCallResult.ERROR),
-            "total_calls_lifetime": total_calls,
-            "daily_calls": daily_calls,
+            FieldName.TOTAL_CALLS_LIFETIME: total_calls,
+            FieldName.DAILY_CALLS: daily_calls,
             "effective_delay_ms": effective_delay_ms,
             "grade_adjusted_delay": grade_adjusted,
             "last_error": {
