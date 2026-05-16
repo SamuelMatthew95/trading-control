@@ -54,7 +54,7 @@ class AlpacaProvider(MarketDataProvider):
                 {
                     FieldName.SYMBOL: symbol,
                     FieldName.PRICE: str(getattr(bar, "close", "0")),
-                    "volume": str(getattr(bar, "volume", "0")),
+                    FieldName.VOLUME: str(getattr(bar, "volume", "0")),
                     FieldName.TIMESTAMP: str(
                         getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
                     ),
@@ -77,7 +77,7 @@ class AlpacaProvider(MarketDataProvider):
                 {
                     FieldName.SYMBOL: symbol,
                     FieldName.PRICE: str(getattr(bar, "close", "0")),
-                    "volume": str(getattr(bar, "volume", "0")),
+                    FieldName.VOLUME: str(getattr(bar, "volume", "0")),
                     FieldName.TIMESTAMP: str(
                         getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
                     ),
@@ -156,9 +156,9 @@ class MarketDataIngestor:
         try:
             symbol = str(tick.get(FieldName.SYMBOL, ""))
             price = float(tick.get(FieldName.PRICE, 0) or 0)
-            bid = float(tick.get("bid", price) or price)
-            ask = float(tick.get("ask", price) or price)
-            volume = float(tick.get("volume", 0) or 0)
+            bid = float(tick.get(FieldName.BID, price) or price)
+            ask = float(tick.get(FieldName.ASK, price) or price)
+            volume = float(tick.get(FieldName.VOLUME, 0) or 0)
             timestamp = str(tick.get(FieldName.TIMESTAMP, ""))
         except Exception:
             return False
