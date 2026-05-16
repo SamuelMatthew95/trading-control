@@ -173,7 +173,7 @@ async def publish_test_event(request: Request, payload: TestEventRequest) -> dic
 
     return {
         FieldName.STATUS: "published",
-        "stream": payload.stream,
+        FieldName.STREAM: payload.stream,
         FieldName.MSG_ID: msg_id,
         "redis_id": redis_id,
         "event": event,
