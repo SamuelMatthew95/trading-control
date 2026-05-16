@@ -4,21 +4,33 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.constants import FieldName
+
 
 def compute_notification_summary(notifications: list[dict[str, Any]]) -> dict[str, Any]:
     """Return a stable, UI-ready summary object for notification panels."""
     by_severity = {
-        "success": sum(1 for n in notifications if str(n.get("severity", "")).lower() == "success"),
-        "info": sum(
-            1 for n in notifications if str(n.get("severity", "")).lower() in {"info", "urgent"}
+        "success": sum(
+            1 for n in notifications if str(n.get(FieldName.SEVERITY, "")).lower() == "success"
         ),
-        "warning": sum(1 for n in notifications if str(n.get("severity", "")).lower() == "warning"),
+        "info": sum(
+            1
+            for n in notifications
+            if str(n.get(FieldName.SEVERITY, "")).lower() in {"info", "urgent"}
+        ),
+        "warning": sum(
+            1 for n in notifications if str(n.get(FieldName.SEVERITY, "")).lower() == "warning"
+        ),
         "critical": sum(
-            1 for n in notifications if str(n.get("severity", "")).lower() in {"critical", "error"}
+            1
+            for n in notifications
+            if str(n.get(FieldName.SEVERITY, "")).lower() in {"critical", "error"}
         ),
     }
     total = len(notifications)
-    open_count = sum(1 for n in notifications if str(n.get("state", "open")).lower() != "resolved")
+    open_count = sum(
+        1 for n in notifications if str(n.get(FieldName.STATE, "open")).lower() != "resolved"
+    )
     resolved_count = total - open_count
 
     return {
@@ -29,10 +41,10 @@ def compute_notification_summary(notifications: list[dict[str, Any]]) -> dict[st
             "resolved": resolved_count,
         },
         "severity_counts": [
-            {"severity": "success", "count": by_severity["success"]},
-            {"severity": "info", "count": by_severity["info"]},
-            {"severity": "warning", "count": by_severity["warning"]},
-            {"severity": "critical", "count": by_severity["critical"]},
+            {FieldName.SEVERITY: "success", "count": by_severity["success"]},
+            {FieldName.SEVERITY: "info", "count": by_severity["info"]},
+            {FieldName.SEVERITY: "warning", "count": by_severity["warning"]},
+            {FieldName.SEVERITY: "critical", "count": by_severity["critical"]},
         ],
         # Backward-compatible fields:
         "total": total,
