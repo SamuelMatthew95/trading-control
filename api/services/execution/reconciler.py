@@ -45,7 +45,7 @@ class OrderReconciler:
                 text(
                     "SELECT id, broker_order_id, status FROM orders WHERE status IN ('pending', 'partial') AND created_at < :cutoff"
                 ),
-                {"cutoff": cutoff},
+                {FieldName.CUTOFF: cutoff},
             )
             rows = result.mappings().all()
             for row in rows:
@@ -60,14 +60,14 @@ class OrderReconciler:
                         "INSERT INTO order_reconciliation (order_id, discrepancy, resolved) VALUES (:order_id, CAST(:discrepancy AS JSONB), true)"
                     ),
                     {
-                        "order_id": row["id"],
-                        "discrepancy": json.dumps(discrepancy, default=str),
+                        "order_id": row[FieldName.ID],
+                        FieldName.DISCREPANCY: json.dumps(discrepancy, default=str),
                     },
                 )
                 if broker_status is not None:
                     await session.execute(
                         text("UPDATE orders SET status = :status WHERE id = :order_id"),
-                        {"status": broker_status[FieldName.STATUS], "order_id": row["id"]},
+                        {"status": broker_status[FieldName.STATUS], "order_id": row[FieldName.ID]},
                     )
                 await session.execute(
                     text(
@@ -90,16 +90,16 @@ class OrderReconciler:
     ) -> dict[str, Any] | None:
         if broker_status is None:
             return {
-                "order_id": str(order_row["id"]),
+                "order_id": str(order_row[FieldName.ID]),
                 FieldName.BROKER_ORDER_ID: str(order_row[FieldName.BROKER_ORDER_ID]),
-                "db_status": order_row[FieldName.STATUS],
-                "broker_status": "missing",
+                FieldName.DB_STATUS: order_row[FieldName.STATUS],
+                FieldName.BROKER_STATUS: "missing",
             }
         if broker_status.get(FieldName.STATUS) == order_row[FieldName.STATUS]:
             return None
         return {
-            "order_id": str(order_row["id"]),
+            "order_id": str(order_row[FieldName.ID]),
             FieldName.BROKER_ORDER_ID: str(order_row[FieldName.BROKER_ORDER_ID]),
-            "db_status": order_row[FieldName.STATUS],
-            "broker_status": broker_status.get(FieldName.STATUS),
+            FieldName.DB_STATUS: order_row[FieldName.STATUS],
+            FieldName.BROKER_STATUS: broker_status.get(FieldName.STATUS),
         }
