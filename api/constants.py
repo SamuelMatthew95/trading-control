@@ -319,6 +319,32 @@ class FieldName(StrEnum):
     TRADE_EVAL_ID = "trade_eval_id"
     TRADES_ANALYZED = "trades_analyzed"
     WIN_RATE = "win_rate"
+    # --- Notification payload fields ---
+    ACKNOWLEDGED = "acknowledged"
+    ASSET = "asset"
+    DELIVERY = "delivery"
+    DISPLAY = "display"
+    EXECUTED_AT = "executed_at"
+    NOTIONAL = "notional"
+    OBSERVED_MSG_ID = "observed_msg_id"
+    SEVERITY = "severity"
+    STATE = "state"
+    STOP_PRICE = "stop_price"
+    STREAM = "stream"
+    STREAM_SOURCE = "stream_source"
+    SUMMARY = "summary"
+    TAKE_PROFIT_PRICE = "take_profit_price"
+    TRADE = "trade"
+    # --- LLM-health payload fields ---
+    DAILY_CALLS = "daily_calls"
+    MODEL = "model"
+    MODEL_VAR = "model_var"
+    PROVIDER = "provider"
+    REDIS_METRICS = "redis_metrics"
+    SUCCESS_RATE_PCT = "success_rate_pct"
+    TOTAL_CALLS = "total_calls"
+    TOTAL_CALLS_LIFETIME = "total_calls_lifetime"
+    TOTAL_IN_WINDOW = "total_in_window"
 
 
 class StatusValue(StrEnum):
