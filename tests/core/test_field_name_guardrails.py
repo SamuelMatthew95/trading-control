@@ -205,22 +205,26 @@ def _iter_clean_files() -> Iterator[pathlib.Path]:
 
 
 def _fieldname_read_violations(tree: ast.AST) -> list[tuple[int, str, str]]:
-    """Return (line, kind, key) for every raw-string READ of a FieldName key."""
+    """Return (line, kind, key) for every raw-string READ of a FieldName key.
+
+    Covers ``d.get("key")``, ``d.pop("key")``, ``d.setdefault("key")`` and
+    ``d["key"]`` — the dict-key string can sit anywhere on the line.
+    """
     violations: list[tuple[int, str, str]] = []
 
     for node in ast.walk(tree):
-        # d.get("key") / d.get("key", default)
+        # d.get("key") / d.pop("key") / d.setdefault("key")
         if isinstance(node, ast.Call):
             func = node.func
             if (
                 isinstance(func, ast.Attribute)
-                and func.attr == "get"
+                and func.attr in {"get", "pop", "setdefault"}
                 and node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
                 and node.args[0].value in FIELD_NAME_VALUES
             ):
-                violations.append((node.lineno, "get", node.args[0].value))
+                violations.append((node.lineno, func.attr, node.args[0].value))
 
         # d["key"]
         elif isinstance(node, ast.Subscript):
@@ -252,6 +256,25 @@ def _fieldname_dict_literal_violations(tree: ast.AST) -> list[tuple[int, str]]:
     return violations
 
 
+def _fieldname_membership_violations(tree: ast.AST) -> list[tuple[int, str]]:
+    """Return (line, key) for every ``"key" in d`` test that uses a raw FieldName key."""
+    violations: list[tuple[int, str]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare) and any(
+            isinstance(op, (ast.In, ast.NotIn)) for op in node.ops
+        ):
+            left = node.left
+            if (
+                isinstance(left, ast.Constant)
+                and isinstance(left.value, str)
+                and left.value in FIELD_NAME_VALUES
+            ):
+                violations.append((left.lineno, left.value))
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Strict-zero checks against CLEAN_FILES
 # ---------------------------------------------------------------------------
@@ -259,7 +282,7 @@ def _fieldname_dict_literal_violations(tree: ast.AST) -> list[tuple[int, str]]:
 
 class TestCleanFilesHaveNoRawReads:
     """Every file on the CLEAN_FILES allowlist must have zero raw-string
-    FieldName reads (.get("key"), d["key"]).
+    FieldName reads — .get("key"), .pop("key"), .setdefault("key"), d["key"].
     """
 
     @pytest.mark.parametrize(
@@ -305,6 +328,38 @@ class TestCleanFilesHaveNoRawDictLiterals:
             f"FieldName.<NAME>:\n"
             + "\n".join(
                 f"  line {lineno}: '{key}'  →  FieldName.{key.upper()}"
+                for lineno, key in violations
+            )
+        )
+
+
+class TestCleanFilesHaveNoRawMembership:
+    """Every file on CLEAN_FILES that is NOT in SQL_BIND_HEAVY_FILES must have
+    zero raw-string FieldName keys in membership tests (`"key" in payload`).
+
+    SQL-heavy files are relaxed: there, `"col" in available_columns` legitimately
+    probes DB schema column identifiers, which are not payload-dict keys.
+    """
+
+    @pytest.mark.parametrize(
+        "py_file",
+        [
+            p
+            for p in _iter_clean_files()
+            if p.relative_to(ROOT).as_posix() not in SQL_BIND_HEAVY_FILES
+        ],
+        ids=lambda p: p.relative_to(ROOT).as_posix(),
+    )
+    def test_no_raw_string_membership(self, py_file: pathlib.Path) -> None:
+        tree = ast.parse(py_file.read_text())
+        violations = _fieldname_membership_violations(tree)
+
+        assert not violations, (
+            f"\n{py_file.relative_to(ROOT)} is on CLEAN_FILES but tests FieldName keys with "
+            f"raw-string membership. Each line below is a regression — replace with "
+            f"FieldName.<NAME>:\n"
+            + "\n".join(
+                f"  line {lineno}: '{key}' in ...  →  FieldName.{key.upper()}"
                 for lineno, key in violations
             )
         )
