@@ -591,7 +591,7 @@ class SafeWriter:
                     "content": data[FieldName.CONTENT],
                     "content_type": data[FieldName.CONTENT_TYPE],
                     "embedding": data[FieldName.EMBEDDING],  # Validated to be 1536 floats
-                    "vector_metadata": data.get(
+                    FieldName.VECTOR_METADATA: data.get(
                         FieldName.METADATA, {}
                     ),  # Map metadata to vector_metadata
                     "agent_id": data.get(FieldName.AGENT_ID),
@@ -759,7 +759,7 @@ class SafeWriter:
                     "embedding": data.get(
                         FieldName.EMBEDDING, [0.0] * 1536
                     ),  # Placeholder embedding
-                    "vector_metadata": {
+                    FieldName.VECTOR_METADATA: {
                         "reflection_type": data.get(FieldName.REFLECTION_TYPE),
                         "agent_id": data.get(FieldName.AGENT_ID),
                         "trace_id": data.get(FieldName.TRACE_ID),
