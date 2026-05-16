@@ -14,12 +14,6 @@ const formatUSD = (v: number | null | undefined): string => {
   return `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-const signedUSD = (v: number | null | undefined): string => {
-  if (v == null || !isFinite(v)) return '--'
-  const abs = Math.abs(v)
-  if (abs < 0.005) return '$0.00'
-  return `${v > 0 ? '+' : '-'}$${abs.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 const toNum = (v: unknown): number | null => {
   const n = typeof v === 'number' ? v : Number(v)
@@ -118,7 +112,7 @@ function TradeFeedPanel({
   upstream: { signal_events?: number; decisions_evaluated?: number; ee_last_status?: string | null } | null
   setActiveTraceId: (id: string) => void
 }) {
-  const tradeFeed = useCodexStore((s) => s.tradeFeed)
+  const { tradeFeed = [] } = useCodexStore()
 
   const emptyLabel =
     emptyReason === 'db_degraded'
@@ -243,7 +237,7 @@ function TradeFeedPanel({
                       onClick={() => setActiveTraceId(trade.execution_trace_id!)}
                       className="text-[10px] font-mono text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-600 dark:hover:text-slate-300"
                     >
-                      {trade.execution_trace_id.slice(0, 8)}…
+                      trace:{trade.execution_trace_id.slice(0, 8)}…
                     </button>
                   )}
                 </div>
@@ -261,8 +255,7 @@ function TradeFeedPanel({
 // ---------------------------------------------------------------------------
 
 function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: string) => void }) {
-  const agentLogs = useCodexStore((s) => s.agentLogs)
-  const wsConnected = useCodexStore((s) => s.wsConnected)
+  const { agentLogs = [], wsConnected = false } = useCodexStore()
 
   const logs = useMemo(() => agentLogs.slice(-25).reverse(), [agentLogs])
 
@@ -379,7 +372,7 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
 // ---------------------------------------------------------------------------
 
 function OpenPositionsPanel() {
-  const positions = useCodexStore((s) => s.positions)
+  const { positions = [] } = useCodexStore()
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -515,9 +508,11 @@ export function TradingView({
   tradeFeedEmptyReason = null,
   tradeFeedUpstream = null,
 }: TradingViewProps) {
-  const tradeFeed = useCodexStore((s) => s.tradeFeed)
-  const positions = useCodexStore((s) => s.positions)
-  const performanceSummary = useCodexStore((s) => s.performanceSummary)
+  const {
+    tradeFeed = [],
+    positions = [],
+    performanceSummary = null,
+  } = useCodexStore()
 
   const stats = useMemo(() => {
     const totalPnl =
@@ -551,7 +546,7 @@ export function TradingView({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           label="Session P&L"
-          value={stats.totalPnl !== 0 ? signedUSD(stats.totalPnl) : '$0.00'}
+          value={formatUSD(stats.totalPnl)}
           sign={pnlSign}
           icon={stats.totalPnl >= 0 ? TrendingUp : TrendingDown}
         />
