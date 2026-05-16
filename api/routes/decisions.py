@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
+from api.constants import FieldName
 from api.services.redis_store import get_redis_store
 
 router = APIRouter(tags=["decisions"])
@@ -32,8 +33,8 @@ async def decisions_stats() -> dict[str, Any]:
     store = get_redis_store()
     if store is None:
         return {
-            "total": 0,
-            "last_hour": {"buys": 0, "sells": 0, "holds": 0},
-            "last_decision": None,
+            FieldName.TOTAL: 0,
+            FieldName.LAST_HOUR: {FieldName.BUYS: 0, FieldName.SELLS: 0, FieldName.HOLDS: 0},
+            FieldName.LAST_DECISION: None,
         }
     return await store.decision_stats()
