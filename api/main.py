@@ -295,7 +295,7 @@ async def lifespan(app: FastAPI):
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
             environment=settings.NODE_ENV,
-            config_source=get_settings_info().get("config_source"),
+            config_source=get_settings_info().get(FieldName.CONFIG_SOURCE),
             database_mode="connected" if app.state.db_available else "in_memory_fallback",
         )
         yield
