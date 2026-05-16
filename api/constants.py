@@ -178,6 +178,15 @@ class AgentLogType(StrEnum):
     SIGNAL_GENERATED = "SIGNAL_GENERATED"
 
 
+class LifecyclePhase(StrEnum):
+    """Agent/consumer lifecycle phases recorded via write_agent_lifecycle_event."""
+
+    STARTED = "started"
+    STOPPED = "stopped"
+    CRASHED = "crashed"
+    RECOVERED = "recovered"
+
+
 class FieldName(StrEnum):
     """Canonical payload / JSON field names used across services."""
 
@@ -253,6 +262,7 @@ class FieldName(StrEnum):
     MAX_DRAWDOWN = "max_drawdown"
     MAX_RUNUP = "max_runup"
     MESSAGE = "message"
+    MESSAGE_ID = "message_id"
     METADATA = "metadata"
     METRICS = "metrics"
     MSG_ID = "msg_id"
