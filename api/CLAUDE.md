@@ -98,7 +98,9 @@ payload = {FieldName.SYMBOL: sym, FieldName.SIDE: "buy", FieldName.TRACE_ID: tid
 **Enforced by `tests/core/test_field_name_guardrails.py`** — an AST scan that
 fails CI when any file on the `CLEAN_FILES` allowlist re-introduces a raw
 string FieldName key. When you add a new file to the sweep, append it to
-`CLEAN_FILES` so the guardrail locks it in.
+`CLEAN_FILES` so the guardrail locks it in. The scan catches the key string
+anywhere on a line — `.get`, `.pop`, `.setdefault`, `[...]`, dict literals,
+and `"k" in d` membership.
 
 Missing a field? Add it to `class FieldName(StrEnum)` in `api/constants.py`
 first (member name MUST equal value in uppercase — `FOO = "foo"`), then
