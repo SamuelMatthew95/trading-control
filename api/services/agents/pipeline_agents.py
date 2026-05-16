@@ -1501,7 +1501,7 @@ class NotificationAgent(MultiStreamAgent):
             rest_payload.setdefault(
                 "id", notification.get(FieldName.NOTIFICATION_ID) or observed_msg_id
             )
-            rest_payload.setdefault("severity", severity)
+            rest_payload.setdefault(FieldName.SEVERITY, severity)
             await store.push_notification(rest_payload)
         except Exception:
             log_structured("warning", "notification_redis_store_mirror_failed", exc_info=True)
