@@ -53,7 +53,7 @@ async def write_agent_log(
                     "score": payload.get(FieldName.SCORE),
                     "score_pct": payload.get(FieldName.SCORE_PCT),
                     "metrics": payload.get(FieldName.METRICS, {}),
-                    "fills_graded": payload.get("fills_graded"),
+                    FieldName.FILLS_GRADED: payload.get(FieldName.FILLS_GRADED),
                     "timestamp": payload.get(FieldName.TIMESTAMP)
                     or datetime.now(timezone.utc).isoformat(),
                 }
@@ -78,17 +78,18 @@ async def write_agent_log(
         )
         store.add_agent_log(
             {
-                "id": f"mem-{len(store.agent_logs) + 1}",
+                FieldName.ID: f"mem-{len(store.agent_logs) + 1}",
                 "agent_name": payload.get(FieldName.SOURCE)
                 or payload.get(FieldName.AGENT)
                 or payload.get(FieldName.AGENT_NAME)
                 or log_type,
                 "message": message,
-                "reasoning": payload.get("reasoning") or message,
+                FieldName.REASONING: payload.get(FieldName.REASONING) or message,
                 "log_level": "info",
                 "trace_id": trace_id,
                 "log_type": log_type,
-                "confidence": payload.get("confidence_score") or payload.get(FieldName.CONFIDENCE),
+                "confidence": payload.get(FieldName.CONFIDENCE_SCORE)
+                or payload.get(FieldName.CONFIDENCE),
                 "timestamp": payload.get(FieldName.TIMESTAMP)
                 or datetime.now(timezone.utc).isoformat(),
             }
@@ -135,7 +136,7 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
                 "score": score_pct,
                 "score_pct": round(score_pct, 2) if score_pct is not None else None,
                 "metrics": metrics,
-                "fills_graded": metrics.get("fills_graded"),
+                FieldName.FILLS_GRADED: metrics.get(FieldName.FILLS_GRADED),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -181,7 +182,11 @@ async def persist_factor_ic(factor: str, ic_score: float, computed_at: str) -> N
                     INSERT INTO factor_ic_history (factor_name, ic_score, computed_at)
                     VALUES (:factor_name, :ic_score, :computed_at)
                 """),
-                {"factor_name": factor, "ic_score": ic_score, "computed_at": computed_at},
+                {
+                    "factor_name": factor,
+                    FieldName.IC_SCORE: ic_score,
+                    FieldName.COMPUTED_AT: computed_at,
+                },
             )
             await session.commit()
     except Exception:
@@ -299,7 +304,7 @@ async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
                     "symbol": trade_eval.get(FieldName.SYMBOL),
                     "side": trade_eval.get(FieldName.SIDE),
                     "pnl": trade_eval.get(FieldName.PNL),
-                    "return_pct": trade_eval.get(FieldName.PNL_PERCENT),
+                    FieldName.RETURN_PCT: trade_eval.get(FieldName.PNL_PERCENT),
                     "entry_quality": trade_eval.get(FieldName.ENTRY_QUALITY),
                     "exit_quality": trade_eval.get(FieldName.EXIT_QUALITY),
                     "timing_score": trade_eval.get(FieldName.TIMING_SCORE),
@@ -451,17 +456,17 @@ async def register_agent_instance(instance_key: str, pool_name: str) -> str:
                         RETURNING id
                     """),
                     {
-                        "id": instance_id,
-                        "key": instance_key,
-                        "pool": pool_name,
+                        FieldName.ID: instance_id,
+                        FieldName.KEY: instance_key,
+                        FieldName.POOL: pool_name,
                         "schema_version": DB_SCHEMA_VERSION,
                         "metadata": json.dumps(
                             {
                                 "agent_name": pool_name,
                                 "agent_id": pool_name,
-                                "agent_type": "service",
+                                FieldName.AGENT_TYPE: "service",
                                 "session_id": os.getenv("SESSION_ID", "default"),
-                                "environment": os.getenv("ENVIRONMENT", "dev"),
+                                FieldName.ENVIRONMENT: os.getenv("ENVIRONMENT", "dev"),
                             }
                         ),
                     },
@@ -507,7 +512,7 @@ async def retire_agent_instance(instance_id: str) -> None:
                     SET status = 'retired', retired_at = NOW()
                     WHERE id = :id
                 """),
-                {"id": instance_id},
+                {FieldName.ID: instance_id},
             )
             await session.commit()
             await write_agent_lifecycle_event(
@@ -536,7 +541,7 @@ async def increment_instance_event_count(instance_id: str) -> None:
                     SET event_count = event_count + 1
                     WHERE id = :id AND status = 'active'
                 """),
-                {"id": instance_id},
+                {FieldName.ID: instance_id},
             )
             await session.commit()
     except Exception:
@@ -554,10 +559,10 @@ async def write_agent_lifecycle_event(
     payload = {
         "agent_name": pool_name,
         "agent_id": pool_name,
-        "instance_id": instance_id,
-        "lifecycle_event": lifecycle_phase,
+        FieldName.INSTANCE_ID: instance_id,
+        FieldName.LIFECYCLE_EVENT: lifecycle_phase,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "details": details or {},
+        FieldName.DETAILS: details or {},
     }
     await write_agent_log(
         trace_id=f"{pool_name}:{instance_id}:{lifecycle_phase}",
@@ -624,7 +629,7 @@ async def upsert_trade_lifecycle(
             )
         store.upsert_trade_fill(
             {
-                "id": execution_trace_id,
+                FieldName.ID: execution_trace_id,
                 FieldName.SYMBOL: symbol,
                 FieldName.SIDE: side,
                 FieldName.QTY: qty,
