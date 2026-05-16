@@ -197,7 +197,7 @@ class BaseStreamConsumer(ABC):
                 "Missing msg_id in producer payload",
                 extra={
                     FieldName.STREAM: self.stream,
-                    "data_keys": list(data.keys()),
+                    FieldName.DATA_KEYS: list(data.keys()),
                 },
             )
             raise RuntimeError(f"Missing msg_id in {self.stream}")
