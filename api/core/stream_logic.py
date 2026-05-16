@@ -131,7 +131,7 @@ class MessageProcessor:
     def create_dlq_entry(self, message: dict[str, Any], error: str) -> dict[str, Any]:
         """Create DLQ entry data - pure logic."""
         return {
-            "original_stream": message.get("stream", "unknown"),
+            "original_stream": message.get(FieldName.STREAM, "unknown"),
             "original_id": message.get("message_id", "unknown"),
             FieldName.DATA: message.get(FieldName.DATA, {}),
             FieldName.ERROR: error,
