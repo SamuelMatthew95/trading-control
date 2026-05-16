@@ -90,10 +90,10 @@ async def write_heartbeat(
                             last_seen    = NOW()
                     """),
                     {
-                        "name": agent_name,
+                        FieldName.NAME: agent_name,
                         "status": AgentStatus.ACTIVE,
                         "last_event": last_event,
-                        "count": event_count,
+                        FieldName.COUNT: event_count,
                     },
                 )
                 await session.execute(
@@ -106,8 +106,8 @@ async def write_heartbeat(
                         WHERE instance_key = :instance_key
                     """),
                     {
-                        "instance_key": agent_name.lower().replace("_", "-"),
-                        "pool_name": agent_name,
+                        FieldName.INSTANCE_KEY: agent_name.lower().replace("_", "-"),
+                        FieldName.POOL_NAME: agent_name,
                         "event_count": event_count,
                         "metadata": json.dumps(
                             {
@@ -140,8 +140,8 @@ async def write_heartbeat(
                         )
                     """),
                     {
-                        "instance_key": agent_name.lower().replace("_", "-"),
-                        "pool_name": agent_name,
+                        FieldName.INSTANCE_KEY: agent_name.lower().replace("_", "-"),
+                        FieldName.POOL_NAME: agent_name,
                         "event_count": event_count,
                         "schema_version": DB_SCHEMA_VERSION,
                         "metadata": json.dumps(
