@@ -48,13 +48,13 @@ class MetricsAggregator:
         winning_trades = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
         win_rate = (winning_trades / len(orders) * 100) if orders else 0.0
         return {
-            "total_pnl": total_pnl,
-            "today_pnl": total_pnl,
-            "total_trades": len(orders),
-            "winning_trades": winning_trades,
-            "win_rate_percent": win_rate,
+            FieldName.TOTAL_PNL: total_pnl,
+            FieldName.TODAY_PNL: total_pnl,
+            FieldName.TOTAL_TRADES: len(orders),
+            FieldName.WINNING_TRADES: winning_trades,
+            FieldName.WIN_RATE_PERCENT: win_rate,
             "status": "memory_mode",
-            "last_update": datetime.now(timezone.utc).isoformat(),
+            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             "source": Source.IN_MEMORY,
         }
 
@@ -64,15 +64,15 @@ class MetricsAggregator:
             {
                 "agent_id": agent_id,
                 "last_seen": data.get(FieldName.LAST_SEEN) or data.get(FieldName.LAST_SEEN_AT),
-                "message_count_5min": int(data.get(FieldName.EVENT_COUNT) or 0),
+                FieldName.MESSAGE_COUNT_5MIN: int(data.get(FieldName.EVENT_COUNT) or 0),
             }
             for agent_id, data in store.agents.items()
             if str(data.get(FieldName.STATUS, "")).lower() in {"active", "running", "live"}
         ]
         return {
-            "active_agents": active_agents,
-            "active_agent_count": len(active_agents),
-            "last_update": datetime.now(timezone.utc).isoformat(),
+            FieldName.ACTIVE_AGENTS: active_agents,
+            FieldName.ACTIVE_AGENT_COUNT: len(active_agents),
+            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             "source": Source.IN_MEMORY,
         }
 
@@ -82,13 +82,15 @@ class MetricsAggregator:
             status = str(order.get(FieldName.STATUS) or "unknown")
             order_stats[status] = order_stats.get(status, 0) + 1
         total_orders = sum(order_stats.values())
-        filled_orders = order_stats.get(OrderStatus.FILLED, 0) + order_stats.get("executed", 0)
+        filled_orders = order_stats.get(OrderStatus.FILLED, 0) + order_stats.get(
+            FieldName.EXECUTED, 0
+        )
         fill_rate = (filled_orders / total_orders * 100) if total_orders else 0.0
         return {
-            "orders_last_hour": order_stats,
-            "total_orders_last_hour": total_orders,
-            "fill_rate_percent": fill_rate,
-            "last_update": datetime.now(timezone.utc).isoformat(),
+            FieldName.ORDERS_LAST_HOUR: order_stats,
+            FieldName.TOTAL_ORDERS_LAST_HOUR: total_orders,
+            FieldName.FILL_RATE_PERCENT: fill_rate,
+            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             "source": Source.IN_MEMORY,
         }
 
@@ -102,18 +104,18 @@ class MetricsAggregator:
             float(position.get(FieldName.UNREALIZED_PNL) or 0.0) for position in open_positions
         )
         return {
-            "closed_trades": closed_trades,
-            "open_positions": open_positions,
+            FieldName.CLOSED_TRADES: closed_trades,
+            FieldName.OPEN_POSITIONS: open_positions,
             "summary": {
-                "realized_pnl": round(realized_pnl, 8),
+                FieldName.REALIZED_PNL: round(realized_pnl, 8),
                 "unrealized_pnl": round(unrealized_pnl, 8),
-                "total_pnl": round(realized_pnl + unrealized_pnl, 8),
-                "closed_trades": len(closed_trades),
-                "winning_trades": winning,
-                "win_rate_percent": round(
+                FieldName.TOTAL_PNL: round(realized_pnl + unrealized_pnl, 8),
+                FieldName.CLOSED_TRADES: len(closed_trades),
+                FieldName.WINNING_TRADES: winning,
+                FieldName.WIN_RATE_PERCENT: round(
                     (winning / len(closed_trades) * 100) if closed_trades else 0.0, 2
                 ),
-                "open_positions": len(open_positions),
+                FieldName.OPEN_POSITIONS: len(open_positions),
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": Source.IN_MEMORY,
@@ -150,10 +152,10 @@ class MetricsAggregator:
                 stream = row.stream
                 if stream:  # Guard against null stream
                     lag_metrics[stream] = {
-                        "lag_ms": float(row.lag_ms or 0),
-                        "lag_seconds": float(row.lag_ms or 0) / 1000,
+                        FieldName.LAG_MS: float(row.lag_ms or 0),
+                        FieldName.LAG_SECONDS: float(row.lag_ms or 0) / 1000,
                         "timestamp": (row.timestamp.isoformat() if row.timestamp else None),
-                        "tags": row.tags or {},
+                        FieldName.TAGS: row.tags or {},
                     }
 
             return lag_metrics
@@ -171,26 +173,26 @@ class MetricsAggregator:
         """
         if self._using_memory_store():
             return {
-                "overall_status": "degraded",
-                "streams_status": {},
-                "mode": "in_memory",
-                "db_health": get_runtime_store().last_health,
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.OVERALL_STATUS: "degraded",
+                FieldName.STREAMS_STATUS: {},
+                FieldName.MODE: "in_memory",
+                FieldName.DB_HEALTH: get_runtime_store().last_health,
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
                 "source": Source.IN_MEMORY,
             }
 
         try:
             health = {
-                "overall_status": "healthy",
-                "streams_status": {},
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.OVERALL_STATUS: "healthy",
+                FieldName.STREAMS_STATUS: {},
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
             # Get stream lag metrics
             lag_metrics = await self.get_stream_lag_metrics()
 
             # Check each stream health
             for stream, metrics in lag_metrics.items():
-                lag_ms = metrics["lag_ms"]
+                lag_ms = metrics[FieldName.LAG_MS]
                 timestamp_str = metrics[FieldName.TIMESTAMP]
 
                 # Parse timestamp to check staleness
@@ -215,28 +217,28 @@ class MetricsAggregator:
                 else:
                     status = "healthy"
 
-                health["streams_status"][stream] = {
+                health[FieldName.STREAMS_STATUS][stream] = {
                     "status": status,
-                    "lag_ms": lag_ms,
-                    "is_stale": is_stale,
+                    FieldName.LAG_MS: lag_ms,
+                    FieldName.IS_STALE: is_stale,
                 }
 
                 # Update overall status
                 if status == "critical":
-                    health["overall_status"] = "critical"
-                elif status == "warning" and health["overall_status"] == "healthy":
-                    health["overall_status"] = "warning"
-                elif status == "stale" and health["overall_status"] == "healthy":
-                    health["overall_status"] = "stale"
+                    health[FieldName.OVERALL_STATUS] = "critical"
+                elif status == "warning" and health[FieldName.OVERALL_STATUS] == "healthy":
+                    health[FieldName.OVERALL_STATUS] = "warning"
+                elif status == "stale" and health[FieldName.OVERALL_STATUS] == "healthy":
+                    health[FieldName.OVERALL_STATUS] = "stale"
 
             return health
 
         except Exception as e:
             log_structured("error", "system health computation failed", exc_info=True)
             return {
-                "overall_status": "error",
+                FieldName.OVERALL_STATUS: "error",
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_pnl_metrics(self) -> dict[str, Any]:
@@ -278,13 +280,13 @@ class MetricsAggregator:
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
 
             return {
-                "total_pnl": total_pnl,
-                "today_pnl": today_pnl,
-                "total_trades": total_trades,
-                "winning_trades": winning_trades,
-                "win_rate_percent": win_rate,
+                FieldName.TOTAL_PNL: total_pnl,
+                FieldName.TODAY_PNL: today_pnl,
+                FieldName.TOTAL_TRADES: total_trades,
+                FieldName.WINNING_TRADES: winning_trades,
+                FieldName.WIN_RATE_PERCENT: win_rate,
                 "status": "healthy" if total_trades > 0 else "no_trades",
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -295,14 +297,14 @@ class MetricsAggregator:
                 exc_info=True,
             )
             return {
-                "total_pnl": 0.0,
-                "today_pnl": 0.0,
-                "total_trades": 0,
-                "winning_trades": 0,
-                "win_rate_percent": 0.0,
+                FieldName.TOTAL_PNL: 0.0,
+                FieldName.TODAY_PNL: 0.0,
+                FieldName.TOTAL_TRADES: 0,
+                FieldName.WINNING_TRADES: 0,
+                FieldName.WIN_RATE_PERCENT: 0.0,
                 "status": "table_missing",
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_agent_metrics(self) -> dict[str, Any]:
@@ -345,7 +347,7 @@ class MetricsAggregator:
                     GROUP BY {run_col}
                     """
                 ),
-                {"five_min_ago": five_min_ago},
+                {FieldName.FIVE_MIN_AGO: five_min_ago},
             )
             rows = result.fetchall()
 
@@ -355,23 +357,23 @@ class MetricsAggregator:
                     {
                         "agent_id": row.agent_run_id,
                         "last_seen": (row.last_seen.isoformat() if row.last_seen else None),
-                        "message_count_5min": int(row.message_count or 0),
+                        FieldName.MESSAGE_COUNT_5MIN: int(row.message_count or 0),
                     }
                 )
 
             return {
-                "active_agents": active_agents,
-                "active_agent_count": len(active_agents),
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.ACTIVE_AGENTS: active_agents,
+                FieldName.ACTIVE_AGENT_COUNT: len(active_agents),
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
             log_structured("error", "agent metrics failed", exc_info=True)
             return {
-                "active_agents": [],
-                "active_agent_count": 0,
+                FieldName.ACTIVE_AGENTS: [],
+                FieldName.ACTIVE_AGENT_COUNT: 0,
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_order_metrics(self) -> dict[str, Any]:
@@ -404,24 +406,24 @@ class MetricsAggregator:
                 total_orders += order_stats[row.status]
 
             # Get fill rate
-            filled_orders = order_stats.get("filled", 0)
+            filled_orders = order_stats.get(FieldName.FILLED, 0)
             fill_rate = (filled_orders / total_orders * 100) if total_orders > 0 else 0
 
             return {
-                "orders_last_hour": order_stats,
-                "total_orders_last_hour": total_orders,
-                "fill_rate_percent": fill_rate,
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.ORDERS_LAST_HOUR: order_stats,
+                FieldName.TOTAL_ORDERS_LAST_HOUR: total_orders,
+                FieldName.FILL_RATE_PERCENT: fill_rate,
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
             log_structured("error", "order metrics failed", exc_info=True)
             return {
-                "orders_last_hour": {},
-                "total_orders_last_hour": 0,
-                "fill_rate_percent": 0,
+                FieldName.ORDERS_LAST_HOUR: {},
+                FieldName.TOTAL_ORDERS_LAST_HOUR: 0,
+                FieldName.FILL_RATE_PERCENT: 0,
                 "error": str(e),
-                "last_update": datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_dashboard_snapshot(self) -> dict[str, Any]:
@@ -442,11 +444,11 @@ class MetricsAggregator:
             # Combine into snapshot
             snapshot = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "stream_lag": stream_lag,
-                "system_health": system_health,
+                FieldName.STREAM_LAG: stream_lag,
+                FieldName.SYSTEM_HEALTH: system_health,
                 "pnl": pnl_metrics,
-                "agents": agent_metrics,
-                "orders": order_metrics,
+                FieldName.AGENTS: agent_metrics,
+                FieldName.ORDERS: order_metrics,
             }
 
             # Ensure no NaN values - replace with 0 or null
@@ -457,11 +459,14 @@ class MetricsAggregator:
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": "snapshot_failed",
-                "stream_lag": {},
-                "system_health": {"overall_status": "error"},
-                "pnl": {"total_pnl": 0, "today_pnl": 0},
-                "agents": {"active_agents": [], "active_agent_count": 0},
-                "orders": {"orders_last_hour": {}, "total_orders_last_hour": 0},
+                FieldName.STREAM_LAG: {},
+                FieldName.SYSTEM_HEALTH: {FieldName.OVERALL_STATUS: "error"},
+                "pnl": {FieldName.TOTAL_PNL: 0, FieldName.TODAY_PNL: 0},
+                FieldName.AGENTS: {FieldName.ACTIVE_AGENTS: [], FieldName.ACTIVE_AGENT_COUNT: 0},
+                FieldName.ORDERS: {
+                    FieldName.ORDERS_LAST_HOUR: {},
+                    FieldName.TOTAL_ORDERS_LAST_HOUR: 0,
+                },
             }
 
     async def get_raw_snapshot(self) -> dict[str, Any]:
@@ -516,7 +521,7 @@ class MetricsAggregator:
                     "pnl_percent": _safe_float(row.pnl_percent),
                     "timestamp": row.created_at.isoformat() if row.created_at else None,
                     "entry_price": _safe_float(row.price),
-                    "current_price": _safe_float(row.filled_price or row.price),
+                    FieldName.CURRENT_PRICE: _safe_float(row.filled_price or row.price),
                 }
                 for row in orders_result.all()
             ]
@@ -536,7 +541,7 @@ class MetricsAggregator:
                     else PositionSide.SHORT,
                     "quantity": _safe_float(p.quantity),
                     "entry_price": _safe_float(p.avg_cost),
-                    "current_price": _safe_float(p.last_price or p.avg_cost),
+                    FieldName.CURRENT_PRICE: _safe_float(p.last_price or p.avg_cost),
                     "pnl": _safe_float(p.unrealized_pnl),
                     "market_value": _safe_float(p.market_value),
                 }
@@ -603,7 +608,7 @@ class MetricsAggregator:
             logs_result = await self.session.execute(logs_sql)
             agent_logs = [
                 {
-                    "id": _safe_str(row.id),
+                    FieldName.ID: _safe_str(row.id),
                     "agent_name": _safe_str(row.agent_name) or "agent",
                     "message": _safe_str(row.message),
                     "timestamp": row.ts.isoformat() if row.ts else None,
@@ -633,7 +638,7 @@ class MetricsAggregator:
                             metrics_val = {}
                     learning_events.append(
                         {
-                            "id": _safe_str(row[0]),
+                            FieldName.ID: _safe_str(row[0]),
                             "type": "trade_evaluated",
                             "grade_type": _safe_str(row[1]) or "pipeline",
                             "score": _safe_float(row[2]),
@@ -674,7 +679,7 @@ class MetricsAggregator:
                         p = {}
                     proposals.append(
                         {
-                            "id": _safe_str(row[0]) or _safe_str(p.get(FieldName.MSG_ID)),
+                            FieldName.ID: _safe_str(row[0]) or _safe_str(p.get(FieldName.MSG_ID)),
                             "proposal_type": _safe_str(p.get(FieldName.PROPOSAL_TYPE))
                             or "parameter_change",
                             "content": _safe_str(
@@ -708,7 +713,7 @@ class MetricsAggregator:
                 for row in tl_result:
                     trade_feed.append(
                         {
-                            "id": _safe_str(row[0]),
+                            FieldName.ID: _safe_str(row[0]),
                             "symbol": _safe_str(row[1]) or "",
                             "side": _safe_str(row[2]) or OrderSide.BUY,
                             "qty": _safe_float(row[3]) or None,
@@ -766,45 +771,54 @@ class MetricsAggregator:
             notification_summary = compute_notification_summary(notifications)
 
             return {
-                "orders": orders,
-                "positions": positions,
-                "agent_logs": agent_logs,
-                "learning_events": learning_events,
-                "proposals": proposals,
-                "trade_feed": trade_feed,
-                "notifications": notifications,
-                "notification_summary": notification_summary,
-                "signals": [],
-                "risk_alerts": [],
+                FieldName.ORDERS: orders,
+                FieldName.POSITIONS: positions,
+                FieldName.AGENT_LOGS: agent_logs,
+                FieldName.LEARNING_EVENTS: learning_events,
+                FieldName.PROPOSALS: proposals,
+                FieldName.TRADE_FEED: trade_feed,
+                FieldName.NOTIFICATIONS: notifications,
+                FieldName.NOTIFICATION_SUMMARY: notification_summary,
+                FieldName.SIGNALS: [],
+                FieldName.RISK_ALERTS: [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception:
             log_structured("error", "raw_snapshot_failed", exc_info=True)
             return {
-                "orders": [],
-                "positions": [],
-                "agent_logs": [],
-                "learning_events": [],
-                "proposals": [],
-                "trade_feed": [],
-                "notifications": [],
-                "notification_summary": {
-                    "summary_version": 1,
-                    "counts": {"total": 0, "open": 0, "resolved": 0},
-                    "severity_counts": [
-                        {"severity": "success", "count": 0},
-                        {"severity": "info", "count": 0},
-                        {"severity": "warning", "count": 0},
-                        {"severity": "critical", "count": 0},
+                FieldName.ORDERS: [],
+                FieldName.POSITIONS: [],
+                FieldName.AGENT_LOGS: [],
+                FieldName.LEARNING_EVENTS: [],
+                FieldName.PROPOSALS: [],
+                FieldName.TRADE_FEED: [],
+                FieldName.NOTIFICATIONS: [],
+                FieldName.NOTIFICATION_SUMMARY: {
+                    FieldName.SUMMARY_VERSION: 1,
+                    FieldName.COUNTS: {
+                        FieldName.TOTAL: 0,
+                        FieldName.OPEN: 0,
+                        FieldName.RESOLVED: 0,
+                    },
+                    FieldName.SEVERITY_COUNTS: [
+                        {"severity": "success", FieldName.COUNT: 0},
+                        {"severity": "info", FieldName.COUNT: 0},
+                        {"severity": "warning", FieldName.COUNT: 0},
+                        {"severity": "critical", FieldName.COUNT: 0},
                     ],
-                    "total": 0,
-                    "open": 0,
-                    "resolved": 0,
-                    "by_severity": {"success": 0, "info": 0, "warning": 0, "critical": 0},
+                    FieldName.TOTAL: 0,
+                    FieldName.OPEN: 0,
+                    FieldName.RESOLVED: 0,
+                    FieldName.BY_SEVERITY: {
+                        FieldName.SUCCESS: 0,
+                        FieldName.INFO: 0,
+                        FieldName.WARNING: 0,
+                        FieldName.CRITICAL: 0,
+                    },
                 },
-                "signals": [],
-                "risk_alerts": [],
+                FieldName.SIGNALS: [],
+                FieldName.RISK_ALERTS: [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
@@ -844,7 +858,7 @@ class MetricsAggregator:
             open_rows = open_result.mappings().all()
         except Exception:
             log_structured("warning", "paired_pnl_query_failed", exc_info=True)
-            return {"closed_trades": [], "open_positions": [], "summary": {}}
+            return {FieldName.CLOSED_TRADES: [], FieldName.OPEN_POSITIONS: [], "summary": {}}
 
         # --- Closed trades -------------------------------------------------
         closed_trades = []
@@ -921,24 +935,24 @@ class MetricsAggregator:
                     FieldName.SIDE: side,
                     FieldName.QTY: qty,
                     FieldName.AVG_COST: avg_cost,
-                    "current_price": round(current_price, 8),
+                    FieldName.CURRENT_PRICE: round(current_price, 8),
                     "unrealized_pnl": round(pos_pnl, 8),
-                    "unrealized_pnl_pct": round(pnl_pct * 100, 4),
+                    FieldName.UNREALIZED_PNL_PCT: round(pnl_pct * 100, 4),
                     "market_value": round(current_price * qty, 8),
                 }
             )
 
         return {
-            "closed_trades": closed_trades,
-            "open_positions": open_positions,
+            FieldName.CLOSED_TRADES: closed_trades,
+            FieldName.OPEN_POSITIONS: open_positions,
             "summary": {
-                "realized_pnl": round(realized_pnl, 8),
+                FieldName.REALIZED_PNL: round(realized_pnl, 8),
                 "unrealized_pnl": round(unrealized_pnl, 8),
-                "total_pnl": round(realized_pnl + unrealized_pnl, 8),
-                "closed_trades": total_closed,
-                "winning_trades": winning,
-                "win_rate_percent": round(win_rate, 2),
-                "open_positions": len(open_positions),
+                FieldName.TOTAL_PNL: round(realized_pnl + unrealized_pnl, 8),
+                FieldName.CLOSED_TRADES: total_closed,
+                FieldName.WINNING_TRADES: winning,
+                FieldName.WIN_RATE_PERCENT: round(win_rate, 2),
+                FieldName.OPEN_POSITIONS: len(open_positions),
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
