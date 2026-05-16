@@ -40,7 +40,7 @@ async def embed_text(text_value: str) -> list[float]:
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                json={"model": "text-embedding-3-small", "input": text_value},
+                json={"model": "text-embedding-3-small", FieldName.INPUT: text_value},
             ) as response:
                 if response.status >= 400:
                     raise RuntimeError(f"Embedding API error: HTTP {response.status}")
@@ -62,11 +62,11 @@ def _memory_vector_results(store_entries: list[dict]) -> list[dict[str, Any]]:
     """Format in-memory vector entries into the standard search result shape."""
     return [
         {
-            "id": str(item.get("id", f"mem-{i}")),
+            FieldName.ID: str(item.get(FieldName.ID, f"mem-{i}")),
             "content": item.get(FieldName.CONTENT),
             "metadata": item.get(FieldName.METADATA, {}),
             "outcome": item.get(FieldName.OUTCOME, {}),
-            "sim": 0.0,
+            FieldName.SIM: 0.0,
         }
         for i, item in enumerate(reversed(store_entries), start=1)
     ]
@@ -97,11 +97,11 @@ async def search_vector_memory(embedding: list[float]) -> list[dict[str, Any]]:
             )
             return [
                 {
-                    "id": str(row["id"]),
+                    FieldName.ID: str(row[FieldName.ID]),
                     "content": row[FieldName.CONTENT],
-                    "metadata": row["metadata_"],
+                    "metadata": row[FieldName.METADATA_],
                     "outcome": row[FieldName.OUTCOME],
-                    "sim": float(row["sim"]),
+                    FieldName.SIM: float(row[FieldName.SIM]),
                 }
                 for row in result.mappings().all()
             ]
