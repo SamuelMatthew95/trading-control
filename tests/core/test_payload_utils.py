@@ -4,8 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from api.constants import FieldName
-from api.utils import get_dict, get_nested, get_required_str, get_str
+from api.constants import AgentStatus, FieldName, Source
+from api.core import defaults, enums
+from api.core.payload_keys import PayloadKey
+from api.utils import (
+    get_dict,
+    get_nested,
+    get_required_str,
+    get_str,
+    parse_agent_status,
+    parse_source,
+)
 
 
 class TestGetStr:
@@ -97,3 +106,45 @@ class TestGetNested:
 
     def test_default_is_none_when_unspecified(self):
         assert get_nested({}, "a", "b") is None
+
+
+class TestParseSource:
+    def test_known_value(self):
+        assert parse_source("db") is Source.DB
+        assert parse_source("in_memory") is Source.IN_MEMORY
+
+    def test_case_and_whitespace_insensitive(self):
+        assert parse_source("  REDIS ") is Source.REDIS
+
+    def test_unknown_value_maps_to_fallback(self):
+        assert parse_source("nonsense") is Source.FALLBACK
+
+    def test_none_maps_to_fallback(self):
+        assert parse_source(None) is Source.FALLBACK
+
+
+class TestParseAgentStatus:
+    def test_known_value(self):
+        assert parse_agent_status("ACTIVE") is AgentStatus.ACTIVE
+
+    def test_case_and_whitespace_insensitive(self):
+        assert parse_agent_status(" stale ") is AgentStatus.STALE
+
+    def test_unknown_value_maps_to_unknown(self):
+        assert parse_agent_status("bogus") is AgentStatus.UNKNOWN
+
+    def test_none_maps_to_unknown(self):
+        assert parse_agent_status(None) is AgentStatus.UNKNOWN
+
+
+class TestCoreFacadeModules:
+    def test_payload_key_is_field_name(self):
+        assert PayloadKey is FieldName
+
+    def test_enums_reexport_canonical(self):
+        assert enums.Source is Source
+        assert enums.AgentStatus is AgentStatus
+
+    def test_defaults_reexport_canonical(self):
+        assert defaults.DEFAULT_TRACE_ID == "unknown-trace"
+        assert defaults.UNKNOWN_VALUE == "unknown"
