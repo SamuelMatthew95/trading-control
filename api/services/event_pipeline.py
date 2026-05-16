@@ -135,7 +135,7 @@ class EventPipeline:
                 FieldName.TIMESTAMP: ts,
                 FieldName.ERROR: error,
                 "retry_count": retry_count,
-                "stream": stream,
+                FieldName.STREAM: stream,
             }
             self._recent_failures.appendleft(failure)
             log_structured(
@@ -247,7 +247,7 @@ class EventPipeline:
 
         outbound = {
             FieldName.TYPE: "event",
-            "stream": stream,
+            FieldName.STREAM: stream,
             FieldName.MSG_ID: msg_id,
             FieldName.EVENT_TYPE: event_type,
             FieldName.PAYLOAD: event,
