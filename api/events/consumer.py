@@ -10,7 +10,12 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from api.constants import PROCESS_TIMEOUT_SECONDS, REDIS_KEY_DLQ_RETRIES, FieldName
+from api.constants import (
+    PROCESS_TIMEOUT_SECONDS,
+    REDIS_KEY_DLQ_RETRIES,
+    FieldName,
+    LifecyclePhase,
+)
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -119,7 +124,7 @@ class BaseStreamConsumer(ABC):
             await write_agent_lifecycle_event(
                 pool_name=self.consumer,
                 instance_id=self._instance_id,
-                lifecycle_phase="started",
+                lifecycle_phase=LifecyclePhase.STARTED,
                 details={FieldName.STREAM: self.stream},
             )
         except Exception:
@@ -171,7 +176,7 @@ class BaseStreamConsumer(ABC):
                     await write_agent_lifecycle_event(
                         pool_name=self.consumer,
                         instance_id=self._instance_id,
-                        lifecycle_phase="stopped",
+                        lifecycle_phase=LifecyclePhase.STOPPED,
                         details={FieldName.STREAM: self.stream},
                     )
                 except Exception:
@@ -292,7 +297,7 @@ class BaseStreamConsumer(ABC):
                         await write_agent_lifecycle_event(
                             pool_name=self.consumer,
                             instance_id=self._instance_id,
-                            lifecycle_phase="recovered",
+                            lifecycle_phase=LifecyclePhase.RECOVERED,
                             details={FieldName.STREAM: self.stream},
                         )
                     except Exception:
@@ -326,7 +331,7 @@ class BaseStreamConsumer(ABC):
                         await write_agent_lifecycle_event(
                             pool_name=self.consumer,
                             instance_id=self._instance_id,
-                            lifecycle_phase="crashed",
+                            lifecycle_phase=LifecyclePhase.CRASHED,
                             details={FieldName.STREAM: self.stream},
                         )
                     except Exception:
