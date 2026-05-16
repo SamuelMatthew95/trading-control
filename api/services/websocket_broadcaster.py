@@ -246,7 +246,7 @@ class WebSocketBroadcaster:
 
         Returns None for events that should be suppressed (not broadcast to clients).
         """
-        base = {"stream": stream, FieldName.MSG_ID: msg_id}
+        base = {FieldName.STREAM: stream, FieldName.MSG_ID: msg_id}
 
         # --- Executions: only surface actual BUY/SELL fills ------------------
         if stream == STREAM_EXECUTIONS:
@@ -308,11 +308,11 @@ class WebSocketBroadcaster:
             payload.get(FieldName.NOTIFICATION_TYPE) or payload.get(FieldName.TYPE) or ""
         ).lower()
         stream_source = str(
-            payload.get("stream_source") or payload.get(FieldName.SOURCE) or ""
+            payload.get(FieldName.STREAM_SOURCE) or payload.get(FieldName.SOURCE) or ""
         ).lower()
         message = str(
             payload.get(FieldName.MESSAGE)
-            or payload.get("summary")
+            or payload.get(FieldName.SUMMARY)
             or payload.get(FieldName.TITLE)
             or ""
         )
