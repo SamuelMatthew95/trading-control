@@ -132,7 +132,7 @@ class MessageProcessor:
         """Create DLQ entry data - pure logic."""
         return {
             "original_stream": message.get(FieldName.STREAM, "unknown"),
-            "original_id": message.get("message_id", "unknown"),
+            "original_id": message.get(FieldName.MESSAGE_ID, "unknown"),
             FieldName.DATA: message.get(FieldName.DATA, {}),
             FieldName.ERROR: error,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
