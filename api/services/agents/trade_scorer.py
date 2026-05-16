@@ -323,6 +323,11 @@ def compute_recommendations(
     return recs
 
 
+# Minimum number of trades needed for metrics to be considered reliable.
+_MIN_RELIABLE_TRADES = 10
+_MIN_STABLE_TRADES = 30
+
+
 def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any]:
     """Compute aggregate agent performance metrics from trade evaluations."""
     if not evaluations:
@@ -335,6 +340,9 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
             FieldName.AVG_SCORE: 0.0,
             FieldName.SCORE_TREND: "insufficient_data",
             FieldName.CONSISTENCY: 0.0,
+            "sample_size": 0,
+            "metric_status": "insufficient_data",
+            "min_required_sample_size": _MIN_RELIABLE_TRADES,
         }
 
     pnl_pcts = [float(e.get(FieldName.PNL_PERCENT) or 0.0) for e in evaluations]
@@ -342,6 +350,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
     scores = [float(e.get(FieldName.OVERALL_SCORE) or 0.0) for e in evaluations]
 
     total = len(evaluations)
+    # Win rate uses dollar PnL sign to determine wins (positive dollar return = win)
     win_rate = sum(1 for p in pnls if p > 0) / total
     avg_return = sum(pnl_pcts) / total
 
@@ -354,12 +363,15 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
     else:
         sharpe = 0.0
 
-    # Max drawdown from equity curve
+    # Max drawdown from equity curve — computed from pnl_percent returns so the
+    # result is in the same percentage-point units as avg_return.
+    # Using raw dollar pnl values here would produce a dollar-denominated drawdown
+    # that the frontend would misinterpret as a fractional return.
     cumulative = 0.0
     peak = 0.0
     max_dd = 0.0
-    for pnl_val in pnls:
-        cumulative += pnl_val
+    for pct in pnl_pcts:
+        cumulative += pct
         if cumulative > peak:
             peak = cumulative
         dd = peak - cumulative
@@ -388,13 +400,26 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
         std_s = math.sqrt(variance) if variance > 0 else 0.0
         consistency = _clamp(1.0 - (std_s / avg_score))
 
+    # Classify reliability so callers can qualify displayed metrics.
+    if total < _MIN_RELIABLE_TRADES:
+        metric_status = "insufficient_data"
+    elif total < _MIN_STABLE_TRADES:
+        metric_status = "unstable"
+    else:
+        metric_status = "reliable"
+
     return {
         FieldName.TOTAL_TRADES: total,
         FieldName.WIN_RATE: round(win_rate, 4),
         FieldName.AVG_RETURN: round(avg_return, 4),
         FieldName.SHARPE_RATIO: round(sharpe, 4),
+        # Negative percentage-point drawdown (e.g., -5.2 = 5.2% peak-to-trough drawdown).
+        # Units match avg_return so the frontend can display both without scaling.
         FieldName.MAX_DRAWDOWN: round(-max_dd, 4),
         FieldName.AVG_SCORE: round(avg_score, 4),
         FieldName.SCORE_TREND: score_trend,
         FieldName.CONSISTENCY: round(consistency, 4),
+        "sample_size": total,
+        "metric_status": metric_status,
+        "min_required_sample_size": _MIN_RELIABLE_TRADES,
     }
