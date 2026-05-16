@@ -84,10 +84,13 @@ STRATEGY_PLANNING_PROMPT = (
 )
 
 FALLBACK_REFLECTION: dict[str, Any] = {
-    "winning_factors": ["composite_score"],
-    "losing_factors": [],
-    "hypotheses": [],
-    "regime_edge": {"current_regime": "unknown", "recommendation": "continue monitoring"},
-    "time_of_day_patterns": {"best_hours": [], "worst_hours": []},
+    FieldName.WINNING_FACTORS: ["composite_score"],
+    FieldName.LOSING_FACTORS: [],
+    FieldName.HYPOTHESES: [],
+    FieldName.REGIME_EDGE: {
+        FieldName.CURRENT_REGIME: "unknown",
+        FieldName.RECOMMENDATION: "continue monitoring",
+    },
+    FieldName.TIME_OF_DAY_PATTERNS: {FieldName.BEST_HOURS: [], FieldName.WORST_HOURS: []},
     FieldName.SUMMARY: "Insufficient data for analysis.",
 }
