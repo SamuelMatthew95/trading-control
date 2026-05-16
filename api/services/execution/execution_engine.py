@@ -28,6 +28,7 @@ from api.config import settings
 from api.constants import (
     AGENT_EXECUTION,
     EXECUTION_DECISION_THRESHOLD,
+    EXECUTION_DECISION_THRESHOLD_MEMORY,
     LARGE_ORDER_THRESHOLD,
     ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
@@ -471,6 +472,8 @@ class ExecutionEngine(BaseStreamConsumer):
         else:
             store.upsert_position(symbol, new_pos)
 
+        self._append_equity_snapshot(store, filled_at)
+
         ctx = FillContext(
             order_id=fallback_order_id,
             strategy_id=strategy_id,
@@ -647,6 +650,8 @@ class ExecutionEngine(BaseStreamConsumer):
             else:
                 store.upsert_position(symbol, new_pos)
 
+            self._append_equity_snapshot(store, filled_at)
+
             ctx = FillContext(
                 order_id=order_id,
                 strategy_id=strategy_id,
@@ -729,6 +734,27 @@ class ExecutionEngine(BaseStreamConsumer):
         """Thin alias for ``extract_decision_scores`` kept for call-site symmetry."""
         return extract_decision_scores(data)
 
+    @staticmethod
+    def _append_equity_snapshot(store: Any, filled_at: datetime) -> None:
+        """Append a PnL snapshot to equity_curve after any in-memory fill recording.
+
+        Called from both _process_in_memory and _handle_db_failure so the
+        performance-trends chart stays in sync with orders/positions regardless
+        of which code path recorded the fill.
+        """
+        paired = store.paired_pnl_payload()[FieldName.SUMMARY]
+        store.equity_curve.append(
+            {
+                FieldName.TIMESTAMP: filled_at.isoformat(),
+                "value": paired[FieldName.TOTAL_PNL],
+                FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
+                FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
+                FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],
+            }
+        )
+        if len(store.equity_curve) > 1000:
+            store.equity_curve = store.equity_curve[-1000:]
+
     async def _check_pre_execution_gates(
         self,
         side: str,
@@ -740,9 +766,12 @@ class ExecutionEngine(BaseStreamConsumer):
         """Delegate to the pure gate check, then log and write a heartbeat if blocked."""
         final_score = compute_execution_score(signal_confidence, reasoning_score)
         market_open = self._is_market_open(symbol)
-        gate = check_execution_gate(
-            side, symbol, final_score, EXECUTION_DECISION_THRESHOLD, market_open
+        threshold = (
+            EXECUTION_DECISION_THRESHOLD_MEMORY
+            if not is_db_available()
+            else EXECUTION_DECISION_THRESHOLD
         )
+        gate = check_execution_gate(side, symbol, final_score, threshold, market_open)
         if gate is None:
             return None
         if gate.startswith("hold:"):
@@ -760,14 +789,14 @@ class ExecutionEngine(BaseStreamConsumer):
                 "execution_gated_score_below_threshold",
                 symbol=symbol,
                 final_score=round(final_score, 4),
-                threshold=EXECUTION_DECISION_THRESHOLD,
+                threshold=threshold,
                 signal_confidence=round(signal_confidence, 4),
                 reasoning_score=round(reasoning_score, 4),
                 trace_id=trace_id,
             )
             await self._write_idle_heartbeat(
                 symbol,
-                f"gated:score score={final_score:.3f}<{EXECUTION_DECISION_THRESHOLD}",
+                f"gated:score score={final_score:.3f}<{threshold}",
                 trace_id,
             )
         elif gate == "blocked:market_closed":

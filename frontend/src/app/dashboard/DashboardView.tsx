@@ -9,6 +9,7 @@ import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
+import { TradingView } from '@/components/dashboard/TradingView'
 import {
   Brain,
   TrendingDown,
@@ -23,29 +24,6 @@ const sanitizeValue = (value: string | number | boolean | null | undefined): str
   return String(value);
 };
 
-const toSanitizeInput = (value: unknown): string | number | boolean | null | undefined => {
-  if (value === null || value === undefined) return value
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
-  return String(value)
-}
-
-// Map internal reasoning fallback markers to human-readable text for the
-// Agent Thought Stream. The backend writes `primary_edge = "fallback:<mode>"`
-// whenever the LLM is unavailable; the raw token is ugly in the UI.
-const FALLBACK_LABELS: Record<string, string> = {
-  skip_reasoning: 'Rule-based fallback decision',
-  reject_signal: 'Rule-based fallback: signal rejected',
-  use_last_reflection: 'Rule-based fallback: reused last reflection',
-}
-const formatAgentMessage = (raw: unknown): string => {
-  const text = sanitizeValue(toSanitizeInput(raw))
-  if (text === '--') return ''
-  if (text.startsWith('fallback:')) {
-    const mode = text.slice('fallback:'.length)
-    return FALLBACK_LABELS[mode] ?? 'Rule-based fallback (LLM unavailable)'
-  }
-  return text
-}
 
 const formatUSD = (value?: number | null): string => {
   if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
@@ -1236,204 +1214,11 @@ export function DashboardView({ section }: { section: Section }) {
       )}
 
       {section === 'trading' && (
-        <div className="space-y-4">
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Trade Feed</p>
-              <p className={mutedClass}>{tradeFeed.length} fills</p>
-            </div>
-            {tradeFeed.length === 0 ? (
-              <div className="py-4 text-center space-y-2">
-                <p className={mutedClass}>
-                  {tradeFeedEmptyReason === 'db_degraded' ? 'DB unavailable — no fills persisted yet' :
-                   tradeFeedEmptyReason === 'no_orders_executed' ? 'No orders executed yet — decisions are being evaluated' :
-                   tradeFeedEmptyReason === 'lifecycle_not_persisted' ? 'Orders placed but lifecycle rows pending' :
-                   tradeFeedEmptyReason === 'no_executable_intents' ? 'Pipeline active — no executable intents yet' :
-                   'No fills yet'}
-                </p>
-                {tradeFeedUpstream && (tradeFeedUpstream.signal_events ?? 0) > 0 && (
-                  <div className="text-xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5">
-                    <p>Signals: {tradeFeedUpstream.signal_events?.toLocaleString() ?? 0} · Decisions: {tradeFeedUpstream.decisions_evaluated?.toLocaleString() ?? 0}</p>
-                    {tradeFeedUpstream.ee_last_status && (
-                      <p className="text-slate-400 dark:text-slate-500">EE: {tradeFeedUpstream.ee_last_status}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="max-h-96 overflow-y-auto space-y-1">
-                {tradeFeed.slice(0, 50).map((trade) => {
-                  const isBuy = trade.side === 'buy'
-                  const pnl = toFiniteNumber(trade.pnl)
-                  const pnlPct = toFiniteNumber(trade.pnl_percent)
-                  const isPnlPositive = (pnl ?? 0) >= 0
-                  const exitPrice = toFiniteNumber(trade.exit_price)
-                  const qty = toFiniteNumber(trade.qty)
-
-                  const GRADE_STYLE: Record<string, string> = {
-                    A: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-                    B: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
-                    C: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-                    D: 'bg-rose-500/15 text-rose-500',
-                    F: 'bg-rose-500/15 text-rose-500',
-                  }
-
-                  return (
-                    <div key={trade.id} className="flex items-center justify-between border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800 gap-2 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', isBuy ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-500')}>
-                          {isBuy ? 'BUY' : 'SELL'}
-                        </span>
-                        <span className="text-sm font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol}</span>
-                        <span className={mutedClass}>
-                          {qty != null ? qty : '--'} @ {exitPrice != null ? formatUSD(exitPrice) : '--'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {pnl != null ? (
-                          <span className={cn('text-sm font-mono tabular-nums font-semibold', isPnlPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {isPnlPositive ? '+' : '-'}{formatUSD(pnl)}{pnlPct != null ? ` (${isPnlPositive ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
-                          </span>
-                        ) : (
-                          <span className={mutedClass}>--</span>
-                        )}
-                        {trade.grade && (
-                          <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold', GRADE_STYLE[trade.grade] ?? 'bg-slate-500/15 text-slate-500')}>
-                            {trade.grade}
-                          </span>
-                        )}
-                        {trade.execution_trace_id && (
-                          <button
-                            onClick={() => setActiveTraceId(trade.execution_trace_id!)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                          >
-                            trace:{trade.execution_trace_id.slice(0, 8)}…
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Agent Thought Stream</p>
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                <span className={mutedClass}>LIVE</span>
-              </div>
-            </div>
-            {agentLogs.length === 0 ? (
-              <EmptyState message="No active agents" />
-            ) : (
-              <div className="relative max-h-80 overflow-y-auto">
-                <div className="space-y-2">
-                  {agentLogs.slice(-10).reverse().map((log, index) => {
-                    // Normalize confidence — backend may send it as 0–1 or 0–100
-                    const rawConf = toFiniteNumber(log?.confidence_score ?? log?.confidence)
-                    const confidence = rawConf == null ? null : rawConf > 1 ? rawConf / 100 : rawConf
-                    const confidencePct = confidence == null ? null : Math.round(confidence * 100)
-                    const confidenceClass = confidence == null ? 'bg-slate-500/15 text-slate-500'
-                      : confidence > 0.8 ? 'bg-emerald-500/15 text-emerald-500'
-                      : confidence >= 0.5 ? 'bg-amber-500/15 text-amber-500'
-                      : 'bg-slate-500/15 text-slate-500'
-                    // Resolve agent display name (SCREAMING_SNAKE → Title Case)
-                    const rawName = String(log?.agent_name || log?.agent || log?.source || '')
-                    const agentDisplay = rawName
-                      ? rawName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-                      : 'Agent'
-                    // Symbol may come directly or inside data sub-object
-                    const symbol = String(
-                      log?.symbol || (log?.data as Record<string,unknown>)?.symbol || ''
-                    )
-                    const action = String(log?.action || log?.decision || '').toUpperCase()
-                    return (
-                      <div key={String(log?.id || `${rawName}-${String(log?.timestamp || '')}-${index}`)} className="border-t border-slate-200 py-2 first:border-t-0 dark:border-slate-800">
-                        <div className="mb-1 flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-sans font-bold text-slate-900 dark:text-slate-100">{agentDisplay}</p>
-                          {symbol && <span className="text-xs font-mono text-slate-500">{symbol}</span>}
-                          {action && action !== '' && (
-                            <span className={cn('rounded px-1.5 py-0.5 text-xs font-mono font-bold',
-                              action === 'BUY' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' :
-                              action === 'SELL' ? 'bg-rose-500/15 text-rose-500' :
-                              'bg-slate-500/10 text-slate-500'
-                            )}>{action}</span>
-                          )}
-                          {confidencePct != null && (
-                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', confidenceClass)}>{confidencePct}%</span>
-                          )}
-                          {typeof log?.trace_id === 'string' && log.trace_id ? (
-                            <button
-                              onClick={() => setActiveTraceId(log.trace_id as string)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 transition-colors"
-                            >
-                              trace:{(log.trace_id as string).slice(0, 8)}…
-                            </button>
-                          ) : null}
-                        </div>
-                        <p className="text-sm font-sans leading-relaxed text-slate-700 dark:text-slate-300">{formatAgentMessage(log?.message || log?.summary || log?.primary_edge)}</p>
-                      </div>
-                    )
-                  })}
-                </div>
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-slate-900" />
-              </div>
-            )}
-          </div>
-
-          <div className={cardClass}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className={sectionTitleClass}>Open Positions</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-slate-200 pb-2 dark:border-slate-800">
-                    {['Symbol', 'Side', 'Qty', 'Entry Price', 'Current Price', 'P&L', 'P&L %'].map((head) => (
-                      <th key={head} className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{head}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-2 py-8"><EmptyState message="No open positions" /></td>
-                    </tr>
-                  ) : (
-                    positions.map((position, index) => {
-                      const pnl = toFiniteNumber(position?.pnl)
-                      const pnlPct = toFiniteNumber(position?.pnl_percent)
-                      const isPositive = (pnl ?? 0) >= 0
-                      const side = sanitizeValue(position?.side).toUpperCase()
-                      return (
-                        <tr key={`${sanitizeValue(position?.symbol)}-${index}`} className="border-t border-slate-200 py-2 dark:border-slate-800">
-                          <td className="px-2 py-2 text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(position?.symbol)}</td>
-                          <td className="px-2 py-2">
-                            <span className={cn('rounded px-2 py-0.5 text-xs font-sans font-semibold', side === 'LONG' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500')}>
-                              {side === '--' ? 'N/A' : side}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{sanitizeValue(toSanitizeInput(position?.qty))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.entry_price) == null ? '--' : formatUSD(toFiniteNumber(position?.entry_price))}</td>
-                          <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{toFiniteNumber(position?.current_price) == null ? '--' : formatUSD(toFiniteNumber(position?.current_price))}</td>
-                          <td className={cn('px-2 py-2 text-right text-sm font-mono tabular-nums font-bold', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {pnl == null ? '--' : `${isPositive ? '+' : '-'}${formatUSD(pnl)}`}
-                          </td>
-                          <td className={cn('px-2 py-2 text-right text-xs font-mono tabular-nums', isPositive ? 'text-emerald-500' : 'text-rose-500')}>
-                            {pnlPct == null ? '--' : `${sanitizeValue(pnlPct.toFixed(2))}%`}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <TradingView
+          setActiveTraceId={setActiveTraceId}
+          tradeFeedEmptyReason={tradeFeedEmptyReason}
+          tradeFeedUpstream={tradeFeedUpstream}
+        />
       )}
 
       {section === 'agents' && (

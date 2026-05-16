@@ -7,6 +7,8 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [notifications.md](notifications.md) | Buy/sell notification pipeline, WebSocket delivery, dedup |
 | [execution-engine.md](execution-engine.md) | Score parsing, fill publishing, decisions backlog |
 | [system-routes.md](system-routes.md) | Stream lag endpoint, trading-mode status, memory-mode guards |
+| [ci-cd.md](ci-cd.md) | CI lint failures, ruff version pinning, GitHub Actions config |
+| [frontend.md](frontend.md) | Dashboard UI bugs: stat tiles, P&L display, win-rate fallback |
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 
