@@ -23,6 +23,7 @@ from ..constants import (
     OrderSide,
     OrderStatus,
     PositionSide,
+    Source,
 )
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
@@ -54,7 +55,7 @@ class MetricsAggregator:
             "win_rate_percent": win_rate,
             "status": "memory_mode",
             "last_update": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
+            "source": Source.IN_MEMORY,
         }
 
     def _memory_agent_metrics(self) -> dict[str, Any]:
@@ -72,7 +73,7 @@ class MetricsAggregator:
             "active_agents": active_agents,
             "active_agent_count": len(active_agents),
             "last_update": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
+            "source": Source.IN_MEMORY,
         }
 
     def _memory_order_metrics(self) -> dict[str, Any]:
@@ -88,7 +89,7 @@ class MetricsAggregator:
             "total_orders_last_hour": total_orders,
             "fill_rate_percent": fill_rate,
             "last_update": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
+            "source": Source.IN_MEMORY,
         }
 
     def _memory_paired_pnl(self) -> dict[str, Any]:
@@ -115,7 +116,7 @@ class MetricsAggregator:
                 "open_positions": len(open_positions),
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
+            "source": Source.IN_MEMORY,
         }
 
     async def get_stream_lag_metrics(self) -> dict[str, Any]:
@@ -175,7 +176,7 @@ class MetricsAggregator:
                 "mode": "in_memory",
                 "db_health": get_runtime_store().last_health,
                 "last_update": datetime.now(timezone.utc).isoformat(),
-                "source": "in_memory",
+                "source": Source.IN_MEMORY,
             }
 
         try:
