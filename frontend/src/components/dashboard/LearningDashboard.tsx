@@ -336,17 +336,14 @@ function TradeDetailModal({
 function TradeTablePanel({
   trades,
   total,
-  mode,
   onSelect,
 }: {
   trades: TradeEvaluation[]
   total: number
-  mode: string
   onSelect: (t: TradeEvaluation) => void
 }) {
   return (
     <Panel title="Trade Evaluations" badge={`${total} total`}>
-      <ModeBanner mode={mode} />
       {trades.length === 0 ? (
         <p className="text-xs text-slate-500">No scored trades yet — evaluations appear once trades close.</p>
       ) : (
@@ -487,10 +484,9 @@ const _MIN_STABLE_TRADES = 30
 // Panel: Reflection
 // ---------------------------------------------------------------------------
 
-function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; mode: string }) {
+function ReflectionPanel({ reflection }: { reflection: Reflection | null }) {
   return (
     <Panel title="Latest Reflection">
-      <ModeBanner mode={mode} />
       {!reflection ? (
         <p className="text-xs text-slate-500">No reflections yet — runs after every {' '}
           <code className="rounded bg-slate-200 px-1 dark:bg-slate-800">N</code> trades.</p>
@@ -571,15 +567,12 @@ function ReflectionPanel({ reflection, mode }: { reflection: Reflection | null; 
 function StrategyPanel({
   strategies,
   total,
-  mode,
 }: {
   strategies: Strategy[]
   total: number
-  mode: string
 }) {
   return (
     <Panel title="Strategies" badge={`${total} total`}>
-      <ModeBanner mode={mode} />
       {strategies.length === 0 ? (
         <p className="text-xs text-slate-500">No strategies proposed yet.</p>
       ) : (
@@ -853,14 +846,13 @@ export function LearningDashboard() {
         <TradeTablePanel
           trades={trades}
           total={tradesTotal}
-          mode={tradesMode}
           onSelect={setSelectedTrade}
         />
 
         {/* Row 3: Reflection + Strategy */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <ReflectionPanel reflection={latestReflection} mode={reflectionsMode} />
-          <StrategyPanel strategies={strategies} total={strategiesTotal} mode={strategiesMode} />
+          <ReflectionPanel reflection={latestReflection} />
+          <StrategyPanel strategies={strategies} total={strategiesTotal} />
         </div>
 
         {/* Row 4: Pipeline activity (collapsible — operator debug view) */}
