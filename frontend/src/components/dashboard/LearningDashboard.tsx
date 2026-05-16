@@ -45,6 +45,9 @@ interface LearningMetrics {
   consistency: number
   mode: string
   timestamp: string
+  sample_size?: number
+  metric_status?: 'reliable' | 'unstable' | 'insufficient_data'
+  min_required_sample_size?: number
 }
 
 interface MistakeCluster {
@@ -205,12 +208,19 @@ function Panel({ title, children, badge }: { title: string; children: React.Reac
   )
 }
 
-function ModeBanner({ mode }: { mode: string }) {
-  if (mode === 'db') return null
+function _metricReliabilityBadge(status: string | undefined): React.ReactNode {
+  if (!status || status === 'reliable') return null
+  if (status === 'insufficient_data') {
+    return (
+      <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+        insufficient data
+      </span>
+    )
+  }
   return (
-    <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400">
-      Running in memory mode — data is transient and will reset on restart
-    </div>
+    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+      unstable
+    </span>
   )
 }
 
@@ -400,25 +410,33 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
     )
   }
 
+  const metricStatus = metrics.metric_status ?? (metrics.total_trades >= 10 ? 'reliable' : 'insufficient_data')
+  const isUnreliable = metricStatus !== 'reliable'
+  const sampleSize = metrics.sample_size ?? metrics.total_trades
+  const minRequired = metrics.min_required_sample_size ?? 10
+
   const tiles = [
     {
       label: 'Win Rate',
-      value: fmtPct(metrics.win_rate * 100, 1),
+      // win_rate is a fraction [0,1] — multiply by 100 for display
+      value: isUnreliable ? '--' : fmtPct(metrics.win_rate * 100, 1),
       color: metrics.win_rate >= 0.5 ? 'text-emerald-500' : 'text-rose-500',
     },
     {
       label: 'Avg Return',
-      value: fmtPct(metrics.avg_return, 2),
+      // avg_return is already in percentage-point units (e.g., -0.10 = -0.10%)
+      value: isUnreliable ? '--' : fmtPct(metrics.avg_return, 2),
       color: metrics.avg_return >= 0 ? 'text-emerald-500' : 'text-rose-500',
     },
     {
       label: 'Sharpe',
-      value: metrics.sharpe_ratio?.toFixed(2) ?? '--',
+      value: isUnreliable ? '--' : (metrics.sharpe_ratio?.toFixed(2) ?? '--'),
       color: metrics.sharpe_ratio >= 1 ? 'text-emerald-500' : metrics.sharpe_ratio >= 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500',
     },
     {
       label: 'Max Drawdown',
-      value: fmtPct(metrics.max_drawdown * 100, 1),
+      // max_drawdown is in percentage-point units (negative = drawdown depth)
+      value: isUnreliable ? '--' : fmtPct(metrics.max_drawdown, 1),
       color: 'text-rose-600 dark:text-rose-400',
     },
     {
@@ -428,31 +446,42 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
     },
     {
       label: 'Consistency',
-      value: fmtScore(metrics.consistency),
+      value: isUnreliable ? '--' : fmtScore(metrics.consistency),
       color: metrics.consistency >= 0.7 ? 'text-emerald-500' : 'text-amber-600 dark:text-amber-400',
     },
   ]
 
   return (
-    <Panel title="Agent Performance" badge={`${metrics.total_trades} trades`}>
-      <ModeBanner mode={metrics.mode} />
+    <Panel title="Agent Performance" badge={`${sampleSize} trades`}>
+      {isUnreliable && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+          {_metricReliabilityBadge(metricStatus)}
+          <span>
+            {metricStatus === 'insufficient_data'
+              ? `${sampleSize}/${minRequired} trades needed — metrics will populate once ${minRequired} trades close`
+              : `${sampleSize} trades — metrics stabilize after ${_MIN_STABLE_TRADES} trades`}
+          </span>
+        </div>
+      )}
       <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
         {tiles.map((t) => (
           <div key={t.label} className="rounded-lg border border-slate-300 bg-slate-50 p-2 dark:border-slate-800 dark:bg-transparent">
             <p className="text-xs text-slate-500 dark:text-slate-400">{t.label}</p>
-            <p className={`text-sm font-mono font-bold ${t.color}`}>{t.value}</p>
+            <p className={`text-sm font-mono font-bold ${isUnreliable && t.value === '--' ? 'text-slate-400 dark:text-slate-600' : t.color}`}>{t.value}</p>
           </div>
         ))}
       </div>
       <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
         <span className="text-xs text-slate-500">Score trend:</span>
-        <span className={`text-sm font-bold font-mono ${trendColor(metrics.score_trend)}`}>
-          {trendIcon(metrics.score_trend)} {metrics.score_trend}
+        <span className={`text-sm font-bold font-mono ${isUnreliable ? 'text-slate-400 dark:text-slate-600' : trendColor(metrics.score_trend)}`}>
+          {isUnreliable ? '—' : `${trendIcon(metrics.score_trend)} ${metrics.score_trend}`}
         </span>
       </div>
     </Panel>
   )
 }
+
+const _MIN_STABLE_TRADES = 30
 
 // ---------------------------------------------------------------------------
 // Panel: Reflection
@@ -640,10 +669,10 @@ function PipelineStatusPanel({ status }: { status: PipelineStatus | null }) {
 }
 
 // ---------------------------------------------------------------------------
-// Panel: Debug
+// Panel: Pipeline Activity (collapsed by default — debug info)
 // ---------------------------------------------------------------------------
 
-function DebugPanel({
+function PipelineActivityPanel({
   trades,
   reflections,
   pipeline,
@@ -652,15 +681,17 @@ function DebugPanel({
   reflections: Reflection[]
   pipeline: PipelineStatus | null
 }) {
+  const [open, setOpen] = useState(false)
+
   const events = [
     ...trades.slice(0, 5).map((t) => ({
-      type: `trade_scored`,
-      detail: `${t.symbol ?? '?'} grade=${t.grade} score=${fmtScore(t.overall_score)}`,
+      type: 'trade_scored',
+      detail: `${t.symbol ?? '?'} grade=${t.grade ?? '?'} score=${fmtScore(t.overall_score)}`,
       at: t.created_at,
     })),
     ...reflections.slice(0, 3).map((r) => ({
       type: 'reflection_run',
-      detail: `analyzed=${r.trades_analyzed} clusters=${r.mistake_clusters?.length ?? 0}`,
+      detail: `analyzed=${r.trades_analyzed ?? 0} clusters=${r.mistake_clusters?.length ?? 0}`,
       at: r.created_at,
     })),
   ]
@@ -669,35 +700,59 @@ function DebugPanel({
     .slice(0, 10)
 
   return (
-    <Panel title="Debug">
-      <div className="space-y-1">
-        {events.length === 0 ? (
-          <p className="text-xs text-slate-500">No events yet.</p>
-        ) : (
-          events.map((e, i) => (
-            <div key={i} className="flex gap-2 text-xs font-mono">
-              <span className="shrink-0 text-slate-500 dark:text-slate-600">{fmtTime(e.at)}</span>
-              <span className="text-amber-600 dark:text-amber-400 shrink-0">{e.type}</span>
-              <span className="text-slate-500 dark:text-slate-400 truncate">{e.detail}</span>
+    <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <button
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600">
+          Pipeline Activity
+        </p>
+        <span className="text-xs font-mono text-slate-400">{open ? '▲ hide' : '▼ show'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-200 px-4 pb-4 pt-3 dark:border-slate-800">
+          {events.length === 0 ? (
+            <p className="text-xs text-slate-500">No pipeline events yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {events.map((e, i) => (
+                <div key={i} className="flex gap-2 text-xs font-mono">
+                  <span className="shrink-0 text-slate-400 dark:text-slate-600">{fmtTime(e.at)}</span>
+                  <span className="shrink-0 text-amber-600 dark:text-amber-400">{e.type}</span>
+                  <span className="truncate text-slate-500 dark:text-slate-400">{e.detail}</span>
+                </div>
+              ))}
             </div>
-          ))
-        )}
-      </div>
-      {pipeline && (
-        <div className="mt-2 flex items-center gap-2 text-xs font-mono text-slate-500">
-          <span>mode:</span>
-          <span className={pipeline.mode === 'db' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
-            {pipeline.mode}
-          </span>
+          )}
+          {pipeline && (
+            <div className="mt-2 flex items-center gap-2 text-xs font-mono text-slate-500">
+              <span>persistence:</span>
+              <span className={pipeline.mode === 'db' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+                {pipeline.mode === 'db' ? 'database' : 'in-memory'}
+              </span>
+            </div>
+          )}
         </div>
       )}
-    </Panel>
+    </div>
   )
 }
 
 // ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
+
+// Derive the canonical persistence mode across all fetched data.
+function _derivePersistenceMode(
+  tradesMode: string,
+  reflectionsMode: string,
+  strategiesMode: string,
+  pipelineMode: string | undefined,
+): 'db' | 'memory' {
+  const modes = [tradesMode, reflectionsMode, strategiesMode, pipelineMode ?? 'memory']
+  return modes.some((m) => m === 'db') ? 'db' : 'memory'
+}
 
 export function LearningDashboard() {
   const [trades, setTrades] = useState<TradeEvaluation[]>([])
@@ -756,6 +811,8 @@ export function LearningDashboard() {
   }, [load])
 
   const latestReflection = reflections[0] ?? null
+  const persistenceMode = _derivePersistenceMode(tradesMode, reflectionsMode, strategiesMode, pipeline?.mode)
+  const isMemoryMode = persistenceMode === 'memory'
 
   return (
     <>
@@ -773,6 +830,14 @@ export function LearningDashboard() {
           <span className="text-xs text-slate-400">↻ {lastRefresh || '--'}</span>
         </div>
       </div>
+
+      {/* Single persistence warning — shown once at page level, not in each panel */}
+      {isMemoryMode && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400">
+          <span className="font-semibold">In-memory mode</span> — data is live but not durable.
+          Learning history will reset on restart. Connect to a database for persistent evaluation records.
+        </div>
+      )}
 
       {/* Grid layout */}
       <div className="space-y-4">
@@ -798,8 +863,8 @@ export function LearningDashboard() {
           <StrategyPanel strategies={strategies} total={strategiesTotal} mode={strategiesMode} />
         </div>
 
-        {/* Row 4: Debug */}
-        <DebugPanel trades={trades} reflections={reflections} pipeline={pipeline} />
+        {/* Row 4: Pipeline activity (collapsible — operator debug view) */}
+        <PipelineActivityPanel trades={trades} reflections={reflections} pipeline={pipeline} />
       </div>
 
       {/* Trade Detail Modal */}
