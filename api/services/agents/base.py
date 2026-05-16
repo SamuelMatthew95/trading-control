@@ -254,7 +254,7 @@ class MultiStreamAgent:
                                     pool_name=self._state_name or self.consumer,
                                     instance_id=self._instance_id,
                                     lifecycle_phase="crashed",
-                                    details={"stream": stream, "redis_id": redis_id},
+                                    details={FieldName.STREAM: stream, "redis_id": redis_id},
                                 )
                             except Exception:
                                 pass
