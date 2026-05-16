@@ -1149,7 +1149,8 @@ REFLECTION_MIN_HYPOTHESES: Final[int] = 2
 # ExecutionEngine: minimum weighted score required to execute (signal*0.5 + reasoning*0.3 + perf*0.2)
 EXECUTION_DECISION_THRESHOLD: Final[float] = 0.55
 # Lower threshold used in memory mode — rule-based fallback signals produce composite_score=0.30,
-# yielding final_score≈0.36. This lets paper trades execute so the dashboard shows real activity.
+# yielding final_score≈0.36 which is below the production gate. This lets paper trades execute
+# so the trading dashboard shows real fills, positions, and equity-curve data.
 EXECUTION_DECISION_THRESHOLD_MEMORY: Final[float] = 0.30
 
 # Risk Guardian constants — position-level and portfolio-level risk limits
