@@ -108,6 +108,10 @@ All event / DB-row / Redis-message dict access must go through the
 when a payload field is renamed; producer/consumer drift becomes an invisible
 bug the type checker can't catch.
 
+`FieldName` is a **comprehensive registry** (~720 members) — a full
+raw-string sweep of `api/` registered every payload dict key. Before adding a
+member, check it does not already exist.
+
 ```python
 from api.constants import FieldName
 
@@ -159,6 +163,12 @@ everywhere you read/write the payload key.
   and similar probe DB column identifiers used to build `text()` SQL — they
   are not payload-dict keys. Kept raw; the membership check is relaxed for
   `SQL_BIND_HEAVY_FILES` precisely for this.
+- **Infrastructure / library API kwargs** (`api/database.py`): SQLAlchemy
+  engine kwargs (`pool_size`, `connect_args`), asyncpg `server_settings`, and
+  Postgres table identifiers are library/schema API — not agent payload keys.
+  `api/database.py` is in `SQL_BIND_HEAVY_FILES`; its dict-key strings stay
+  raw. Routing a `StrEnum` key through asyncpg's C connection layer is an
+  untested path — keep these literal.
 - **SQLAlchemy `.values(col=...)` and `set_={col: ...}` kwargs**: column
   names, not payload keys. Not caught by the guardrail anyway.
 - **Function keyword arguments** (`log_structured("info", "msg", symbol=x)`):
