@@ -21,7 +21,7 @@ async def get_dlq(request: Request):
     grouped: dict = {}
     for item in items:
         grouped.setdefault(item[FieldName.STREAM], []).append(item)
-    return {"items": items, "total": len(items), "by_stream": grouped}
+    return {FieldName.ITEMS: items, FieldName.TOTAL: len(items), FieldName.BY_STREAM: grouped}
 
 
 @router.post("/dlq/{event_id}/replay")
@@ -31,7 +31,7 @@ async def replay_dlq_event(event_id: str, request: Request):
     success = await dlq.replay(event_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found in DLQ")
-    return {"replayed": True, FieldName.EVENT_ID: event_id}
+    return {FieldName.REPLAYED: True, FieldName.EVENT_ID: event_id}
 
 
 @router.delete("/dlq/{event_id}")
@@ -39,7 +39,7 @@ async def clear_dlq_event(event_id: str, request: Request):
     """Remove a single event from the DLQ."""
     dlq = _get_dlq(request)
     await dlq.clear(event_id)
-    return {"cleared": True, FieldName.EVENT_ID: event_id}
+    return {FieldName.CLEARED: True, FieldName.EVENT_ID: event_id}
 
 
 @router.post("/dlq/replay-all")
@@ -55,7 +55,7 @@ async def replay_all_dlq(request: Request):
             replayed.append(item[FieldName.EVENT_ID])
         else:
             failed.append(item[FieldName.EVENT_ID])
-    return {"replayed": replayed, "failed": failed, "total": len(items)}
+    return {FieldName.REPLAYED: replayed, FieldName.FAILED: failed, FieldName.TOTAL: len(items)}
 
 
 @router.delete("/dlq")
@@ -65,4 +65,4 @@ async def clear_all_dlq(request: Request):
     items = await dlq.get_all()
     for item in items:
         await dlq.clear(item[FieldName.EVENT_ID])
-    return {"cleared": len(items)}
+    return {FieldName.CLEARED: len(items)}
