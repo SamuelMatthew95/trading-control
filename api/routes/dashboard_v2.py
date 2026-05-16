@@ -56,18 +56,18 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
     store = get_runtime_store()
     diagnostics: dict[str, Any] = {
         FieldName.SOURCE: "in_memory",
-        "hydration_status": "skipped",
-        "persistence_source": "memory_only",
-        "ledger_source": "runtime_store",
-        "redis_decisions_seen": 0,
-        "redis_notifications_seen": 0,
-        "redis_decisions_applied": 0,
-        "redis_notifications_applied": 0,
-        "applied_decision_keys": len(store.applied_decision_keys),
-        "last_error": None,
+        FieldName.HYDRATION_STATUS: "skipped",
+        FieldName.PERSISTENCE_SOURCE: "memory_only",
+        FieldName.LEDGER_SOURCE: "runtime_store",
+        FieldName.REDIS_DECISIONS_SEEN: 0,
+        FieldName.REDIS_NOTIFICATIONS_SEEN: 0,
+        FieldName.REDIS_DECISIONS_APPLIED: 0,
+        FieldName.REDIS_NOTIFICATIONS_APPLIED: 0,
+        FieldName.APPLIED_DECISION_KEYS: len(store.applied_decision_keys),
+        FieldName.LAST_ERROR: None,
     }
     if is_db_available():
-        diagnostics["persistence_source"] = "postgres"
+        diagnostics[FieldName.PERSISTENCE_SOURCE] = "postgres"
         return diagnostics
 
     redis_store = get_redis_store()
@@ -75,9 +75,9 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
         return diagnostics
 
     try:
-        diagnostics["hydration_status"] = "attempted"
+        diagnostics[FieldName.HYDRATION_STATUS] = "attempted"
         decisions = await redis_store.list_decisions(limit=500)
-        diagnostics["redis_decisions_seen"] = len(decisions)
+        diagnostics[FieldName.REDIS_DECISIONS_SEEN] = len(decisions)
         decisions_before = len(store.applied_decision_keys)
         for decision in reversed(decisions):
             # Redis ``decisions:recent`` is advisory output from ReasoningAgent.
@@ -85,16 +85,18 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
             # Hydrate via advisory path only; portfolio mutation must come from
             # execution/fill sources.
             store.record_decision(decision)
-        diagnostics["redis_decisions_applied"] = max(
+        diagnostics[FieldName.REDIS_DECISIONS_APPLIED] = max(
             0, len(store.applied_decision_keys) - decisions_before
         )
 
         notifications = await redis_store.list_notifications(limit=500)
-        diagnostics["redis_notifications_seen"] = len(notifications)
+        diagnostics[FieldName.REDIS_NOTIFICATIONS_SEEN] = len(notifications)
         notifications_before = len(store.notifications)
 
         def _notification_key(item: dict[str, Any]) -> str:
-            notif_id = str(item.get("id") or item.get(FieldName.NOTIFICATION_ID) or "").strip()
+            notif_id = str(
+                item.get(FieldName.ID) or item.get(FieldName.NOTIFICATION_ID) or ""
+            ).strip()
             if notif_id:
                 return f"id:{notif_id}"
             trace_id = str(item.get(FieldName.TRACE_ID) or "").strip()
@@ -117,18 +119,21 @@ async def hydrate_dashboard_state_from_redis() -> dict[str, Any]:
                 continue
             store.record_notification(notification)
             existing_notification_keys.add(notification_key)
-        diagnostics["redis_notifications_applied"] = max(
+        diagnostics[FieldName.REDIS_NOTIFICATIONS_APPLIED] = max(
             0, len(store.notifications) - notifications_before
         )
 
-        diagnostics["applied_decision_keys"] = len(store.applied_decision_keys)
-        if diagnostics["redis_decisions_seen"] > 0 or diagnostics["redis_notifications_seen"] > 0:
+        diagnostics[FieldName.APPLIED_DECISION_KEYS] = len(store.applied_decision_keys)
+        if (
+            diagnostics[FieldName.REDIS_DECISIONS_SEEN] > 0
+            or diagnostics[FieldName.REDIS_NOTIFICATIONS_SEEN] > 0
+        ):
             diagnostics[FieldName.SOURCE] = "redis_hydrated"
-            diagnostics["persistence_source"] = "redis"
-        diagnostics["hydration_status"] = "completed"
+            diagnostics[FieldName.PERSISTENCE_SOURCE] = "redis"
+        diagnostics[FieldName.HYDRATION_STATUS] = "completed"
     except Exception as exc:
-        diagnostics["hydration_status"] = "failed"
-        diagnostics["last_error"] = str(exc)
+        diagnostics[FieldName.HYDRATION_STATUS] = "failed"
+        diagnostics[FieldName.LAST_ERROR] = str(exc)
         log_structured("warning", "dashboard_redis_hydration_failed", exc_info=True)
 
     return diagnostics
@@ -139,16 +144,16 @@ def _attach_runtime_hydration_metadata(
 ) -> dict[str, Any]:
     """Attach consistent hydration/source metadata to runtime payloads."""
     payload[FieldName.SOURCE] = diagnostics[FieldName.SOURCE]
-    payload["ledger_source"] = diagnostics["ledger_source"]
-    payload["persistence_source"] = diagnostics["persistence_source"]
-    payload["hydration"] = {
-        "status": diagnostics["hydration_status"],
-        "redis_decisions_seen": diagnostics["redis_decisions_seen"],
-        "redis_decisions_applied": diagnostics["redis_decisions_applied"],
-        "redis_notifications_seen": diagnostics["redis_notifications_seen"],
-        "redis_notifications_applied": diagnostics["redis_notifications_applied"],
-        "applied_decision_keys": diagnostics["applied_decision_keys"],
-        "last_error": diagnostics["last_error"],
+    payload[FieldName.LEDGER_SOURCE] = diagnostics[FieldName.LEDGER_SOURCE]
+    payload[FieldName.PERSISTENCE_SOURCE] = diagnostics[FieldName.PERSISTENCE_SOURCE]
+    payload[FieldName.HYDRATION] = {
+        "status": diagnostics[FieldName.HYDRATION_STATUS],
+        FieldName.REDIS_DECISIONS_SEEN: diagnostics[FieldName.REDIS_DECISIONS_SEEN],
+        FieldName.REDIS_DECISIONS_APPLIED: diagnostics[FieldName.REDIS_DECISIONS_APPLIED],
+        FieldName.REDIS_NOTIFICATIONS_SEEN: diagnostics[FieldName.REDIS_NOTIFICATIONS_SEEN],
+        FieldName.REDIS_NOTIFICATIONS_APPLIED: diagnostics[FieldName.REDIS_NOTIFICATIONS_APPLIED],
+        FieldName.APPLIED_DECISION_KEYS: diagnostics[FieldName.APPLIED_DECISION_KEYS],
+        FieldName.LAST_ERROR: diagnostics[FieldName.LAST_ERROR],
     }
     return payload
 
@@ -178,19 +183,19 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
 
     return {
         "pnl": orders[-100:],
-        "total_pnl": round(total_pnl, 2),
-        "winning_trades": wins,
-        "losing_trades": losses,
+        FieldName.TOTAL_PNL: round(total_pnl, 2),
+        FieldName.WINNING_TRADES: wins,
+        FieldName.LOSING_TRADES: losses,
         "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
-        "active_positions": len(open_positions),
-        "best_trade": round(
+        FieldName.ACTIVE_POSITIONS: len(open_positions),
+        FieldName.BEST_TRADE: round(
             max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
         ),
-        "worst_trade": round(
+        FieldName.WORST_TRADE: round(
             min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
         ),
-        "equity_curve": equity_curve,
-        "has_data": bool(orders or open_positions or equity_curve),
+        FieldName.EQUITY_CURVE: equity_curve,
+        FieldName.HAS_DATA: bool(orders or open_positions or equity_curve),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "in_memory",
     }
@@ -247,21 +252,23 @@ def _in_memory_agent_instances_payload() -> dict[str, Any]:
 
         instances.append(
             {
-                "id": str(data.get(FieldName.AGENT_ID) or f"memory:{name}"),
-                "instance_key": str(data.get("instance_key") or name.lower().replace("_", "-")),
-                "pool_name": str(data.get("pool_name") or name),
+                FieldName.ID: str(data.get(FieldName.AGENT_ID) or f"memory:{name}"),
+                FieldName.INSTANCE_KEY: str(
+                    data.get(FieldName.INSTANCE_KEY) or name.lower().replace("_", "-")
+                ),
+                FieldName.POOL_NAME: str(data.get(FieldName.POOL_NAME) or name),
                 "status": "active",
-                "started_at": started_at,
-                "retired_at": None,
+                FieldName.STARTED_AT: started_at,
+                FieldName.RETIRED_AT: None,
                 "event_count": int(data.get(FieldName.EVENT_COUNT) or 0),
-                "uptime_seconds": uptime_seconds,
+                FieldName.UPTIME_SECONDS: uptime_seconds,
             }
         )
 
     return {
-        "instances": instances,
-        "active_count": len(instances),
-        "retired_count": 0,
+        FieldName.INSTANCES: instances,
+        FieldName.ACTIVE_COUNT: len(instances),
+        FieldName.RETIRED_COUNT: 0,
         "timestamp": now.isoformat(),
         "source": "in_memory",
     }
@@ -289,13 +296,13 @@ def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
         )
         proposals.append(
             {
-                "id": proposal_id,
+                FieldName.ID: proposal_id,
                 "symbol": payload.get(FieldName.SYMBOL),
                 "action": payload.get(FieldName.ACTION),
                 "grade_score": payload.get(FieldName.GRADE_SCORE),
                 "bias": payload.get(FieldName.BIAS),
-                "buys": payload.get("buys"),
-                "sells": payload.get("sells"),
+                FieldName.BUYS: payload.get(FieldName.BUYS),
+                FieldName.SELLS: payload.get(FieldName.SELLS),
                 "strategy_name": payload.get(FieldName.STRATEGY_NAME),
                 "trace_id": trace_id,
                 "created_at": timestamp,
@@ -323,7 +330,7 @@ def _set_payload_status(record: dict[str, Any], status: str) -> None:
 def _proposal_matches(record: dict[str, Any], proposal_id: str) -> bool:
     payload = _as_dict(record.get(FieldName.PAYLOAD))
     candidates = {
-        record.get("id"),
+        record.get(FieldName.ID),
         record.get(FieldName.TRACE_ID),
         record.get(FieldName.MSG_ID),
         payload.get(FieldName.TRACE_ID),
@@ -368,11 +375,11 @@ def _in_memory_reflections(limit: int = 20) -> list[dict[str, Any]]:
             {
                 "trace_id": row.get(FieldName.TRACE_ID) or payload.get(FieldName.TRACE_ID),
                 "summary": payload.get(FieldName.SUMMARY, ""),
-                "hypotheses": payload.get("hypotheses", []),
-                "winning_factors": payload.get("winning_factors", []),
-                "losing_factors": payload.get("losing_factors", []),
-                "regime_edge": payload.get("regime_edge", {}),
-                "fills_analyzed": payload.get("fills_analyzed"),
+                FieldName.HYPOTHESES: payload.get(FieldName.HYPOTHESES, []),
+                FieldName.WINNING_FACTORS: payload.get(FieldName.WINNING_FACTORS, []),
+                FieldName.LOSING_FACTORS: payload.get(FieldName.LOSING_FACTORS, []),
+                FieldName.REGIME_EDGE: payload.get(FieldName.REGIME_EDGE, {}),
+                FieldName.FILLS_ANALYZED: payload.get(FieldName.FILLS_ANALYZED),
                 "timestamp": timestamp,
             }
         )
@@ -384,9 +391,9 @@ def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
     store = get_runtime_store()
     runs = [
         {
-            "id": str(row.get("id") or row.get(FieldName.MSG_ID) or trace_id),
+            FieldName.ID: str(row.get(FieldName.ID) or row.get(FieldName.MSG_ID) or trace_id),
             "agent_name": row.get(FieldName.AGENT_NAME) or row.get(FieldName.SOURCE),
-            "run_type": row.get("run_type"),
+            FieldName.RUN_TYPE: row.get(FieldName.RUN_TYPE),
             "status": row.get(FieldName.STATUS),
             "input_data": row.get(FieldName.INPUT_DATA),
             "output_data": row.get(FieldName.OUTPUT_DATA),
@@ -403,7 +410,9 @@ def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
             continue
         logs.append(
             {
-                "id": str(row.get("id") or row.get(FieldName.MSG_ID) or len(logs) + 1),
+                FieldName.ID: str(
+                    row.get(FieldName.ID) or row.get(FieldName.MSG_ID) or len(logs) + 1
+                ),
                 "log_type": row.get(FieldName.LOG_TYPE) or payload.get(FieldName.LOG_TYPE),
                 "payload": payload or row.get(FieldName.PAYLOAD),
                 "created_at": _timestamp_to_iso(
@@ -413,7 +422,7 @@ def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
         )
     grades = [
         {
-            "id": str(row.get("id") or row.get(FieldName.MSG_ID) or trace_id),
+            FieldName.ID: str(row.get(FieldName.ID) or row.get(FieldName.MSG_ID) or trace_id),
             "agent_id": str(row.get(FieldName.AGENT_ID) or row.get(FieldName.AGENT_NAME) or ""),
             "grade_type": row.get(FieldName.GRADE_TYPE) or row.get(FieldName.GRADE),
             "score": row.get(FieldName.SCORE) or row.get(FieldName.SCORE_PCT),
@@ -427,9 +436,9 @@ def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
     ]
     return {
         "trace_id": trace_id,
-        "agent_runs": runs,
-        "agent_logs": logs,
-        "agent_grades": grades,
+        FieldName.AGENT_RUNS: runs,
+        FieldName.AGENT_LOGS: logs,
+        FieldName.AGENT_GRADES: grades,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "in_memory",
     }
@@ -440,16 +449,16 @@ def _performance_trends_empty_payload(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "summary": {
-            "total_pnl": 0.0,
-            "total_trades": 0,
+            FieldName.TOTAL_PNL: 0.0,
+            FieldName.TOTAL_TRADES: 0,
             "win_rate": 0.0,
-            "avg_win": 0.0,
-            "avg_loss": 0.0,
-            "best_trade": 0.0,
-            "worst_trade": 0.0,
+            FieldName.AVG_WIN: 0.0,
+            FieldName.AVG_LOSS: 0.0,
+            FieldName.BEST_TRADE: 0.0,
+            FieldName.WORST_TRADE: 0.0,
         },
-        "daily_pnl": [],
-        "grade_trend": [],
+        FieldName.DAILY_PNL: [],
+        FieldName.GRADE_TREND: [],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     if source:
@@ -497,7 +506,7 @@ async def get_dashboard_state() -> dict[str, Any]:
             store = get_runtime_store()
             data = store.dashboard_fallback_snapshot()
             data = _attach_runtime_hydration_metadata(data, diagnostics)
-            data["mode"] = runtime_mode()  # "in_memory_fallback" when DB is unavailable
+            data[FieldName.MODE] = runtime_mode()  # "in_memory_fallback" when DB is unavailable
         else:
             try:
                 async with AsyncSessionFactory() as session:
@@ -506,8 +515,8 @@ async def get_dashboard_state() -> dict[str, Any]:
             except Exception:
                 log_structured("warning", "dashboard_state_db_failed", exc_info=True)
                 fallback = get_runtime_store().dashboard_fallback_snapshot()
-                fallback["degraded_mode"] = True
-                fallback["degraded_reason"] = "db_unavailable"
+                fallback[FieldName.DEGRADED_MODE] = True
+                fallback[FieldName.DEGRADED_REASON] = "db_unavailable"
                 return fallback
 
         # Redis enrichment is best-effort: a Redis outage must not prevent
@@ -516,10 +525,10 @@ async def get_dashboard_state() -> dict[str, Any]:
             redis_client = await get_redis()
         except Exception:
             log_structured("warning", "dashboard_state_redis_unavailable", exc_info=True)
-            data.setdefault("mode", runtime_mode())
+            data.setdefault(FieldName.MODE, runtime_mode())
             db_up = is_db_available()
-            data["degraded_mode"] = True
-            data["degraded_reason"] = "db_unavailable" if not db_up else "redis_unavailable"
+            data[FieldName.DEGRADED_MODE] = True
+            data[FieldName.DEGRADED_REASON] = "db_unavailable" if not db_up else "redis_unavailable"
             return data
 
         # Enrich with current prices from Redis cache
@@ -535,7 +544,7 @@ async def get_dashboard_state() -> dict[str, Any]:
                     except (json.JSONDecodeError, TypeError):
                         pass
             if prices:
-                data["prices"] = prices
+                data[FieldName.PRICES] = prices
         except Exception:
             log_structured("warning", "dashboard_state_prices_failed", exc_info=True)
 
@@ -543,7 +552,7 @@ async def get_dashboard_state() -> dict[str, Any]:
         try:
             raw_weights = await redis_client.get(REDIS_KEY_IC_WEIGHTS)
             if raw_weights:
-                data["ic_weights"] = json.loads(raw_weights)
+                data[FieldName.IC_WEIGHTS] = json.loads(raw_weights)
         except Exception:
             log_structured("warning", "dashboard_state_ic_weights_failed", exc_info=True)
 
@@ -556,33 +565,33 @@ async def get_dashboard_state() -> dict[str, Any]:
                 if raw:
                     try:
                         status = json.loads(raw)
-                        agent_statuses.append({"name": name, **status})
+                        agent_statuses.append({FieldName.NAME: name, **status})
                     except (json.JSONDecodeError, TypeError):
-                        agent_statuses.append({"name": name, "status": "unknown"})
+                        agent_statuses.append({FieldName.NAME: name, "status": "unknown"})
                 else:
-                    agent_statuses.append({"name": name, "status": "offline"})
-            data["agent_statuses"] = agent_statuses
+                    agent_statuses.append({FieldName.NAME: name, "status": "offline"})
+            data[FieldName.AGENT_STATUSES] = agent_statuses
         except Exception:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
 
-        data.setdefault("mode", runtime_mode())
+        data.setdefault(FieldName.MODE, runtime_mode())
         db_up = is_db_available()
-        data["degraded_mode"] = not db_up
+        data[FieldName.DEGRADED_MODE] = not db_up
         if not db_up:
-            data["degraded_reason"] = "db_unavailable"
+            data[FieldName.DEGRADED_REASON] = "db_unavailable"
         # Expose whether the configured LLM provider has an API key so the
         # frontend can surface a "rule-based mode" banner instead of silently
         # showing no reasoning decisions.
         provider = settings.LLM_PROVIDER.lower().strip()
         provider_key_map = {
-            "gemini": getattr(settings, "GEMINI_API_KEY", None),
-            "anthropic": getattr(settings, "ANTHROPIC_API_KEY", None),
-            "openai": getattr(settings, "OPENAI_API_KEY", None),
-            "groq": getattr(settings, "GROQ_API_KEY", None),
+            FieldName.GEMINI: getattr(settings, "GEMINI_API_KEY", None),
+            FieldName.ANTHROPIC: getattr(settings, "ANTHROPIC_API_KEY", None),
+            FieldName.OPENAI: getattr(settings, "OPENAI_API_KEY", None),
+            FieldName.GROQ: getattr(settings, "GROQ_API_KEY", None),
         }
         llm_key = provider_key_map.get(provider) or ""
-        data["llm_available"] = bool(llm_key and llm_key.strip())
-        data["llm_provider"] = provider
+        data[FieldName.LLM_AVAILABLE] = bool(llm_key and llm_key.strip())
+        data[FieldName.LLM_PROVIDER] = provider
         return data
 
     except Exception:
@@ -595,7 +604,7 @@ async def get_stream_lag() -> dict[str, Any]:
     """Get stream lag metrics per stream."""
     if not is_db_available():
         return {
-            "stream_lag": {},
+            FieldName.STREAM_LAG: {},
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -605,14 +614,14 @@ async def get_stream_lag() -> dict[str, Any]:
             aggregator = MetricsAggregator(session)
             lag_metrics = await aggregator.get_stream_lag_metrics()
             return {
-                "stream_lag": lag_metrics,
+                FieldName.STREAM_LAG: lag_metrics,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     except Exception:
         log_structured("warning", "stream_lag_db_unavailable", exc_info=True)
         return {
-            "stream_lag": [],
+            FieldName.STREAM_LAG: [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -634,8 +643,8 @@ async def get_system_health() -> dict[str, Any]:
         store = get_runtime_store()
         return {
             "status": "degraded",
-            "mode": runtime_mode(),
-            "db_health": store.last_health,
+            FieldName.MODE: runtime_mode(),
+            FieldName.DB_HEALTH: store.last_health,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -668,8 +677,8 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
     if not is_db_available():
         payload = get_runtime_store().paired_pnl_payload()
         return {
-            "closed_trades": payload["closed_trades"],
-            "open_positions": payload["open_positions"],
+            FieldName.CLOSED_TRADES: payload[FieldName.CLOSED_TRADES],
+            FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
             "summary": payload[FieldName.SUMMARY],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
@@ -684,8 +693,8 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
         log_structured("warning", "paired_pnl_unavailable", exc_info=True)
         payload = get_runtime_store().paired_pnl_payload()
         return {
-            "closed_trades": payload["closed_trades"],
-            "open_positions": payload["open_positions"],
+            FieldName.CLOSED_TRADES: payload[FieldName.CLOSED_TRADES],
+            FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
             "summary": payload[FieldName.SUMMARY],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
@@ -698,11 +707,14 @@ async def get_agent_metrics() -> dict[str, Any]:
     if not is_db_available():
         store = get_runtime_store()
         return {
-            "agents": [
-                {"name": name, **({} if not store.get_agent(name) else store.get_agent(name))}
+            FieldName.AGENTS: [
+                {
+                    FieldName.NAME: name,
+                    **({} if not store.get_agent(name) else store.get_agent(name)),
+                }
                 for name in ALL_AGENT_NAMES
             ],
-            "runs": store.agent_runs[-50:],
+            FieldName.RUNS: store.agent_runs[-50:],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -714,11 +726,14 @@ async def get_agent_metrics() -> dict[str, Any]:
         log_structured("warning", "agent_metrics_db_failed", exc_info=True)
         store = get_runtime_store()
         return {
-            "agents": [
-                {"name": name, **({} if not store.get_agent(name) else store.get_agent(name))}
+            FieldName.AGENTS: [
+                {
+                    FieldName.NAME: name,
+                    **({} if not store.get_agent(name) else store.get_agent(name)),
+                }
                 for name in ALL_AGENT_NAMES
             ],
-            "runs": store.agent_runs[-50:],
+            FieldName.RUNS: store.agent_runs[-50:],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -738,8 +753,8 @@ async def get_order_metrics() -> dict[str, Any]:
     except Exception:
         log_structured("warning", "order_metrics_db_unavailable", exc_info=True)
         return {
-            "orders": [],
-            "total_orders": 0,
+            FieldName.ORDERS: [],
+            FieldName.TOTAL_ORDERS: 0,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -753,20 +768,20 @@ async def get_flow_status() -> dict[str, Any]:
             store = get_runtime_store()
             mem_runs = len(store.agent_runs)
             return {
-                "api_version": DASHBOARD_API_VERSION,
-                "db_schema_version": DB_SCHEMA_VERSION,
-                "degraded_mode": True,
-                "degraded_reason": "db_unavailable",
-                "counts": {
-                    "agent_runs": mem_runs,
-                    "agent_logs": len(store.event_history),
-                    "agent_grades": len(store.grade_history),
-                    "orders": 0,
-                    "trade_lifecycle": 0,
+                FieldName.API_VERSION: DASHBOARD_API_VERSION,
+                FieldName.DB_SCHEMA_VERSION: DB_SCHEMA_VERSION,
+                FieldName.DEGRADED_MODE: True,
+                FieldName.DEGRADED_REASON: "db_unavailable",
+                FieldName.COUNTS: {
+                    FieldName.AGENT_RUNS: mem_runs,
+                    FieldName.AGENT_LOGS: len(store.event_history),
+                    FieldName.AGENT_GRADES: len(store.grade_history),
+                    FieldName.ORDERS: 0,
+                    FieldName.TRADE_LIFECYCLE: 0,
                 },
-                "realtime_event_count": mem_runs,
-                "persisted_event_count": 0,
-                "trace_coverage": {"trace_id": None},
+                FieldName.REALTIME_EVENT_COUNT: mem_runs,
+                FieldName.PERSISTED_EVENT_COUNT: 0,
+                FieldName.TRACE_COVERAGE: {"trace_id": None},
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "in_memory",
             }
@@ -792,30 +807,30 @@ async def get_flow_status() -> dict[str, Any]:
 
             trace_coverage = {
                 "trace_id": recent_trace,
-                "in_agent_runs": 0,
-                "in_agent_logs": 0,
-                "in_trade_lifecycle": 0,
+                FieldName.IN_AGENT_RUNS: 0,
+                FieldName.IN_AGENT_LOGS: 0,
+                FieldName.IN_TRADE_LIFECYCLE: 0,
             }
             if recent_trace:
-                trace_coverage["in_agent_runs"] = int(
+                trace_coverage[FieldName.IN_AGENT_RUNS] = int(
                     (
                         await session.execute(
                             text("SELECT COUNT(*) FROM agent_runs WHERE trace_id = :t"),
-                            {"t": recent_trace},
+                            {FieldName.T: recent_trace},
                         )
                     ).scalar()
                     or 0
                 )
-                trace_coverage["in_agent_logs"] = int(
+                trace_coverage[FieldName.IN_AGENT_LOGS] = int(
                     (
                         await session.execute(
                             text("SELECT COUNT(*) FROM agent_logs WHERE trace_id = :t"),
-                            {"t": recent_trace},
+                            {FieldName.T: recent_trace},
                         )
                     ).scalar()
                     or 0
                 )
-                trace_coverage["in_trade_lifecycle"] = int(
+                trace_coverage[FieldName.IN_TRADE_LIFECYCLE] = int(
                     (
                         await session.execute(
                             text(
@@ -828,7 +843,7 @@ async def get_flow_status() -> dict[str, Any]:
                                    OR reflection_trace_id = :t
                                 """
                             ),
-                            {"t": recent_trace},
+                            {FieldName.T: recent_trace},
                         )
                     ).scalar()
                     or 0
@@ -836,13 +851,13 @@ async def get_flow_status() -> dict[str, Any]:
 
         counts = {k: int(v or 0) for k, v in dict(counts_row).items()}
         return {
-            "api_version": DASHBOARD_API_VERSION,
-            "db_schema_version": DB_SCHEMA_VERSION,
-            "degraded_mode": False,
-            "counts": counts,
-            "realtime_event_count": counts.get("agent_runs", 0),
-            "persisted_event_count": counts.get("agent_logs", 0),
-            "trace_coverage": trace_coverage,
+            FieldName.API_VERSION: DASHBOARD_API_VERSION,
+            FieldName.DB_SCHEMA_VERSION: DB_SCHEMA_VERSION,
+            FieldName.DEGRADED_MODE: False,
+            FieldName.COUNTS: counts,
+            FieldName.REALTIME_EVENT_COUNT: counts.get(FieldName.AGENT_RUNS, 0),
+            FieldName.PERSISTED_EVENT_COUNT: counts.get(FieldName.AGENT_LOGS, 0),
+            FieldName.TRACE_COVERAGE: trace_coverage,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -850,20 +865,20 @@ async def get_flow_status() -> dict[str, Any]:
         store = get_runtime_store()
         mem_runs = len(store.agent_runs)
         return {
-            "api_version": DASHBOARD_API_VERSION,
-            "db_schema_version": DB_SCHEMA_VERSION,
-            "degraded_mode": True,
-            "degraded_reason": "db_unavailable",
-            "counts": {
-                "agent_runs": mem_runs,
-                "agent_logs": len(store.event_history),
-                "agent_grades": len(store.grade_history),
-                "orders": 0,
-                "trade_lifecycle": 0,
+            FieldName.API_VERSION: DASHBOARD_API_VERSION,
+            FieldName.DB_SCHEMA_VERSION: DB_SCHEMA_VERSION,
+            FieldName.DEGRADED_MODE: True,
+            FieldName.DEGRADED_REASON: "db_unavailable",
+            FieldName.COUNTS: {
+                FieldName.AGENT_RUNS: mem_runs,
+                FieldName.AGENT_LOGS: len(store.event_history),
+                FieldName.AGENT_GRADES: len(store.grade_history),
+                FieldName.ORDERS: 0,
+                FieldName.TRADE_LIFECYCLE: 0,
             },
-            "realtime_event_count": mem_runs,
-            "persisted_event_count": 0,
-            "trace_coverage": {"trace_id": None},
+            FieldName.REALTIME_EVENT_COUNT: mem_runs,
+            FieldName.PERSISTED_EVENT_COUNT: 0,
+            FieldName.TRACE_COVERAGE: {"trace_id": None},
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -897,7 +912,7 @@ async def get_prices() -> dict[str, Any]:
                 prices[symbol] = None
 
         return {
-            "prices": prices,
+            FieldName.PRICES: prices,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "redis_cache",
         }
@@ -905,7 +920,9 @@ async def get_prices() -> dict[str, Any]:
     except Exception:
         log_structured("warning", "price_cache_redis_unavailable", exc_info=True)
         return {
-            "prices": dict.fromkeys(["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]),
+            FieldName.PRICES: dict.fromkeys(
+                ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
+            ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -929,7 +946,7 @@ async def get_agents_status() -> dict[str, Any]:
                 else:
                     status = data.get(FieldName.STATUS, "ACTIVE")
                 heartbeat_map[name] = {
-                    "name": name,
+                    FieldName.NAME: name,
                     "status": status,
                     "event_count": data.get(FieldName.EVENT_COUNT, 0),
                     "last_event": data.get(FieldName.LAST_EVENT, ""),
@@ -937,17 +954,17 @@ async def get_agents_status() -> dict[str, Any]:
                     "last_seen_at": datetime.fromtimestamp(last_seen, tz=timezone.utc).isoformat()
                     if last_seen
                     else None,
-                    "seconds_ago": age,
+                    FieldName.SECONDS_AGO: age,
                 }
             else:
                 heartbeat_map[name] = {
-                    "name": name,
+                    FieldName.NAME: name,
                     "status": "WAITING",
                     "event_count": 0,
                     "last_event": "",
                     "last_seen": 0,
                     "last_seen_at": None,
-                    "seconds_ago": 0,
+                    FieldName.SECONDS_AGO: 0,
                 }
 
         agents = list(heartbeat_map.values())
@@ -966,9 +983,9 @@ async def get_agents_status() -> dict[str, Any]:
                     if existing is None:
                         continue
                     meta = row[5] if isinstance(row[5], dict) else {}
-                    existing["instance_status"] = row[1]
-                    existing["started_at"] = row[2].isoformat() if row[2] else None
-                    existing["retired_at"] = row[3].isoformat() if row[3] else None
+                    existing[FieldName.INSTANCE_STATUS] = row[1]
+                    existing[FieldName.STARTED_AT] = row[2].isoformat() if row[2] else None
+                    existing[FieldName.RETIRED_AT] = row[3].isoformat() if row[3] else None
                     existing[FieldName.EVENT_COUNT] = max(
                         int(existing[FieldName.EVENT_COUNT]), int(row[4] or 0)
                     )
@@ -984,21 +1001,27 @@ async def get_agents_status() -> dict[str, Any]:
         # Pipeline health summary: signal / decision stream lengths + EE last status
         pipeline_health: dict[str, Any] = {}
         try:
-            pipeline_health["signal_stream_length"] = await redis_client.xlen(STREAM_SIGNALS)
-            pipeline_health["decision_stream_length"] = await redis_client.xlen(STREAM_DECISIONS)
+            pipeline_health[FieldName.SIGNAL_STREAM_LENGTH] = await redis_client.xlen(
+                STREAM_SIGNALS
+            )
+            pipeline_health[FieldName.DECISION_STREAM_LENGTH] = await redis_client.xlen(
+                STREAM_DECISIONS
+            )
             _ee_raw = await redis_client.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
             if _ee_raw:
                 _ee = json.loads(_ee_raw)
-                pipeline_health["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
-                pipeline_health["ee_decisions_evaluated"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
+                pipeline_health[FieldName.EE_LAST_STATUS] = _ee.get(FieldName.LAST_EVENT, "")
+                pipeline_health[FieldName.EE_DECISIONS_EVALUATED] = int(
+                    _ee.get(FieldName.EVENT_COUNT, 0)
+                )
         except Exception:
             pass
 
         return {
-            "agents": agents,
-            "pipeline_health": pipeline_health,
-            "degraded_mode": not is_db_available(),
-            **({"degraded_reason": "db_unavailable"} if not is_db_available() else {}),
+            FieldName.AGENTS: agents,
+            FieldName.PIPELINE_HEALTH: pipeline_health,
+            FieldName.DEGRADED_MODE: not is_db_available(),
+            **({FieldName.DEGRADED_REASON: "db_unavailable"} if not is_db_available() else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -1007,19 +1030,20 @@ async def get_agents_status() -> dict[str, Any]:
         now = int(datetime.now(timezone.utc).timestamp())
         agents = [
             {
-                "name": name,
+                FieldName.NAME: name,
                 "status": (store.get_agent(name) or {}).get(FieldName.STATUS, "WAITING"),
                 "event_count": (store.get_agent(name) or {}).get(FieldName.EVENT_COUNT, 0),
                 "last_event": (store.get_agent(name) or {}).get(FieldName.LAST_EVENT, ""),
                 "last_seen": (store.get_agent(name) or {}).get(FieldName.LAST_SEEN, 0),
-                "seconds_ago": now - (store.get_agent(name) or {}).get(FieldName.LAST_SEEN, now),
+                FieldName.SECONDS_AGO: now
+                - (store.get_agent(name) or {}).get(FieldName.LAST_SEEN, now),
             }
             for name in ALL_AGENT_NAMES
         ]
         return {
-            "agents": agents,
-            "degraded_mode": True,
-            "degraded_reason": "redis_unavailable",
+            FieldName.AGENTS: agents,
+            FieldName.DEGRADED_MODE: True,
+            FieldName.DEGRADED_REASON: "redis_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1033,10 +1057,10 @@ async def get_system_stream_metrics() -> dict[str, Any]:
         redis_client = await get_redis()
 
         streams = {
-            "market_events": STREAM_MARKET_EVENTS,
-            "signals": STREAM_SIGNALS,
-            "decisions": STREAM_DECISIONS,
-            "graded_decisions": STREAM_GRADED_DECISIONS,
+            FieldName.MARKET_EVENTS: STREAM_MARKET_EVENTS,
+            FieldName.SIGNALS: STREAM_SIGNALS,
+            FieldName.DECISIONS: STREAM_DECISIONS,
+            FieldName.GRADED_DECISIONS: STREAM_GRADED_DECISIONS,
         }
 
         result = {}
@@ -1051,11 +1075,11 @@ async def get_system_stream_metrics() -> dict[str, Any]:
             try:
                 async with AsyncSessionFactory() as session:
                     row = await session.execute(text("SELECT COUNT(*) FROM agent_logs"))
-                    result["agent_logs"] = row.scalar() or 0
+                    result[FieldName.AGENT_LOGS] = row.scalar() or 0
             except Exception:
-                result["agent_logs"] = 0
+                result[FieldName.AGENT_LOGS] = 0
         else:
-            result["agent_logs"] = len(get_runtime_store().event_history)
+            result[FieldName.AGENT_LOGS] = len(get_runtime_store().event_history)
 
         # trade_alerts count from events table (skip if DB unavailable)
         if is_db_available():
@@ -1064,11 +1088,11 @@ async def get_system_stream_metrics() -> dict[str, Any]:
                     row = await session.execute(
                         text("SELECT COUNT(*) FROM events WHERE event_type = 'trade.alert'")
                     )
-                    result["trade_alerts"] = row.scalar() or 0
+                    result[FieldName.TRADE_ALERTS] = row.scalar() or 0
             except Exception:
-                result["trade_alerts"] = 0
+                result[FieldName.TRADE_ALERTS] = 0
         else:
-            result["trade_alerts"] = 0
+            result[FieldName.TRADE_ALERTS] = 0
 
         return {
             **result,
@@ -1077,12 +1101,12 @@ async def get_system_stream_metrics() -> dict[str, Any]:
     except Exception:
         log_structured("warning", "system_metrics_unavailable", exc_info=True)
         return {
-            "market_events": 0,
-            "signals": 0,
-            "decisions": 0,
-            "graded_decisions": 0,
-            "agent_logs": 0,
-            "trade_alerts": 0,
+            FieldName.MARKET_EVENTS: 0,
+            FieldName.SIGNALS: 0,
+            FieldName.DECISIONS: 0,
+            FieldName.GRADED_DECISIONS: 0,
+            FieldName.AGENT_LOGS: 0,
+            FieldName.TRADE_ALERTS: 0,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1093,7 +1117,7 @@ async def get_recent_events() -> dict[str, Any]:
     """Get last 10 events from events table, with in-memory fallback."""
     if not is_db_available():
         return {
-            "events": get_runtime_store().get_events(limit=10),
+            FieldName.EVENTS: get_runtime_store().get_events(limit=10),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1111,7 +1135,7 @@ async def get_recent_events() -> dict[str, Any]:
             rows = result.all()
             events = [
                 {
-                    "id": str(row[0]),
+                    FieldName.ID: str(row[0]),
                     "event_type": row[1],
                     "entity_type": row[2],
                     "source": row[3],
@@ -1120,14 +1144,14 @@ async def get_recent_events() -> dict[str, Any]:
                 for row in rows
             ]
         return {
-            "events": events,
+            FieldName.EVENTS: events,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("warning", "recent_events_db_unavailable", exc_info=True)
         store = get_runtime_store()
         return {
-            "events": store.get_events(limit=10),
+            FieldName.EVENTS: store.get_events(limit=10),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1140,9 +1164,9 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
     if not is_db_available():
         store = get_runtime_store()
         return {
-            "stream_counts": [],
-            "persisted_events": store.get_events(limit=safe_limit),
-            "persisted_logs": [],
+            FieldName.STREAM_COUNTS: [],
+            FieldName.PERSISTED_EVENTS: store.get_events(limit=safe_limit),
+            FieldName.PERSISTED_LOGS: [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1164,8 +1188,8 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
                 stream_counts = [
                     {
                         "stream": row[0],
-                        "processed_count": int(row[1] or 0),
-                        "last_processed_at": row[2].isoformat() if row[2] else None,
+                        FieldName.PROCESSED_COUNT: int(row[1] or 0),
+                        FieldName.LAST_PROCESSED_AT: row[2].isoformat() if row[2] else None,
                     }
                     for row in counts_result.all()
                 ]
@@ -1181,12 +1205,12 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
                         ORDER BY created_at DESC
                         LIMIT :limit
                     """),
-                    {"limit": safe_limit},
+                    {FieldName.LIMIT: safe_limit},
                 )
                 persisted_events = [
                     {
-                        "id": str(row[0]),
-                        "kind": row[1],
+                        FieldName.ID: str(row[0]),
+                        FieldName.KIND: row[1],
                         "source": row[2],
                         "created_at": row[3].isoformat() if row[3] else None,
                     }
@@ -1204,13 +1228,13 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
                         ORDER BY created_at DESC
                         LIMIT :limit
                     """),
-                    {"limit": safe_limit},
+                    {FieldName.LIMIT: safe_limit},
                 )
                 persisted_logs = [
                     {
-                        "id": str(row[0]),
+                        FieldName.ID: str(row[0]),
                         "trace_id": row[1],
-                        "kind": row[2],
+                        FieldName.KIND: row[2],
                         "created_at": row[3].isoformat() if row[3] else None,
                     }
                     for row in logs_result.all()
@@ -1219,9 +1243,9 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
                 persisted_logs = []
 
         return {
-            "stream_counts": stream_counts,
-            "persisted_events": persisted_events,
-            "persisted_logs": persisted_logs,
+            FieldName.STREAM_COUNTS: stream_counts,
+            FieldName.PERSISTED_EVENTS: persisted_events,
+            FieldName.PERSISTED_LOGS: persisted_logs,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -1230,9 +1254,9 @@ async def get_event_history(limit: int = 50) -> dict[str, Any]:
             raise HTTPException(status_code=500, detail="Internal server error") from None
         store = get_runtime_store()
         return {
-            "stream_counts": [],
-            "persisted_events": store.get_events(limit=safe_limit),
-            "persisted_logs": [],
+            FieldName.STREAM_COUNTS: [],
+            FieldName.PERSISTED_EVENTS: store.get_events(limit=safe_limit),
+            FieldName.PERSISTED_LOGS: [],
             "error": "event_history_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -1258,8 +1282,8 @@ async def get_worker_health() -> dict[str, Any]:
         return {
             "status": "starting",
             "message": "Worker is warming up",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
 
     # After grace period, perform actual health checks
@@ -1275,7 +1299,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": "Redis connection timeout",
-                "check_time": now.isoformat(),
+                FieldName.CHECK_TIME: now.isoformat(),
             }
         except Exception as e:
             log_structured("warning", "redis connection failed during health check", exc_info=True)
@@ -1283,7 +1307,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": str(e),
-                "check_time": now.isoformat(),
+                FieldName.CHECK_TIME: now.isoformat(),
             }
 
         # Get all price keys and heartbeat from Redis with timeout
@@ -1298,7 +1322,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": "Redis read timeout",
-                "check_time": now.isoformat(),
+                FieldName.CHECK_TIME: now.isoformat(),
             }
         except Exception as e:
             log_structured("warning", "redis read failed during health check", exc_info=True)
@@ -1306,7 +1330,7 @@ async def get_worker_health() -> dict[str, Any]:
                 "status": "degraded",
                 "message": "Redis unavailable or slow",
                 "error": str(e),
-                "check_time": now.isoformat(),
+                FieldName.CHECK_TIME: now.isoformat(),
             }
 
         # Extract heartbeat (last item)
@@ -1355,14 +1379,14 @@ async def get_worker_health() -> dict[str, Any]:
             health_data = {
                 "status": "unhealthy",
                 "message": "No price data found in Redis",
-                "last_update": None,
-                "heartbeat_status": heartbeat_status,
-                "heartbeat_age": int(heartbeat_age) if heartbeat_age else None,
-                "stale_symbols": symbols,
-                "total_symbols": len(symbols),
-                "fresh_symbols": 0,
-                "uptime_seconds": uptime_seconds,
-                "check_time": now.isoformat(),
+                FieldName.LAST_UPDATE: None,
+                FieldName.HEARTBEAT_STATUS: heartbeat_status,
+                FieldName.HEARTBEAT_AGE: int(heartbeat_age) if heartbeat_age else None,
+                FieldName.STALE_SYMBOLS: symbols,
+                FieldName.TOTAL_SYMBOLS: len(symbols),
+                FieldName.FRESH_SYMBOLS: 0,
+                FieldName.UPTIME_SECONDS: uptime_seconds,
+                FieldName.CHECK_TIME: now.isoformat(),
             }
             # Return 503 for unhealthy status
             raise HTTPException(status_code=503, detail=health_data)
@@ -1388,15 +1412,15 @@ async def get_worker_health() -> dict[str, Any]:
         health_data = {
             "status": status,
             "message": message,
-            "last_update": last_update.isoformat(),
-            "age_seconds": int(age_seconds),
-            "heartbeat_status": heartbeat_status,
-            "heartbeat_age": int(heartbeat_age) if heartbeat_age else None,
-            "stale_symbols": stale_symbols if stale_symbols else None,
-            "total_symbols": len(symbols),
-            "fresh_symbols": len(symbols) - len(stale_symbols),
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.LAST_UPDATE: last_update.isoformat(),
+            FieldName.AGE_SECONDS: int(age_seconds),
+            FieldName.HEARTBEAT_STATUS: heartbeat_status,
+            FieldName.HEARTBEAT_AGE: int(heartbeat_age) if heartbeat_age else None,
+            FieldName.STALE_SYMBOLS: stale_symbols if stale_symbols else None,
+            FieldName.TOTAL_SYMBOLS: len(symbols),
+            FieldName.FRESH_SYMBOLS: len(symbols) - len(stale_symbols),
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
 
         # Return proper HTTP status for Render
@@ -1413,8 +1437,8 @@ async def get_worker_health() -> dict[str, Any]:
         error_data = {
             "status": "error",
             "message": f"Health check failed: {str(e)}",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
         raise HTTPException(status_code=503, detail=error_data) from None
 
@@ -1433,7 +1457,7 @@ async def list_proposals() -> dict[str, Any]:
     """
     if not is_db_available():
         return {
-            "proposals": _in_memory_proposals(limit=20),
+            FieldName.PROPOSALS: _in_memory_proposals(limit=20),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1467,13 +1491,13 @@ async def list_proposals() -> dict[str, Any]:
                     data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
                     proposals.append(
                         {
-                            "id": str(row[0]),
+                            FieldName.ID: str(row[0]),
                             "symbol": data.get(FieldName.SYMBOL),
                             "action": data.get(FieldName.ACTION),
                             "grade_score": data.get(FieldName.GRADE_SCORE),
                             "bias": data.get(FieldName.BIAS),
-                            "buys": data.get("buys"),
-                            "sells": data.get("sells"),
+                            FieldName.BUYS: data.get(FieldName.BUYS),
+                            FieldName.SELLS: data.get(FieldName.SELLS),
                             "strategy_name": data.get(FieldName.STRATEGY_NAME),
                             "trace_id": data.get(FieldName.TRACE_ID),
                             "created_at": row[2].isoformat() if row[2] else None,
@@ -1501,13 +1525,13 @@ async def list_proposals() -> dict[str, Any]:
                     payload = _as_dict(row[1])
                     proposals.append(
                         {
-                            "id": str(row[0]),
+                            FieldName.ID: str(row[0]),
                             "symbol": payload.get(FieldName.SYMBOL),
                             "action": payload.get(FieldName.ACTION),
                             "grade_score": payload.get(FieldName.GRADE_SCORE),
                             "bias": payload.get(FieldName.BIAS),
-                            "buys": payload.get("buys"),
-                            "sells": payload.get("sells"),
+                            FieldName.BUYS: payload.get(FieldName.BUYS),
+                            FieldName.SELLS: payload.get(FieldName.SELLS),
                             "strategy_name": payload.get(FieldName.STRATEGY_NAME),
                             "trace_id": row[0],
                             "created_at": row[2].isoformat() if row[2] else None,
@@ -1516,13 +1540,13 @@ async def list_proposals() -> dict[str, Any]:
                         }
                     )
         return {
-            "proposals": proposals,
+            FieldName.PROPOSALS: proposals,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
         return {
-            "proposals": [],
+            FieldName.PROPOSALS: [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -1533,7 +1557,7 @@ async def approve_proposal(proposal_id: str) -> dict[str, Any]:
     if not is_db_available():
         if not _update_in_memory_proposal_status(proposal_id, ProposalStatus.APPROVED):
             raise HTTPException(status_code=404, detail="Proposal not found") from None
-        return {"status": ProposalStatus.APPROVED, "id": proposal_id, "source": "in_memory"}
+        return {"status": ProposalStatus.APPROVED, FieldName.ID: proposal_id, "source": "in_memory"}
 
     try:
         async with AsyncSessionFactory() as session:
@@ -1543,7 +1567,7 @@ async def approve_proposal(proposal_id: str) -> dict[str, Any]:
                         "SELECT id, data FROM events "
                         "WHERE id = :id AND event_type = 'strategy.proposal'"
                     ),
-                    {"id": proposal_id},
+                    {FieldName.ID: proposal_id},
                 )
                 row = result.first()
                 if not row:
@@ -1553,9 +1577,9 @@ async def approve_proposal(proposal_id: str) -> dict[str, Any]:
                 data[FieldName.STATUS] = "approved"
                 await session.execute(
                     text("UPDATE events SET data = :data WHERE id = :id"),
-                    {"data": json.dumps(data), "id": proposal_id},
+                    {"data": json.dumps(data), FieldName.ID: proposal_id},
                 )
-        return {"status": "approved", "id": proposal_id}
+        return {"status": "approved", FieldName.ID: proposal_id}
     except HTTPException:
         raise
     except Exception:
@@ -1569,7 +1593,7 @@ async def reject_proposal(proposal_id: str) -> dict[str, Any]:
     if not is_db_available():
         if not _update_in_memory_proposal_status(proposal_id, ProposalStatus.REJECTED):
             raise HTTPException(status_code=404, detail="Proposal not found") from None
-        return {"status": ProposalStatus.REJECTED, "id": proposal_id, "source": "in_memory"}
+        return {"status": ProposalStatus.REJECTED, FieldName.ID: proposal_id, "source": "in_memory"}
 
     try:
         async with AsyncSessionFactory() as session:
@@ -1579,7 +1603,7 @@ async def reject_proposal(proposal_id: str) -> dict[str, Any]:
                         "SELECT id, data FROM events "
                         "WHERE id = :id AND event_type = 'strategy.proposal'"
                     ),
-                    {"id": proposal_id},
+                    {FieldName.ID: proposal_id},
                 )
                 row = result.first()
                 if not row:
@@ -1589,9 +1613,9 @@ async def reject_proposal(proposal_id: str) -> dict[str, Any]:
                 data[FieldName.STATUS] = "rejected"
                 await session.execute(
                     text("UPDATE events SET data = :data WHERE id = :id"),
-                    {"data": json.dumps(data), "id": proposal_id},
+                    {"data": json.dumps(data), FieldName.ID: proposal_id},
                 )
-        return {"status": "rejected", "id": proposal_id}
+        return {"status": "rejected", FieldName.ID: proposal_id}
     except HTTPException:
         raise
     except Exception:
@@ -1610,8 +1634,8 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
     if not is_db_available():
         proposals = _in_memory_proposals(limit=limit)
         return {
-            "proposals": proposals,
-            "total": len(proposals),
+            FieldName.PROPOSALS: proposals,
+            FieldName.TOTAL: len(proposals),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1626,7 +1650,7 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"log_type": LogType.PROPOSAL, "limit": limit},
+                {"log_type": LogType.PROPOSAL, FieldName.LIMIT: limit},
             )
             rows = result.all()
         proposals = []
@@ -1634,7 +1658,7 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
             payload = _as_dict(row[1])
             proposals.append(
                 {
-                    "id": row[0],
+                    FieldName.ID: row[0],
                     "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
                     "content": payload.get(FieldName.CONTENT, {}),
                     "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
@@ -1664,13 +1688,13 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                             ORDER BY created_at DESC
                             LIMIT :limit
                         """),
-                        {"limit": limit},
+                        {FieldName.LIMIT: limit},
                     )
                     for row in fallback_result.all():
                         data = _as_dict(row[1])
                         proposals.append(
                             {
-                                "id": str(row[0]),
+                                FieldName.ID: str(row[0]),
                                 "proposal_type": data.get(
                                     FieldName.PROPOSAL_TYPE, "strategy_proposal"
                                 ),
@@ -1689,15 +1713,15 @@ async def get_proposals(limit: int = 50) -> dict[str, Any]:
                     exc_info=True,
                 )
         return {
-            "proposals": proposals,
-            "total": len(proposals),
+            FieldName.PROPOSALS: proposals,
+            FieldName.TOTAL: len(proposals),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
         return {
-            "proposals": [],
-            "total": 0,
+            FieldName.PROPOSALS: [],
+            FieldName.TOTAL: 0,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -1709,8 +1733,8 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
         store = get_runtime_store()
         grades = store.get_grades(limit=limit)
         return {
-            "grades": grades,
-            "total": len(grades),
+            FieldName.GRADES: grades,
+            FieldName.TOTAL: len(grades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1724,7 +1748,7 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"log_type": LogType.GRADE, "limit": limit},
+                {"log_type": LogType.GRADE, FieldName.LIMIT: limit},
             )
             rows = result.all()
         grades = []
@@ -1737,7 +1761,7 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                     "score": payload.get(FieldName.SCORE),
                     "score_pct": payload.get(FieldName.SCORE_PCT),
                     "metrics": payload.get(FieldName.METRICS, {}),
-                    "fills_graded": payload.get("fills_graded"),
+                    FieldName.FILLS_GRADED: payload.get(FieldName.FILLS_GRADED),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
             )
@@ -1752,7 +1776,7 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                         ORDER BY created_at DESC
                         LIMIT :limit
                     """),
-                    {"limit": limit},
+                    {FieldName.LIMIT: limit},
                 )
                 for row in fallback_result.all():
                     metrics = _as_dict(row[2])
@@ -1764,13 +1788,13 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
                             "score": score,
                             "score_pct": round(score, 2) if score is not None else None,
                             "metrics": metrics,
-                            "fills_graded": metrics.get("fills_graded"),
+                            FieldName.FILLS_GRADED: metrics.get(FieldName.FILLS_GRADED),
                             "timestamp": row[3].isoformat() if row[3] else None,
                         }
                     )
         return {
-            "grades": grades,
-            "total": len(grades),
+            FieldName.GRADES: grades,
+            FieldName.TOTAL: len(grades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -1780,8 +1804,8 @@ async def get_grade_history(limit: int = 50) -> dict[str, Any]:
         store = get_runtime_store()
         grades = store.get_grades(limit=limit)
         return {
-            "grades": grades,
-            "total": len(grades),
+            FieldName.GRADES: grades,
+            FieldName.TOTAL: len(grades),
             "error": "grades_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -1809,25 +1833,25 @@ async def get_ic_weights() -> dict[str, Any]:
                     rows = result.all()
                     history_result = [
                         {
-                            "factor": row[0],
-                            "ic_score": float(row[1]),
-                            "computed_at": row[2].isoformat() if row[2] else None,
+                            FieldName.FACTOR: row[0],
+                            FieldName.IC_SCORE: float(row[1]),
+                            FieldName.COMPUTED_AT: row[2].isoformat() if row[2] else None,
                         }
                         for row in rows
                     ]
             except Exception:
                 pass
         return {
-            "current_weights": weights,
-            "history": history_result,
+            FieldName.CURRENT_WEIGHTS: weights,
+            FieldName.HISTORY: history_result,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "redis_cache" if is_db_available() else "in_memory",
         }
     except Exception:
         log_structured("error", "ic weights fetch failed", exc_info=True)
         return {
-            "current_weights": {},
-            "history": [],
+            FieldName.CURRENT_WEIGHTS: {},
+            FieldName.HISTORY: [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1839,8 +1863,8 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
     if not is_db_available():
         reflections = _in_memory_reflections(limit=limit)
         return {
-            "reflections": reflections,
-            "total": len(reflections),
+            FieldName.REFLECTIONS: reflections,
+            FieldName.TOTAL: len(reflections),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1855,25 +1879,25 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"log_type": LogType.REFLECTION, "limit": limit},
+                {"log_type": LogType.REFLECTION, FieldName.LIMIT: limit},
             )
             rows = result.all()
         reflections = [
             {
                 "trace_id": row[0],
                 "summary": _as_dict(row[1]).get(FieldName.SUMMARY, ""),
-                "hypotheses": _as_dict(row[1]).get("hypotheses", []),
-                "winning_factors": _as_dict(row[1]).get("winning_factors", []),
-                "losing_factors": _as_dict(row[1]).get("losing_factors", []),
-                "regime_edge": _as_dict(row[1]).get("regime_edge", {}),
-                "fills_analyzed": _as_dict(row[1]).get("fills_analyzed"),
+                FieldName.HYPOTHESES: _as_dict(row[1]).get(FieldName.HYPOTHESES, []),
+                FieldName.WINNING_FACTORS: _as_dict(row[1]).get(FieldName.WINNING_FACTORS, []),
+                FieldName.LOSING_FACTORS: _as_dict(row[1]).get(FieldName.LOSING_FACTORS, []),
+                FieldName.REGIME_EDGE: _as_dict(row[1]).get(FieldName.REGIME_EDGE, {}),
+                FieldName.FILLS_ANALYZED: _as_dict(row[1]).get(FieldName.FILLS_ANALYZED),
                 "timestamp": row[2].isoformat() if row[2] else None,
             }
             for row in rows
         ]
         return {
-            "reflections": reflections,
-            "total": len(reflections),
+            FieldName.REFLECTIONS: reflections,
+            FieldName.TOTAL: len(reflections),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -1926,10 +1950,10 @@ async def get_learning_loop_state() -> dict[str, Any]:
     suspended agents). The frontend "Learning Loop" panel renders this.
     """
     out: dict[str, Any] = {
-        "latest_grade": None,
-        "recent_proposals": [],
-        "loss_attribution": [],
-        "control_plane": {},
+        FieldName.LATEST_GRADE: None,
+        FieldName.RECENT_PROPOSALS: [],
+        FieldName.LOSS_ATTRIBUTION: [],
+        FieldName.CONTROL_PLANE: {},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -1952,11 +1976,11 @@ async def get_learning_loop_state() -> dict[str, Any]:
                     suspended.append({"agent_name": name, "suspended_until": float(until_raw)})
                 except (TypeError, ValueError):
                     suspended.append({"agent_name": name, "suspended_until": None})
-        out["control_plane"] = {
-            "trading_paused": paused_raw == "1",
-            "trading_paused_reason": paused_reason,
-            "signal_weight_scale": round(weight_scale, 6),
-            "suspended_agents": suspended,
+        out[FieldName.CONTROL_PLANE] = {
+            FieldName.TRADING_PAUSED: paused_raw == "1",
+            FieldName.TRADING_PAUSED_REASON: paused_reason,
+            FieldName.SIGNAL_WEIGHT_SCALE: round(weight_scale, 6),
+            FieldName.SUSPENDED_AGENTS: suspended,
         }
     except Exception:
         log_structured("warning", "learning_loop_control_plane_read_failed", exc_info=True)
@@ -1982,12 +2006,12 @@ async def get_learning_loop_state() -> dict[str, Any]:
             row = grade_row.first()
             if row is not None:
                 payload = _as_dict(row[1])
-                out["latest_grade"] = {
+                out[FieldName.LATEST_GRADE] = {
                     "trace_id": row[0],
                     "grade": payload.get(FieldName.GRADE),
                     "score_pct": payload.get(FieldName.SCORE_PCT),
                     "metrics": payload.get(FieldName.METRICS, {}),
-                    "fills_graded": payload.get("fills_graded"),
+                    FieldName.FILLS_GRADED: payload.get(FieldName.FILLS_GRADED),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
     except Exception:
@@ -2026,7 +2050,7 @@ async def get_learning_loop_state() -> dict[str, Any]:
                         "timestamp": row[2].isoformat() if row[2] else None,
                     }
                 )
-            out["recent_proposals"] = proposals
+            out[FieldName.RECENT_PROPOSALS] = proposals
     except Exception:
         log_structured("warning", "learning_loop_proposals_failed", exc_info=True)
 
@@ -2061,13 +2085,13 @@ async def get_learning_loop_state() -> dict[str, Any]:
                     {
                         "symbol": row[0],
                         "signal_type": row[1],
-                        "trades": int(row[2] or 0),
-                        "losses": int(row[3] or 0),
-                        "total_pnl": round(float(row[4] or 0.0), 2),
-                        "avg_pnl": round(float(row[5] or 0.0), 4),
+                        FieldName.TRADES: int(row[2] or 0),
+                        FieldName.LOSSES: int(row[3] or 0),
+                        FieldName.TOTAL_PNL: round(float(row[4] or 0.0), 2),
+                        FieldName.AVG_PNL: round(float(row[5] or 0.0), 4),
                     }
                 )
-            out["loss_attribution"] = attribution
+            out[FieldName.LOSS_ATTRIBUTION] = attribution
     except Exception:
         log_structured("warning", "learning_loop_loss_attribution_failed", exc_info=True)
 
@@ -2084,7 +2108,11 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
     """Return the full trace for a trace_id: agent_runs + agent_logs + agent_grades."""
     if not is_db_available():
         payload = _in_memory_trace_payload(trace_id)
-        if not payload["agent_runs"] and not payload["agent_logs"] and not payload["agent_grades"]:
+        if (
+            not payload[FieldName.AGENT_RUNS]
+            and not payload[FieldName.AGENT_LOGS]
+            and not payload[FieldName.AGENT_GRADES]
+        ):
             raise HTTPException(status_code=404, detail="Trace not found") from None
         return payload
 
@@ -2102,9 +2130,9 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
             )
             runs = [
                 {
-                    "id": str(r[0]),
+                    FieldName.ID: str(r[0]),
                     "agent_name": r[1],
-                    "run_type": r[2],
+                    FieldName.RUN_TYPE: r[2],
                     "status": r[3],
                     "input_data": r[4],
                     "output_data": r[5],
@@ -2125,7 +2153,7 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
             )
             logs = [
                 {
-                    "id": str(lg[0]),
+                    FieldName.ID: str(lg[0]),
                     "log_type": lg[1],
                     "payload": lg[2],
                     "created_at": lg[3].isoformat() if lg[3] else None,
@@ -2144,7 +2172,7 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
             )
             grades = [
                 {
-                    "id": str(g[0]),
+                    FieldName.ID: str(g[0]),
                     "agent_id": str(g[1]),
                     "grade_type": g[2],
                     "score": float(g[3]) if g[3] is not None else None,
@@ -2159,9 +2187,9 @@ async def get_trace(trace_id: str) -> dict[str, Any]:
 
         return {
             "trace_id": trace_id,
-            "agent_runs": runs,
-            "agent_logs": logs,
-            "agent_grades": grades,
+            FieldName.AGENT_RUNS: runs,
+            FieldName.AGENT_LOGS: logs,
+            FieldName.AGENT_GRADES: grades,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except HTTPException:
@@ -2182,7 +2210,11 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
     Returns ``None`` for malformed rows so the endpoint doesn't surface partial
     debug payloads as real trades.
     """
-    trade_id = raw.get("id") or raw.get(FieldName.EXECUTION_TRACE_ID) or raw.get(FieldName.ORDER_ID)
+    trade_id = (
+        raw.get(FieldName.ID)
+        or raw.get(FieldName.EXECUTION_TRACE_ID)
+        or raw.get(FieldName.ORDER_ID)
+    )
     symbol = raw.get(FieldName.SYMBOL)
     side = raw.get(FieldName.SIDE)
     if not trade_id or not symbol or not side:
@@ -2200,7 +2232,7 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
         return str(value)
 
     return {
-        "id": str(trade_id),
+        FieldName.ID: str(trade_id),
         "symbol": str(symbol),
         "side": str(side),
         "qty": float(raw[FieldName.QTY]) if raw.get(FieldName.QTY) is not None else None,
@@ -2246,8 +2278,8 @@ def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> 
         trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
     trades = trades[:safe_limit]
     return {
-        "trades": trades,
-        "count": len(trades),
+        FieldName.TRADES: trades,
+        FieldName.COUNT: len(trades),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "in_memory",
     }
@@ -2269,8 +2301,8 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
     """
     if not is_db_available():
         payload = _in_memory_trade_feed_payload(limit, session_id=session_id)
-        if payload["count"] == 0:
-            payload["empty_reason"] = "db_degraded"
+        if payload[FieldName.COUNT] == 0:
+            payload[FieldName.EMPTY_REASON] = "db_degraded"
         return payload
     try:
         async with AsyncSessionFactory() as session:
@@ -2289,7 +2321,7 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                     ORDER BY COALESCE(filled_at, created_at) ASC
                     LIMIT :limit
                 """),
-                {"limit": min(limit, 200)},
+                {FieldName.LIMIT: min(limit, 200)},
             )
             rows = result.all()
 
@@ -2297,7 +2329,7 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             pnl = float(row[6]) if row[6] is not None else None
             pnl_pct = float(row[7]) if row[7] is not None else None
             return {
-                "id": str(row[0]),
+                FieldName.ID: str(row[0]),
                 "symbol": row[1],
                 "side": row[2],
                 "qty": float(row[3]) if row[3] is not None else None,
@@ -2344,12 +2376,12 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                         ORDER BY COALESCE(filled_at, created_at) DESC
                         LIMIT :limit
                     """),
-                    {"limit": min(limit, 200)},
+                    {FieldName.LIMIT: min(limit, 200)},
                 )
                 for row in fallback_result.all():
                     trades.append(
                         {
-                            "id": str(row[0]),
+                            FieldName.ID: str(row[0]),
                             "symbol": row[1],
                             "side": row[2],
                             "qty": float(row[3]) if row[3] is not None else None,
@@ -2379,7 +2411,7 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
         # the DB was down when they filled) still surface on the dashboard.
         if not trades:
             fallback = _in_memory_trade_feed_payload(limit, session_id=session_id)
-            if fallback["count"] > 0:
+            if fallback[FieldName.COUNT] > 0:
                 return fallback
 
             # Diagnose why trade feed is empty so the UI can explain it.
@@ -2400,7 +2432,7 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
                         LEFT JOIN orders o ON o.id = tl.order_id
                         WHERE COALESCE(o.strategy_id::text, tl.decision_trace_id) = :sid
                     """
-                    _diag_params = {"sid": session_id}
+                    _diag_params = {FieldName.SID: session_id}
                 else:
                     _order_sql = "SELECT COUNT(*) FROM orders"
                     _lifecycle_sql = "SELECT COUNT(*) FROM trade_lifecycle"
@@ -2421,33 +2453,33 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             # Fetch upstream pipeline counts so the UI can show the pipeline
             # is healthy even when no fills have occurred yet.
             upstream: dict[str, Any] = {
-                "signal_events": 0,
-                "decisions_evaluated": 0,
-                "ee_last_status": None,
+                FieldName.SIGNAL_EVENTS: 0,
+                FieldName.DECISIONS_EVALUATED: 0,
+                FieldName.EE_LAST_STATUS: None,
             }
             try:
                 _redis = await get_redis()
-                upstream["signal_events"] = await _redis.xlen(STREAM_SIGNALS)
-                upstream["decisions_evaluated"] = await _redis.xlen(STREAM_DECISIONS)
+                upstream[FieldName.SIGNAL_EVENTS] = await _redis.xlen(STREAM_SIGNALS)
+                upstream[FieldName.DECISIONS_EVALUATED] = await _redis.xlen(STREAM_DECISIONS)
                 _ee_raw = await _redis.get(REDIS_AGENT_STATUS_KEY.format(name=AGENT_EXECUTION))
                 if _ee_raw:
                     _ee = json.loads(_ee_raw)
-                    upstream["ee_last_status"] = _ee.get(FieldName.LAST_EVENT, "")
-                    upstream["ee_event_count"] = int(_ee.get(FieldName.EVENT_COUNT, 0))
+                    upstream[FieldName.EE_LAST_STATUS] = _ee.get(FieldName.LAST_EVENT, "")
+                    upstream[FieldName.EE_EVENT_COUNT] = int(_ee.get(FieldName.EVENT_COUNT, 0))
             except Exception:
                 pass
 
             return {
-                "trades": [],
-                "count": 0,
-                "empty_reason": empty_reason,
-                "upstream_activity": upstream,
+                FieldName.TRADES: [],
+                FieldName.COUNT: 0,
+                FieldName.EMPTY_REASON: empty_reason,
+                FieldName.UPSTREAM_ACTIVITY: upstream,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         return {
-            "trades": trades,
-            "count": len(trades),
+            FieldName.TRADES: trades,
+            FieldName.COUNT: len(trades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -2466,8 +2498,8 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
     paired = store.paired_pnl_payload()
     summary_data = paired[FieldName.SUMMARY]
     orders = list(store.orders)
-    total_trades = summary_data["closed_trades"]
-    wins = summary_data["winning_trades"]
+    total_trades = summary_data[FieldName.CLOSED_TRADES]
+    wins = summary_data[FieldName.WINNING_TRADES]
     losses = total_trades - wins
     avg_win = 0.0
     avg_loss = 0.0
@@ -2487,24 +2519,24 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
         avg_loss = round(sum(loss_pnls) / losses, 2) if loss_pnls else 0.0
     return {
         "summary": {
-            "total_pnl": summary_data["total_pnl"],
-            "total_trades": total_trades,
-            "win_rate": round(summary_data["win_rate_percent"] / 100.0, 4),
-            "avg_win": avg_win,
-            "avg_loss": avg_loss,
-            "best_trade": round(
+            FieldName.TOTAL_PNL: summary_data[FieldName.TOTAL_PNL],
+            FieldName.TOTAL_TRADES: total_trades,
+            "win_rate": round(summary_data[FieldName.WIN_RATE_PERCENT] / 100.0, 4),
+            FieldName.AVG_WIN: avg_win,
+            FieldName.AVG_LOSS: avg_loss,
+            FieldName.BEST_TRADE: round(
                 max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
             ),
-            "worst_trade": round(
+            FieldName.WORST_TRADE: round(
                 min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
             ),
         },
-        "daily_pnl": [],
-        "grade_trend": [],
-        "equity_curve": list(store.equity_curve[-200:]),
+        FieldName.DAILY_PNL: [],
+        FieldName.GRADE_TREND: [],
+        FieldName.EQUITY_CURVE: list(store.equity_curve[-200:]),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": source,
-        "has_data": bool(orders or store.open_positions()),
+        FieldName.HAS_DATA: bool(orders or store.open_positions()),
     }
 
 
@@ -2535,12 +2567,12 @@ async def get_performance_trends() -> dict[str, Any]:
             )
             daily_pnl = [
                 {
-                    "day": str(r[0]),
+                    FieldName.DAY: str(r[0]),
                     "pnl": round(float(r[1]), 2) if r[1] is not None else 0.0,
-                    "trade_count": int(r[2]),
-                    "wins": int(r[3]),
-                    "losses": int(r[4]),
-                    "avg_pnl": round(float(r[5]), 2) if r[5] is not None else 0.0,
+                    FieldName.TRADE_COUNT: int(r[2]),
+                    FieldName.WINS: int(r[3]),
+                    FieldName.LOSSES: int(r[4]),
+                    FieldName.AVG_PNL: round(float(r[5]), 2) if r[5] is not None else 0.0,
                 }
                 for r in pnl_result.all()
             ]
@@ -2559,8 +2591,8 @@ async def get_performance_trends() -> dict[str, Any]:
             )
             grade_trend = [
                 {
-                    "day": str(r[0]),
-                    "avg_score_pct": round(float(r[1]), 1) if r[1] is not None else None,
+                    FieldName.DAY: str(r[0]),
+                    FieldName.AVG_SCORE_PCT: round(float(r[1]), 1) if r[1] is not None else None,
                 }
                 for r in grade_result.all()
             ]
@@ -2584,19 +2616,19 @@ async def get_performance_trends() -> dict[str, Any]:
             total_trades = int(s[1]) if s else 0
             total_wins = int(s[2]) if s else 0
             summary = {
-                "total_pnl": round(float(s[0]), 2) if s else 0.0,
-                "total_trades": total_trades,
+                FieldName.TOTAL_PNL: round(float(s[0]), 2) if s else 0.0,
+                FieldName.TOTAL_TRADES: total_trades,
                 "win_rate": round(total_wins / total_trades, 4) if total_trades else 0.0,
-                "avg_win": round(float(s[3]), 2) if s else 0.0,
-                "avg_loss": round(float(s[4]), 2) if s else 0.0,
-                "best_trade": round(float(s[5]), 2) if s else 0.0,
-                "worst_trade": round(float(s[6]), 2) if s else 0.0,
+                FieldName.AVG_WIN: round(float(s[3]), 2) if s else 0.0,
+                FieldName.AVG_LOSS: round(float(s[4]), 2) if s else 0.0,
+                FieldName.BEST_TRADE: round(float(s[5]), 2) if s else 0.0,
+                FieldName.WORST_TRADE: round(float(s[6]), 2) if s else 0.0,
             }
 
         return {
             "summary": summary,
-            "daily_pnl": daily_pnl,
-            "grade_trend": grade_trend,
+            FieldName.DAILY_PNL: daily_pnl,
+            FieldName.GRADE_TREND: grade_trend,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -2638,14 +2670,14 @@ async def get_agent_instances() -> dict[str, Any]:
 
         instances = [
             {
-                "id": str(r[0]),
-                "instance_key": r[1],
-                "pool_name": r[2],
+                FieldName.ID: str(r[0]),
+                FieldName.INSTANCE_KEY: r[1],
+                FieldName.POOL_NAME: r[2],
                 "status": r[3],
-                "started_at": r[4].isoformat() if r[4] else None,
-                "retired_at": r[5].isoformat() if r[5] else None,
+                FieldName.STARTED_AT: r[4].isoformat() if r[4] else None,
+                FieldName.RETIRED_AT: r[5].isoformat() if r[5] else None,
                 "event_count": int(r[6]) if r[6] is not None else 0,
-                "uptime_seconds": int(r[8]) if r[8] is not None else 0,
+                FieldName.UPTIME_SECONDS: int(r[8]) if r[8] is not None else 0,
             }
             for r in rows
         ]
@@ -2654,17 +2686,17 @@ async def get_agent_instances() -> dict[str, Any]:
         retired = [i for i in instances if i[FieldName.STATUS] == "retired"]
 
         return {
-            "instances": instances,
-            "active_count": len(active),
-            "retired_count": len(retired),
+            FieldName.INSTANCES: instances,
+            FieldName.ACTIVE_COUNT: len(active),
+            FieldName.RETIRED_COUNT: len(retired),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
         log_structured("error", "agent_instances_failed", exc_info=True)
         return {
-            "instances": [],
-            "active_count": 0,
-            "retired_count": 0,
+            FieldName.INSTANCES: [],
+            FieldName.ACTIVE_COUNT: 0,
+            FieldName.RETIRED_COUNT: 0,
             "error": "agent_instances_unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -2696,8 +2728,8 @@ async def spawn_challenger(
         if event_bus is None or dlq_manager is None:
             raise HTTPException(status_code=503, detail="Event bus not ready") from None
 
-        challenger_config = body.get("challenger_config", {})
-        max_fills = int(body.get("max_fills", ChallengerAgent.DEFAULT_MAX_FILLS))
+        challenger_config = body.get(FieldName.CHALLENGER_CONFIG, {})
+        max_fills = int(body.get(FieldName.MAX_FILLS, ChallengerAgent.DEFAULT_MAX_FILLS))
 
         challenger = ChallengerAgent(
             event_bus,
@@ -2716,10 +2748,10 @@ async def spawn_challenger(
             max_fills=max_fills,
         )
         return {
-            "challenger_id": challenger._challenger_id,
-            "instance_id": challenger._instance_id,
-            "consumer": challenger.consumer,
-            "max_fills": max_fills,
+            FieldName.CHALLENGER_ID: challenger._challenger_id,
+            FieldName.INSTANCE_ID: challenger._instance_id,
+            FieldName.CONSUMER: challenger.consumer,
+            FieldName.MAX_FILLS: max_fills,
             "status": "spawned",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -2738,19 +2770,19 @@ async def list_challengers(request: Request) -> dict[str, Any]:
         challengers = [a for a in agents if isinstance(a, ChallengerAgent)]
 
         return {
-            "challengers": [
+            FieldName.CHALLENGERS: [
                 {
-                    "challenger_id": c._challenger_id,
-                    "instance_id": c._instance_id,
-                    "consumer": c.consumer,
-                    "fills": c._fills,
-                    "max_fills": c._max_fills,
-                    "config": c._config,
-                    "running": c._running,
+                    FieldName.CHALLENGER_ID: c._challenger_id,
+                    FieldName.INSTANCE_ID: c._instance_id,
+                    FieldName.CONSUMER: c.consumer,
+                    FieldName.FILLS: c._fills,
+                    FieldName.MAX_FILLS: c._max_fills,
+                    FieldName.CONFIG: c._config,
+                    FieldName.RUNNING: c._running,
                 }
                 for c in challengers
             ],
-            "count": len(challengers),
+            FieldName.COUNT: len(challengers),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -2766,7 +2798,7 @@ async def get_kill_switch() -> dict[str, Any]:
         value = await redis_client.get(REDIS_KEY_KILL_SWITCH)
         updated_at = await redis_client.get(REDIS_KEY_KILL_SWITCH_UPDATED_AT)
         return {
-            "active": value == "1",
+            FieldName.ACTIVE: value == "1",
             "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -2795,7 +2827,7 @@ async def toggle_kill_switch(active: bool = Body(..., embed=True)) -> dict[str, 
         )
 
         return {
-            "active": active,
+            FieldName.ACTIVE: active,
             "message": f"Kill switch {'activated' if active else 'deactivated'}",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -2816,54 +2848,56 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     diagnostics = await hydrate_dashboard_state_from_redis()
     snapshot = store.dashboard_fallback_snapshot()
     paired = store.paired_pnl_payload()
-    paired_closed_trades = paired.get("closed_trades", [])
+    paired_closed_trades = paired.get(FieldName.CLOSED_TRADES, [])
     paired_summary = paired.get(FieldName.SUMMARY, {})
-    summary_closed_trades = int(paired_summary.get("closed_trades", 0) or 0)
+    summary_closed_trades = int(paired_summary.get(FieldName.CLOSED_TRADES, 0) or 0)
     db_available = is_db_available()
-    equity_curve = snapshot.get("equity_curve", [])
-    open_positions_list = snapshot.get("positions", [])
-    decisions_list = snapshot.get("decisions", [])
-    notifications_list = snapshot.get("notifications", [])
-    has_data = bool(decisions_list or open_positions_list or snapshot.get("orders"))
+    equity_curve = snapshot.get(FieldName.EQUITY_CURVE, [])
+    open_positions_list = snapshot.get(FieldName.POSITIONS, [])
+    decisions_list = snapshot.get(FieldName.DECISIONS, [])
+    notifications_list = snapshot.get(FieldName.NOTIFICATIONS, [])
+    has_data = bool(decisions_list or open_positions_list or snapshot.get(FieldName.ORDERS))
     return {
-        "db_available": db_available,
+        FieldName.DB_AVAILABLE: db_available,
         FieldName.SOURCE: diagnostics[FieldName.SOURCE],
-        "has_data": has_data,
-        "last_error": diagnostics["last_error"],
-        "ledger_source": diagnostics["ledger_source"],
-        "persistence_source": diagnostics["persistence_source"],
-        "scope": "runtime_store",
-        "runtime_store": {
-            "decisions_count": len(decisions_list),
-            "notifications_count": len(notifications_list),
-            "open_positions": len(open_positions_list),
-            "closed_trades": summary_closed_trades,
-            "equity_points": len(equity_curve),
+        FieldName.HAS_DATA: has_data,
+        FieldName.LAST_ERROR: diagnostics[FieldName.LAST_ERROR],
+        FieldName.LEDGER_SOURCE: diagnostics[FieldName.LEDGER_SOURCE],
+        FieldName.PERSISTENCE_SOURCE: diagnostics[FieldName.PERSISTENCE_SOURCE],
+        FieldName.SCOPE: "runtime_store",
+        FieldName.RUNTIME_STORE: {
+            FieldName.DECISIONS_COUNT: len(decisions_list),
+            FieldName.NOTIFICATIONS_COUNT: len(notifications_list),
+            FieldName.OPEN_POSITIONS: len(open_positions_list),
+            FieldName.CLOSED_TRADES: summary_closed_trades,
+            FieldName.EQUITY_POINTS: len(equity_curve),
         },
         "pnl": {
-            "total_pnl": paired_summary.get("total_pnl", 0.0),
-            "realized_pnl": paired_summary.get("realized_pnl", 0.0),
+            FieldName.TOTAL_PNL: paired_summary.get(FieldName.TOTAL_PNL, 0.0),
+            FieldName.REALIZED_PNL: paired_summary.get(FieldName.REALIZED_PNL, 0.0),
             "unrealized_pnl": paired_summary.get(FieldName.UNREALIZED_PNL, 0.0),
-            "win_rate": round(paired_summary.get("win_rate_percent", 0.0) / 100.0, 4),
-            "active_positions": paired_summary.get("open_positions", 0),
-            "equity_curve_points": len(equity_curve),
+            "win_rate": round(paired_summary.get(FieldName.WIN_RATE_PERCENT, 0.0) / 100.0, 4),
+            FieldName.ACTIVE_POSITIONS: paired_summary.get(FieldName.OPEN_POSITIONS, 0),
+            FieldName.EQUITY_CURVE_POINTS: len(equity_curve),
         },
-        "counts": {
-            "redis_hydration_status": diagnostics["hydration_status"],
-            "redis_decisions_seen": diagnostics["redis_decisions_seen"],
-            "redis_decisions_applied": diagnostics["redis_decisions_applied"],
-            "redis_notifications_seen": diagnostics["redis_notifications_seen"],
-            "redis_notifications_applied": diagnostics["redis_notifications_applied"],
-            "applied_decision_keys": diagnostics["applied_decision_keys"],
-            "decisions": len(decisions_list),
-            "notifications": len(notifications_list),
-            "open_positions": len(open_positions_list),
-            "closed_trades": summary_closed_trades,
-            "equity_points": len(equity_curve),
+        FieldName.COUNTS: {
+            FieldName.REDIS_HYDRATION_STATUS: diagnostics[FieldName.HYDRATION_STATUS],
+            FieldName.REDIS_DECISIONS_SEEN: diagnostics[FieldName.REDIS_DECISIONS_SEEN],
+            FieldName.REDIS_DECISIONS_APPLIED: diagnostics[FieldName.REDIS_DECISIONS_APPLIED],
+            FieldName.REDIS_NOTIFICATIONS_SEEN: diagnostics[FieldName.REDIS_NOTIFICATIONS_SEEN],
+            FieldName.REDIS_NOTIFICATIONS_APPLIED: diagnostics[
+                FieldName.REDIS_NOTIFICATIONS_APPLIED
+            ],
+            FieldName.APPLIED_DECISION_KEYS: diagnostics[FieldName.APPLIED_DECISION_KEYS],
+            FieldName.DECISIONS: len(decisions_list),
+            FieldName.NOTIFICATIONS: len(notifications_list),
+            FieldName.OPEN_POSITIONS: len(open_positions_list),
+            FieldName.CLOSED_TRADES: summary_closed_trades,
+            FieldName.EQUITY_POINTS: len(equity_curve),
         },
-        "latest_decision": (decisions_list or [None])[0],
-        "latest_notification": (notifications_list or [None])[0],
-        "latest_open_position": (open_positions_list or [None])[0],
-        "latest_closed_trade": (paired_closed_trades or [None])[-1],
+        FieldName.LATEST_DECISION: (decisions_list or [None])[0],
+        FieldName.LATEST_NOTIFICATION: (notifications_list or [None])[0],
+        FieldName.LATEST_OPEN_POSITION: (open_positions_list or [None])[0],
+        FieldName.LATEST_CLOSED_TRADE: (paired_closed_trades or [None])[-1],
         "summary": paired_summary,
     }
