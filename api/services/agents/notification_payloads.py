@@ -131,64 +131,77 @@ def _trade_facts(trade: dict[str, Any]) -> list[dict[str, str]]:
     action = str(trade.get(FieldName.ACTION) or "").upper()
     notional_label = "Proceeds" if action == "SELL" else "Notional"
     facts = [
-        {"label": "Symbol", "value": str(trade.get(FieldName.SYMBOL) or "?")},
-        {"label": "Qty", "value": _format_qty(trade.get(FieldName.QTY))},
-        {"label": "Fill", "value": _format_money(trade.get(FieldName.FILL_PRICE))},
+        {FieldName.LABEL: "Symbol", FieldName.VALUE: str(trade.get(FieldName.SYMBOL) or "?")},
+        {FieldName.LABEL: "Qty", FieldName.VALUE: _format_qty(trade.get(FieldName.QTY))},
+        {FieldName.LABEL: "Fill", FieldName.VALUE: _format_money(trade.get(FieldName.FILL_PRICE))},
     ]
     if trade.get(FieldName.NOTIONAL) is not None:
-        facts.append({"label": notional_label, "value": _format_money(trade[FieldName.NOTIONAL])})
+        facts.append(
+            {
+                FieldName.LABEL: notional_label,
+                FieldName.VALUE: _format_money(trade[FieldName.NOTIONAL]),
+            }
+        )
     if trade.get(FieldName.PNL) is not None:
         pnl_text = _format_signed_money(trade[FieldName.PNL])
         if trade.get(FieldName.PNL_PERCENT) is not None:
             pnl_text = f"{pnl_text} ({_format_signed_percent(trade[FieldName.PNL_PERCENT])})"
         facts.append(
             {
-                "label": "P&L",
-                "value": pnl_text,
-                "tone": "gain" if float(trade[FieldName.PNL]) >= 0 else "loss",
+                FieldName.LABEL: "P&L",
+                FieldName.VALUE: pnl_text,
+                FieldName.TONE: "gain" if float(trade[FieldName.PNL]) >= 0 else "loss",
             }
         )
     if action == "BUY" and trade.get(FieldName.STOP_PRICE) is not None:
-        facts.append({"label": "Stop", "value": _format_money(trade[FieldName.STOP_PRICE])})
+        facts.append(
+            {FieldName.LABEL: "Stop", FieldName.VALUE: _format_money(trade[FieldName.STOP_PRICE])}
+        )
     if action == "BUY" and trade.get(FieldName.TAKE_PROFIT_PRICE) is not None:
         facts.append(
-            {"label": "Target", "value": _format_money(trade[FieldName.TAKE_PROFIT_PRICE])}
+            {
+                FieldName.LABEL: "Target",
+                FieldName.VALUE: _format_money(trade[FieldName.TAKE_PROFIT_PRICE]),
+            }
         )
     return facts
 
 
 def _delivery_payload(trade: dict[str, Any], title: str, message: str) -> dict[str, Any]:
     action = str(trade.get(FieldName.ACTION) or "").upper()
-    fields = [{"label": "Action", "value": action}, *_trade_facts(trade)]
+    fields = [{FieldName.LABEL: "Action", FieldName.VALUE: action}, *_trade_facts(trade)]
     if trade.get(FieldName.ORDER_ID):
-        fields.append({"label": "Order", "value": str(trade[FieldName.ORDER_ID])})
+        fields.append({FieldName.LABEL: "Order", FieldName.VALUE: str(trade[FieldName.ORDER_ID])})
     if trade.get(FieldName.TRACE_ID):
-        fields.append({"label": "Trace", "value": str(trade[FieldName.TRACE_ID])})
+        fields.append({FieldName.LABEL: "Trace", FieldName.VALUE: str(trade[FieldName.TRACE_ID])})
 
-    lines = [f"{field['label']}: {field['value']}" for field in fields]
+    lines = [f"{field[FieldName.LABEL]}: {field[FieldName.VALUE]}" for field in fields]
     return {
-        "template": "trade_execution",
-        "suggested_channels": ["dashboard", "slack", "email", "telegram"],
-        "slack": {
-            "text": f"{title} - {message}",
-            "blocks": [
-                {"type": "header", "text": {"type": "plain_text", "text": title}},
-                {"type": "section", "text": {"type": "mrkdwn", "text": message}},
+        FieldName.TEMPLATE: "trade_execution",
+        FieldName.SUGGESTED_CHANNELS: ["dashboard", "slack", "email", "telegram"],
+        FieldName.SLACK: {
+            FieldName.TEXT: f"{title} - {message}",
+            FieldName.BLOCKS: [
+                {"type": "header", FieldName.TEXT: {"type": "plain_text", FieldName.TEXT: title}},
+                {"type": "section", FieldName.TEXT: {"type": "mrkdwn", FieldName.TEXT: message}},
                 {
                     "type": "section",
-                    "fields": [
-                        {"type": "mrkdwn", "text": f"*{field['label']}:*\n{field['value']}"}
+                    FieldName.FIELDS: [
+                        {
+                            "type": "mrkdwn",
+                            FieldName.TEXT: f"*{field[FieldName.LABEL]}:*\n{field[FieldName.VALUE]}",
+                        }
                         for field in fields[:10]
                     ],
                 },
             ],
         },
-        "email": {
-            "subject": title,
-            "preview": message,
+        FieldName.EMAIL: {
+            FieldName.SUBJECT: title,
+            FieldName.PREVIEW: message,
             "body": "\n".join([message, "", *lines]),
         },
-        "telegram": {"text": "\n".join([title, message, *lines])},
+        FieldName.TELEGRAM: {FieldName.TEXT: "\n".join([title, message, *lines])},
     }
 
 
@@ -203,27 +216,27 @@ def _display_payload(
 ) -> dict[str, Any]:
     side = str(trade.get(FieldName.ACTION) or "").lower()
     trace_id = str(trade.get(FieldName.TRACE_ID) or "")
-    badges = [{"label": side.upper(), "tone": side}]
+    badges = [{FieldName.LABEL: side.upper(), FieldName.TONE: side}]
     if severity != "INFO":
-        badges.append({"label": severity, "tone": severity.lower()})
+        badges.append({FieldName.LABEL: severity, FieldName.TONE: severity.lower()})
 
     meta = [
-        {"label": "Type", "value": notification_type},
-        {"label": "Source", "value": stream},
+        {FieldName.LABEL: "Type", FieldName.VALUE: notification_type},
+        {FieldName.LABEL: "Source", FieldName.VALUE: stream},
     ]
     if trace_id:
-        meta.append({"label": "Trace", "value": trace_id[:8]})
+        meta.append({FieldName.LABEL: "Trace", FieldName.VALUE: trace_id[:8]})
 
     return {
-        "kind": "trade_execution",
-        "tone": side,
-        "icon": "arrow-down-right" if side == OrderSide.SELL else "arrow-up-right",
+        FieldName.KIND: "trade_execution",
+        FieldName.TONE: side,
+        FieldName.ICON: "arrow-down-right" if side == OrderSide.SELL else "arrow-up-right",
         "title": title,
-        "subtitle": message,
-        "status_label": "open",
-        "badges": badges,
-        "facts": _trade_facts(trade),
-        "meta": meta,
+        FieldName.SUBTITLE: message,
+        FieldName.STATUS_LABEL: "open",
+        FieldName.BADGES: badges,
+        FieldName.FACTS: _trade_facts(trade),
+        FieldName.META: meta,
     }
 
 
