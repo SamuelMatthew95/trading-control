@@ -55,8 +55,8 @@ async def health_check():
         return {
             FieldName.STATUS: "starting",
             "message": "Service is warming up",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
 
     # Check dependencies with graceful degradation
@@ -66,16 +66,16 @@ async def health_check():
     if redis_ok and db_ok:
         return {
             FieldName.STATUS: "healthy",
-            "redis": "ok",
-            "postgres": "ok",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.REDIS: "ok",
+            FieldName.POSTGRES: "ok",
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
     return {
         FieldName.STATUS: "degraded",
         "message": "Some dependencies are unavailable",
-        "redis": "ok" if redis_ok else "unavailable",
-        "postgres": "ok" if db_ok else "unavailable",
-        "uptime_seconds": uptime_seconds,
-        "check_time": now.isoformat(),
+        FieldName.REDIS: "ok" if redis_ok else "unavailable",
+        FieldName.POSTGRES: "ok" if db_ok else "unavailable",
+        FieldName.UPTIME_SECONDS: uptime_seconds,
+        FieldName.CHECK_TIME: now.isoformat(),
     }
