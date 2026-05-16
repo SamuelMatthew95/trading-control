@@ -131,7 +131,7 @@ async def upsert_position_db(
                 "side": pos_side,
                 "qty": pos_qty,
                 "entry_price": fill_price,
-                "current_price": fill_price,
+                FieldName.CURRENT_PRICE: fill_price,
                 "market_value": market_value,
                 "strategy_id": strategy_id,
                 "schema_version": DB_SCHEMA_VERSION,
@@ -163,9 +163,9 @@ async def upsert_position_db(
         {
             "side": next_side,
             "qty": new_abs_qty,
-            "current_price": fill_price,
+            FieldName.CURRENT_PRICE: fill_price,
             "market_value": round(new_abs_qty * fill_price, 8),
-            "position_id": row["id"],
+            FieldName.POSITION_ID: row[FieldName.ID],
         },
     )
 
