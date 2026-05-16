@@ -173,8 +173,8 @@ class EventBus:
         try:
             kwargs = {}
             if maxlen:
-                kwargs["maxlen"] = maxlen
-                kwargs["approximate"] = True
+                kwargs[FieldName.MAXLEN] = maxlen
+                kwargs[FieldName.APPROXIMATE] = True
 
             message_id = await self.redis.xadd(stream, serialized_event, **kwargs)
 
@@ -371,13 +371,13 @@ class EventBus:
                 return
 
             for group in groups:
-                name = group.get("name") or group.get(b"name")
+                name = group.get(FieldName.NAME) or group.get(b"name")
                 if isinstance(name, bytes):
                     name = name.decode()
                 if name != DEFAULT_GROUP:
                     continue
 
-                pending = int(group.get("pending") or group.get(b"pending") or 0)
+                pending = int(group.get(FieldName.PENDING) or group.get(b"pending") or 0)
                 last_delivered = group.get("last-delivered-id") or group.get(b"last-delivered-id")
                 if isinstance(last_delivered, bytes):
                     last_delivered = last_delivered.decode()
@@ -413,17 +413,17 @@ class EventBus:
                 # Note: 'lag' field is Redis 7+, we use 'pending' for compatibility
                 lag = 0
                 for g in groups:
-                    pending = g.get("pending") or g.get(b"pending") or 0
+                    pending = g.get(FieldName.PENDING) or g.get(b"pending") or 0
                     lag = max(lag, int(pending))
 
                 info[stream] = {
-                    "length": length,
-                    "lag": lag,
-                    "groups": len(groups),
+                    FieldName.LENGTH: length,
+                    FieldName.LAG: lag,
+                    FieldName.GROUPS: len(groups),
                 }
             except Exception:
                 # If stream doesn't exist or other error
-                info[stream] = {"length": 0, "lag": 0, "groups": 0}
+                info[stream] = {FieldName.LENGTH: 0, FieldName.LAG: 0, FieldName.GROUPS: 0}
 
         return info
 
@@ -579,7 +579,7 @@ async def ensure_all_streams_ready(redis_client: Redis) -> None:
             groups = await redis_client.xinfo_groups(stream)
             group_names: set[str] = set()
             for g in groups:
-                raw = g.get("name") or g.get(b"name", b"")
+                raw = g.get(FieldName.NAME) or g.get(b"name", b"")
                 name = raw.decode() if isinstance(raw, bytes) else raw
                 group_names.add(name)
             for group in (DEFAULT_GROUP, PIPELINE_GROUP):
