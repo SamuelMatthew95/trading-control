@@ -24,29 +24,6 @@ const sanitizeValue = (value: string | number | boolean | null | undefined): str
   return String(value);
 };
 
-const toSanitizeInput = (value: unknown): string | number | boolean | null | undefined => {
-  if (value === null || value === undefined) return value
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
-  return String(value)
-}
-
-// Map internal reasoning fallback markers to human-readable text for the
-// Agent Thought Stream. The backend writes `primary_edge = "fallback:<mode>"`
-// whenever the LLM is unavailable; the raw token is ugly in the UI.
-const FALLBACK_LABELS: Record<string, string> = {
-  skip_reasoning: 'Rule-based fallback decision',
-  reject_signal: 'Rule-based fallback: signal rejected',
-  use_last_reflection: 'Rule-based fallback: reused last reflection',
-}
-const formatAgentMessage = (raw: unknown): string => {
-  const text = sanitizeValue(toSanitizeInput(raw))
-  if (text === '--') return ''
-  if (text.startsWith('fallback:')) {
-    const mode = text.slice('fallback:'.length)
-    return FALLBACK_LABELS[mode] ?? 'Rule-based fallback (LLM unavailable)'
-  }
-  return text
-}
 
 const formatUSD = (value?: number | null): string => {
   if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
