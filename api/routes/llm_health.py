@@ -33,10 +33,10 @@ async def llm_health() -> dict[str, Any]:
 
     provider = getattr(settings, "LLM_PROVIDER", "unknown").lower()
     _model_setting = {
-        "gemini": ("GEMINI_MODEL", settings.GEMINI_MODEL),
-        "groq": ("GROQ_MODEL", "unknown"),
-        "anthropic": ("ANTHROPIC_MODEL", "unknown"),
-        "openai": ("OPENAI_MODEL", "unknown"),
+        FieldName.GEMINI: ("GEMINI_MODEL", settings.GEMINI_MODEL),
+        FieldName.GROQ: ("GROQ_MODEL", "unknown"),
+        FieldName.ANTHROPIC: ("ANTHROPIC_MODEL", "unknown"),
+        FieldName.OPENAI: ("OPENAI_MODEL", "unknown"),
     }
     _attr, _default = _model_setting.get(provider, ("", "unknown"))
     model_name: str = getattr(settings, _attr, _default) if _attr else "unknown"
