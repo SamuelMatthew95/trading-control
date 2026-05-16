@@ -52,6 +52,25 @@ class AgentStatus(StrEnum):
     ACTIVE = "ACTIVE"
     STALE = "STALE"
     WAITING = "WAITING"
+    UNKNOWN = "UNKNOWN"
+
+
+class Source(StrEnum):
+    """Origin of a data payload — DB record, in-memory store, Redis, or fallback."""
+
+    DB = "db"
+    IN_MEMORY = "in_memory"
+    REDIS = "redis"
+    FALLBACK = "fallback"
+
+
+# Default payload values — explicit sentinels so missing data stays visible
+# instead of silently collapsing into an empty string.
+EMPTY_STRING: Final[str] = ""
+UNKNOWN_VALUE: Final[str] = "unknown"
+DEFAULT_TRACE_ID: Final[str] = "unknown-trace"
+DEFAULT_AGENT_ID: Final[str] = "unknown-agent"
+DEFAULT_MSG_ID: Final[str] = "unknown-msg"
 
 
 # Actions that produce no order event
