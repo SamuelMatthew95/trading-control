@@ -521,7 +521,7 @@ export function TradingView({
         : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
     const winRatePct =
-      performanceSummary?.win_rate != null
+      performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
         ? performanceSummary.win_rate * 100
         : (() => {
             const withPnl = tradeFeed.filter((t) => t.pnl != null)
@@ -546,7 +546,7 @@ export function TradingView({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           label="Session P&L"
-          value={formatUSD(stats.totalPnl)}
+          value={stats.totalPnl < -0.005 ? `-${formatUSD(stats.totalPnl)}` : formatUSD(stats.totalPnl)}
           sign={pnlSign}
           icon={stats.totalPnl >= 0 ? TrendingUp : TrendingDown}
         />
