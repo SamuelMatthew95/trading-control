@@ -129,6 +129,10 @@ payload = {FieldName.SYMBOL: s, FieldName.SIDE: "buy", FieldName.TRACE_ID: tid}
 whenever a file on `CLEAN_FILES` re-introduces a raw string FieldName key.
 The list can only grow — removing a file is a regression.
 
+The scan catches the key string **anywhere on a line**, in every access form:
+`d.get("k")`, `d.pop("k")`, `d.setdefault("k")`, `d["k"]`, `{"k": v}` dict
+literals, and `"k" in d` membership tests.
+
 When you sweep a new file clean of raw-string FieldName keys:
 1. Replace every raw string with the corresponding `FieldName.NAME`.
 2. Verify with:
@@ -148,9 +152,13 @@ everywhere you read/write the payload key.
 ### Legitimate exceptions (keep as raw strings)
 - **SQL bind parameters**: keys passed as the 2nd arg to
   `session.execute(text("... :name ..."), {...})` must match `:name`
-  placeholders. The guardrail exempts dict-LITERAL keys in files listed in
-  `SQL_BIND_HEAVY_FILES`, but READ operations (`.get`, `[...]`) are always
-  enforced everywhere.
+  placeholders. The guardrail exempts dict-LITERAL keys (and `"k" in d`
+  membership) in files listed in `SQL_BIND_HEAVY_FILES`, but READ operations
+  (`.get`, `.pop`, `.setdefault`, `[...]`) are always enforced everywhere.
+- **SQL schema-detection column names**: `"created_at" in available_columns`
+  and similar probe DB column identifiers used to build `text()` SQL — they
+  are not payload-dict keys. Kept raw; the membership check is relaxed for
+  `SQL_BIND_HEAVY_FILES` precisely for this.
 - **SQLAlchemy `.values(col=...)` and `set_={col: ...}` kwargs**: column
   names, not payload keys. Not caught by the guardrail anyway.
 - **Function keyword arguments** (`log_structured("info", "msg", symbol=x)`):
