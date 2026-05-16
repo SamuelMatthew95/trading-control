@@ -15,11 +15,11 @@ class AgentStateRegistry:
     def __init__(self) -> None:
         self._states: dict[str, dict[str, Any]] = {
             name: {
-                "name": name,
+                FieldName.NAME: name,
                 "status": AgentStatus.WAITING,
-                "lifecycle": "registered",
-                "health": "ok",
-                "last_task": "none",
+                FieldName.LIFECYCLE: "registered",
+                FieldName.HEALTH: "ok",
+                FieldName.LAST_TASK: "none",
                 "event_count": 0,
                 "last_seen": None,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -32,19 +32,19 @@ class AgentStateRegistry:
         state = self._states.get(name)
         if state is None:
             state = {
-                "name": name,
+                FieldName.NAME: name,
                 "status": AgentStatus.WAITING,
-                "health": "ok",
-                "last_task": "none",
+                FieldName.HEALTH: "ok",
+                FieldName.LAST_TASK: "none",
                 "event_count": 0,
                 "last_seen": None,
             }
             self._states[name] = state
         now = datetime.now(timezone.utc).isoformat()
         state[FieldName.STATUS] = AgentStatus.ACTIVE
-        state["lifecycle"] = "processing"
-        state["health"] = "ok"
-        state["last_task"] = task
+        state[FieldName.LIFECYCLE] = "processing"
+        state[FieldName.HEALTH] = "ok"
+        state[FieldName.LAST_TASK] = task
         state[FieldName.EVENT_COUNT] = int(state.get(FieldName.EVENT_COUNT) or 0) + 1
         state[FieldName.LAST_SEEN] = now
         state[FieldName.UPDATED_AT] = now
@@ -54,17 +54,17 @@ class AgentStateRegistry:
         state = self._states.get(name)
         if state is None:
             state = {
-                "name": name,
+                FieldName.NAME: name,
                 "status": AgentStatus.WAITING,
-                "health": "ok",
-                "last_task": "none",
+                FieldName.HEALTH: "ok",
+                FieldName.LAST_TASK: "none",
                 "event_count": 0,
                 "last_seen": None,
             }
             self._states[name] = state
         now = datetime.now(timezone.utc).isoformat()
-        state["lifecycle"] = lifecycle
-        state["last_task"] = task
+        state[FieldName.LIFECYCLE] = lifecycle
+        state[FieldName.LAST_TASK] = task
         if lifecycle in {"active", "processing"}:
             state[FieldName.STATUS] = AgentStatus.ACTIVE
             state[FieldName.LAST_SEEN] = now
@@ -92,17 +92,17 @@ class AgentStateRegistry:
     ) -> dict[str, Any]:
         """Legacy update used by EventPipeline for agent_name events."""
         state = self._states.get(name) or {
-            "name": name,
+            FieldName.NAME: name,
             "event_count": 0,
             "last_seen": None,
         }
         now = datetime.now(timezone.utc).isoformat()
         state.update(
             {
-                "name": name,
+                FieldName.NAME: name,
                 "status": self._normalize_status(status),
-                "health": health,
-                "last_task": last_task,
+                FieldName.HEALTH: health,
+                FieldName.LAST_TASK: last_task,
                 "event_count": int(state.get(FieldName.EVENT_COUNT) or 0) + 1,
                 "last_seen": now,
                 "updated_at": now,
@@ -112,4 +112,4 @@ class AgentStateRegistry:
         return state
 
     def snapshot(self) -> list[dict[str, Any]]:
-        return sorted(self._states.values(), key=lambda x: x["name"])
+        return sorted(self._states.values(), key=lambda x: x[FieldName.NAME])
