@@ -319,6 +319,35 @@ When you add a new `api/` file:
 
 ---
 
+### 15 — Raw FieldName Keys Hiding in `.pop` / `.setdefault` / `in`
+
+The FieldName guardrail catches raw payload keys in **every** dict-access form,
+not just `.get()` / `[...]` / dict literals. A raw key string anywhere on the
+line is a violation:
+
+```python
+# ❌ WRONG — raw FieldName keys
+event.setdefault("timestamp", ts)
+payload.pop("trace_id", None)
+if "msg_id" not in data:
+
+# ✅ RIGHT
+event.setdefault(FieldName.TIMESTAMP, ts)
+payload.pop(FieldName.TRACE_ID, None)
+if FieldName.MSG_ID not in data:
+```
+
+`.get` / `.pop` / `.setdefault` / `[...]` reads are enforced on every
+CLEAN_FILE. Dict literals and `"k" in d` membership are enforced everywhere
+EXCEPT `SQL_BIND_HEAVY_FILES` — there, `"col" in available_columns` legitimately
+probes DB schema column identifiers (used to build `text()` SQL), which are not
+payload-dict keys and stay raw.
+
+Scan for missed sites with an AST walk for `.pop` / `.setdefault` / `Compare`
+nodes whose constant operand is a `FieldName` value.
+
+---
+
 ## Code Smell Checks (run before pushing)
 
 ```bash
