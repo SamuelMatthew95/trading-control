@@ -131,12 +131,12 @@ class MessageProcessor:
     def create_dlq_entry(self, message: dict[str, Any], error: str) -> dict[str, Any]:
         """Create DLQ entry data - pure logic."""
         return {
-            "original_stream": message.get(FieldName.STREAM, "unknown"),
-            "original_id": message.get(FieldName.MESSAGE_ID, "unknown"),
+            FieldName.ORIGINAL_STREAM: message.get(FieldName.STREAM, "unknown"),
+            FieldName.ORIGINAL_ID: message.get(FieldName.MESSAGE_ID, "unknown"),
             FieldName.DATA: message.get(FieldName.DATA, {}),
             FieldName.ERROR: error,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-            "processing_attempt": 1,
+            FieldName.PROCESSING_ATTEMPT: 1,
         }
 
 
@@ -153,7 +153,7 @@ class BackpressureController:
     def should_apply_backpressure(self, error: Exception) -> bool:
         """Determine if backpressure should be applied."""
         error_str = str(error).lower()
-        return "connection" in error_str or "timeout" in error_str
+        return FieldName.CONNECTION in error_str or FieldName.TIMEOUT in error_str
 
     def record_error(self, error: Exception) -> float:
         """Record error and calculate backoff delay."""
