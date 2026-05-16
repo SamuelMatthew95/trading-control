@@ -367,7 +367,7 @@ def _in_memory_reflections(limit: int = 20) -> list[dict[str, Any]]:
         reflections.append(
             {
                 "trace_id": row.get(FieldName.TRACE_ID) or payload.get(FieldName.TRACE_ID),
-                "summary": payload.get("summary", ""),
+                "summary": payload.get(FieldName.SUMMARY, ""),
                 "hypotheses": payload.get("hypotheses", []),
                 "winning_factors": payload.get("winning_factors", []),
                 "losing_factors": payload.get("losing_factors", []),
@@ -670,7 +670,7 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
         return {
             "closed_trades": payload["closed_trades"],
             "open_positions": payload["open_positions"],
-            "summary": payload["summary"],
+            "summary": payload[FieldName.SUMMARY],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -686,7 +686,7 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
         return {
             "closed_trades": payload["closed_trades"],
             "open_positions": payload["open_positions"],
-            "summary": payload["summary"],
+            "summary": payload[FieldName.SUMMARY],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "in_memory",
         }
@@ -1861,7 +1861,7 @@ async def get_reflections(limit: int = 20) -> dict[str, Any]:
         reflections = [
             {
                 "trace_id": row[0],
-                "summary": _as_dict(row[1]).get("summary", ""),
+                "summary": _as_dict(row[1]).get(FieldName.SUMMARY, ""),
                 "hypotheses": _as_dict(row[1]).get("hypotheses", []),
                 "winning_factors": _as_dict(row[1]).get("winning_factors", []),
                 "losing_factors": _as_dict(row[1]).get("losing_factors", []),
@@ -2464,7 +2464,7 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
     """Build a performance-trends payload from the runtime store (no DB needed)."""
     store = get_runtime_store()
     paired = store.paired_pnl_payload()
-    summary_data = paired["summary"]
+    summary_data = paired[FieldName.SUMMARY]
     orders = list(store.orders)
     total_trades = summary_data["closed_trades"]
     wins = summary_data["winning_trades"]
@@ -2817,7 +2817,7 @@ async def get_dashboard_debug_state() -> dict[str, Any]:
     snapshot = store.dashboard_fallback_snapshot()
     paired = store.paired_pnl_payload()
     paired_closed_trades = paired.get("closed_trades", [])
-    paired_summary = paired.get("summary", {})
+    paired_summary = paired.get(FieldName.SUMMARY, {})
     summary_closed_trades = int(paired_summary.get("closed_trades", 0) or 0)
     db_available = is_db_available()
     equity_curve = snapshot.get("equity_curve", [])
