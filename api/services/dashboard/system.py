@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from api.constants import (
@@ -185,8 +186,6 @@ async def get_worker_health_payload(process_start_time: datetime) -> dict[str, A
     - 200: Starting (within 60s grace period)
     - 503: Unhealthy (worker stopped/failing)
     """
-    from fastapi import HTTPException  # noqa: PLC0415
-
     now = datetime.now(timezone.utc)
 
     # Check startup grace period (60 seconds)
