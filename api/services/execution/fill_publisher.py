@@ -67,11 +67,11 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
             FieldName.PNL: ctx.pnl_value,
             FieldName.CONFIDENCE: ctx.signal_confidence,
             FieldName.FILLED_AT: filled_at_iso,
-            "executed_at": filled_at_iso,
+            FieldName.EXECUTED_AT: filled_at_iso,
             FieldName.SESSION_ID: ctx.strategy_id,
             FieldName.IDEMPOTENCY_KEY: ctx.idempotency_key,
             FieldName.TRACE_ID: ctx.trace_id,
-            "vwap_plan": ctx.vwap_plan,
+            FieldName.VWAP_PLAN: ctx.vwap_plan,
             FieldName.SOURCE: SOURCE_EXECUTION,
         },
     )
@@ -122,7 +122,7 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
                 FieldName.PNL: ctx.realized_pnl,
                 FieldName.PNL_PERCENT: ctx.pnl_percent,
                 FieldName.TIMESTAMP: now_iso,
-                "executed_at": filled_at_iso,
+                FieldName.EXECUTED_AT: filled_at_iso,
             },
         )
 

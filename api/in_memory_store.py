@@ -86,7 +86,7 @@ class InMemoryStore:
         notification_type: str = "system",
     ) -> dict[str, Any]:
         payload = {
-            "id": len(self.notifications) + 1,
+            FieldName.ID: len(self.notifications) + 1,
             "message": message,
             "type": level,
             "notification_type": notification_type,
@@ -104,10 +104,10 @@ class InMemoryStore:
         """
         entry = dict(payload)
         entry.setdefault(
-            "id",
+            FieldName.ID,
             entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}",
         )
-        entry.setdefault("timestamp", time.time())
+        entry.setdefault(FieldName.TIMESTAMP, time.time())
         self.notifications.append(entry)
         if len(self.notifications) > 100:
             self.notifications = self.notifications[-100:]
@@ -115,7 +115,7 @@ class InMemoryStore:
 
     def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(grade_payload)
-        payload.setdefault("timestamp", time.time())
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
         self.grade_history.append(payload)
         if len(self.grade_history) > 500:
             self.grade_history = self.grade_history[-500:]
@@ -127,7 +127,7 @@ class InMemoryStore:
 
     def add_event(self, event_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(event_payload)
-        payload.setdefault("timestamp", time.time())
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
         self.event_history.append(payload)
         if len(self.event_history) > 1000:
             self.event_history = self.event_history[-1000:]
@@ -139,7 +139,7 @@ class InMemoryStore:
 
     def add_vector_memory(self, memory_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(memory_payload)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         self.vector_memory.append(payload)
         if len(self.vector_memory) > 1000:
             self.vector_memory = self.vector_memory[-1000:]
@@ -147,7 +147,7 @@ class InMemoryStore:
 
     def add_agent_run(self, run_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(run_payload)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         self.agent_runs.append(payload)
         if len(self.agent_runs) > 500:
             self.agent_runs = self.agent_runs[-500:]
@@ -155,7 +155,7 @@ class InMemoryStore:
 
     def add_order(self, order: dict[str, Any]) -> dict[str, Any]:
         payload = dict(order)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         self.orders.append(payload)
         if len(self.orders) > 500:
             self.orders = self.orders[-500:]
@@ -172,7 +172,7 @@ class InMemoryStore:
         Agent Thought Stream when Postgres is unavailable.
         """
         payload = dict(log_payload)
-        payload.setdefault("timestamp", time.time())
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
         self.agent_logs.append(payload)
         if len(self.agent_logs) > 500:
             self.agent_logs = self.agent_logs[-500:]
@@ -185,7 +185,7 @@ class InMemoryStore:
         existing row instead of creating duplicates.
         """
         payload = dict(trade)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         key = payload.get(FieldName.EXECUTION_TRACE_ID) or payload.get(FieldName.ORDER_ID)
         if key:
             for i, existing in enumerate(self.trade_feed):
@@ -207,7 +207,7 @@ class InMemoryStore:
 
     def add_trade_evaluation(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault("created_at", time.time())
+        entry.setdefault(FieldName.CREATED_AT, time.time())
         self.trade_evaluations.append(entry)
         if len(self.trade_evaluations) > 500:
             self.trade_evaluations = self.trade_evaluations[-500:]
@@ -219,8 +219,8 @@ class InMemoryStore:
 
     def add_reflection(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault("created_at", time.time())
+        entry.setdefault(FieldName.ID, str(uuid.uuid4()))
+        entry.setdefault(FieldName.CREATED_AT, time.time())
         self.reflections.append(entry)
         if len(self.reflections) > 100:
             self.reflections = self.reflections[-100:]
@@ -232,8 +232,8 @@ class InMemoryStore:
 
     def add_strategy(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault("created_at", time.time())
+        entry.setdefault(FieldName.ID, str(uuid.uuid4()))
+        entry.setdefault(FieldName.CREATED_AT, time.time())
         self.strategies.append(entry)
         if len(self.strategies) > 100:
             self.strategies = self.strategies[-100:]
@@ -252,23 +252,23 @@ class InMemoryStore:
         notifications = list(self.notifications[-100:])
         notification_summary = compute_notification_summary(notifications)
         return {
-            "orders": list(reversed(self.orders[-50:])),
-            "positions": [p for p in self.positions.values() if _has_open_quantity(p)],
-            "agent_logs": list(reversed(self.agent_logs[-50:])),
-            "learning_events": list(reversed(self.grade_history[-20:])),
-            "proposals": [
+            FieldName.ORDERS: list(reversed(self.orders[-50:])),
+            FieldName.POSITIONS: [p for p in self.positions.values() if _has_open_quantity(p)],
+            FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
+            FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
+            FieldName.PROPOSALS: [
                 e
                 for e in reversed(self.event_history[-100:])
                 if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL
             ][:20],
-            "trade_feed": list(reversed(self.trade_feed[-50:])),
-            "signals": [],
-            "risk_alerts": [],
-            "prices": {},
-            "ic_weights": {},
-            "agent_statuses": [
+            FieldName.TRADE_FEED: list(reversed(self.trade_feed[-50:])),
+            FieldName.SIGNALS: [],
+            FieldName.RISK_ALERTS: [],
+            FieldName.PRICES: {},
+            FieldName.IC_WEIGHTS: {},
+            FieldName.AGENT_STATUSES: [
                 {
-                    "name": name,
+                    FieldName.NAME: name,
                     "status": data.get(FieldName.STATUS, "unknown"),
                     "last_seen": data.get(FieldName.LAST_SEEN, now),
                     "last_seen_at": data.get(FieldName.LAST_SEEN_AT),
@@ -278,24 +278,28 @@ class InMemoryStore:
                 }
                 for name, data in self.agents.items()
             ],
-            "notifications": notifications,
-            "decisions": list(reversed(self.decisions[-50:])),
-            "closed_trades": list(reversed(self.closed_trades[-50:])),
-            "equity_curve": list(self.equity_curve[-200:]),
-            "notification_summary": notification_summary,
-            "mode": "in_memory",
-            "db_health": self.last_health,
-            "persistence_mode": "memory",  # Clear indication of deliberate in-memory mode
+            FieldName.NOTIFICATIONS: notifications,
+            FieldName.DECISIONS: list(reversed(self.decisions[-50:])),
+            FieldName.CLOSED_TRADES: list(reversed(self.closed_trades[-50:])),
+            FieldName.EQUITY_CURVE: list(self.equity_curve[-200:]),
+            FieldName.NOTIFICATION_SUMMARY: notification_summary,
+            FieldName.MODE: "in_memory",
+            FieldName.DB_HEALTH: self.last_health,
+            FieldName.PERSISTENCE_MODE: "memory",  # Clear indication of deliberate in-memory mode
             "source": "in_memory",
-            "has_data": bool(self.decisions or self.orders or self.positions or self.notifications),
+            FieldName.HAS_DATA: bool(
+                self.decisions or self.orders or self.positions or self.notifications
+            ),
         }
 
     def apply_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
         decision_key = self._decision_key(payload)
         if decision_key in self.applied_decision_keys:
             return {
-                "id": payload.get("id") or payload.get(FieldName.TRACE_ID) or decision_key,
-                "deduplicated": True,
+                FieldName.ID: payload.get(FieldName.ID)
+                or payload.get(FieldName.TRACE_ID)
+                or decision_key,
+                FieldName.DEDUPLICATED: True,
             }
         self.applied_decision_keys.add(decision_key)
         action = str(payload.get(FieldName.ACTION, "hold")).upper()
@@ -303,7 +307,7 @@ class InMemoryStore:
         price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
         explicit_quantity = self._safe_float(payload.get(FieldName.QTY))
         event = {
-            "id": payload.get("id")
+            FieldName.ID: payload.get(FieldName.ID)
             or payload.get(FieldName.TRACE_ID)
             or f"mem-dec-{len(self.decisions) + 1}",
             FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
@@ -323,10 +327,10 @@ class InMemoryStore:
         if action not in {"BUY", "SELL"} or not symbol or price <= 0:
             return event
         pos = self.positions.get(
-            symbol, {FieldName.SYMBOL: symbol, FieldName.QTY: 0.0, "avg_entry_price": 0.0}
+            symbol, {FieldName.SYMBOL: symbol, FieldName.QTY: 0.0, FieldName.AVG_ENTRY_PRICE: 0.0}
         )
         pos_qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
-        avg = self._safe_float(pos.get("avg_entry_price")) or price
+        avg = self._safe_float(pos.get(FieldName.AVG_ENTRY_PRICE)) or price
         if action == "BUY":
             quantity = explicit_quantity
             if (quantity is None or quantity <= 0) and price > 0:
@@ -340,7 +344,7 @@ class InMemoryStore:
                 {
                     FieldName.SIDE: "long",
                     FieldName.QTY: new_qty,
-                    "avg_entry_price": new_avg,
+                    FieldName.AVG_ENTRY_PRICE: new_avg,
                     FieldName.UNREALIZED_PNL: 0.0,
                     FieldName.PRICE: price,
                 }
@@ -378,17 +382,21 @@ class InMemoryStore:
                 self.positions.pop(symbol, None)
             else:
                 pos.update(
-                    {FieldName.QTY: remaining, "avg_entry_price": avg, FieldName.PRICE: price}
+                    {
+                        FieldName.QTY: remaining,
+                        FieldName.AVG_ENTRY_PRICE: avg,
+                        FieldName.PRICE: price,
+                    }
                 )
                 self.positions[symbol] = pos
-        paired = self.paired_pnl_payload()["summary"]
+        paired = self.paired_pnl_payload()[FieldName.SUMMARY]
         self.equity_curve.append(
             {
                 FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
-                "value": paired["total_pnl"],
-                "realized_pnl": paired["realized_pnl"],
+                FieldName.VALUE: paired[FieldName.TOTAL_PNL],
+                FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
                 FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
-                "total_pnl": paired["total_pnl"],
+                FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],
             }
         )
         if len(self.equity_curve) > 1000:
@@ -404,8 +412,10 @@ class InMemoryStore:
         decision_key = self._decision_key(payload)
         if decision_key in self.applied_decision_keys:
             return {
-                "id": payload.get("id") or payload.get(FieldName.TRACE_ID) or decision_key,
-                "deduplicated": True,
+                FieldName.ID: payload.get(FieldName.ID)
+                or payload.get(FieldName.TRACE_ID)
+                or decision_key,
+                FieldName.DEDUPLICATED: True,
             }
         self.applied_decision_keys.add(decision_key)
         action = str(payload.get(FieldName.ACTION, "hold")).upper()
@@ -415,7 +425,7 @@ class InMemoryStore:
         if (quantity is None or quantity <= 0) and price > 0:
             quantity = DEFAULT_TRADE_NOTIONAL / price
         event = {
-            "id": payload.get("id")
+            FieldName.ID: payload.get(FieldName.ID)
             or payload.get(FieldName.TRACE_ID)
             or f"mem-dec-{len(self.decisions) + 1}",
             FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
@@ -477,17 +487,17 @@ class InMemoryStore:
         )
 
         return {
-            "closed_trades": closed_trades,
-            "open_positions": open_positions,
+            FieldName.CLOSED_TRADES: closed_trades,
+            FieldName.OPEN_POSITIONS: open_positions,
             "summary": {
-                "realized_pnl": round(realized_pnl, 8),
+                FieldName.REALIZED_PNL: round(realized_pnl, 8),
                 "unrealized_pnl": round(unrealized_pnl, 8),
-                "total_pnl": round(realized_pnl + unrealized_pnl, 8),
-                "closed_trades": total_trades,
-                "winning_trades": winning_trades,
-                "win_rate_percent": round(
+                FieldName.TOTAL_PNL: round(realized_pnl + unrealized_pnl, 8),
+                FieldName.CLOSED_TRADES: total_trades,
+                FieldName.WINNING_TRADES: winning_trades,
+                FieldName.WIN_RATE_PERCENT: round(
                     (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
                 ),
-                "open_positions": len(open_positions),
+                FieldName.OPEN_POSITIONS: len(open_positions),
             },
         }

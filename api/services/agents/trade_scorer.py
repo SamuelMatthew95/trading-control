@@ -154,7 +154,7 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
         FieldName.CONFIDENCE: round(confidence_out, 4),
         FieldName.MISTAKES: mistakes,
         FieldName.STRENGTHS: strengths,
-        "norm_return": round(norm_return, 4),
+        FieldName.NORM_RETURN: round(norm_return, 4),
     }
 
 
@@ -241,12 +241,12 @@ def compute_mistake_clusters(
         clusters.append(
             {
                 FieldName.TYPE: mistake_type,
-                "frequency": frequency,
-                "impact": avg_impact,
-                "count": len(pnls),
+                FieldName.FREQUENCY: frequency,
+                FieldName.IMPACT: avg_impact,
+                FieldName.COUNT: len(pnls),
             }
         )
-    return sorted(clusters, key=lambda c: abs(c["impact"]), reverse=True)
+    return sorted(clusters, key=lambda c: abs(c[FieldName.IMPACT]), reverse=True)
 
 
 def compute_patterns(evaluations: list[dict[str, Any]]) -> list[str]:
@@ -266,7 +266,7 @@ def compute_patterns(evaluations: list[dict[str, Any]]) -> list[str]:
         patterns.append(f"strong win rate ({win_rate:.0%}) — signal quality is high")
 
     late_entry_rate = (
-        sum(1 for e in evaluations if "late_entry" in e.get(FieldName.MISTAKES, [])) / total
+        sum(1 for e in evaluations if FieldName.LATE_ENTRY in e.get(FieldName.MISTAKES, [])) / total
     )
     if late_entry_rate > 0.35:
         patterns.append(
@@ -274,7 +274,7 @@ def compute_patterns(evaluations: list[dict[str, Any]]) -> list[str]:
         )
 
     poor_exit_rate = (
-        sum(1 for e in evaluations if "poor_exit" in e.get(FieldName.MISTAKES, [])) / total
+        sum(1 for e in evaluations if FieldName.POOR_EXIT in e.get(FieldName.MISTAKES, [])) / total
     )
     if poor_exit_rate > 0.35:
         patterns.append(
@@ -305,15 +305,15 @@ def compute_recommendations(
     seen: set[str] = set()
 
     mapping = {
-        "late_entry": "wait for signal confirmation before entering — reduce entry delay",
-        "poor_exit": "use trailing stops or take-profit targets to improve exit quality",
-        "bad_risk_reward": "filter out trades with R/R below 1.5:1",
-        "misaligned_signal": "reject trades where execution direction contradicts signal direction",
-        "premature_entry": "require at least 2 confirming indicators before entry",
+        FieldName.LATE_ENTRY: "wait for signal confirmation before entering — reduce entry delay",
+        FieldName.POOR_EXIT: "use trailing stops or take-profit targets to improve exit quality",
+        FieldName.BAD_RISK_REWARD: "filter out trades with R/R below 1.5:1",
+        FieldName.MISALIGNED_SIGNAL: "reject trades where execution direction contradicts signal direction",
+        FieldName.PREMATURE_ENTRY: "require at least 2 confirming indicators before entry",
     }
 
     for cluster in mistake_clusters:
-        if cluster["frequency"] < 0.15:
+        if cluster[FieldName.FREQUENCY] < 0.15:
             continue
         rec = mapping.get(cluster[FieldName.TYPE])
         if rec and rec not in seen:
@@ -327,7 +327,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
     """Compute aggregate agent performance metrics from trade evaluations."""
     if not evaluations:
         return {
-            "total_trades": 0,
+            FieldName.TOTAL_TRADES: 0,
             FieldName.WIN_RATE: 0.0,
             FieldName.AVG_RETURN: 0.0,
             FieldName.SHARPE_RATIO: 0.0,
@@ -389,7 +389,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
         consistency = _clamp(1.0 - (std_s / avg_score))
 
     return {
-        "total_trades": total,
+        FieldName.TOTAL_TRADES: total,
         FieldName.WIN_RATE: round(win_rate, 4),
         FieldName.AVG_RETURN: round(avg_return, 4),
         FieldName.SHARPE_RATIO: round(sharpe, 4),

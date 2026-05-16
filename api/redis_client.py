@@ -32,7 +32,7 @@ async def get_redis() -> Redis:
             raise RuntimeError("Missing REDIS_URL")
 
         try:
-            from api.config import settings as _s
+            from api.config import settings as _s  # noqa: PLC0415
 
             _max_conn = _s.REDIS_MAX_CONNECTIONS
         except Exception:

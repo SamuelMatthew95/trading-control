@@ -60,7 +60,7 @@ class MetricsStore:
                 {
                     FieldName.EVENT_TYPE: event_type,
                     FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                    "request_id": request_id_ctx.get(),
+                    FieldName.REQUEST_ID: request_id_ctx.get(),
                     **data,
                 }
             )
@@ -75,7 +75,7 @@ class MetricsStore:
     def update_agent(self, name: str, status: str, **data: Any) -> None:
         with self._lock:
             self.agent_status[name] = {
-                "name": name,
+                FieldName.NAME: name,
                 FieldName.STATUS: status,
                 FieldName.UPDATED_AT: datetime.now(timezone.utc).isoformat(),
                 **data,
@@ -89,18 +89,18 @@ class MetricsStore:
                 round(sorted(latency)[max(int(len(latency) * 0.95) - 1, 0)], 2) if latency else 0.0
             )
             return {
-                "uptime_seconds": int(time.time() - START_TIME),
-                "total_requests": self.total_requests,
-                "total_errors": self.total_errors,
-                "error_rate": (
+                FieldName.UPTIME_SECONDS: int(time.time() - START_TIME),
+                FieldName.TOTAL_REQUESTS: self.total_requests,
+                FieldName.TOTAL_ERRORS: self.total_errors,
+                FieldName.ERROR_RATE: (
                     round((self.total_errors / self.total_requests) * 100, 2)
                     if self.total_requests
                     else 0
                 ),
-                "avg_latency_ms": avg_latency,
-                "p95_latency_ms": p95,
-                "agent_status": list(self.agent_status.values()),
-                "recent_events": list(self.recent_events)[:100],
+                FieldName.AVG_LATENCY_MS: avg_latency,
+                FieldName.P95_LATENCY_MS: p95,
+                FieldName.AGENT_STATUS: list(self.agent_status.values()),
+                FieldName.RECENT_EVENTS: list(self.recent_events)[:100],
             }
 
 
@@ -127,8 +127,8 @@ def log_structured(level: str, message: str, **extra_data: Any) -> None:
     }:
         level = "info"
 
-    if "event" in extra_data:
-        extra_data.pop("event")
+    if FieldName.EVENT in extra_data:
+        extra_data.pop(FieldName.EVENT)
 
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(message, **extra_data)

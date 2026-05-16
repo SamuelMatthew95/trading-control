@@ -10,7 +10,12 @@ from typing import Any
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from api.constants import PROCESS_TIMEOUT_SECONDS, REDIS_KEY_DLQ_RETRIES, FieldName
+from api.constants import (
+    PROCESS_TIMEOUT_SECONDS,
+    REDIS_KEY_DLQ_RETRIES,
+    FieldName,
+    LifecyclePhase,
+)
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -62,7 +67,7 @@ class BaseStreamConsumer(ABC):
         if not self._heartbeat_agent_name:
             return
         try:
-            from api.services.agent_heartbeat import write_heartbeat as _hb
+            from api.services.agent_heartbeat import write_heartbeat as _hb  # noqa: PLC0415
 
             await _hb(
                 self.bus.redis,
@@ -107,7 +112,7 @@ class BaseStreamConsumer(ABC):
         self._shutdown_event.clear()
         self._backoff = 1  # Reset backoff
         try:
-            from api.services.agents.db_helpers import (
+            from api.services.agents.db_helpers import (  # noqa: PLC0415
                 register_agent_instance,
                 write_agent_lifecycle_event,
             )
@@ -119,8 +124,8 @@ class BaseStreamConsumer(ABC):
             await write_agent_lifecycle_event(
                 pool_name=self.consumer,
                 instance_id=self._instance_id,
-                lifecycle_phase="started",
-                details={"stream": self.stream},
+                lifecycle_phase=LifecyclePhase.STARTED,
+                details={FieldName.STREAM: self.stream},
             )
         except Exception:
             log_structured("warning", "consumer_instance_register_failed", exc_info=True)
@@ -162,7 +167,7 @@ class BaseStreamConsumer(ABC):
         finally:
             if self._instance_id:
                 try:
-                    from api.services.agents.db_helpers import (
+                    from api.services.agents.db_helpers import (  # noqa: PLC0415
                         retire_agent_instance,
                         write_agent_lifecycle_event,
                     )
@@ -171,8 +176,8 @@ class BaseStreamConsumer(ABC):
                     await write_agent_lifecycle_event(
                         pool_name=self.consumer,
                         instance_id=self._instance_id,
-                        lifecycle_phase="stopped",
-                        details={"stream": self.stream},
+                        lifecycle_phase=LifecyclePhase.STOPPED,
+                        details={FieldName.STREAM: self.stream},
                     )
                 except Exception:
                     log_structured("warning", "consumer_instance_retire_failed", exc_info=True)
@@ -191,8 +196,8 @@ class BaseStreamConsumer(ABC):
                 "error",
                 "Missing msg_id in producer payload",
                 extra={
-                    "stream": self.stream,
-                    "data_keys": list(data.keys()),
+                    FieldName.STREAM: self.stream,
+                    FieldName.DATA_KEYS: list(data.keys()),
                 },
             )
             raise RuntimeError(f"Missing msg_id in {self.stream}")
@@ -285,13 +290,15 @@ class BaseStreamConsumer(ABC):
                 )
                 if self._instance_id:
                     try:
-                        from api.services.agents.db_helpers import write_agent_lifecycle_event
+                        from api.services.agents.db_helpers import (  # noqa: PLC0415
+                            write_agent_lifecycle_event,
+                        )
 
                         await write_agent_lifecycle_event(
                             pool_name=self.consumer,
                             instance_id=self._instance_id,
-                            lifecycle_phase="recovered",
-                            details={"stream": self.stream},
+                            lifecycle_phase=LifecyclePhase.RECOVERED,
+                            details={FieldName.STREAM: self.stream},
                         )
                     except Exception:
                         pass
@@ -317,13 +324,15 @@ class BaseStreamConsumer(ABC):
                 )
                 if self._instance_id:
                     try:
-                        from api.services.agents.db_helpers import write_agent_lifecycle_event
+                        from api.services.agents.db_helpers import (  # noqa: PLC0415
+                            write_agent_lifecycle_event,
+                        )
 
                         await write_agent_lifecycle_event(
                             pool_name=self.consumer,
                             instance_id=self._instance_id,
-                            lifecycle_phase="crashed",
-                            details={"stream": self.stream},
+                            lifecycle_phase=LifecyclePhase.CRASHED,
+                            details={FieldName.STREAM: self.stream},
                         )
                     except Exception:
                         pass
@@ -405,7 +414,7 @@ class BaseStreamConsumer(ABC):
             message_id=msg_id,
         )
         # Soft guard: use redis stream ID as fallback if producer omitted msg_id
-        if "msg_id" not in data:
+        if FieldName.MSG_ID not in data:
             data = {**data, FieldName.MSG_ID: msg_id}
             log_structured(
                 "debug",

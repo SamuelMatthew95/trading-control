@@ -14,6 +14,7 @@ from api.constants import (
     LLM_CALL_DELAY_MS,
     LLM_METRICS_MAX_RECORDS,
     LLM_METRICS_WINDOW_SECONDS,
+    FieldName,
     LLMCallResult,
 )
 
@@ -45,7 +46,7 @@ def _async_fire_and_forget(coro) -> None:
 async def _record_redis_outcome(outcome: str, latency_ms: float | None = None) -> None:
     # Imported lazily to avoid a circular import (redis_store imports
     # observability which can transitively pull in this module).
-    from api.services.redis_store import get_redis_store
+    from api.services.redis_store import get_redis_store  # noqa: PLC0415
 
     store = get_redis_store()
     if store is None:
@@ -147,29 +148,31 @@ class LLMMetricsCollector:
         success_count = len(successes)
 
         return {
-            "window_seconds": window_seconds,
-            "total_in_window": total_w,
-            "success_count": success_count,
-            "success_rate_pct": round(success_count / total_w * 100, 1) if total_w else 0.0,
-            "avg_latency_ms": (
+            FieldName.WINDOW_SECONDS: window_seconds,
+            FieldName.TOTAL_IN_WINDOW: total_w,
+            FieldName.SUCCESS_COUNT: success_count,
+            FieldName.SUCCESS_RATE_PCT: round(success_count / total_w * 100, 1) if total_w else 0.0,
+            FieldName.AVG_LATENCY_MS: (
                 round(sum(r.latency_ms for r in successes) / success_count) if successes else 0.0
             ),
-            "rate_limited_count": sum(1 for r in window if r.result == LLMCallResult.RATE_LIMITED),
-            "timeout_count": sum(1 for r in window if r.result == LLMCallResult.TIMEOUT),
-            "error_count": sum(1 for r in window if r.result == LLMCallResult.ERROR),
-            "total_calls_lifetime": total_calls,
-            "daily_calls": daily_calls,
-            "effective_delay_ms": effective_delay_ms,
-            "grade_adjusted_delay": grade_adjusted,
-            "last_error": {
-                "kind": last_error_kind,
-                "message": last_error_message,
-                "at": last_error_at,
+            FieldName.RATE_LIMITED_COUNT: sum(
+                1 for r in window if r.result == LLMCallResult.RATE_LIMITED
+            ),
+            FieldName.TIMEOUT_COUNT: sum(1 for r in window if r.result == LLMCallResult.TIMEOUT),
+            FieldName.ERROR_COUNT: sum(1 for r in window if r.result == LLMCallResult.ERROR),
+            FieldName.TOTAL_CALLS_LIFETIME: total_calls,
+            FieldName.DAILY_CALLS: daily_calls,
+            FieldName.EFFECTIVE_DELAY_MS: effective_delay_ms,
+            FieldName.GRADE_ADJUSTED_DELAY: grade_adjusted,
+            FieldName.LAST_ERROR: {
+                FieldName.KIND: last_error_kind,
+                FieldName.MESSAGE: last_error_message,
+                FieldName.AT: last_error_at,
             },
-            "recent_results": [
+            FieldName.RECENT_RESULTS: [
                 {
-                    "result": r.result,
-                    "latency_ms": round(r.latency_ms)
+                    FieldName.RESULT: r.result,
+                    FieldName.LATENCY_MS: round(r.latency_ms)
                     if r.result == LLMCallResult.SUCCESS
                     else None,
                 }

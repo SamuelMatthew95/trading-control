@@ -34,7 +34,7 @@ class DLQManager:
             "event_id": event_id,
             "payload": payload,
             "error": error,
-            "retries": retries,
+            FieldName.RETRIES: retries,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await self.redis.hset(
@@ -74,15 +74,15 @@ class DLQManager:
             for value in values.values():
                 raw = value.decode("utf-8") if isinstance(value, bytes) else value
                 event = json.loads(raw)
-                retries = int(event.get("retries", 0))
+                retries = int(event.get(FieldName.RETRIES, 0))
                 retry_buckets[str(retries)] = retry_buckets.get(str(retries), 0) + 1
                 last_error = event.get(FieldName.ERROR) or last_error
 
         return {
-            "total": total,
-            "per_stream": per_stream,
-            "retry_buckets": retry_buckets,
-            "last_error": last_error,
+            FieldName.TOTAL: total,
+            FieldName.PER_STREAM: per_stream,
+            FieldName.RETRY_BUCKETS: retry_buckets,
+            FieldName.LAST_ERROR: last_error,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -93,7 +93,7 @@ class DLQManager:
                 continue
             raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
             record = json.loads(raw)
-            await self.bus.publish(record["stream"], record[FieldName.PAYLOAD])
+            await self.bus.publish(record[FieldName.STREAM], record[FieldName.PAYLOAD])
             await self.clear(event_id)
             return True
         return False

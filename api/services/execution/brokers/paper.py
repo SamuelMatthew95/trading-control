@@ -78,7 +78,7 @@ class PaperBroker:
             FieldName.SIDE: new_side,
             FieldName.QTY: new_qty,
             FieldName.ENTRY_PRICE: new_entry_price,
-            "current_price": fill_price,
+            FieldName.CURRENT_PRICE: fill_price,
         }
         await self.redis.set(
             REDIS_KEY_PAPER_POSITION.format(symbol=symbol), json.dumps(position_payload)
@@ -88,7 +88,7 @@ class PaperBroker:
             FieldName.BROKER_ORDER_ID: broker_order_id,
             FieldName.SYMBOL: symbol,
             FieldName.SIDE: normalized_side,
-            "filled_qty": qty,
+            FieldName.FILLED_QTY: qty,
             FieldName.FILL_PRICE: fill_price,
             FieldName.STATUS: OrderStatus.FILLED,
         }
@@ -106,7 +106,7 @@ class PaperBroker:
                 FieldName.SIDE: PositionSide.FLAT,
                 FieldName.QTY: 0.0,
                 FieldName.ENTRY_PRICE: 0.0,
-                "current_price": 0.0,
+                FieldName.CURRENT_PRICE: 0.0,
             }
         return json.loads(raw)
 

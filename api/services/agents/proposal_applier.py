@@ -29,6 +29,7 @@ from redis.asyncio import Redis
 
 from api.constants import (
     AGENT_PROPOSAL_APPLIER,
+    AGENT_REASONING,
     AGENT_SUSPEND_TTL_SECONDS,
     LEARNING_CONTROL_TTL_SECONDS,
     REDIS_KEY_AGENT_SUSPENDED,
@@ -126,7 +127,7 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.APPLIED_AT: applied_at,
             FieldName.APPLIED_BY: AGENT_PROPOSAL_APPLIER,
             FieldName.TRACE_ID: trace_id,
-            FieldName.MESSAGE: applied.get("message", ""),
+            FieldName.MESSAGE: applied.get(FieldName.MESSAGE, ""),
             FieldName.PAYLOAD: applied,
         }
         try:
@@ -177,19 +178,19 @@ class ProposalApplier(MultiStreamAgent):
             ex=LEARNING_CONTROL_TTL_SECONDS,
         )
         return {
-            "message": f"signal_weight_scale {current:.4f} -> {new_scale:.4f}",
+            FieldName.MESSAGE: f"signal_weight_scale {current:.4f} -> {new_scale:.4f}",
             FieldName.WEIGHT_SCALE: round(new_scale, 6),
-            "previous_scale": round(current, 6),
-            "reason": content.get(FieldName.REASON, ""),
+            FieldName.PREVIOUS_SCALE: round(current, 6),
+            FieldName.REASON: content.get(FieldName.REASON, ""),
         }
 
     async def _apply_agent_suspension(self, content: dict[str, Any]) -> dict[str, Any]:
         """Mark a specific agent suspended for AGENT_SUSPEND_TTL_SECONDS."""
         agent_name = (
             content.get(FieldName.AGENT_NAME)
-            or content.get("agent")
-            or content.get("target_agent")
-            or "REASONING_AGENT"  # default target — the most common culprit
+            or content.get(FieldName.AGENT)
+            or content.get(FieldName.TARGET_AGENT)
+            or AGENT_REASONING  # default target — the most common culprit
         )
         suspended_until = datetime.now(timezone.utc).timestamp() + AGENT_SUSPEND_TTL_SECONDS
         key = REDIS_KEY_AGENT_SUSPENDED.format(name=agent_name)
@@ -198,10 +199,10 @@ class ProposalApplier(MultiStreamAgent):
         # is recorded only in the agent_logs payload for human inspection.
         await self.redis.set(key, "1", ex=AGENT_SUSPEND_TTL_SECONDS)
         return {
-            "message": f"agent {agent_name} suspended for {AGENT_SUSPEND_TTL_SECONDS}s",
+            FieldName.MESSAGE: f"agent {agent_name} suspended for {AGENT_SUSPEND_TTL_SECONDS}s",
             FieldName.AGENT_NAME: agent_name,
             FieldName.SUSPENDED_UNTIL: suspended_until,
-            "reason": content.get(FieldName.REASON, ""),
+            FieldName.REASON: content.get(FieldName.REASON, ""),
         }
 
     async def _apply_trading_pause(self, content: dict[str, Any]) -> dict[str, Any]:
@@ -212,6 +213,6 @@ class ProposalApplier(MultiStreamAgent):
             REDIS_KEY_TRADING_PAUSED_REASON, str(reason), ex=LEARNING_CONTROL_TTL_SECONDS
         )
         return {
-            "message": f"trading paused: {reason}",
-            "reason": reason,
+            FieldName.MESSAGE: f"trading paused: {reason}",
+            FieldName.REASON: reason,
         }

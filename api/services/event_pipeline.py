@@ -92,13 +92,13 @@ class EventPipeline:
 
     def status(self) -> dict[str, Any]:
         return {
-            "running": self._running,
-            "consumer": self.consumer_name,
-            "stream_count": len(STREAMS),
-            "max_retries": self.max_retries,
-            "last_error": self._last_error,
-            "recent": list(self._recent_events),
-            "recent_failures": list(self._recent_failures),
+            FieldName.RUNNING: self._running,
+            FieldName.CONSUMER: self.consumer_name,
+            FieldName.STREAM_COUNT: len(STREAMS),
+            FieldName.MAX_RETRIES: self.max_retries,
+            FieldName.LAST_ERROR: self._last_error,
+            FieldName.RECENT: list(self._recent_events),
+            FieldName.RECENT_FAILURES: list(self._recent_failures),
         }
 
     async def _run(self) -> None:
@@ -121,7 +121,7 @@ class EventPipeline:
         event_type = str(event.get(FieldName.TYPE) or stream)
         msg_id = str(event.get(FieldName.MSG_ID) or redis_id)
         ts = str(event.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat())
-        retry_count = int(event.get("retry_count") or 0)
+        retry_count = int(event.get(FieldName.RETRY_COUNT) or 0)
 
         try:
             await self._process_message(stream, redis_id, event, event_type, msg_id, ts)
@@ -134,8 +134,8 @@ class EventPipeline:
                 FieldName.EVENT_TYPE: event_type,
                 FieldName.TIMESTAMP: ts,
                 FieldName.ERROR: error,
-                "retry_count": retry_count,
-                "stream": stream,
+                FieldName.RETRY_COUNT: retry_count,
+                FieldName.STREAM: stream,
             }
             self._recent_failures.appendleft(failure)
             log_structured(
@@ -152,7 +152,7 @@ class EventPipeline:
 
             if retry_count + 1 < self.max_retries:
                 retried = dict(event)
-                retried["retry_count"] = retry_count + 1
+                retried[FieldName.RETRY_COUNT] = retry_count + 1
                 await self.bus.publish(stream, retried)
                 await self.bus.acknowledge(stream, self._group, redis_id)
                 log_structured(
@@ -247,7 +247,7 @@ class EventPipeline:
 
         outbound = {
             FieldName.TYPE: "event",
-            "stream": stream,
+            FieldName.STREAM: stream,
             FieldName.MSG_ID: msg_id,
             FieldName.EVENT_TYPE: event_type,
             FieldName.PAYLOAD: event,
@@ -256,8 +256,8 @@ class EventPipeline:
         if not is_db_available():
             get_runtime_store().add_event(
                 {
-                    "id": msg_id,
-                    "kind": event_type,
+                    FieldName.ID: msg_id,
+                    FieldName.KIND: event_type,
                     FieldName.SOURCE: str(event.get(FieldName.SOURCE) or stream),
                     FieldName.CREATED_AT: ts,
                 }
@@ -273,8 +273,8 @@ class EventPipeline:
                 agent_status = self.agent_state.update(
                     str(agent_name),
                     status=str(payload.get(FieldName.STATUS) or "running"),
-                    health=str(payload.get("health") or "ok"),
-                    last_task=str(payload.get("last_task") or event_type),
+                    health=str(payload.get(FieldName.HEALTH) or "ok"),
+                    last_task=str(payload.get(FieldName.LAST_TASK) or event_type),
                 )
                 await self.broadcaster.broadcast(
                     {

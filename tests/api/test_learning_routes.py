@@ -540,11 +540,9 @@ async def test_list_trades_db_empty_falls_back_to_agent_grades(client, monkeypat
         def __call__(self):
             return _Session()
 
-    # Patch the module-level is_db_available AND the lazily-imported AsyncSessionFactory
+    # Patch is_db_available AND AsyncSessionFactory on the route module under test.
     monkeypatch.setattr(learning_module, "is_db_available", lambda: True)
-    import api.database as _db_mod
-
-    monkeypatch.setattr(_db_mod, "AsyncSessionFactory", _Fac())
+    monkeypatch.setattr(learning_module, "AsyncSessionFactory", _Fac())
 
     resp = await client.get("/learning/trades")
     assert resp.status_code == 200
@@ -629,9 +627,7 @@ async def test_trade_detail_db_up_finds_in_agent_grades_bridge(client, monkeypat
             return _Session()
 
     monkeypatch.setattr(learning_module, "is_db_available", lambda: True)
-    import api.database as _db_mod
-
-    monkeypatch.setattr(_db_mod, "AsyncSessionFactory", _Fac())
+    monkeypatch.setattr(learning_module, "AsyncSessionFactory", _Fac())
 
     resp = await client.get("/learning/trades/trace-xyz")
     assert resp.status_code == 200
@@ -685,9 +681,7 @@ async def test_trade_detail_db_up_bridges_when_trade_evals_table_inaccessible(cl
             return _Session()
 
     monkeypatch.setattr(learning_module, "is_db_available", lambda: True)
-    import api.database as _db_mod
-
-    monkeypatch.setattr(_db_mod, "AsyncSessionFactory", _Fac())
+    monkeypatch.setattr(learning_module, "AsyncSessionFactory", _Fac())
 
     resp = await client.get("/learning/trades/missing-te-id")
     assert resp.status_code == 200

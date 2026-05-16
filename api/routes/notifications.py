@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from api.constants import FieldName
 from api.observability import log_structured
 from api.services.redis_store import get_redis_store
 
@@ -28,8 +29,8 @@ async def list_notifications(limit: int = Query(50, ge=1, le=200)) -> list[dict[
 async def unread_count() -> dict[str, int]:
     store = get_redis_store()
     if store is None:
-        return {"count": 0}
-    return {"count": await store.unread_count()}
+        return {FieldName.COUNT: 0}
+    return {FieldName.COUNT: await store.unread_count()}
 
 
 # Use the ``:path`` converter so slashes in the id are captured. Trade
@@ -51,4 +52,4 @@ async def mark_read(
             notification_id=notification_id,
         )
         raise HTTPException(status_code=500, detail="failed_to_mark_read") from None
-    return {"ok": True, "id": notification_id}
+    return {FieldName.OK: True, FieldName.ID: notification_id}

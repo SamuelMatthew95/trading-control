@@ -19,6 +19,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.sql import func, text
 
+from api.constants import FieldName
+
 from .base import Base
 
 
@@ -115,7 +117,7 @@ class VectorMemory(Base):
             "embedding",
             postgresql_using="ivfflat",
             postgresql_ops={"embedding": "vector_cosine_ops"},
-            postgresql_with={"lists": 100},
+            postgresql_with={FieldName.LISTS: 100},
         ),
         CheckConstraint("schema_version = 'v2'", name="check_vector_memory_schema_v2"),
     )

@@ -27,7 +27,7 @@ async def create_annotation(
 ):
     async with get_async_session() as session:
         row = await feedback_service.stage_annotation(session, payload.model_dump())
-        return {"id": row.id, FieldName.STATUS: row.feedback_status}
+        return {FieldName.ID: row.id, FieldName.STATUS: row.feedback_status}
 
 
 @router.post("/memory/negative")
@@ -37,7 +37,7 @@ async def create_negative_memory(
 ):
     async with get_async_session() as session:
         row = await feedback_service.create_negative_memory(session, payload)
-        return {"id": row.id, FieldName.STATUS: "stored"}
+        return {FieldName.ID: row.id, FieldName.STATUS: "stored"}
 
 
 @router.post("/feedback/reinforce")
@@ -55,7 +55,7 @@ async def reinforce_feedback(
             await feedback_service.run_feedback_job(session, job_id, payload)
 
     background_tasks.add_task(_run_pipeline)
-    return {FieldName.STATUS: "queued", FieldName.RUN_ID: payload.run_id, "job_id": job_id}
+    return {FieldName.STATUS: "queued", FieldName.RUN_ID: payload.run_id, FieldName.JOB_ID: job_id}
 
 
 @router.get("/feedback/reinforce/{job_id}")
@@ -91,7 +91,7 @@ async def get_insights(
     try:
         async with get_async_session() as session:
             insights = await feedback_service.list_insights(session, limit=limit)
-            insights_data = {"items": [entry.model_dump() for entry in insights]}
+            insights_data = {FieldName.ITEMS: [entry.model_dump() for entry in insights]}
             return StandardResponse(success=True, data=insights_data).model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get insights: {str(e)}") from None
@@ -103,7 +103,7 @@ async def propose_runs(
 ):
     async with get_async_session() as session:
         items = await feedback_service.propose_runs(session)
-        return {"stage": "Proposed", "items": [item.model_dump() for item in items]}
+        return {FieldName.STAGE: "Proposed", FieldName.ITEMS: [item.model_dump() for item in items]}
 
 
 @router.post("/memory/positive")
@@ -112,12 +112,12 @@ async def create_positive_memory(
     feedback_service: Annotated[FeedbackService, Depends(get_feedback_service)],
 ):
     async with get_async_session() as session:
-        payload = {**payload, "store_type": "few-shot"}
+        payload = {**payload, FieldName.STORE_TYPE: "few-shot"}
         row = await feedback_service.create_negative_memory(session, payload)
         row.store_type = "few-shot"
-        return {"id": row.id, FieldName.STATUS: "stored"}
+        return {FieldName.ID: row.id, FieldName.STATUS: "stored"}
 
 
 @router.post("/config/blocklist")
 async def config_blocklist(payload: dict):
-    return {FieldName.STATUS: "accepted", "blocked_tools": payload.get("tools", [])}
+    return {FieldName.STATUS: "accepted", FieldName.BLOCKED_TOOLS: payload.get(FieldName.TOOLS, [])}

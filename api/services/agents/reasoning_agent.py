@@ -188,7 +188,7 @@ class ReasoningAgent(BaseStreamConsumer):
         await write_agent_log(
             trace_id,
             "reasoning_summary",
-            {**summary, "fallback_reason": fallback_reason, "source": SOURCE_REASONING},
+            {**summary, FieldName.FALLBACK_REASON: fallback_reason, "source": SOURCE_REASONING},
             agent_run_id=agent_run_id,
         )
 
@@ -216,8 +216,8 @@ class ReasoningAgent(BaseStreamConsumer):
                 STREAM_SYSTEM_METRICS,
                 {
                     "type": "system_metric",
-                    "metric_name": "llm_cost_today",
-                    "value": current_cost,
+                    FieldName.METRIC_NAME: "llm_cost_today",
+                    FieldName.VALUE: current_cost,
                     "source": SOURCE_REASONING,
                 },
             )
@@ -231,8 +231,8 @@ class ReasoningAgent(BaseStreamConsumer):
                 {
                     "type": "llm_budget",
                     "message": "Daily LLM token budget exceeded",
-                    "tokens_used": updated_budget,
-                    "limit": settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
+                    FieldName.TOKENS_USED: updated_budget,
+                    FieldName.LIMIT: settings.ANTHROPIC_DAILY_TOKEN_BUDGET,
                 },
             )
 
@@ -246,8 +246,8 @@ class ReasoningAgent(BaseStreamConsumer):
                 "msg_id": str(uuid.uuid4()),
                 "source": SOURCE_REASONING,
                 "agent_name": AGENT_REASONING,
-                "confidence_score": _conf * 100.0,
-                "reasoning": _edge or "reasoning decision",
+                FieldName.CONFIDENCE_SCORE: _conf * 100.0,
+                FieldName.REASONING: _edge or "reasoning decision",
                 # Explicit message for thought stream — frontend reads log.message first
                 "message": f"{_action.upper()} ({_conf:.0%}) — {_edge}"
                 if _edge
@@ -281,7 +281,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.MSG_ID: str(uuid.uuid4()),
                 FieldName.SOURCE: SOURCE_REASONING,
                 FieldName.STRATEGY_ID: strategy_id,
-                "signal_id": str(data.get("signal_id") or data.get(FieldName.MSG_ID) or ""),
+                FieldName.SIGNAL_ID: str(
+                    data.get(FieldName.SIGNAL_ID) or data.get(FieldName.MSG_ID) or ""
+                ),
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.ACTION: action,
                 # Advisory scores — ExecutionEngine uses these in weighted formula
@@ -348,8 +350,8 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.SYMBOL: symbol,
             FieldName.PRICE: price,
             FieldName.CONFIDENCE: confidence,
-            "reasoning_summary": edge,
-            "llm_succeeded": not is_fallback,
+            FieldName.REASONING_SUMMARY: edge,
+            FieldName.LLM_SUCCEEDED: not is_fallback,
         }
 
     @staticmethod
@@ -449,7 +451,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 "composite_score": data.get(FieldName.COMPOSITE_SCORE),
                 # Signal publishes "type" (e.g. "STRONG_MOMENTUM"); some callers use "signal_type"
                 "signal_type": data.get(FieldName.SIGNAL_TYPE) or data.get(FieldName.TYPE),
-                "context": data.get("context", {}),
+                FieldName.CONTEXT: data.get(FieldName.CONTEXT, {}),
             },
             sort_keys=True,
             default=str,
@@ -467,23 +469,23 @@ class ReasoningAgent(BaseStreamConsumer):
         try:
             ic_raw = await self.redis.get(REDIS_KEY_IC_WEIGHTS)
             if ic_raw:
-                context["ic_weights"] = json.loads(ic_raw)
+                context[FieldName.IC_WEIGHTS] = json.loads(ic_raw)
         except Exception:
             log_structured("warning", "reasoning_ic_weights_fetch_failed", exc_info=True)
 
         # Derive risk state from the signal itself
-        context["risk_state"] = {
+        context[FieldName.RISK_STATE] = {
             "composite_score": float(data.get(FieldName.COMPOSITE_SCORE) or 0.0),
-            "momentum_pct": float(data.get(FieldName.PCT) or 0.0),
-            "signal_strength": data.get(FieldName.STRENGTH, "NORMAL"),
+            FieldName.MOMENTUM_PCT: float(data.get(FieldName.PCT) or 0.0),
+            FieldName.SIGNAL_STRENGTH: data.get(FieldName.STRENGTH, "NORMAL"),
             "signal_type": data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE, "UNKNOWN"),
         }
 
         log_structured(
             "info",
             "reasoning_context_gathered",
-            has_ic_weights=bool(context.get("ic_weights")),
-            signal_type=context["risk_state"][FieldName.SIGNAL_TYPE],
+            has_ic_weights=bool(context.get(FieldName.IC_WEIGHTS)),
+            signal_type=context[FieldName.RISK_STATE][FieldName.SIGNAL_TYPE],
         )
         return context
 
@@ -502,9 +504,9 @@ class ReasoningAgent(BaseStreamConsumer):
         try:
             critique_prompt = json.dumps(
                 {
-                    "decision": decision,
-                    "ic_weights": context.get("ic_weights", {}),
-                    "risk_state": context.get("risk_state", {}),
+                    FieldName.DECISION: decision,
+                    FieldName.IC_WEIGHTS: context.get(FieldName.IC_WEIGHTS, {}),
+                    FieldName.RISK_STATE: context.get(FieldName.RISK_STATE, {}),
                 },
                 default=str,
             )
@@ -545,28 +547,28 @@ class ReasoningAgent(BaseStreamConsumer):
                 "llm_response_parsed",
                 trace_id=trace_id,
                 call_type="critique",
-                justified=critique.get("justified"),
-                recommended_action=critique.get("recommended_action"),
-                concerns=critique.get("concerns", []),
+                justified=critique.get(FieldName.JUSTIFIED),
+                recommended_action=critique.get(FieldName.RECOMMENDED_ACTION),
+                concerns=critique.get(FieldName.CONCERNS, []),
             )
 
             log_structured(
                 "info",
                 "reasoning_self_critique_completed",
                 trace_id=trace_id,
-                justified=critique.get("justified"),
-                concerns=critique.get("concerns", []),
+                justified=critique.get(FieldName.JUSTIFIED),
+                concerns=critique.get(FieldName.CONCERNS, []),
                 original_action=decision.get(FieldName.ACTION),
-                recommended_action=critique.get("recommended_action"),
+                recommended_action=critique.get(FieldName.RECOMMENDED_ACTION),
             )
 
             # Apply critique only when it explicitly flags the decision as unjustified
-            if not critique.get("justified", True):
+            if not critique.get(FieldName.JUSTIFIED, True):
                 rec_action = str(
-                    critique.get("recommended_action") or decision[FieldName.ACTION]
+                    critique.get(FieldName.RECOMMENDED_ACTION) or decision[FieldName.ACTION]
                 ).lower()
                 rec_confidence = float(
-                    critique.get("recommended_confidence") or decision[FieldName.CONFIDENCE]
+                    critique.get(FieldName.RECOMMENDED_CONFIDENCE) or decision[FieldName.CONFIDENCE]
                 )
                 refined = {
                     **decision,
@@ -575,7 +577,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     FieldName.RISK_FACTORS: list(decision.get(FieldName.RISK_FACTORS) or [])
                     + [
                         c
-                        for c in critique.get("concerns", [])
+                        for c in critique.get(FieldName.CONCERNS, [])
                         if c not in (decision.get(FieldName.RISK_FACTORS) or [])
                     ],
                 }
@@ -602,10 +604,10 @@ class ReasoningAgent(BaseStreamConsumer):
         prompt = json.dumps(
             {
                 "signal": data,
-                "similar_trades": similar_trades,
-                "ic_weights": (context or {}).get("ic_weights", {}),
-                "risk_state": (context or {}).get("risk_state", {}),
-                "system_directive": "CAPITAL_PRESERVATION_FIRST",
+                FieldName.SIMILAR_TRADES: similar_trades,
+                FieldName.IC_WEIGHTS: (context or {}).get(FieldName.IC_WEIGHTS, {}),
+                FieldName.RISK_STATE: (context or {}).get(FieldName.RISK_STATE, {}),
+                FieldName.SYSTEM_DIRECTIVE: "CAPITAL_PRESERVATION_FIRST",
             },
             default=str,
         )
@@ -685,7 +687,7 @@ class ReasoningAgent(BaseStreamConsumer):
         action = str(safe_decision.get(FieldName.ACTION, AgentAction.HOLD)).lower()
 
         # 1) Capital preservation hard stop.
-        drawdown = float(context.get("risk_state", {}).get("drawdown") or 0.0)
+        drawdown = float(context.get(FieldName.RISK_STATE, {}).get(FieldName.DRAWDOWN) or 0.0)
         if drawdown <= -0.15:
             safe_decision[FieldName.ACTION] = AgentAction.HOLD
             safe_decision[FieldName.CONFIDENCE] = 0.0
@@ -695,7 +697,7 @@ class ReasoningAgent(BaseStreamConsumer):
             return safe_decision
 
         # 2) IC alignment check.
-        if not self._ic_aligns(action, context.get("ic_weights", {}), safe_decision):
+        if not self._ic_aligns(action, context.get(FieldName.IC_WEIGHTS, {}), safe_decision):
             safe_decision[FieldName.ACTION] = AgentAction.HOLD
             safe_decision[FieldName.CONFIDENCE] = round(
                 float(safe_decision.get(FieldName.CONFIDENCE) or 0.0) * 0.3, 4
@@ -706,7 +708,7 @@ class ReasoningAgent(BaseStreamConsumer):
             return safe_decision
 
         # 3) Consensus threshold.
-        agreement_ratio = float(safe_decision.get("agreement_ratio") or 1.0)
+        agreement_ratio = float(safe_decision.get(FieldName.AGREEMENT_RATIO) or 1.0)
         if agreement_ratio < 0.5:
             safe_decision[FieldName.ACTION] = AgentAction.HOLD
             if "LOW_CONSENSUS" not in risk_factors:
@@ -859,7 +861,7 @@ class ReasoningAgent(BaseStreamConsumer):
             {
                 FieldName.STRATEGY_ID: data.get(FieldName.STRATEGY_ID),
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
-                "signal_data": json.dumps(data, default=str),
+                FieldName.SIGNAL_DATA: json.dumps(data, default=str),
                 FieldName.ACTION: summary[FieldName.ACTION],
                 FieldName.CONFIDENCE: summary[FieldName.CONFIDENCE],
                 FieldName.PRIMARY_EDGE: summary[FieldName.PRIMARY_EDGE],
@@ -886,7 +888,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     INSERT INTO llm_cost_tracking (date, tokens_used, cost_usd)
                     VALUES (:date, :tokens_used, :cost_usd) RETURNING id
                 """),
-                {"date": today, "tokens_used": tokens_used, "cost_usd": cost_usd},
+                {FieldName.DATE: today, FieldName.TOKENS_USED: tokens_used, "cost_usd": cost_usd},
             )
         except Exception:
             log_structured("warning", "cost_tracking_insert_failed", exc_info=True)
@@ -929,7 +931,7 @@ class ReasoningAgent(BaseStreamConsumer):
         run_id = f"mem-{trace_id}"
         get_runtime_store().add_agent_run(
             {
-                "id": run_id,
+                FieldName.ID: run_id,
                 FieldName.TRACE_ID: trace_id,
                 FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                 FieldName.ACTION: summary.get(FieldName.ACTION),

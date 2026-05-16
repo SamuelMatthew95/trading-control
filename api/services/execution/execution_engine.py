@@ -19,6 +19,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -253,7 +254,7 @@ class ExecutionEngine(BaseStreamConsumer):
                         FieldName.SIDE: side,
                         FieldName.QTY: qty,
                         FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
-                        "vwap_plan": vwap_plan,
+                        FieldName.VWAP_PLAN: vwap_plan,
                     },
                 )
                 await session.commit()
@@ -294,7 +295,7 @@ class ExecutionEngine(BaseStreamConsumer):
             async with AsyncSessionFactory() as _s:
                 _row = await _s.execute(
                     text("SELECT confidence FROM agent_runs WHERE trace_id = :tid LIMIT 1"),
-                    {"tid": trace_id},
+                    {FieldName.TID: trace_id},
                 )
                 _val = _row.scalar()
                 if _val is not None:
@@ -336,7 +337,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         # Persist end-to-end trade lifecycle row (best-effort, never raises)
         try:
-            from api.services.agents.db_helpers import upsert_trade_lifecycle
+            from api.services.agents.db_helpers import upsert_trade_lifecycle  # noqa: PLC0415
 
             await upsert_trade_lifecycle(
                 execution_trace_id=trace_id,
@@ -439,7 +440,7 @@ class ExecutionEngine(BaseStreamConsumer):
         )
         store.upsert_trade_fill(
             {
-                "id": trace_id,
+                FieldName.ID: trace_id,
                 FieldName.SYMBOL: symbol,
                 FieldName.SIDE: side,
                 FieldName.QTY: qty,
@@ -616,7 +617,7 @@ class ExecutionEngine(BaseStreamConsumer):
             )
             store.upsert_trade_fill(
                 {
-                    "id": trace_id,
+                    FieldName.ID: trace_id,
                     FieldName.SYMBOL: symbol,
                     FieldName.SIDE: side,
                     FieldName.QTY: qty,
@@ -707,7 +708,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 _STATE_NAME,
                 f"decision:{symbol} {exec_status}",
                 self._decisions_evaluated,
-                extra={"exec_status": exec_status, "last_trace_id": trace_id},
+                extra={FieldName.EXEC_STATUS: exec_status, FieldName.LAST_TRACE_ID: trace_id},
             )
         except Exception:
             log_structured("warning", "execution_idle_heartbeat_failed", exc_info=True)
@@ -836,8 +837,6 @@ class ExecutionEngine(BaseStreamConsumer):
             return True
 
         try:
-            from zoneinfo import ZoneInfo
-
             et_tz = ZoneInfo("America/New_York")
             now_et = datetime.now(et_tz)
             if now_et.weekday() >= 5:

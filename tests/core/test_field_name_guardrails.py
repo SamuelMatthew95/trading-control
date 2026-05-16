@@ -24,8 +24,11 @@ Enforcement model — CLEAN_FILES ratchet:
   while the rest of api/ is still being swept. The list can only grow —
   removing a file is a regression.
 
-  Files NOT on the list are not checked here. See
-  tests/core/test_field_name_sweep_progress.py for the progress tracker.
+  Files NOT on the list are not scanned for violations — but they cannot
+  hide. TestCleanFilesCoverage below fails CI whenever an api/ file is
+  neither on CLEAN_FILES nor explicitly exempt, so a newly added file is
+  forced onto the list (or into the documented exemption) rather than
+  silently escaping the guardrail.
 
 If a test here fires:
   1. Replace the raw string with FieldName.NAME, or
@@ -58,10 +61,13 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/config.py",
         "api/constants.py",
         "api/core/db/session.py",
+        "api/core/defaults.py",
+        "api/core/enums.py",
+        "api/core/payload_keys.py",
+        "api/core/models/__init__.py",
         "api/core/models/agent.py",
         "api/core/models/analytics.py",
         "api/core/models/audit.py",
-        "api/core/models/__init__.py",
         "api/core/models/base.py",
         "api/core/models/events.py",
         "api/core/models/order.py",
@@ -89,11 +95,14 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/routes/analyze.py",
         "api/routes/dashboard.py",
         "api/routes/dashboard_v2.py",
+        "api/routes/decisions.py",
         "api/routes/dlq.py",
         "api/routes/feedback.py",
         "api/routes/health.py",
         "api/routes/learning.py",
+        "api/routes/llm_health.py",
         "api/routes/monitoring.py",
+        "api/routes/notifications.py",
         "api/routes/performance.py",
         "api/routes/system.py",
         "api/routes/system_health.py",
@@ -108,8 +117,10 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/agent_supervisor.py",
         "api/services/agents/base.py",
         "api/services/agents/db_helpers.py",
+        "api/services/agents/notification_payloads.py",
         "api/services/agents/pipeline_agents.py",
         "api/services/agents/prompts.py",
+        "api/services/agents/proposal_applier.py",
         "api/services/agents/reasoning_agent.py",
         "api/services/agents/risk_guardian.py",
         "api/services/agents/scoring.py",
@@ -118,12 +129,20 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/event_pipeline.py",
         "api/services/execution/brokers/alpaca.py",
         "api/services/execution/brokers/paper.py",
+        "api/services/execution/decision_utils.py",
         "api/services/execution/execution_engine.py",
+        "api/services/execution/fill_publisher.py",
+        "api/services/execution/order_writer.py",
+        "api/services/execution/position_math.py",
         "api/services/execution/reconciler.py",
+        "api/services/llm_metrics.py",
         "api/services/llm_router.py",
         "api/services/market_ingestor.py",
         "api/services/metrics_aggregator.py",
         "api/services/multi_agent_orchestrator.py",
+        "api/services/notification_summary.py",
+        "api/services/persistence_routing.py",
+        "api/services/redis_store.py",
         "api/services/signal_generator.py",
         "api/services/simple_consumers.py",
         "api/services/system_metrics_consumer.py",
@@ -145,6 +164,7 @@ SQL_BIND_HEAVY_FILES: frozenset[str] = frozenset(
     {
         "api/core/models/analytics.py",
         "api/core/writer/safe_writer.py",
+        "api/database.py",
         "api/events/dlq.py",
         "api/health.py",
         "api/in_memory_store.py",
@@ -159,13 +179,16 @@ SQL_BIND_HEAVY_FILES: frozenset[str] = frozenset(
         "api/services/agent_heartbeat.py",
         "api/services/agent_state.py",
         "api/services/agents/db_helpers.py",
+        "api/services/agents/notification_payloads.py",
         "api/services/agents/pipeline_agents.py",
         "api/services/agents/reasoning_agent.py",
         "api/services/agents/vector_helpers.py",
         "api/services/execution/execution_engine.py",
+        "api/services/execution/order_writer.py",
         "api/services/execution/reconciler.py",
         "api/services/metrics_aggregator.py",
         "api/services/multi_agent_orchestrator.py",
+        "api/services/redis_store.py",
         "api/services/signal_generator.py",
         "api/workers/price_poller.py",
     }
@@ -183,22 +206,26 @@ def _iter_clean_files() -> Iterator[pathlib.Path]:
 
 
 def _fieldname_read_violations(tree: ast.AST) -> list[tuple[int, str, str]]:
-    """Return (line, kind, key) for every raw-string READ of a FieldName key."""
+    """Return (line, kind, key) for every raw-string READ of a FieldName key.
+
+    Covers ``d.get("key")``, ``d.pop("key")``, ``d.setdefault("key")`` and
+    ``d["key"]`` — the dict-key string can sit anywhere on the line.
+    """
     violations: list[tuple[int, str, str]] = []
 
     for node in ast.walk(tree):
-        # d.get("key") / d.get("key", default)
+        # d.get("key") / d.pop("key") / d.setdefault("key")
         if isinstance(node, ast.Call):
             func = node.func
             if (
                 isinstance(func, ast.Attribute)
-                and func.attr == "get"
+                and func.attr in {"get", "pop", "setdefault"}
                 and node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
                 and node.args[0].value in FIELD_NAME_VALUES
             ):
-                violations.append((node.lineno, "get", node.args[0].value))
+                violations.append((node.lineno, func.attr, node.args[0].value))
 
         # d["key"]
         elif isinstance(node, ast.Subscript):
@@ -230,6 +257,25 @@ def _fieldname_dict_literal_violations(tree: ast.AST) -> list[tuple[int, str]]:
     return violations
 
 
+def _fieldname_membership_violations(tree: ast.AST) -> list[tuple[int, str]]:
+    """Return (line, key) for every ``"key" in d`` test that uses a raw FieldName key."""
+    violations: list[tuple[int, str]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare) and any(
+            isinstance(op, (ast.In, ast.NotIn)) for op in node.ops
+        ):
+            left = node.left
+            if (
+                isinstance(left, ast.Constant)
+                and isinstance(left.value, str)
+                and left.value in FIELD_NAME_VALUES
+            ):
+                violations.append((left.lineno, left.value))
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Strict-zero checks against CLEAN_FILES
 # ---------------------------------------------------------------------------
@@ -237,7 +283,7 @@ def _fieldname_dict_literal_violations(tree: ast.AST) -> list[tuple[int, str]]:
 
 class TestCleanFilesHaveNoRawReads:
     """Every file on the CLEAN_FILES allowlist must have zero raw-string
-    FieldName reads (.get("key"), d["key"]).
+    FieldName reads — .get("key"), .pop("key"), .setdefault("key"), d["key"].
     """
 
     @pytest.mark.parametrize(
@@ -283,6 +329,38 @@ class TestCleanFilesHaveNoRawDictLiterals:
             f"FieldName.<NAME>:\n"
             + "\n".join(
                 f"  line {lineno}: '{key}'  →  FieldName.{key.upper()}"
+                for lineno, key in violations
+            )
+        )
+
+
+class TestCleanFilesHaveNoRawMembership:
+    """Every file on CLEAN_FILES that is NOT in SQL_BIND_HEAVY_FILES must have
+    zero raw-string FieldName keys in membership tests (`"key" in payload`).
+
+    SQL-heavy files are relaxed: there, `"col" in available_columns` legitimately
+    probes DB schema column identifiers, which are not payload-dict keys.
+    """
+
+    @pytest.mark.parametrize(
+        "py_file",
+        [
+            p
+            for p in _iter_clean_files()
+            if p.relative_to(ROOT).as_posix() not in SQL_BIND_HEAVY_FILES
+        ],
+        ids=lambda p: p.relative_to(ROOT).as_posix(),
+    )
+    def test_no_raw_string_membership(self, py_file: pathlib.Path) -> None:
+        tree = ast.parse(py_file.read_text())
+        violations = _fieldname_membership_violations(tree)
+
+        assert not violations, (
+            f"\n{py_file.relative_to(ROOT)} is on CLEAN_FILES but tests FieldName keys with "
+            f"raw-string membership. Each line below is a regression — replace with "
+            f"FieldName.<NAME>:\n"
+            + "\n".join(
+                f"  line {lineno}: '{key}' in ...  →  FieldName.{key.upper()}"
                 for lineno, key in violations
             )
         )
@@ -347,3 +425,53 @@ class TestCleanFilesRatchet:
                 f"If the file was renamed, update CLEAN_FILES. "
                 f"If it was deleted, remove the entry (but verify no regression)."
             )
+
+
+# ---------------------------------------------------------------------------
+# Coverage — every api/ file must be tracked by the guardrail
+# ---------------------------------------------------------------------------
+
+# Directories exempt from the CLEAN_FILES coverage requirement below.
+#   api/alembic/ — migrations reference raw DB column names by necessity and
+#                  carry no event-payload dict access.
+# __init__.py files are exempt by name: they are namespace / re-export shims
+# with no payload dict access. Both exemptions are deliberately narrow — a new
+# service or route file gets NO exemption and must be swept onto CLEAN_FILES.
+COVERAGE_EXEMPT_PREFIXES: tuple[str, ...] = ("api/alembic/",)
+
+
+def _is_coverage_exempt(rel_path: str) -> bool:
+    """True when a file is structurally outside the FieldName guardrail's reach."""
+    if rel_path.endswith("/__init__.py"):
+        return True
+    return rel_path.startswith(COVERAGE_EXEMPT_PREFIXES)
+
+
+class TestCleanFilesCoverage:
+    """Every api/ Python file must be on CLEAN_FILES or explicitly exempt.
+
+    The scans above only inspect files listed in CLEAN_FILES. A file that is
+    neither swept nor exempt is an invisible hole: raw-string FieldName keys
+    can be added there and CI stays green. That is exactly how earlier files
+    slipped past the guardrail. This test closes the hole — it fails the
+    moment a new api/ file appears untracked, forcing it onto CLEAN_FILES (or
+    into the documented exemption) instead of being silently skipped.
+    """
+
+    def test_every_api_file_is_tracked(self) -> None:
+        untracked: list[str] = []
+        for path in sorted(API_DIR.rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            if rel in CLEAN_FILES or _is_coverage_exempt(rel):
+                continue
+            untracked.append(rel)
+
+        assert not untracked, (
+            "\nThese api/ files are neither on CLEAN_FILES nor exempt, so the "
+            "FieldName guardrail never scans them:\n"
+            + "\n".join(f"  {rel}" for rel in untracked)
+            + "\n\nSweep each file of raw-string FieldName keys and append it to "
+            "CLEAN_FILES. If a file genuinely has no payload dict access (a "
+            "migration or namespace shim), extend the documented exemption in "
+            "COVERAGE_EXEMPT_PREFIXES / _is_coverage_exempt instead."
+        )

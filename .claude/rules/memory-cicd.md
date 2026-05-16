@@ -269,6 +269,85 @@ Hit this in `RedisStore.push_notification` / `push_decision`.
 
 ---
 
+### 13 — Inline Imports (ruff `PLC0415`)
+
+`ruff.toml` selects `PLC0415` — every `import` must live at the top of the
+module. An inline import inside a function is allowed ONLY to (a) break a
+circular import or (b) lazy-load an optional dependency, and each such site
+MUST carry `# noqa: PLC0415`. Everything else (stdlib, `sqlalchemy`,
+non-circular `api.*`) belongs at the top.
+
+```python
+# ❌ WRONG — stdlib import buried in a function
+def handler():
+    import json
+
+# ✅ RIGHT — circular-import break, explicitly marked
+def handler():
+    from api.services.redis_store import get_redis_store  # noqa: PLC0415
+```
+
+`tests/*` are exempt via `per-file-ignores` — test bodies legitimately import
+the module under test inline.
+
+When marking a long inline import, `ruff format` may re-wrap it into
+parentheses; keep the `# noqa: PLC0415` on the `from x import (` line, never
+on an inner name line, or ruff stops applying it.
+
+**Monkeypatch gotcha:** moving a name from an inline import to a top-level
+import changes how tests must patch it. `monkeypatch.setattr(db_module, "AsyncSessionFactory", …)`
+only works while the import is lazy (re-resolved on each call). Once it is a
+top-level import, patch where the name is *looked up*:
+`monkeypatch.setattr(route_module, "AsyncSessionFactory", …)`.
+
+---
+
+### 14 — New `api/` File Not on CLEAN_FILES
+
+`tests/core/test_field_name_guardrails.py::TestCleanFilesCoverage` fails CI
+when any `api/` file is neither on the `CLEAN_FILES` allowlist nor exempt
+(`api/alembic/`, `__init__.py`). The FieldName guardrail only scans files on
+`CLEAN_FILES`, so an untracked file is an invisible hole where raw-string
+keys can re-enter unnoticed.
+
+When you add a new `api/` file:
+1. Sweep it of raw-string `FieldName` keys (use `FieldName.*` everywhere).
+2. Append its path to `CLEAN_FILES` in `test_field_name_guardrails.py`.
+3. If it holds SQL-bind dicts or external-API-contract dict literals, also
+   add it to `SQL_BIND_HEAVY_FILES`.
+4. `pytest tests/core/test_field_name_guardrails.py -v` must pass.
+
+---
+
+### 15 — Raw FieldName Keys Hiding in `.pop` / `.setdefault` / `in`
+
+The FieldName guardrail catches raw payload keys in **every** dict-access form,
+not just `.get()` / `[...]` / dict literals. A raw key string anywhere on the
+line is a violation:
+
+```python
+# ❌ WRONG — raw FieldName keys
+event.setdefault("timestamp", ts)
+payload.pop("trace_id", None)
+if "msg_id" not in data:
+
+# ✅ RIGHT
+event.setdefault(FieldName.TIMESTAMP, ts)
+payload.pop(FieldName.TRACE_ID, None)
+if FieldName.MSG_ID not in data:
+```
+
+`.get` / `.pop` / `.setdefault` / `[...]` reads are enforced on every
+CLEAN_FILE. Dict literals and `"k" in d` membership are enforced everywhere
+EXCEPT `SQL_BIND_HEAVY_FILES` — there, `"col" in available_columns` legitimately
+probes DB schema column identifiers (used to build `text()` SQL), which are not
+payload-dict keys and stay raw.
+
+Scan for missed sites with an AST walk for `.pop` / `.setdefault` / `Compare`
+nodes whose constant operand is a `FieldName` value.
+
+---
+
 ## Code Smell Checks (run before pushing)
 
 ```bash

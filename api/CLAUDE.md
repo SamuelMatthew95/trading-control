@@ -29,6 +29,54 @@ from api.constants import (
 )
 ```
 
+### What belongs in `api/constants.py` (placement rule)
+
+A value belongs in `api/constants.py` when EITHER is true:
+- it is referenced by **2+ modules**, or
+- it is a **cross-module contract** — Redis keys, stream names, agent names,
+  `FieldName` keys, schema versions, shared thresholds / limits / dimensions.
+
+A value may stay **module-local** only when it is owned by a dedicated
+single-purpose module — e.g. LLM prompt text in `services/agents/prompts.py`,
+DB-bootstrap internals in `database.py`, `schema_version.py`. A service or
+route file is NOT such a module: never define a bare `MAGIC = 1234` constant
+there — move it to `api/constants.py` and import it.
+
+```python
+# ❌ WRONG — magic config defined in a service file
+# api/services/metrics_aggregator.py
+CRITICAL_LAG_MS = 5000
+
+# ✅ RIGHT — defined in api/constants.py, imported where used
+from api.constants import CRITICAL_LAG_MS
+```
+
+### Imports — top of file only (ENFORCED BY CI: ruff `PLC0415`)
+
+Every `import` goes at the top of the module. Inline imports inside a
+function are allowed ONLY to (a) break a circular import or (b) lazy-load an
+optional dependency — and each such site MUST carry `# noqa: PLC0415`.
+
+```python
+# ❌ WRONG — stdlib / non-circular import buried in a function
+def handler():
+    import json
+    from api.database import AsyncSessionFactory
+
+# ✅ RIGHT — at module top
+import json
+from api.database import AsyncSessionFactory
+
+# ✅ ALLOWED — circular-import break, explicitly marked
+def handler():
+    from api.services.redis_store import get_redis_store  # noqa: PLC0415
+```
+
+Gotcha: moving a name from an inline import to the module top changes how
+tests must patch it. `monkeypatch.setattr("api.database.AsyncSessionFactory", …)`
+only works while the import is lazy. Once it is a top-level import, patch the
+name **where it is looked up** — `monkeypatch.setattr(route_module, "AsyncSessionFactory", …)`.
+
 ### Dict key access — use FieldName, never raw strings (ENFORCED BY CI)
 
 Every event-payload / DB-row / Redis-message dict access must go through
@@ -50,7 +98,9 @@ payload = {FieldName.SYMBOL: sym, FieldName.SIDE: "buy", FieldName.TRACE_ID: tid
 **Enforced by `tests/core/test_field_name_guardrails.py`** — an AST scan that
 fails CI when any file on the `CLEAN_FILES` allowlist re-introduces a raw
 string FieldName key. When you add a new file to the sweep, append it to
-`CLEAN_FILES` so the guardrail locks it in.
+`CLEAN_FILES` so the guardrail locks it in. The scan catches the key string
+anywhere on a line — `.get`, `.pop`, `.setdefault`, `[...]`, dict literals,
+and `"k" in d` membership.
 
 Missing a field? Add it to `class FieldName(StrEnum)` in `api/constants.py`
 first (member name MUST equal value in uppercase — `FOO = "foo"`), then

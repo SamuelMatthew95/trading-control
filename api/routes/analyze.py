@@ -83,10 +83,10 @@ async def analyze_trade(
             symbol=request.symbol,
             decision=result.get("DECISION", "FLAT"),
             confidence=float(result.get(FieldName.CONFIDENCE, 0.0)),
-            reasoning=result.get("reasoning", "Analysis completed"),
+            reasoning=result.get(FieldName.REASONING, "Analysis completed"),
             timestamp=datetime.now(timezone.utc),
-            position_size=result.get("position_size"),
-            risk_assessment=result.get("risk_assessment"),
+            position_size=result.get(FieldName.POSITION_SIZE),
+            risk_assessment=result.get(FieldName.RISK_ASSESSMENT),
         )
 
         return StandardResponse(success=True, data=decision.model_dump()).model_dump()
@@ -109,7 +109,7 @@ async def shadow_analyze(
         result = trading_service.run_shadow(request.symbol, request.price, request.signals or [])
         metrics_store.log_event("task_completed", symbol=request.symbol, task="shadow_analyze")
         return StandardResponse(
-            success=True, data={"mode": "shadow", "result": result}
+            success=True, data={FieldName.MODE: "shadow", FieldName.RESULT: result}
         ).model_dump()
     except HTTPException:
         raise

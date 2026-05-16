@@ -74,18 +74,18 @@ async def get_system_pulse():
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "traffic_light": traffic_light,
-            "stream_health": stream_health,
-            "worker_heartbeats": heartbeats,
-            "dlq_count": dlq_count,
-            "db_pool_status": db_pool_status,
+            FieldName.TRAFFIC_LIGHT: traffic_light,
+            FieldName.STREAM_HEALTH: stream_health,
+            FieldName.WORKER_HEARTBEATS: heartbeats,
+            FieldName.DLQ_COUNT: dlq_count,
+            FieldName.DB_POOL_STATUS: db_pool_status,
         }
 
     except Exception as e:
         log_structured("error", "pulse api error", exc_info=True)
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "traffic_light": "red",
+            FieldName.TRAFFIC_LIGHT: "red",
             "error": str(e),
         }
 
@@ -113,9 +113,9 @@ async def get_idempotency_audit():
 
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "processed_events_last_hour": processed_count,
-                "orders_last_hour": orders_count,
-                "ratio": round(ratio, 3),
+                FieldName.PROCESSED_EVENTS_LAST_HOUR: processed_count,
+                FieldName.ORDERS_LAST_HOUR: orders_count,
+                FieldName.RATIO: round(ratio, 3),
                 "status": "healthy" if 0.8 <= ratio <= 1.2 else "warning",
             }
 
@@ -157,23 +157,27 @@ async def get_position_sync_status():
 
                     sync_status.append(
                         {
-                            "fill_id": fill.id,
+                            FieldName.FILL_ID: fill.id,
                             "strategy_id": strategy_id,
                             "symbol": symbol,
-                            "fill_time": fill.created_at.isoformat(),
-                            "position_exists": position is not None,
-                            "position_quantity": (float(position.quantity) if position else None),
-                            "expected_quantity": fill_data.get(FieldName.NEW_QUANTITY),
-                            "sync_status": "synced" if position else "missing",
-                            "alert_level": "red" if not position else "green",
+                            FieldName.FILL_TIME: fill.created_at.isoformat(),
+                            FieldName.POSITION_EXISTS: position is not None,
+                            FieldName.POSITION_QUANTITY: (
+                                float(position.quantity) if position else None
+                            ),
+                            FieldName.EXPECTED_QUANTITY: fill_data.get(FieldName.NEW_QUANTITY),
+                            FieldName.SYNC_STATUS: "synced" if position else "missing",
+                            FieldName.ALERT_LEVEL: "red" if not position else "green",
                         }
                     )
 
             return {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "total_fills": len(fill_events),
-                "synced_count": len([s for s in sync_status if s["sync_status"] == "synced"]),
-                "sync_status": sync_status,
+                FieldName.TOTAL_FILLS: len(fill_events),
+                FieldName.SYNCED_COUNT: len(
+                    [s for s in sync_status if s[FieldName.SYNC_STATUS] == "synced"]
+                ),
+                FieldName.SYNC_STATUS: sync_status,
             }
 
     except Exception as e:
@@ -230,7 +234,7 @@ async def stream_agent_logs(
                     FROM agent_logs
                     WHERE 1=1
                 """
-                params: dict[str, Any] = {"limit": limit}
+                params: dict[str, Any] = {FieldName.LIMIT: limit}
                 if agent_id:
                     base_sql += " AND " + run_col + " = :agent_id"
                     params[FieldName.AGENT_ID] = agent_id
@@ -245,7 +249,7 @@ async def stream_agent_logs(
                 # Send initial logs
                 for log in reversed(logs):  # Chronological order
                     log_data = {
-                        "id": log.id,
+                        FieldName.ID: log.id,
                         "trace_id": log.trace_id,
                         "agent_run_id": log.agent_run_id,
                         "log_level": log.log_level,
@@ -268,14 +272,14 @@ async def stream_agent_logs(
                             f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
                         )
                         poll_params = dict(params)
-                        poll_params["last_timestamp"] = last_timestamp
-                        poll_params.pop("limit", None)
+                        poll_params[FieldName.LAST_TIMESTAMP] = last_timestamp
+                        poll_params.pop(FieldName.LIMIT, None)
                         result = await session.execute(text(poll_sql), poll_params)
                         new_logs = result.fetchall()
 
                         for log in new_logs:
                             log_data = {
-                                "id": log.id,
+                                FieldName.ID: log.id,
                                 "trace_id": log.trace_id,
                                 "agent_run_id": log.agent_run_id,
                                 "log_level": log.log_level,
@@ -366,7 +370,7 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
         try:
             # Get stream info
             info = await redis_client.xinfo_stream(stream)
-            total_backlog = info.get("length", 0)
+            total_backlog = info.get(FieldName.LENGTH, 0)
 
             # Get pending info
             try:
@@ -386,21 +390,21 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
 
             health[stream] = {
                 "status": "healthy",
-                "backlog": total_backlog,
-                "pending": pending_ack,
-                "oldest_pending_age_seconds": oldest_age,
-                "last_checked": datetime.now(timezone.utc).isoformat(),
+                FieldName.BACKLOG: total_backlog,
+                FieldName.PENDING: pending_ack,
+                FieldName.OLDEST_PENDING_AGE_SECONDS: oldest_age,
+                FieldName.LAST_CHECKED: datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
             # Handle missing streams gracefully
             health[stream] = {
                 "status": "missing",
-                "backlog": 0,
-                "pending": 0,
-                "oldest_pending_age_seconds": 0,
+                FieldName.BACKLOG: 0,
+                FieldName.PENDING: 0,
+                FieldName.OLDEST_PENDING_AGE_SECONDS: 0,
                 "error": str(e),
-                "last_checked": datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_CHECKED: datetime.now(timezone.utc).isoformat(),
             }
 
     return health
@@ -429,13 +433,13 @@ async def get_worker_heartbeats(redis_client) -> dict[str, Any]:
                     age_seconds = None
                 heartbeats[agent_name] = {
                     **parsed,
-                    "age_seconds": age_seconds,
+                    FieldName.AGE_SECONDS: age_seconds,
                     "status": "alive"
                     if (age_seconds is not None and age_seconds < 120)
                     else "missing",
                 }
             except (json.JSONDecodeError, ValueError):
-                heartbeats[agent_name] = {"status": "invalid", "raw_data": raw}
+                heartbeats[agent_name] = {"status": "invalid", FieldName.RAW_DATA: raw}
         return heartbeats
 
     except Exception as e:
@@ -452,10 +456,10 @@ async def get_db_pool_status() -> dict[str, Any]:
             # In a real implementation, you'd get actual pool metrics
             # For now, return simulated status
             return {
-                "active_connections": 15,  # Would come from engine.pool.status()
-                "idle_connections": 35,
-                "total_connections": 50,
-                "pool_utilization_percent": 30,
+                FieldName.ACTIVE_CONNECTIONS: 15,  # Would come from engine.pool.status()
+                FieldName.IDLE_CONNECTIONS: 35,
+                FieldName.TOTAL_CONNECTIONS: 50,
+                FieldName.POOL_UTILIZATION_PERCENT: 30,
                 "status": "healthy",
             }
 
@@ -476,13 +480,13 @@ def calculate_traffic_light(stream_health: dict, dlq_count: int, db_pool_status:
     for _stream, health in stream_health.items():
         if health.get(FieldName.STATUS) == "error":
             return "red"
-        if health.get("oldest_pending_age_seconds", 0) > 60:
+        if health.get(FieldName.OLDEST_PENDING_AGE_SECONDS, 0) > 60:
             return "yellow"
-        if health.get("pending", 0) > 100:
+        if health.get(FieldName.PENDING, 0) > 100:
             return "yellow"
 
     # Check DB pool utilization
-    if db_pool_status.get("pool_utilization_percent", 0) > 80:
+    if db_pool_status.get(FieldName.POOL_UTILIZATION_PERCENT, 0) > 80:
         return "yellow"
 
     return "green"

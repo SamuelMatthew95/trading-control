@@ -221,7 +221,7 @@ class RiskGuardian:
                         FROM trade_performance
                         WHERE created_at >= :today
                     """),
-                    {"today": today},
+                    {FieldName.TODAY: today},
                 )
                 daily_pnl = float(result.scalar() or 0)
         except Exception:
@@ -243,9 +243,9 @@ class RiskGuardian:
                     STREAM_RISK_ALERTS,
                     {
                         FieldName.TYPE: EventType.DAILY_LOSS_LIMIT_BREACHED,
-                        "daily_pnl": daily_pnl,
-                        "threshold": loss_threshold,
-                        "kill_switch_activated": True,
+                        FieldName.DAILY_PNL: daily_pnl,
+                        FieldName.THRESHOLD: loss_threshold,
+                        FieldName.KILL_SWITCH_ACTIVATED: True,
                         FieldName.SOURCE: self._SOURCE,
                         FieldName.TIMESTAMP: now,
                     },

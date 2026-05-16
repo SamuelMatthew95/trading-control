@@ -151,8 +151,8 @@ def write_event_to_memory(
         # STREAM_REFLECTION_OUTPUTS, STREAM_PROPOSALS, STREAM_NOTIFICATIONS
         store.add_event(
             {
-                "id": msg_id,
-                "kind": stream,
+                FieldName.ID: msg_id,
+                FieldName.KIND: stream,
                 FieldName.SOURCE: str(event.get(FieldName.SOURCE) or stream),
                 FieldName.CREATED_AT: str(event.get(FieldName.TIMESTAMP) or ""),
                 FieldName.PAYLOAD: event,

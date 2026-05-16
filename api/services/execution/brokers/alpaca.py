@@ -39,7 +39,7 @@ class AlpacaBroker:
             if side.lower() in {OrderSide.BUY, PositionSide.LONG}
             else OrderSide.SELL,
             FieldName.TYPE: "market",
-            "time_in_force": "day",
+            FieldName.TIME_IN_FORCE: "day",
         }
 
         log_structured(
@@ -70,7 +70,7 @@ class AlpacaBroker:
                         f"Alpaca order failed {resp.status}: {body.get(FieldName.MESSAGE)}"
                     )
 
-        broker_order_id = body["id"]
+        broker_order_id = body[FieldName.ID]
         log_structured(
             "info",
             "Alpaca order placed, waiting for fill",
@@ -91,7 +91,7 @@ class AlpacaBroker:
                     order = await resp.json()
 
             status = order.get(FieldName.STATUS, "pending")
-            filled_avg_price = order.get("filled_avg_price")
+            filled_avg_price = order.get(FieldName.FILLED_AVG_PRICE)
 
             if status == OrderStatus.FILLED and filled_avg_price:
                 fill_price = float(filled_avg_price)
@@ -122,13 +122,13 @@ class AlpacaBroker:
                 attempt=attempt + 1,
             )
 
-        filled_qty = float(order.get("filled_qty") or qty)
+        filled_qty = float(order.get(FieldName.FILLED_QTY) or qty)
 
         return {
             FieldName.BROKER_ORDER_ID: broker_order_id,
             FieldName.SYMBOL: symbol,
             FieldName.SIDE: side.lower(),
-            "filled_qty": filled_qty,
+            FieldName.FILLED_QTY: filled_qty,
             FieldName.FILL_PRICE: fill_price,
             FieldName.STATUS: status if status == OrderStatus.FILLED else OrderStatus.PENDING,
         }
@@ -147,15 +147,15 @@ class AlpacaBroker:
                         FieldName.SIDE: PositionSide.FLAT,
                         FieldName.QTY: 0.0,
                         FieldName.ENTRY_PRICE: 0.0,
-                        "current_price": 0.0,
+                        FieldName.CURRENT_PRICE: 0.0,
                     }
                 body = await resp.json()
                 return {
                     FieldName.SYMBOL: symbol,
                     FieldName.SIDE: body.get(FieldName.SIDE, "flat"),
                     FieldName.QTY: float(body.get(FieldName.QTY, 0.0)),
-                    FieldName.ENTRY_PRICE: float(body.get("avg_entry_price", 0.0)),
-                    "current_price": float(body.get("current_price", 0.0)),
+                    FieldName.ENTRY_PRICE: float(body.get(FieldName.AVG_ENTRY_PRICE, 0.0)),
+                    FieldName.CURRENT_PRICE: float(body.get(FieldName.CURRENT_PRICE, 0.0)),
                 }
 
     async def get_cash(self) -> float:
@@ -166,7 +166,7 @@ class AlpacaBroker:
                 headers=self.headers,
             ) as resp:
                 body = await resp.json()
-                return float(body.get("buying_power", 0.0))
+                return float(body.get(FieldName.BUYING_POWER, 0.0))
 
     async def get_order_status(self, broker_order_id: str) -> dict[str, Any] | None:
         """Get order status from Alpaca."""
@@ -182,7 +182,7 @@ class AlpacaBroker:
                     FieldName.BROKER_ORDER_ID: broker_order_id,
                     FieldName.SYMBOL: body.get(FieldName.SYMBOL),
                     FieldName.SIDE: body.get(FieldName.SIDE),
-                    "filled_qty": float(body.get("filled_qty") or 0),
-                    FieldName.FILL_PRICE: float(body.get("filled_avg_price") or 0),
+                    FieldName.FILLED_QTY: float(body.get(FieldName.FILLED_QTY) or 0),
+                    FieldName.FILL_PRICE: float(body.get(FieldName.FILLED_AVG_PRICE) or 0),
                     FieldName.STATUS: body.get(FieldName.STATUS),
                 }

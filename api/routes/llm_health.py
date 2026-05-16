@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from api.config import settings
-from api.constants import LLM_METRICS_WINDOW_SECONDS
+from api.constants import LLM_METRICS_WINDOW_SECONDS, FieldName
 from api.services.llm_metrics import llm_metrics
 from api.services.redis_store import get_redis_store
 
@@ -29,14 +29,14 @@ def _llm_status(success_rate_pct: float, total_in_window: int) -> str:
 async def llm_health() -> dict[str, Any]:
     """Return current LLM call metrics over the last 5-minute window."""
     snap = llm_metrics.snapshot(window_seconds=LLM_METRICS_WINDOW_SECONDS)
-    status = _llm_status(snap["success_rate_pct"], snap["total_in_window"])
+    status = _llm_status(snap[FieldName.SUCCESS_RATE_PCT], snap[FieldName.TOTAL_IN_WINDOW])
 
     provider = getattr(settings, "LLM_PROVIDER", "unknown").lower()
     _model_setting = {
-        "gemini": ("GEMINI_MODEL", settings.GEMINI_MODEL),
-        "groq": ("GROQ_MODEL", "unknown"),
-        "anthropic": ("ANTHROPIC_MODEL", "unknown"),
-        "openai": ("OPENAI_MODEL", "unknown"),
+        FieldName.GEMINI: ("GEMINI_MODEL", settings.GEMINI_MODEL),
+        FieldName.GROQ: ("GROQ_MODEL", "unknown"),
+        FieldName.ANTHROPIC: ("ANTHROPIC_MODEL", "unknown"),
+        FieldName.OPENAI: ("OPENAI_MODEL", "unknown"),
     }
     _attr, _default = _model_setting.get(provider, ("", "unknown"))
     model_name: str = getattr(settings, _attr, _default) if _attr else "unknown"
@@ -54,22 +54,22 @@ async def llm_health() -> dict[str, Any]:
     # owning the window-bounded fields (`success_rate_pct`, `recent_results`,
     # etc.); we only override when the durable Redis value is strictly larger,
     # which is exactly the "in-process counter was reset by a restart" case.
-    snap_total = int(snap.get("total_calls_lifetime") or 0)
-    redis_total = int(redis_metrics.get("total_calls") or 0)
+    snap_total = int(snap.get(FieldName.TOTAL_CALLS_LIFETIME) or 0)
+    redis_total = int(redis_metrics.get(FieldName.TOTAL_CALLS) or 0)
     if redis_total > snap_total:
-        snap["total_calls_lifetime"] = redis_total
+        snap[FieldName.TOTAL_CALLS_LIFETIME] = redis_total
 
-    snap_daily = int(snap.get("daily_calls") or 0)
-    redis_daily = int(redis_metrics.get("daily_calls") or 0)
+    snap_daily = int(snap.get(FieldName.DAILY_CALLS) or 0)
+    redis_daily = int(redis_metrics.get(FieldName.DAILY_CALLS) or 0)
     if redis_daily > snap_daily:
-        snap["daily_calls"] = redis_daily
+        snap[FieldName.DAILY_CALLS] = redis_daily
 
     return {
-        "status": status,
-        "provider": provider,
-        "model": model_name,
-        "model_var": _attr if _attr else "unknown",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "redis_metrics": redis_metrics,
+        FieldName.STATUS: status,
+        FieldName.PROVIDER: provider,
+        FieldName.MODEL: model_name,
+        FieldName.MODEL_VAR: _attr if _attr else "unknown",
+        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.REDIS_METRICS: redis_metrics,
         **snap,
     }

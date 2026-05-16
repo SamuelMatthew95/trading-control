@@ -68,15 +68,15 @@ async def get_trading_mode() -> dict[str, Any]:
             status = "TRADING"
         return {
             "status": status,
-            "kill_switch_active": kill_switch == "1",
-            "circuit_breaker_active": trading_paused == "1",
+            FieldName.KILL_SWITCH_ACTIVE: kill_switch == "1",
+            FieldName.CIRCUIT_BREAKER_ACTIVE: trading_paused == "1",
         }
     except Exception:
         log_structured("warning", "system_trading_mode_check_failed", exc_info=True)
         return {
             "status": "UNKNOWN",
-            "kill_switch_active": None,
-            "circuit_breaker_active": None,
+            FieldName.KILL_SWITCH_ACTIVE: None,
+            FieldName.CIRCUIT_BREAKER_ACTIVE: None,
             "error": "redis_unavailable",
         }
 
@@ -108,7 +108,7 @@ async def set_trading_mode(body: Annotated[dict[str, Any], Body()] = None) -> di
         # active when the manual kill switch is still engaged.
         kill_switch = await redis_client.get(REDIS_KEY_KILL_SWITCH)
         effective_status = "KILL_SWITCH" if kill_switch == "1" else status
-        return {"status": effective_status, "ok": True}
+        return {"status": effective_status, FieldName.OK: True}
     except HTTPException:
         raise
     except Exception as exc:
@@ -122,14 +122,14 @@ async def get_system_status():
         stream_lag = await get_stream_lag()
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "mode": "memory",
-            "agent_pulse": [],
-            "database_health": {
-                "pending_orders_last_hour": 0,
-                "filled_orders_last_hour": 0,
-                "total_orders_last_hour": 0,
+            FieldName.MODE: "memory",
+            FieldName.AGENT_PULSE: [],
+            FieldName.DATABASE_HEALTH: {
+                FieldName.PENDING_ORDERS_LAST_HOUR: 0,
+                FieldName.FILLED_ORDERS_LAST_HOUR: 0,
+                FieldName.TOTAL_ORDERS_LAST_HOUR: 0,
             },
-            "stream_lag": stream_lag,
+            FieldName.STREAM_LAG: stream_lag,
         }
 
     async with _make_session() as session:
@@ -167,7 +167,7 @@ async def get_system_status():
             {
                 "agent_id": row.agent_run_id,
                 "last_seen": row.last_seen.isoformat() if row.last_seen else None,
-                "last_level": row.last_level,
+                FieldName.LAST_LEVEL: row.last_level,
             }
             for row in agent_result
         ]
@@ -184,8 +184,8 @@ async def get_system_status():
         order_result = await session.execute(order_stats_query)
         order_stats = {row.status: row.count for row in order_result}
 
-        pending_orders = order_stats.get("pending", 0)
-        filled_orders = order_stats.get("filled", 0)
+        pending_orders = order_stats.get(FieldName.PENDING, 0)
+        filled_orders = order_stats.get(FieldName.FILLED, 0)
 
         # Stream Lag calculation
         stream_lag = await get_stream_lag()
@@ -195,10 +195,10 @@ async def get_system_status():
         for stream, data in stream_lag.items():
             if isinstance(data, dict):
                 sanitized_lag[stream] = {
-                    "lag_ms": data.get("lag_ms", 0) or 0,
-                    "lag_seconds": data.get("lag_seconds", 0) or 0,
-                    "head_id": data.get("head_id", ""),
-                    "last_processed_id": data.get("last_processed_id", ""),
+                    FieldName.LAG_MS: data.get(FieldName.LAG_MS, 0) or 0,
+                    FieldName.LAG_SECONDS: data.get(FieldName.LAG_SECONDS, 0) or 0,
+                    FieldName.HEAD_ID: data.get(FieldName.HEAD_ID, ""),
+                    FieldName.LAST_PROCESSED_ID: data.get(FieldName.LAST_PROCESSED_ID, ""),
                     "error": data.get(FieldName.ERROR),
                 }
             else:
@@ -206,13 +206,13 @@ async def get_system_status():
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "agent_pulse": agent_pulse,
-            "database_health": {
-                "pending_orders_last_hour": pending_orders,
-                "filled_orders_last_hour": filled_orders,
-                "total_orders_last_hour": pending_orders + filled_orders,
+            FieldName.AGENT_PULSE: agent_pulse,
+            FieldName.DATABASE_HEALTH: {
+                FieldName.PENDING_ORDERS_LAST_HOUR: pending_orders,
+                FieldName.FILLED_ORDERS_LAST_HOUR: filled_orders,
+                FieldName.TOTAL_ORDERS_LAST_HOUR: pending_orders + filled_orders,
             },
-            "stream_lag": sanitized_lag,
+            FieldName.STREAM_LAG: sanitized_lag,
         }
 
 
@@ -234,7 +234,7 @@ async def get_stream_lag() -> dict[str, Any]:
                 try:
                     groups = await redis_client.xinfo_groups(stream)
                     for group in groups:
-                        if group.get("name") == DEFAULT_GROUP:
+                        if group.get(FieldName.NAME) == DEFAULT_GROUP:
                             last_delivered = group.get("last-delivered-id", "0-0")
                             # Calculate lag (simplified - just comparing timestamps)
                             head_timestamp = int(head_id.split("-")[0])
@@ -242,10 +242,10 @@ async def get_stream_lag() -> dict[str, Any]:
                             lag_ms = head_timestamp - last_timestamp
 
                             lag_info[stream] = {
-                                "head_id": head_id,
-                                "last_processed_id": last_delivered,
-                                "lag_ms": lag_ms,
-                                "lag_seconds": lag_ms / 1000,
+                                FieldName.HEAD_ID: head_id,
+                                FieldName.LAST_PROCESSED_ID: last_delivered,
+                                FieldName.LAG_MS: lag_ms,
+                                FieldName.LAG_SECONDS: lag_ms / 1000,
                             }
                             break
                     else:
@@ -273,7 +273,7 @@ async def stream_agent_logs(
     if not is_db_available():
 
         async def _empty_generator():
-            yield f"data: {json.dumps({'mode': 'memory', 'logs': []})}\n\n"
+            yield f"data: {json.dumps({FieldName.MODE: 'memory', FieldName.LOGS: []})}\n\n"
 
         return StreamingResponse(
             _empty_generator(),
@@ -323,7 +323,7 @@ async def stream_agent_logs(
                     FROM agent_logs
                     WHERE 1=1
                 """
-                params: dict[str, Any] = {"limit": limit}
+                params: dict[str, Any] = {FieldName.LIMIT: limit}
                 if agent_id:
                     base_sql += " AND " + run_col + " = :agent_id"
                     params[FieldName.AGENT_ID] = agent_id
@@ -338,7 +338,7 @@ async def stream_agent_logs(
                 # Send initial logs
                 for log in reversed(logs):  # Send in chronological order
                     log_data = {
-                        "id": log.id,
+                        FieldName.ID: log.id,
                         "agent_run_id": log.agent_run_id,
                         "log_level": log.log_level,
                         "message": log.message,
@@ -360,14 +360,14 @@ async def stream_agent_logs(
                             f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
                         )
                         poll_params = dict(params)
-                        poll_params["last_timestamp"] = last_timestamp
-                        poll_params.pop("limit", None)
+                        poll_params[FieldName.LAST_TIMESTAMP] = last_timestamp
+                        poll_params.pop(FieldName.LIMIT, None)
                         result = await session.execute(text(poll_sql), poll_params)
                         new_logs = result.fetchall()
 
                         for log in new_logs:
                             log_data = {
-                                "id": log.id,
+                                FieldName.ID: log.id,
                                 "agent_run_id": log.agent_run_id,
                                 "log_level": log.log_level,
                                 "message": log.message,
@@ -404,7 +404,7 @@ async def get_system_metrics(
 ):
     """Get system metrics for monitoring."""
     if not is_db_available():
-        return {"metrics": [], "count": 0, "mode": "memory"}
+        return {"metrics": [], FieldName.COUNT: 0, FieldName.MODE: "memory"}
 
     async with _make_session() as session:
         since = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -422,15 +422,15 @@ async def get_system_metrics(
         return {
             "metrics": [
                 {
-                    "metric_name": m.metric_name,
-                    "metric_value": float(m.metric_value or 0),  # Guard against NaN/None
-                    "metric_unit": m.metric_unit,
-                    "tags": m.tags or {},  # Guard against None
+                    FieldName.METRIC_NAME: m.metric_name,
+                    FieldName.METRIC_VALUE: float(m.metric_value or 0),  # Guard against NaN/None
+                    FieldName.METRIC_UNIT: m.metric_unit,
+                    FieldName.TAGS: m.tags or {},  # Guard against None
                     "timestamp": m.timestamp.isoformat(),
                 }
                 for m in metrics
             ],
-            "count": len(metrics),
+            FieldName.COUNT: len(metrics),
         }
 
 
@@ -449,8 +449,8 @@ async def health_check():
         return {
             "status": "healthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "database": "connected",
-            "redis": "connected",
+            FieldName.DATABASE: "connected",
+            FieldName.REDIS: "connected",
         }
 
     except Exception as e:

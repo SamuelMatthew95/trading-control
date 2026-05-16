@@ -4,39 +4,51 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.constants import FieldName
+
 
 def compute_notification_summary(notifications: list[dict[str, Any]]) -> dict[str, Any]:
     """Return a stable, UI-ready summary object for notification panels."""
     by_severity = {
-        "success": sum(1 for n in notifications if str(n.get("severity", "")).lower() == "success"),
-        "info": sum(
-            1 for n in notifications if str(n.get("severity", "")).lower() in {"info", "urgent"}
+        FieldName.SUCCESS: sum(
+            1 for n in notifications if str(n.get(FieldName.SEVERITY, "")).lower() == "success"
         ),
-        "warning": sum(1 for n in notifications if str(n.get("severity", "")).lower() == "warning"),
-        "critical": sum(
-            1 for n in notifications if str(n.get("severity", "")).lower() in {"critical", "error"}
+        FieldName.INFO: sum(
+            1
+            for n in notifications
+            if str(n.get(FieldName.SEVERITY, "")).lower() in {"info", "urgent"}
+        ),
+        FieldName.WARNING: sum(
+            1 for n in notifications if str(n.get(FieldName.SEVERITY, "")).lower() == "warning"
+        ),
+        FieldName.CRITICAL: sum(
+            1
+            for n in notifications
+            if str(n.get(FieldName.SEVERITY, "")).lower() in {"critical", "error"}
         ),
     }
     total = len(notifications)
-    open_count = sum(1 for n in notifications if str(n.get("state", "open")).lower() != "resolved")
+    open_count = sum(
+        1 for n in notifications if str(n.get(FieldName.STATE, "open")).lower() != "resolved"
+    )
     resolved_count = total - open_count
 
     return {
-        "summary_version": 1,
-        "counts": {
-            "total": total,
-            "open": open_count,
-            "resolved": resolved_count,
+        FieldName.SUMMARY_VERSION: 1,
+        FieldName.COUNTS: {
+            FieldName.TOTAL: total,
+            FieldName.OPEN: open_count,
+            FieldName.RESOLVED: resolved_count,
         },
-        "severity_counts": [
-            {"severity": "success", "count": by_severity["success"]},
-            {"severity": "info", "count": by_severity["info"]},
-            {"severity": "warning", "count": by_severity["warning"]},
-            {"severity": "critical", "count": by_severity["critical"]},
+        FieldName.SEVERITY_COUNTS: [
+            {FieldName.SEVERITY: "success", FieldName.COUNT: by_severity[FieldName.SUCCESS]},
+            {FieldName.SEVERITY: "info", FieldName.COUNT: by_severity[FieldName.INFO]},
+            {FieldName.SEVERITY: "warning", FieldName.COUNT: by_severity[FieldName.WARNING]},
+            {FieldName.SEVERITY: "critical", FieldName.COUNT: by_severity[FieldName.CRITICAL]},
         ],
         # Backward-compatible fields:
-        "total": total,
-        "open": open_count,
-        "resolved": resolved_count,
-        "by_severity": by_severity,
+        FieldName.TOTAL: total,
+        FieldName.OPEN: open_count,
+        FieldName.RESOLVED: resolved_count,
+        FieldName.BY_SEVERITY: by_severity,
     }

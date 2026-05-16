@@ -10,9 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from api.config import settings
-from api.constants import HealthStatus
+from api.constants import FieldName, HealthStatus
 from api.core.schemas import HealthResponse
-from api.database import test_database_connection
+from api.database import get_async_session, test_database_connection
 from api.observability import log_structured, metrics_store
 from api.runtime_state import get_runtime_store, runtime_mode
 
@@ -60,8 +60,6 @@ async def _redis_ready(request: Request) -> bool:
 async def _oldest_pending_score_age_seconds() -> float | None:
     """Return the age in seconds of the oldest pending score job when available."""
     try:
-        from api.database import get_async_session
-
         async with get_async_session() as session:
             table_result = await session.execute(
                 text("""
@@ -84,9 +82,9 @@ async def _oldest_pending_score_age_seconds() -> float | None:
                 return None
 
             query_by_table = {
-                "run": "SELECT MIN(created_at) FROM run WHERE scoring_status = :status",
-                "runs": "SELECT MIN(created_at) FROM runs WHERE scoring_status = :status",
-                "agent_runs": (
+                FieldName.RUN: "SELECT MIN(created_at) FROM run WHERE scoring_status = :status",
+                FieldName.RUNS: "SELECT MIN(created_at) FROM runs WHERE scoring_status = :status",
+                FieldName.AGENT_RUNS: (
                     "SELECT MIN(created_at) FROM agent_runs WHERE scoring_status = :status"
                 ),
             }
@@ -119,9 +117,9 @@ async def root() -> dict[str, Any]:
                 status="running",
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 services={
-                    "orchestrator": "healthy",
-                    "database": "unknown",
-                    "config_source": "modular_app",
+                    FieldName.ORCHESTRATOR: "healthy",
+                    FieldName.DATABASE: "unknown",
+                    FieldName.CONFIG_SOURCE: "modular_app",
                 },
             ).model_dump(),
         ).model_dump()
@@ -139,8 +137,8 @@ async def health_check(request: Request) -> dict[str, Any]:
         return {
             "status": "starting",
             "message": "Service is warming up",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
 
     # Check dependencies
@@ -167,18 +165,20 @@ async def health_check(request: Request) -> dict[str, Any]:
 
     return {
         "status": status,
-        "database": db_label,
-        "database_mode": runtime_mode(),
-        "runtime_db_health": getattr(store, "last_health", "unknown"),
-        "redis": "connected" if redis_ready else "disconnected",
-        "pipeline_running": bool(pipeline and pipeline.status().get("running")),
-        "active_ws_connections": (
+        FieldName.DATABASE: db_label,
+        FieldName.DATABASE_MODE: runtime_mode(),
+        FieldName.RUNTIME_DB_HEALTH: getattr(store, "last_health", "unknown"),
+        FieldName.REDIS: "connected" if redis_ready else "disconnected",
+        FieldName.PIPELINE_RUNNING: bool(pipeline and pipeline.status().get(FieldName.RUNNING)),
+        FieldName.ACTIVE_WS_CONNECTIONS: (
             getattr(broadcaster, "active_connections", 0) if broadcaster else 0
         ),
-        "last_error": pipeline.status().get("last_error") if pipeline else None,
-        "recent_activity": pipeline.status().get("recent", [])[:5] if pipeline else [],
-        "uptime_seconds": uptime_seconds,
-        "check_time": now.isoformat(),
+        FieldName.LAST_ERROR: pipeline.status().get(FieldName.LAST_ERROR) if pipeline else None,
+        FieldName.RECENT_ACTIVITY: pipeline.status().get(FieldName.RECENT, [])[:5]
+        if pipeline
+        else [],
+        FieldName.UPTIME_SECONDS: uptime_seconds,
+        FieldName.CHECK_TIME: now.isoformat(),
     }
 
 
@@ -192,8 +192,8 @@ async def readiness_check(request: Request, response: Response) -> dict[str, Any
         return {
             "status": "starting",
             "message": "Service is warming up",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
 
     db_ready = await _database_ready(request)
@@ -204,36 +204,36 @@ async def readiness_check(request: Request, response: Response) -> dict[str, Any
         if redis_ready:
             return {
                 "status": "ready",
-                "database": "memory",
-                "redis": "connected",
-                "uptime_seconds": uptime_seconds,
-                "check_time": now.isoformat(),
+                FieldName.DATABASE: "memory",
+                FieldName.REDIS: "connected",
+                FieldName.UPTIME_SECONDS: uptime_seconds,
+                FieldName.CHECK_TIME: now.isoformat(),
             }
         return {
             "status": "degraded",
             "message": "Redis unavailable in memory mode",
-            "database": "memory",
-            "redis": "disconnected",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.DATABASE: "memory",
+            FieldName.REDIS: "disconnected",
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
 
     if db_ready and redis_ready:
         return {
             "status": "ready",
-            "database": "connected",
-            "redis": "connected",
-            "uptime_seconds": uptime_seconds,
-            "check_time": now.isoformat(),
+            FieldName.DATABASE: "connected",
+            FieldName.REDIS: "connected",
+            FieldName.UPTIME_SECONDS: uptime_seconds,
+            FieldName.CHECK_TIME: now.isoformat(),
         }
     # Return degraded status instead of HTTP 503
     return {
         "status": "degraded",
         "message": "Some dependencies are not ready",
-        "database": "connected" if db_ready else "disconnected",
-        "redis": "connected" if redis_ready else "disconnected",
-        "uptime_seconds": uptime_seconds,
-        "check_time": now.isoformat(),
+        FieldName.DATABASE: "connected" if db_ready else "disconnected",
+        FieldName.REDIS: "connected" if redis_ready else "disconnected",
+        FieldName.UPTIME_SECONDS: uptime_seconds,
+        FieldName.CHECK_TIME: now.isoformat(),
     }
 
 
@@ -258,16 +258,16 @@ async def system_health() -> dict[str, Any]:
             success=True,
             data={
                 "status": "healthy" if db_healthy else "unhealthy",
-                "database_connected": db_healthy,
-                "feedback_jobs_pending": 0,
-                "feedback_jobs_failed": 0,
-                "scoring_pending": 0,
-                "scoring_failed": 0,
-                "oldest_pending_score_age_seconds": oldest_pending_age_seconds,
-                "telemetry": {
-                    "error_rate": telemetry["error_rate"],
-                    "avg_latency_ms": telemetry["avg_latency_ms"],
-                    "total_requests": telemetry["total_requests"],
+                FieldName.DATABASE_CONNECTED: db_healthy,
+                FieldName.FEEDBACK_JOBS_PENDING: 0,
+                FieldName.FEEDBACK_JOBS_FAILED: 0,
+                FieldName.SCORING_PENDING: 0,
+                FieldName.SCORING_FAILED: 0,
+                FieldName.OLDEST_PENDING_SCORE_AGE_SECONDS: oldest_pending_age_seconds,
+                FieldName.TELEMETRY: {
+                    FieldName.ERROR_RATE: telemetry[FieldName.ERROR_RATE],
+                    FieldName.AVG_LATENCY_MS: telemetry[FieldName.AVG_LATENCY_MS],
+                    FieldName.TOTAL_REQUESTS: telemetry[FieldName.TOTAL_REQUESTS],
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },

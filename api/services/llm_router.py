@@ -11,6 +11,7 @@ from api.config import settings
 from api.constants import AgentAction, FieldName
 from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
+from api.utils import get_nested
 
 _GEMINI_RPM = 15
 _GEMINI_WINDOW = 60.0
@@ -104,16 +105,16 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
 
 def _get_provider_key(provider: str) -> str:
     keys = {
-        "groq": settings.GROQ_API_KEY,
-        "anthropic": getattr(settings, "ANTHROPIC_API_KEY", ""),
-        "openai": getattr(settings, "OPENAI_API_KEY", ""),
-        "gemini": getattr(settings, "GEMINI_API_KEY", ""),
+        FieldName.GROQ: settings.GROQ_API_KEY,
+        FieldName.ANTHROPIC: getattr(settings, "ANTHROPIC_API_KEY", ""),
+        FieldName.OPENAI: getattr(settings, "OPENAI_API_KEY", ""),
+        FieldName.GEMINI: getattr(settings, "GEMINI_API_KEY", ""),
     }
     return keys.get(provider, "")
 
 
 async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    from groq import AsyncGroq
+    from groq import AsyncGroq  # noqa: PLC0415
 
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     response = await client.chat.completions.create(
@@ -121,8 +122,8 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         max_tokens=300,
         temperature=0.2,
         messages=[
-            {"role": "system", FieldName.CONTENT: SYSTEM_PROMPT},
-            {"role": "user", FieldName.CONTENT: prompt},
+            {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
+            {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
         ],
     )
     text = response.choices[0].message.content
@@ -133,14 +134,14 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
 
 
 async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    import aiohttp
+    import aiohttp  # noqa: PLC0415
 
     payload = {
-        "model": settings.ANTHROPIC_MODEL,
-        "max_tokens": 300,
-        "temperature": 0.2,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", FieldName.CONTENT: prompt}],
+        FieldName.MODEL: settings.ANTHROPIC_MODEL,
+        FieldName.MAX_TOKENS: 300,
+        FieldName.TEMPERATURE: 0.2,
+        FieldName.SYSTEM: SYSTEM_PROMPT,
+        FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -156,19 +157,19 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
                 raise RuntimeError(f"anthropic_status_{resp.status}")
             body = await resp.json()
     text = "".join(
-        b.get("text", "")
+        b.get(FieldName.TEXT, "")
         for b in body.get(FieldName.CONTENT, [])
         if b.get(FieldName.TYPE) == "text"
     )
-    tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
-        body.get("usage", {}).get("output_tokens", 0)
+    tokens = int(get_nested(body, "usage", "input_tokens", default=0)) + int(
+        get_nested(body, "usage", "output_tokens", default=0)
     )
     cost_usd = round(tokens * 0.000003, 6)
     return _parse_response(text, trace_id, cost_usd), tokens, cost_usd
 
 
 async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    from openai import AsyncOpenAI
+    from openai import AsyncOpenAI  # noqa: PLC0415
 
     client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
     response = await client.chat.completions.create(
@@ -176,8 +177,8 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         max_tokens=300,
         temperature=0.2,
         messages=[
-            {"role": "system", FieldName.CONTENT: SYSTEM_PROMPT},
-            {"role": "user", FieldName.CONTENT: prompt},
+            {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
+            {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
         ],
     )
     text = response.choices[0].message.content
@@ -206,8 +207,8 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return (
         "429" in message
-        or "rate" in message
-        or "quota" in message
+        or FieldName.RATE in message
+        or FieldName.QUOTA in message
         or "resource exhausted" in message
     )
 
@@ -230,8 +231,8 @@ def _get_gemini_api_key() -> str:
 
 
 def _get_gemini_sdk():
-    from google import genai
-    from google.genai import errors as genai_errors
+    from google import genai  # noqa: PLC0415
+    from google.genai import errors as genai_errors  # noqa: PLC0415
 
     return genai, genai_errors
 
@@ -292,10 +293,10 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
 
 
 _PROVIDERS = {
-    "groq": _call_groq,
-    "anthropic": _call_anthropic,
-    "openai": _call_openai,
-    "gemini": _call_gemini,
+    FieldName.GROQ: _call_groq,
+    FieldName.ANTHROPIC: _call_anthropic,
+    FieldName.OPENAI: _call_openai,
+    FieldName.GEMINI: _call_gemini,
 }
 
 
@@ -304,7 +305,7 @@ async def _call_provider_raw(
 ) -> tuple[str, int, float]:
     """Call a provider and return raw text (not parsed as trading JSON)."""
     if provider == "groq":
-        from groq import AsyncGroq
+        from groq import AsyncGroq  # noqa: PLC0415
 
         client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.chat.completions.create(
@@ -312,8 +313,8 @@ async def _call_provider_raw(
             max_tokens=800,
             temperature=0.3,
             messages=[
-                {"role": "system", FieldName.CONTENT: system_prompt},
-                {"role": "user", FieldName.CONTENT: prompt},
+                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
             ],
         )
         text = response.choices[0].message.content or ""
@@ -323,14 +324,14 @@ async def _call_provider_raw(
         return text, tokens, 0.0
 
     if provider == "anthropic":
-        import aiohttp
+        import aiohttp  # noqa: PLC0415
 
         payload = {
-            "model": settings.ANTHROPIC_MODEL,
-            "max_tokens": 800,
-            "temperature": 0.3,
-            "system": system_prompt,
-            "messages": [{"role": "user", FieldName.CONTENT: prompt}],
+            FieldName.MODEL: settings.ANTHROPIC_MODEL,
+            FieldName.MAX_TOKENS: 800,
+            FieldName.TEMPERATURE: 0.3,
+            FieldName.SYSTEM: system_prompt,
+            FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -346,17 +347,17 @@ async def _call_provider_raw(
                     raise RuntimeError(f"anthropic_status_{resp.status}")
                 body = await resp.json()
         text = "".join(
-            b.get("text", "")
+            b.get(FieldName.TEXT, "")
             for b in body.get(FieldName.CONTENT, [])
             if b.get(FieldName.TYPE) == "text"
         )
-        tokens = int(body.get("usage", {}).get("input_tokens", 0)) + int(
-            body.get("usage", {}).get("output_tokens", 0)
+        tokens = int(get_nested(body, "usage", "input_tokens", default=0)) + int(
+            get_nested(body, "usage", "output_tokens", default=0)
         )
         return text, tokens, round(tokens * 0.000003, 6)
 
     if provider == "openai":
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI  # noqa: PLC0415
 
         client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
         response = await client.chat.completions.create(
@@ -364,8 +365,8 @@ async def _call_provider_raw(
             max_tokens=800,
             temperature=0.3,
             messages=[
-                {"role": "system", FieldName.CONTENT: system_prompt},
-                {"role": "user", FieldName.CONTENT: prompt},
+                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
             ],
         )
         text = response.choices[0].message.content or ""
@@ -433,8 +434,8 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return (
         "429" in msg
         or "rate limit" in msg
-        or "ratelimit" in msg
-        or "quota" in msg
+        or FieldName.RATELIMIT in msg
+        or FieldName.QUOTA in msg
         or "resource exhausted" in msg
         or "too many requests" in msg
     )
@@ -442,7 +443,7 @@ def _is_rate_limit_error(exc: Exception) -> bool:
 
 def _is_timeout_error(exc: Exception) -> bool:
     msg = str(exc).lower()
-    return "timeout" in msg or "timed out" in msg or "deadline" in msg
+    return FieldName.TIMEOUT in msg or "timed out" in msg or FieldName.DEADLINE in msg
 
 
 async def _inter_call_delay() -> None:

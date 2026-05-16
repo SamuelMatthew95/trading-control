@@ -191,23 +191,23 @@ class WebSocketBroadcaster:
                         )
                         agents.append(
                             {
-                                "name": name,
+                                FieldName.NAME: name,
                                 FieldName.STATUS: status,
                                 FieldName.EVENT_COUNT: data.get(FieldName.EVENT_COUNT, 0),
                                 FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
                                 FieldName.LAST_SEEN: last_seen,
-                                "seconds_ago": age,
+                                FieldName.SECONDS_AGO: age,
                             }
                         )
                     else:
                         agents.append(
                             {
-                                "name": name,
+                                FieldName.NAME: name,
                                 FieldName.STATUS: AgentStatus.WAITING,
                                 FieldName.EVENT_COUNT: 0,
                                 FieldName.LAST_EVENT: "",
                                 FieldName.LAST_SEEN: 0,
-                                "seconds_ago": 0,
+                                FieldName.SECONDS_AGO: 0,
                             }
                         )
 
@@ -221,7 +221,7 @@ class WebSocketBroadcaster:
                 await self.broadcast(
                     {
                         FieldName.TYPE: "agent_status_update",
-                        "agents": agents,
+                        FieldName.AGENTS: agents,
                         FieldName.METRICS: metrics,
                         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     }
@@ -246,7 +246,7 @@ class WebSocketBroadcaster:
 
         Returns None for events that should be suppressed (not broadcast to clients).
         """
-        base = {"stream": stream, FieldName.MSG_ID: msg_id}
+        base = {FieldName.STREAM: stream, FieldName.MSG_ID: msg_id}
 
         # --- Executions: only surface actual BUY/SELL fills ------------------
         if stream == STREAM_EXECUTIONS:
@@ -308,11 +308,11 @@ class WebSocketBroadcaster:
             payload.get(FieldName.NOTIFICATION_TYPE) or payload.get(FieldName.TYPE) or ""
         ).lower()
         stream_source = str(
-            payload.get("stream_source") or payload.get(FieldName.SOURCE) or ""
+            payload.get(FieldName.STREAM_SOURCE) or payload.get(FieldName.SOURCE) or ""
         ).lower()
         message = str(
             payload.get(FieldName.MESSAGE)
-            or payload.get("summary")
+            or payload.get(FieldName.SUMMARY)
             or payload.get(FieldName.TITLE)
             or ""
         )

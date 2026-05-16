@@ -167,7 +167,7 @@ async def lifespan(app: FastAPI):
         app.state.redis_client = redis_client
         # RedisStore powers the REST notifications / decisions / llm-health
         # endpoints. Works in DB mode too — Redis is a hard dependency.
-        from api.services.redis_store import RedisStore
+        from api.services.redis_store import RedisStore  # noqa: PLC0415
 
         redis_store = RedisStore(redis_client)
         app.state.redis_store = redis_store
@@ -295,7 +295,7 @@ async def lifespan(app: FastAPI):
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
             environment=settings.NODE_ENV,
-            config_source=get_settings_info().get("config_source"),
+            config_source=get_settings_info().get(FieldName.CONFIG_SOURCE),
             database_mode="connected" if app.state.db_available else "in_memory_fallback",
         )
         yield

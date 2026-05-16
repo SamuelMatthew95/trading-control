@@ -24,8 +24,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import text
 
 from api.constants import FieldName, GradeType
+from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agents.trade_scorer import compute_learning_metrics
@@ -85,7 +87,7 @@ def _grade_from_score(score: float) -> str:
 def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) -> dict[str, Any]:
     """Convert a raw grade score into the trade_evaluation response shape."""
     return {
-        "id": trade_id,
+        FieldName.ID: trade_id,
         FieldName.TRADE_EVAL_ID: trade_id,
         FieldName.SYMBOL: None,
         FieldName.SIDE: None,
@@ -164,7 +166,7 @@ async def _db_grades_as_trades(
             ORDER BY created_at DESC
             LIMIT :limit OFFSET :offset
         """),
-        {"limit": limit, "offset": offset},
+        {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
     )
     trades = []
     for r in rows.all():
@@ -205,18 +207,14 @@ async def list_trade_evaluations(
             # No trade_evaluations yet — bridge from grade_history with correct pagination
             page, total = _mem_grades_as_trades(store, limit, offset)
         return {
-            "trades": page,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "mode": mode,
+            FieldName.TRADES: page,
+            FieldName.TOTAL: total,
+            FieldName.LIMIT: limit,
+            FieldName.OFFSET: offset,
+            FieldName.MODE: mode,
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             # trade_evaluations is empty if no STREAM_TRADE_COMPLETED events have been
             # processed yet; bridge to agent_grades so the UI has real scoring data.
@@ -231,11 +229,11 @@ async def list_trade_evaluations(
             if not table_ok or total == 0:
                 trades, total = await _db_grades_as_trades(session, text, limit, offset)
                 return {
-                    "trades": trades,
-                    "total": total,
-                    "limit": limit,
-                    "offset": offset,
-                    "mode": mode,
+                    FieldName.TRADES: trades,
+                    FieldName.TOTAL: total,
+                    FieldName.LIMIT: limit,
+                    FieldName.OFFSET: offset,
+                    FieldName.MODE: mode,
                 }
 
             rows = await session.execute(
@@ -248,11 +246,11 @@ async def list_trade_evaluations(
                     ORDER BY created_at DESC
                     LIMIT :limit OFFSET :offset
                 """),
-                {"limit": limit, "offset": offset},
+                {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
             )
             trades = [
                 {
-                    "id": str(r[0]),
+                    FieldName.ID: str(r[0]),
                     FieldName.TRADE_EVAL_ID: str(r[1]),
                     FieldName.SYMBOL: r[2],
                     FieldName.SIDE: r[3],
@@ -272,7 +270,13 @@ async def list_trade_evaluations(
                 }
                 for r in rows.all()
             ]
-        return {"trades": trades, "total": total, "limit": limit, "offset": offset, "mode": mode}
+        return {
+            FieldName.TRADES: trades,
+            FieldName.TOTAL: total,
+            FieldName.LIMIT: limit,
+            FieldName.OFFSET: offset,
+            FieldName.MODE: mode,
+        }
     except Exception:
         log_structured("error", "learning_trades_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
@@ -290,7 +294,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         store = get_runtime_store()
         for ev in reversed(store.trade_evaluations):
             if str(ev.get(FieldName.TRADE_EVAL_ID)) == trade_id:
-                return {"trade": ev, "mode": "memory"}
+                return {"trade": ev, FieldName.MODE: "memory"}
         # trade_evaluations empty — IDs may come from the grade_history bridge;
         # search the full list directly to avoid the 200-entry cap of _mem_grades_as_trades
         if not store.trade_evaluations:
@@ -306,15 +310,11 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                             trade_id=trade_id,
                             created_at=g.get(FieldName.TIMESTAMP),
                         ),
-                        "mode": "memory",
+                        FieldName.MODE: "memory",
                     }
         raise HTTPException(status_code=404, detail="Trade evaluation not found")
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             # trade_evaluations may not exist during a partial migration; guard
             # each query independently so the agent_grades bridge always runs.
@@ -340,7 +340,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
             if r is not None:
                 return {
                     "trade": {
-                        "id": str(r[0]),
+                        FieldName.ID: str(r[0]),
                         FieldName.TRADE_EVAL_ID: str(r[1]),
                         FieldName.SYMBOL: r[2],
                         FieldName.SIDE: r[3],
@@ -358,7 +358,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                         FieldName.STRENGTHS: _as_list(r[15]),
                         FieldName.CREATED_AT: _iso(r[16]),
                     },
-                    "mode": "db",
+                    FieldName.MODE: "db",
                 }
             # trade_evaluations miss or inaccessible — IDs may come from the agent_grades bridge
             te_empty = not te_accessible
@@ -389,7 +389,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                         trade_id=str(ag_r[0] or ""),
                         created_at=ag_r[2],
                     )
-                    return {"trade": trade, "mode": "db"}
+                    return {"trade": trade, FieldName.MODE: "db"}
             raise HTTPException(status_code=404, detail="Trade evaluation not found")
     except HTTPException:
         raise
@@ -434,15 +434,11 @@ async def get_learning_metrics() -> dict[str, Any]:
         metrics = compute_learning_metrics(evaluations)
         return {
             **metrics,
-            "mode": mode,
+            FieldName.MODE: mode,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             # trade_evaluations is the primary source; bridge to agent_grades when
             # the table is empty (no trade completions have cycled through yet).
@@ -496,7 +492,7 @@ async def get_learning_metrics() -> dict[str, Any]:
         metrics = compute_learning_metrics(evaluations)
         return {
             **metrics,
-            "mode": mode,
+            FieldName.MODE: mode,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -519,16 +515,12 @@ async def list_reflections(
     if not is_db_available():
         store = get_runtime_store()
         return {
-            "reflections": store.get_reflections(limit),
-            "total": len(store.reflections),
-            "mode": mode,
+            FieldName.REFLECTIONS: store.get_reflections(limit),
+            FieldName.TOTAL: len(store.reflections),
+            FieldName.MODE: mode,
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             count_row = await session.execute(text("SELECT COUNT(*) FROM reflections"))
             total = int(count_row.scalar() or 0)
@@ -541,11 +533,11 @@ async def list_reflections(
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"limit": limit},
+                {FieldName.LIMIT: limit},
             )
             reflections = [
                 {
-                    "id": str(r[0]),
+                    FieldName.ID: str(r[0]),
                     FieldName.PATTERNS: _as_list(r[1]),
                     FieldName.MISTAKE_CLUSTERS: _as_list(r[2]),
                     FieldName.RECOMMENDATIONS: _as_list(r[3]),
@@ -557,7 +549,7 @@ async def list_reflections(
                 }
                 for r in rows.all()
             ]
-        return {"reflections": reflections, "total": total, "mode": mode}
+        return {FieldName.REFLECTIONS: reflections, FieldName.TOTAL: total, FieldName.MODE: mode}
     except Exception:
         log_structured("error", "learning_reflections_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
@@ -578,16 +570,12 @@ async def list_strategies(
     if not is_db_available():
         store = get_runtime_store()
         return {
-            "strategies": store.get_strategies(limit),
-            "total": len(store.strategies),
-            "mode": mode,
+            FieldName.STRATEGIES: store.get_strategies(limit),
+            FieldName.TOTAL: len(store.strategies),
+            FieldName.MODE: mode,
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             count_row = await session.execute(text("SELECT COUNT(*) FROM strategies"))
             total = int(count_row.scalar() or 0)
@@ -600,11 +588,11 @@ async def list_strategies(
                     ORDER BY created_at DESC
                     LIMIT :limit
                 """),
-                {"limit": limit},
+                {FieldName.LIMIT: limit},
             )
             strategies = [
                 {
-                    "id": str(r[0]),
+                    FieldName.ID: str(r[0]),
                     FieldName.RULES: _as_dict(r[1]),
                     FieldName.DESCRIPTION: r[2],
                     FieldName.EXPECTED_IMPROVEMENT: float(r[3]) if r[3] is not None else None,
@@ -614,7 +602,7 @@ async def list_strategies(
                 }
                 for r in rows.all()
             ]
-        return {"strategies": strategies, "total": total, "mode": mode}
+        return {FieldName.STRATEGIES: strategies, FieldName.TOTAL: total, FieldName.MODE: mode}
     except Exception:
         log_structured("error", "learning_strategies_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
@@ -640,13 +628,13 @@ async def get_pipeline_status() -> dict[str, Any]:
         ]
         scoring_source = store.trade_evaluations or overall_grades
         return {
-            "mode": mode,
+            FieldName.MODE: mode,
             FieldName.TIMESTAMP: now,
-            "stages": {
-                "scoring": {
+            FieldName.STAGES: {
+                FieldName.SCORING: {
                     FieldName.STATUS: "active" if scoring_source else "idle",
-                    "jobs_processed": len(scoring_source),
-                    "last_run": _iso(
+                    FieldName.JOBS_PROCESSED: len(scoring_source),
+                    FieldName.LAST_RUN: _iso(
                         (
                             scoring_source[-1].get(FieldName.CREATED_AT)
                             or scoring_source[-1].get(FieldName.TIMESTAMP)
@@ -654,34 +642,30 @@ async def get_pipeline_status() -> dict[str, Any]:
                         if scoring_source
                         else None
                     ),
-                    "error_count": 0,
+                    FieldName.ERROR_COUNT: 0,
                 },
-                "reflection": {
+                FieldName.REFLECTION: {
                     FieldName.STATUS: "active" if store.reflections else "idle",
-                    "jobs_processed": len(store.reflections),
-                    "last_run": _iso(
+                    FieldName.JOBS_PROCESSED: len(store.reflections),
+                    FieldName.LAST_RUN: _iso(
                         store.reflections[-1].get(FieldName.CREATED_AT)
                         if store.reflections
                         else None
                     ),
-                    "error_count": 0,
+                    FieldName.ERROR_COUNT: 0,
                 },
-                "strategy_proposer": {
+                FieldName.STRATEGY_PROPOSER: {
                     FieldName.STATUS: "active" if store.strategies else "idle",
-                    "jobs_processed": len(store.strategies),
-                    "last_run": _iso(
+                    FieldName.JOBS_PROCESSED: len(store.strategies),
+                    FieldName.LAST_RUN: _iso(
                         store.strategies[-1].get(FieldName.CREATED_AT) if store.strategies else None
                     ),
-                    "error_count": 0,
+                    FieldName.ERROR_COUNT: 0,
                 },
             },
         }
 
     try:
-        from sqlalchemy import text
-
-        from api.database import AsyncSessionFactory
-
         async with AsyncSessionFactory() as session:
             eval_count, eval_last = 0, None
             try:
@@ -720,26 +704,26 @@ async def get_pipeline_status() -> dict[str, Any]:
             strat_count, strat_last = strat_row.first() or (0, None)
 
         return {
-            "mode": mode,
+            FieldName.MODE: mode,
             FieldName.TIMESTAMP: now,
-            "stages": {
-                "scoring": {
+            FieldName.STAGES: {
+                FieldName.SCORING: {
                     FieldName.STATUS: "active" if eval_count else "idle",
-                    "jobs_processed": int(eval_count or 0),
-                    "last_run": _iso(eval_last),
-                    "error_count": 0,
+                    FieldName.JOBS_PROCESSED: int(eval_count or 0),
+                    FieldName.LAST_RUN: _iso(eval_last),
+                    FieldName.ERROR_COUNT: 0,
                 },
-                "reflection": {
+                FieldName.REFLECTION: {
                     FieldName.STATUS: "active" if ref_count else "idle",
-                    "jobs_processed": int(ref_count or 0),
-                    "last_run": _iso(ref_last),
-                    "error_count": 0,
+                    FieldName.JOBS_PROCESSED: int(ref_count or 0),
+                    FieldName.LAST_RUN: _iso(ref_last),
+                    FieldName.ERROR_COUNT: 0,
                 },
-                "strategy_proposer": {
+                FieldName.STRATEGY_PROPOSER: {
                     FieldName.STATUS: "active" if strat_count else "idle",
-                    "jobs_processed": int(strat_count or 0),
-                    "last_run": _iso(strat_last),
-                    "error_count": 0,
+                    FieldName.JOBS_PROCESSED: int(strat_count or 0),
+                    FieldName.LAST_RUN: _iso(strat_last),
+                    FieldName.ERROR_COUNT: 0,
                 },
             },
         }

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.constants import FieldName
 from api.observability import log_structured
+from api.utils import get_nested
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
@@ -19,7 +20,7 @@ async def get_alerts() -> dict[str, Any]:
     try:
         # Mock implementation for now
         alerts = []
-        return {"success": True, "alerts": alerts, "count": len(alerts)}
+        return {FieldName.SUCCESS: True, FieldName.ALERTS: alerts, FieldName.COUNT: len(alerts)}
     except Exception as e:
         log_structured("error", "alerts failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -31,7 +32,7 @@ async def get_system_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         system_metrics = {}
-        return {"success": True, "system_metrics": system_metrics}
+        return {FieldName.SUCCESS: True, FieldName.SYSTEM_METRICS: system_metrics}
     except Exception as e:
         log_structured("error", "system metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -43,7 +44,7 @@ async def get_performance_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         performance_metrics = {}
-        return {"success": True, FieldName.PERFORMANCE_METRICS: performance_metrics}
+        return {FieldName.SUCCESS: True, FieldName.PERFORMANCE_METRICS: performance_metrics}
     except Exception as e:
         log_structured("error", "performance metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -55,7 +56,7 @@ async def get_agent_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         agent_metrics = {}
-        return {"success": True, "agent_metrics": agent_metrics}
+        return {FieldName.SUCCESS: True, FieldName.AGENT_METRICS: agent_metrics}
     except Exception as e:
         log_structured("error", "agent metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -67,7 +68,7 @@ async def get_data_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         data_metrics = {}
-        return {"success": True, "data_metrics": data_metrics}
+        return {FieldName.SUCCESS: True, FieldName.DATA_METRICS: data_metrics}
     except Exception as e:
         log_structured("error", "data metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -79,7 +80,7 @@ async def get_task_metrics() -> dict[str, Any]:
     try:
         # Mock implementation for now
         task_metrics = {}
-        return {"success": True, "task_metrics": task_metrics}
+        return {FieldName.SUCCESS: True, FieldName.TASK_METRICS: task_metrics}
     except Exception as e:
         log_structured("error", "task metrics failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -92,19 +93,28 @@ async def get_monitoring_summary() -> dict[str, Any]:
         # Mock implementation for now
         health_score = {FieldName.STATUS: "unknown", FieldName.SCORE: 0}
         alerts = []
-        metrics = {"performance": {}, "system": {}, "agents": {}, FieldName.DATA: {}}
-        summary = {
-            "overall_status": health_score.get(FieldName.STATUS, "unknown"),
-            "health_score": health_score.get(FieldName.SCORE, 0),
-            "active_alerts": len(alerts),
-            "critical_alerts": len([a for a in alerts if a.get("severity") == "critical"]),
-            "system_load": metrics.get("performance", {}).get("system_load", 0),
-            "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
-            "agents_active": metrics.get("agents", {}).get("agents_active", 0),
-            "data_freshness_ms": metrics.get(FieldName.DATA, {}).get("data_freshness_ms", 0),
-            "last_update": datetime.now(timezone.utc).isoformat(),
+        metrics = {
+            FieldName.PERFORMANCE: {},
+            FieldName.SYSTEM: {},
+            FieldName.AGENTS: {},
+            FieldName.DATA: {},
         }
-        return {"success": True, "summary": summary}
+        summary = {
+            FieldName.OVERALL_STATUS: health_score.get(FieldName.STATUS, "unknown"),
+            FieldName.HEALTH_SCORE: health_score.get(FieldName.SCORE, 0),
+            FieldName.ACTIVE_ALERTS: len(alerts),
+            FieldName.CRITICAL_ALERTS: len(
+                [a for a in alerts if a.get(FieldName.SEVERITY) == "critical"]
+            ),
+            FieldName.SYSTEM_LOAD: get_nested(metrics, "performance", "system_load", default=0),
+            FieldName.SUCCESS_RATE: get_nested(metrics, "tasks", "success_rate", default=0),
+            FieldName.AGENTS_ACTIVE: get_nested(metrics, "agents", "agents_active", default=0),
+            FieldName.DATA_FRESHNESS_MS: get_nested(
+                metrics, FieldName.DATA, "data_freshness_ms", default=0
+            ),
+            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+        }
+        return {FieldName.SUCCESS: True, FieldName.SUMMARY: summary}
     except Exception as e:
         log_structured("error", "monitoring summary failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
@@ -116,9 +126,13 @@ async def monitoring_health_check() -> dict[str, Any]:
     try:
         return {
             FieldName.STATUS: "healthy",
-            "monitoring_active": True,
-            "last_update": datetime.now(timezone.utc).isoformat(),
+            FieldName.MONITORING_ACTIVE: True,
+            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         log_structured("error", "monitoring health check failed", exc_info=True)
-        return {FieldName.STATUS: "unhealthy", "monitoring_active": False, FieldName.ERROR: str(e)}
+        return {
+            FieldName.STATUS: "unhealthy",
+            FieldName.MONITORING_ACTIVE: False,
+            FieldName.ERROR: str(e),
+        }
