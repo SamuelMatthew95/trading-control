@@ -756,7 +756,7 @@ class MetricsAggregator:
                         continue
                     entry = dict(payload)
                     entry.setdefault(
-                        "timestamp",
+                        FieldName.TIMESTAMP,
                         row[1].isoformat() if row[1] else None,
                     )
                     notifications.append(entry)
