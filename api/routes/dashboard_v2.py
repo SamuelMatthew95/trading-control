@@ -201,6 +201,56 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
     }
 
 
+def _paired_pnl_memory_payload() -> dict[str, Any]:
+    payload = get_runtime_store().paired_pnl_payload()
+    return {
+        FieldName.CLOSED_TRADES: payload[FieldName.CLOSED_TRADES],
+        FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
+        "summary": payload[FieldName.SUMMARY],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
+
+
+def _agent_memory_payload() -> dict[str, Any]:
+    store = get_runtime_store()
+    return {
+        FieldName.AGENTS: [
+            {
+                FieldName.NAME: name,
+                **({} if not store.get_agent(name) else store.get_agent(name)),
+            }
+            for name in ALL_AGENT_NAMES
+        ],
+        FieldName.RUNS: store.agent_runs[-50:],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
+
+
+def _flow_status_memory_payload() -> dict[str, Any]:
+    store = get_runtime_store()
+    mem_runs = len(store.agent_runs)
+    return {
+        FieldName.API_VERSION: DASHBOARD_API_VERSION,
+        FieldName.DB_SCHEMA_VERSION: DB_SCHEMA_VERSION,
+        FieldName.DEGRADED_MODE: True,
+        FieldName.DEGRADED_REASON: "db_unavailable",
+        FieldName.COUNTS: {
+            FieldName.AGENT_RUNS: mem_runs,
+            FieldName.AGENT_LOGS: len(store.event_history),
+            FieldName.AGENT_GRADES: len(store.grade_history),
+            FieldName.ORDERS: 0,
+            FieldName.TRADE_LIFECYCLE: 0,
+        },
+        FieldName.REALTIME_EVENT_COUNT: mem_runs,
+        FieldName.PERSISTED_EVENT_COUNT: 0,
+        FieldName.TRACE_COVERAGE: {"trace_id": None},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "in_memory",
+    }
+
+
 def _timestamp_from_agent_data(data: dict[str, Any], now: datetime) -> str | None:
     """Return an ISO timestamp from mixed heartbeat fields."""
     for key in ("started_at", "last_seen_at", FieldName.UPDATED_AT):
@@ -675,14 +725,7 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
     price so unrealized PnL updates on every request.
     """
     if not is_db_available():
-        payload = get_runtime_store().paired_pnl_payload()
-        return {
-            FieldName.CLOSED_TRADES: payload[FieldName.CLOSED_TRADES],
-            FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
-            "summary": payload[FieldName.SUMMARY],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        return _paired_pnl_memory_payload()
 
     redis_client = getattr(request.app.state, "redis_client", None)
     try:
@@ -691,52 +734,21 @@ async def get_paired_pnl(request: Request) -> dict[str, Any]:
             return await aggregator.get_paired_pnl(redis_client=redis_client)
     except Exception:
         log_structured("warning", "paired_pnl_unavailable", exc_info=True)
-        payload = get_runtime_store().paired_pnl_payload()
-        return {
-            FieldName.CLOSED_TRADES: payload[FieldName.CLOSED_TRADES],
-            FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
-            "summary": payload[FieldName.SUMMARY],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        return _paired_pnl_memory_payload()
 
 
 @router.get("/agents")
 async def get_agent_metrics() -> dict[str, Any]:
     """Get agent activity metrics."""
     if not is_db_available():
-        store = get_runtime_store()
-        return {
-            FieldName.AGENTS: [
-                {
-                    FieldName.NAME: name,
-                    **({} if not store.get_agent(name) else store.get_agent(name)),
-                }
-                for name in ALL_AGENT_NAMES
-            ],
-            FieldName.RUNS: store.agent_runs[-50:],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        return _agent_memory_payload()
     try:
         async with AsyncSessionFactory() as session:
             aggregator = MetricsAggregator(session)
             return await aggregator.get_agent_metrics()
     except Exception:
         log_structured("warning", "agent_metrics_db_failed", exc_info=True)
-        store = get_runtime_store()
-        return {
-            FieldName.AGENTS: [
-                {
-                    FieldName.NAME: name,
-                    **({} if not store.get_agent(name) else store.get_agent(name)),
-                }
-                for name in ALL_AGENT_NAMES
-            ],
-            FieldName.RUNS: store.agent_runs[-50:],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        return _agent_memory_payload()
 
 
 @router.get("/orders")
@@ -765,26 +777,7 @@ async def get_flow_status() -> dict[str, Any]:
     """Operational view to verify data is flowing end-to-end for UI/debugging."""
     try:
         if not is_db_available():
-            store = get_runtime_store()
-            mem_runs = len(store.agent_runs)
-            return {
-                FieldName.API_VERSION: DASHBOARD_API_VERSION,
-                FieldName.DB_SCHEMA_VERSION: DB_SCHEMA_VERSION,
-                FieldName.DEGRADED_MODE: True,
-                FieldName.DEGRADED_REASON: "db_unavailable",
-                FieldName.COUNTS: {
-                    FieldName.AGENT_RUNS: mem_runs,
-                    FieldName.AGENT_LOGS: len(store.event_history),
-                    FieldName.AGENT_GRADES: len(store.grade_history),
-                    FieldName.ORDERS: 0,
-                    FieldName.TRADE_LIFECYCLE: 0,
-                },
-                FieldName.REALTIME_EVENT_COUNT: mem_runs,
-                FieldName.PERSISTED_EVENT_COUNT: 0,
-                FieldName.TRACE_COVERAGE: {"trace_id": None},
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "in_memory",
-            }
+            return _flow_status_memory_payload()
         async with AsyncSessionFactory() as session:
             counts_sql = text("""
                 SELECT
@@ -862,26 +855,7 @@ async def get_flow_status() -> dict[str, Any]:
         }
     except Exception:
         log_structured("warning", "flow_status_db_unavailable", exc_info=True)
-        store = get_runtime_store()
-        mem_runs = len(store.agent_runs)
-        return {
-            FieldName.API_VERSION: DASHBOARD_API_VERSION,
-            FieldName.DB_SCHEMA_VERSION: DB_SCHEMA_VERSION,
-            FieldName.DEGRADED_MODE: True,
-            FieldName.DEGRADED_REASON: "db_unavailable",
-            FieldName.COUNTS: {
-                FieldName.AGENT_RUNS: mem_runs,
-                FieldName.AGENT_LOGS: len(store.event_history),
-                FieldName.AGENT_GRADES: len(store.grade_history),
-                FieldName.ORDERS: 0,
-                FieldName.TRADE_LIFECYCLE: 0,
-            },
-            FieldName.REALTIME_EVENT_COUNT: mem_runs,
-            FieldName.PERSISTED_EVENT_COUNT: 0,
-            FieldName.TRACE_COVERAGE: {"trace_id": None},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "in_memory",
-        }
+        return _flow_status_memory_payload()
 
 
 @router.get("/prices")
@@ -2285,6 +2259,33 @@ def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> 
     }
 
 
+def _fmt_db_trade_row(row: Any) -> dict[str, Any]:
+    pnl = float(row[6]) if row[6] is not None else None
+    pnl_pct = float(row[7]) if row[7] is not None else None
+    return {
+        FieldName.ID: str(row[0]),
+        "symbol": row[1],
+        "side": row[2],
+        "qty": float(row[3]) if row[3] is not None else None,
+        "entry_price": float(row[4]) if row[4] is not None else None,
+        "exit_price": float(row[5]) if row[5] is not None else None,
+        "pnl": round(pnl, 2) if pnl is not None else None,
+        "pnl_percent": round(pnl_pct, 4) if pnl_pct is not None else None,
+        "order_id": str(row[8]) if row[8] else None,
+        FieldName.EXECUTION_TRACE_ID: row[9],
+        FieldName.SIGNAL_TRACE_ID: row[10],
+        "grade": row[11],
+        "grade_score": float(row[12]) if row[12] is not None else None,
+        FieldName.GRADE_LABEL: row[13],
+        "status": row[14],
+        "filled_at": row[15].isoformat() if row[15] else None,
+        FieldName.GRADED_AT: row[16].isoformat() if row[16] else None,
+        FieldName.REFLECTED_AT: row[17].isoformat() if row[17] else None,
+        "created_at": row[18].isoformat() if row[18] else None,
+        FieldName.SESSION_ID: row[19],
+    }
+
+
 @router.get("/trade-feed")
 async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, Any]:
     """Return the most recent trades with full lifecycle state.
@@ -2325,33 +2326,7 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
             )
             rows = result.all()
 
-        def _fmt(row: Any) -> dict[str, Any]:
-            pnl = float(row[6]) if row[6] is not None else None
-            pnl_pct = float(row[7]) if row[7] is not None else None
-            return {
-                FieldName.ID: str(row[0]),
-                "symbol": row[1],
-                "side": row[2],
-                "qty": float(row[3]) if row[3] is not None else None,
-                "entry_price": float(row[4]) if row[4] is not None else None,
-                "exit_price": float(row[5]) if row[5] is not None else None,
-                "pnl": round(pnl, 2) if pnl is not None else None,
-                "pnl_percent": round(pnl_pct, 4) if pnl_pct is not None else None,
-                "order_id": str(row[8]) if row[8] else None,
-                FieldName.EXECUTION_TRACE_ID: row[9],
-                FieldName.SIGNAL_TRACE_ID: row[10],
-                "grade": row[11],
-                "grade_score": float(row[12]) if row[12] is not None else None,
-                FieldName.GRADE_LABEL: row[13],
-                "status": row[14],
-                "filled_at": row[15].isoformat() if row[15] else None,
-                FieldName.GRADED_AT: row[16].isoformat() if row[16] else None,
-                FieldName.REFLECTED_AT: row[17].isoformat() if row[17] else None,
-                "created_at": row[18].isoformat() if row[18] else None,
-                FieldName.SESSION_ID: row[19],
-            }
-
-        trades = [_fmt(r) for r in rows]
+        trades = [_fmt_db_trade_row(r) for r in rows]
         if session_id:
             trades = [t for t in trades if str(t.get(FieldName.SESSION_ID) or "") == session_id]
 
