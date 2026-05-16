@@ -107,7 +107,7 @@ class InMemoryStore:
             "id",
             entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}",
         )
-        entry.setdefault("timestamp", time.time())
+        entry.setdefault(FieldName.TIMESTAMP, time.time())
         self.notifications.append(entry)
         if len(self.notifications) > 100:
             self.notifications = self.notifications[-100:]
@@ -115,7 +115,7 @@ class InMemoryStore:
 
     def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(grade_payload)
-        payload.setdefault("timestamp", time.time())
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
         self.grade_history.append(payload)
         if len(self.grade_history) > 500:
             self.grade_history = self.grade_history[-500:]
@@ -127,7 +127,7 @@ class InMemoryStore:
 
     def add_event(self, event_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(event_payload)
-        payload.setdefault("timestamp", time.time())
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
         self.event_history.append(payload)
         if len(self.event_history) > 1000:
             self.event_history = self.event_history[-1000:]
@@ -139,7 +139,7 @@ class InMemoryStore:
 
     def add_vector_memory(self, memory_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(memory_payload)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         self.vector_memory.append(payload)
         if len(self.vector_memory) > 1000:
             self.vector_memory = self.vector_memory[-1000:]
@@ -147,7 +147,7 @@ class InMemoryStore:
 
     def add_agent_run(self, run_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(run_payload)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         self.agent_runs.append(payload)
         if len(self.agent_runs) > 500:
             self.agent_runs = self.agent_runs[-500:]
@@ -155,7 +155,7 @@ class InMemoryStore:
 
     def add_order(self, order: dict[str, Any]) -> dict[str, Any]:
         payload = dict(order)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         self.orders.append(payload)
         if len(self.orders) > 500:
             self.orders = self.orders[-500:]
@@ -172,7 +172,7 @@ class InMemoryStore:
         Agent Thought Stream when Postgres is unavailable.
         """
         payload = dict(log_payload)
-        payload.setdefault("timestamp", time.time())
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
         self.agent_logs.append(payload)
         if len(self.agent_logs) > 500:
             self.agent_logs = self.agent_logs[-500:]
@@ -185,7 +185,7 @@ class InMemoryStore:
         existing row instead of creating duplicates.
         """
         payload = dict(trade)
-        payload.setdefault("created_at", time.time())
+        payload.setdefault(FieldName.CREATED_AT, time.time())
         key = payload.get(FieldName.EXECUTION_TRACE_ID) or payload.get(FieldName.ORDER_ID)
         if key:
             for i, existing in enumerate(self.trade_feed):
@@ -207,7 +207,7 @@ class InMemoryStore:
 
     def add_trade_evaluation(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault("created_at", time.time())
+        entry.setdefault(FieldName.CREATED_AT, time.time())
         self.trade_evaluations.append(entry)
         if len(self.trade_evaluations) > 500:
             self.trade_evaluations = self.trade_evaluations[-500:]
@@ -220,7 +220,7 @@ class InMemoryStore:
     def add_reflection(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
         entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault("created_at", time.time())
+        entry.setdefault(FieldName.CREATED_AT, time.time())
         self.reflections.append(entry)
         if len(self.reflections) > 100:
             self.reflections = self.reflections[-100:]
@@ -233,7 +233,7 @@ class InMemoryStore:
     def add_strategy(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
         entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault("created_at", time.time())
+        entry.setdefault(FieldName.CREATED_AT, time.time())
         self.strategies.append(entry)
         if len(self.strategies) > 100:
             self.strategies = self.strategies[-100:]
