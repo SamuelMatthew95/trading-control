@@ -105,10 +105,10 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
 
 def _get_provider_key(provider: str) -> str:
     keys = {
-        "groq": settings.GROQ_API_KEY,
-        "anthropic": getattr(settings, "ANTHROPIC_API_KEY", ""),
-        "openai": getattr(settings, "OPENAI_API_KEY", ""),
-        "gemini": getattr(settings, "GEMINI_API_KEY", ""),
+        FieldName.GROQ: settings.GROQ_API_KEY,
+        FieldName.ANTHROPIC: getattr(settings, "ANTHROPIC_API_KEY", ""),
+        FieldName.OPENAI: getattr(settings, "OPENAI_API_KEY", ""),
+        FieldName.GEMINI: getattr(settings, "GEMINI_API_KEY", ""),
     }
     return keys.get(provider, "")
 
@@ -122,8 +122,8 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         max_tokens=300,
         temperature=0.2,
         messages=[
-            {"role": "system", FieldName.CONTENT: SYSTEM_PROMPT},
-            {"role": "user", FieldName.CONTENT: prompt},
+            {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
+            {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
         ],
     )
     text = response.choices[0].message.content
@@ -138,10 +138,10 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
 
     payload = {
         FieldName.MODEL: settings.ANTHROPIC_MODEL,
-        "max_tokens": 300,
-        "temperature": 0.2,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", FieldName.CONTENT: prompt}],
+        FieldName.MAX_TOKENS: 300,
+        FieldName.TEMPERATURE: 0.2,
+        FieldName.SYSTEM: SYSTEM_PROMPT,
+        FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -157,7 +157,7 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
                 raise RuntimeError(f"anthropic_status_{resp.status}")
             body = await resp.json()
     text = "".join(
-        b.get("text", "")
+        b.get(FieldName.TEXT, "")
         for b in body.get(FieldName.CONTENT, [])
         if b.get(FieldName.TYPE) == "text"
     )
@@ -177,8 +177,8 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
         max_tokens=300,
         temperature=0.2,
         messages=[
-            {"role": "system", FieldName.CONTENT: SYSTEM_PROMPT},
-            {"role": "user", FieldName.CONTENT: prompt},
+            {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
+            {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
         ],
     )
     text = response.choices[0].message.content
@@ -207,8 +207,8 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return (
         "429" in message
-        or "rate" in message
-        or "quota" in message
+        or FieldName.RATE in message
+        or FieldName.QUOTA in message
         or "resource exhausted" in message
     )
 
@@ -293,10 +293,10 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
 
 
 _PROVIDERS = {
-    "groq": _call_groq,
-    "anthropic": _call_anthropic,
-    "openai": _call_openai,
-    "gemini": _call_gemini,
+    FieldName.GROQ: _call_groq,
+    FieldName.ANTHROPIC: _call_anthropic,
+    FieldName.OPENAI: _call_openai,
+    FieldName.GEMINI: _call_gemini,
 }
 
 
@@ -313,8 +313,8 @@ async def _call_provider_raw(
             max_tokens=800,
             temperature=0.3,
             messages=[
-                {"role": "system", FieldName.CONTENT: system_prompt},
-                {"role": "user", FieldName.CONTENT: prompt},
+                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
             ],
         )
         text = response.choices[0].message.content or ""
@@ -328,10 +328,10 @@ async def _call_provider_raw(
 
         payload = {
             FieldName.MODEL: settings.ANTHROPIC_MODEL,
-            "max_tokens": 800,
-            "temperature": 0.3,
-            "system": system_prompt,
-            "messages": [{"role": "user", FieldName.CONTENT: prompt}],
+            FieldName.MAX_TOKENS: 800,
+            FieldName.TEMPERATURE: 0.3,
+            FieldName.SYSTEM: system_prompt,
+            FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -347,7 +347,7 @@ async def _call_provider_raw(
                     raise RuntimeError(f"anthropic_status_{resp.status}")
                 body = await resp.json()
         text = "".join(
-            b.get("text", "")
+            b.get(FieldName.TEXT, "")
             for b in body.get(FieldName.CONTENT, [])
             if b.get(FieldName.TYPE) == "text"
         )
@@ -365,8 +365,8 @@ async def _call_provider_raw(
             max_tokens=800,
             temperature=0.3,
             messages=[
-                {"role": "system", FieldName.CONTENT: system_prompt},
-                {"role": "user", FieldName.CONTENT: prompt},
+                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
             ],
         )
         text = response.choices[0].message.content or ""
@@ -434,8 +434,8 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return (
         "429" in msg
         or "rate limit" in msg
-        or "ratelimit" in msg
-        or "quota" in msg
+        or FieldName.RATELIMIT in msg
+        or FieldName.QUOTA in msg
         or "resource exhausted" in msg
         or "too many requests" in msg
     )
@@ -443,7 +443,7 @@ def _is_rate_limit_error(exc: Exception) -> bool:
 
 def _is_timeout_error(exc: Exception) -> bool:
     msg = str(exc).lower()
-    return "timeout" in msg or "timed out" in msg or "deadline" in msg
+    return FieldName.TIMEOUT in msg or "timed out" in msg or FieldName.DEADLINE in msg
 
 
 async def _inter_call_delay() -> None:
