@@ -35,7 +35,7 @@ async def get_trades(
 
             trades_data = [
                 {
-                    "id": str(t.id),
+                    FieldName.ID: str(t.id),
                     "symbol": t.symbol,
                     "entry_time": t.entry_time.isoformat() if t.entry_time else None,
                     "exit_time": t.exit_time.isoformat() if t.exit_time else None,
@@ -50,11 +50,11 @@ async def get_trades(
                 for t in trades
             ]
 
-            return StandardResponse(success=True, data={"trades": trades_data}).model_dump()
+            return StandardResponse(success=True, data={FieldName.TRADES: trades_data}).model_dump()
     except (OperationalError, ProgrammingError):
         # In degraded environments (fresh DB / local sqlite without migrations),
         # return an empty payload instead of failing the endpoint.
-        return StandardResponse(success=True, data={"trades": []}).model_dump()
+        return StandardResponse(success=True, data={FieldName.TRADES: []}).model_dump()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch trades: {str(exc)}") from None
 
@@ -105,10 +105,10 @@ async def start_trading_bot() -> dict[str, Any]:
     try:
         bot_state.update(
             {
-                "running": True,
+                FieldName.RUNNING: True,
                 "status": "running",
-                "last_action": "start",
-                "last_action_time": "just now",
+                FieldName.LAST_ACTION: "start",
+                FieldName.LAST_ACTION_TIME: "just now",
             }
         )
 
@@ -117,7 +117,7 @@ async def start_trading_bot() -> dict[str, Any]:
             data={
                 "status": "starting",
                 "message": "Trading bot start initiated",
-                "bot_state": bot_state,
+                FieldName.BOT_STATE: bot_state,
             },
         ).model_dump()
     except Exception as exc:
@@ -132,10 +132,10 @@ async def stop_trading_bot() -> dict[str, Any]:
     try:
         bot_state.update(
             {
-                "running": False,
+                FieldName.RUNNING: False,
                 "status": "stopped",
-                "last_action": "stop",
-                "last_action_time": "just now",
+                FieldName.LAST_ACTION: "stop",
+                FieldName.LAST_ACTION_TIME: "just now",
             }
         )
 
@@ -144,7 +144,7 @@ async def stop_trading_bot() -> dict[str, Any]:
             data={
                 "status": "stopping",
                 "message": "Trading bot stop initiated",
-                "bot_state": bot_state,
+                FieldName.BOT_STATE: bot_state,
             },
         ).model_dump()
     except Exception as exc:
@@ -160,15 +160,17 @@ async def get_trading_status() -> dict[str, Any]:
         return StandardResponse(
             success=True,
             data={
-                "running": bot_state["running"],
+                FieldName.RUNNING: bot_state[FieldName.RUNNING],
                 "status": bot_state[FieldName.STATUS],
-                "last_action": bot_state["last_action"],
-                "uptime": f"{bot_state['uptime_minutes'] // 60}h {bot_state['uptime_minutes'] % 60}m",
-                "active_position": bot_state.get("active_position", "None"),
-                "risk_exposure": bot_state["risk_exposure"],
-                "total_trades": bot_state["total_trades"],
-                "performance": (
-                    bot_state["performance"][-30:] if bot_state["performance"] else [0] * 30
+                FieldName.LAST_ACTION: bot_state[FieldName.LAST_ACTION],
+                FieldName.UPTIME: f"{bot_state[FieldName.UPTIME_MINUTES] // 60}h {bot_state[FieldName.UPTIME_MINUTES] % 60}m",
+                FieldName.ACTIVE_POSITION: bot_state.get(FieldName.ACTIVE_POSITION, "None"),
+                FieldName.RISK_EXPOSURE: bot_state[FieldName.RISK_EXPOSURE],
+                FieldName.TOTAL_TRADES: bot_state[FieldName.TOTAL_TRADES],
+                FieldName.PERFORMANCE: (
+                    bot_state[FieldName.PERFORMANCE][-30:]
+                    if bot_state[FieldName.PERFORMANCE]
+                    else [0] * 30
                 ),
             },
         ).model_dump()
@@ -184,10 +186,10 @@ async def emergency_stop_all() -> dict[str, Any]:
     try:
         bot_state.update(
             {
-                "running": False,
+                FieldName.RUNNING: False,
                 "status": "emergency_stopped",
-                "last_action": "emergency_stop",
-                "last_action_time": "just now",
+                FieldName.LAST_ACTION: "emergency_stop",
+                FieldName.LAST_ACTION_TIME: "just now",
             }
         )
 
@@ -196,7 +198,7 @@ async def emergency_stop_all() -> dict[str, Any]:
             data={
                 "status": "emergency_stopped",
                 "message": "Emergency stop executed - all trading halted",
-                "bot_state": bot_state,
+                FieldName.BOT_STATE: bot_state,
             },
         ).model_dump()
     except Exception as exc:
@@ -212,27 +214,29 @@ async def get_bots_status() -> dict[str, Any]:
         # Simulate multiple bots - in production this would query database
         bots = [
             {
-                "id": "trading-bot-1",
-                "name": "Alpha Trading Bot",
-                "strategy": "Mean Reversion",
-                "status": "running" if bot_state["running"] else "stopped",
-                "uptime": str(bot_state["uptime_minutes"]),
-                "performance": (
-                    bot_state["performance"][-30:] if bot_state["performance"] else [0] * 30
+                FieldName.ID: "trading-bot-1",
+                FieldName.NAME: "Alpha Trading Bot",
+                FieldName.STRATEGY: "Mean Reversion",
+                "status": "running" if bot_state[FieldName.RUNNING] else "stopped",
+                FieldName.UPTIME: str(bot_state[FieldName.UPTIME_MINUTES]),
+                FieldName.PERFORMANCE: (
+                    bot_state[FieldName.PERFORMANCE][-30:]
+                    if bot_state[FieldName.PERFORMANCE]
+                    else [0] * 30
                 ),
-                "active_position": bot_state.get("active_position"),
-                "risk_exposure": bot_state["risk_exposure"],
-                "total_trades": bot_state["total_trades"],
-                "last_signal": "BUY BTC/USD" if bot_state["running"] else None,
+                FieldName.ACTIVE_POSITION: bot_state.get(FieldName.ACTIVE_POSITION),
+                FieldName.RISK_EXPOSURE: bot_state[FieldName.RISK_EXPOSURE],
+                FieldName.TOTAL_TRADES: bot_state[FieldName.TOTAL_TRADES],
+                FieldName.LAST_SIGNAL: "BUY BTC/USD" if bot_state[FieldName.RUNNING] else None,
             }
         ]
 
         return StandardResponse(
             success=True,
             data={
-                "bots": bots,
-                "total_active": 1 if bot_state["running"] else 0,
-                "total_bots": 1,
+                FieldName.BOTS: bots,
+                FieldName.TOTAL_ACTIVE: 1 if bot_state[FieldName.RUNNING] else 0,
+                FieldName.TOTAL_BOTS: 1,
             },
         ).model_dump()
     except Exception as exc:
@@ -256,13 +260,13 @@ async def trading_options() -> dict[str, Any]:
 
 # Global bot state (in production this would be in a database)
 bot_state = {
-    "running": False,
+    FieldName.RUNNING: False,
     "status": "stopped",
-    "uptime_minutes": 0,
-    "active_position": None,
-    "risk_exposure": 0.0,
-    "total_trades": 0,
-    "performance": [0] * 30,
-    "last_action": "none",
-    "last_action_time": None,
+    FieldName.UPTIME_MINUTES: 0,
+    FieldName.ACTIVE_POSITION: None,
+    FieldName.RISK_EXPOSURE: 0.0,
+    FieldName.TOTAL_TRADES: 0,
+    FieldName.PERFORMANCE: [0] * 30,
+    FieldName.LAST_ACTION: "none",
+    FieldName.LAST_ACTION_TIME: None,
 }
