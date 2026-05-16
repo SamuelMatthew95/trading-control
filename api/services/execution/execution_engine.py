@@ -28,6 +28,7 @@ from api.config import settings
 from api.constants import (
     AGENT_EXECUTION,
     EXECUTION_DECISION_THRESHOLD,
+    EXECUTION_DECISION_THRESHOLD_MEMORY,
     LARGE_ORDER_THRESHOLD,
     ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
@@ -647,6 +648,19 @@ class ExecutionEngine(BaseStreamConsumer):
             else:
                 store.upsert_position(symbol, new_pos)
 
+            paired = store.paired_pnl_payload()["summary"]
+            store.equity_curve.append(
+                {
+                    FieldName.TIMESTAMP: filled_at.isoformat(),
+                    "value": paired["total_pnl"],
+                    "realized_pnl": paired["realized_pnl"],
+                    FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
+                    "total_pnl": paired["total_pnl"],
+                }
+            )
+            if len(store.equity_curve) > 1000:
+                store.equity_curve = store.equity_curve[-1000:]
+
             ctx = FillContext(
                 order_id=order_id,
                 strategy_id=strategy_id,
@@ -740,9 +754,12 @@ class ExecutionEngine(BaseStreamConsumer):
         """Delegate to the pure gate check, then log and write a heartbeat if blocked."""
         final_score = compute_execution_score(signal_confidence, reasoning_score)
         market_open = self._is_market_open(symbol)
-        gate = check_execution_gate(
-            side, symbol, final_score, EXECUTION_DECISION_THRESHOLD, market_open
+        threshold = (
+            EXECUTION_DECISION_THRESHOLD_MEMORY
+            if not is_db_available()
+            else EXECUTION_DECISION_THRESHOLD
         )
+        gate = check_execution_gate(side, symbol, final_score, threshold, market_open)
         if gate is None:
             return None
         if gate.startswith("hold:"):
@@ -760,14 +777,14 @@ class ExecutionEngine(BaseStreamConsumer):
                 "execution_gated_score_below_threshold",
                 symbol=symbol,
                 final_score=round(final_score, 4),
-                threshold=EXECUTION_DECISION_THRESHOLD,
+                threshold=threshold,
                 signal_confidence=round(signal_confidence, 4),
                 reasoning_score=round(reasoning_score, 4),
                 trace_id=trace_id,
             )
             await self._write_idle_heartbeat(
                 symbol,
-                f"gated:score score={final_score:.3f}<{EXECUTION_DECISION_THRESHOLD}",
+                f"gated:score score={final_score:.3f}<{threshold}",
                 trace_id,
             )
         elif gate == "blocked:market_closed":
