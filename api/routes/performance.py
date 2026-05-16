@@ -13,7 +13,7 @@ from api.database import get_async_session
 from api.main_state import get_learning_service
 
 router = APIRouter(tags=["performance"])
-_STATS_CACHE: dict[str, object] = {"expires_at": 0.0, "payload": None}
+_STATS_CACHE: dict[str, object] = {FieldName.EXPIRES_AT: 0.0, "payload": None}
 
 
 @router.get("/api/performance/{agent_name}")
@@ -47,7 +47,7 @@ async def get_statistics(force_refresh: bool = False):
     if (
         not force_refresh
         and _STATS_CACHE[FieldName.PAYLOAD]
-        and now < float(_STATS_CACHE["expires_at"])
+        and now < float(_STATS_CACHE[FieldName.EXPIRES_AT])
     ):
         return _STATS_CACHE[FieldName.PAYLOAD]
 
@@ -75,15 +75,15 @@ async def get_statistics(force_refresh: bool = False):
             )
         ).scalar() or 0
         payload = {
-            "total_trades": total_trades,
-            "wins": wins,
-            "losses": losses,
+            FieldName.TOTAL_TRADES: total_trades,
+            FieldName.WINS: wins,
+            FieldName.LOSSES: losses,
             "win_rate": round((wins / total_trades * 100), 2) if total_trades else 0,
-            "total_pnl": round(total_pnl, 2),
-            "cached_until_epoch": int(now + 15),
+            FieldName.TOTAL_PNL: round(total_pnl, 2),
+            FieldName.CACHED_UNTIL_EPOCH: int(now + 15),
         }
         _STATS_CACHE[FieldName.PAYLOAD] = payload
-        _STATS_CACHE["expires_at"] = now + 15
+        _STATS_CACHE[FieldName.EXPIRES_AT] = now + 15
         return payload
 
 
@@ -100,10 +100,10 @@ async def get_recent_runs(limit: int = 20):
             .all()
         )
         return {
-            "runs": [
+            FieldName.RUNS: [
                 {
-                    "id": r.id,
-                    "task_id": r.task_id,
+                    FieldName.ID: r.id,
+                    FieldName.TASK_ID: r.task_id,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
                 for r in rows
