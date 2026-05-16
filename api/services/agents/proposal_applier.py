@@ -180,7 +180,7 @@ class ProposalApplier(MultiStreamAgent):
         return {
             FieldName.MESSAGE: f"signal_weight_scale {current:.4f} -> {new_scale:.4f}",
             FieldName.WEIGHT_SCALE: round(new_scale, 6),
-            "previous_scale": round(current, 6),
+            FieldName.PREVIOUS_SCALE: round(current, 6),
             FieldName.REASON: content.get(FieldName.REASON, ""),
         }
 
@@ -189,7 +189,7 @@ class ProposalApplier(MultiStreamAgent):
         agent_name = (
             content.get(FieldName.AGENT_NAME)
             or content.get(FieldName.AGENT)
-            or content.get("target_agent")
+            or content.get(FieldName.TARGET_AGENT)
             or AGENT_REASONING  # default target — the most common culprit
         )
         suspended_until = datetime.now(timezone.utc).timestamp() + AGENT_SUSPEND_TTL_SECONDS
