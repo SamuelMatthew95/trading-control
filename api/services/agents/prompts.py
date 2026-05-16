@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.constants import FieldName
+
 REFLECTION_SYSTEM_PROMPT = (
     "You are a trading performance analyst. Analyze the provided trade data and return ONLY "
     "valid JSON with these exact keys: winning_factors (list of strings), losing_factors "
@@ -87,5 +89,5 @@ FALLBACK_REFLECTION: dict[str, Any] = {
     "hypotheses": [],
     "regime_edge": {"current_regime": "unknown", "recommendation": "continue monitoring"},
     "time_of_day_patterns": {"best_hours": [], "worst_hours": []},
-    "summary": "Insufficient data for analysis.",
+    FieldName.SUMMARY: "Insufficient data for analysis.",
 }
