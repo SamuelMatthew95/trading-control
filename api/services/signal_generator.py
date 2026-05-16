@@ -78,7 +78,7 @@ class SignalGenerator(BaseStreamConsumer):
             async with AsyncSessionFactory() as session:
                 result = await session.execute(
                     text("SELECT id FROM agent_pool WHERE name = :name"),
-                    {"name": AGENT_NAME},
+                    {FieldName.NAME: AGENT_NAME},
                 )
                 row = result.first()
                 if row:
@@ -374,7 +374,7 @@ class SignalGenerator(BaseStreamConsumer):
                         {
                             "entity_id": trace_id,
                             "data": json.dumps(signal_payload),
-                            "idem_key": f"signal-{signal_payload[FieldName.SYMBOL]}-{trace_id}",
+                            FieldName.IDEM_KEY: f"signal-{signal_payload[FieldName.SYMBOL]}-{trace_id}",
                             "schema_version": DB_SCHEMA_VERSION,
                             "source": SOURCE_SIGNAL,
                         },
@@ -440,9 +440,9 @@ class SignalGenerator(BaseStreamConsumer):
                                 WHERE id=:id
                             """),
                             {
-                                "output": json.dumps(signal_payload),
-                                "elapsed": elapsed_ms,
-                                "id": db_run_id,
+                                FieldName.OUTPUT: json.dumps(signal_payload),
+                                FieldName.ELAPSED: elapsed_ms,
+                                FieldName.ID: db_run_id,
                             },
                         )
                     await session.execute(
