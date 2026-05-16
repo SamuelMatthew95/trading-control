@@ -381,7 +381,7 @@ class InMemoryStore:
                     {FieldName.QTY: remaining, "avg_entry_price": avg, FieldName.PRICE: price}
                 )
                 self.positions[symbol] = pos
-        paired = self.paired_pnl_payload()["summary"]
+        paired = self.paired_pnl_payload()[FieldName.SUMMARY]
         self.equity_curve.append(
             {
                 FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
