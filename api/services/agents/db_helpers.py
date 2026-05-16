@@ -22,6 +22,7 @@ from api.constants import (
     SOURCE_EXECUTION,
     FieldName,
     GradeType,
+    LifecyclePhase,
     LogType,
 )
 from api.database import AsyncSessionFactory
@@ -512,7 +513,7 @@ async def retire_agent_instance(instance_id: str) -> None:
             await write_agent_lifecycle_event(
                 pool_name="unknown",
                 instance_id=instance_id,
-                lifecycle_phase="stopped",
+                lifecycle_phase=LifecyclePhase.STOPPED,
             )
     except Exception:
         log_structured(
@@ -546,7 +547,7 @@ async def write_agent_lifecycle_event(
     *,
     pool_name: str,
     instance_id: str,
-    lifecycle_phase: str,
+    lifecycle_phase: LifecyclePhase,
     details: dict[str, Any] | None = None,
 ) -> None:
     """Persist lifecycle transitions in agent_logs as canonical lifecycle rows."""
