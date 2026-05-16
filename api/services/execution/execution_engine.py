@@ -742,14 +742,14 @@ class ExecutionEngine(BaseStreamConsumer):
         performance-trends chart stays in sync with orders/positions regardless
         of which code path recorded the fill.
         """
-        paired = store.paired_pnl_payload()["summary"]
+        paired = store.paired_pnl_payload()[FieldName.SUMMARY]
         store.equity_curve.append(
             {
                 FieldName.TIMESTAMP: filled_at.isoformat(),
-                "value": paired["total_pnl"],
-                "realized_pnl": paired["realized_pnl"],
+                "value": paired[FieldName.TOTAL_PNL],
+                FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
                 FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
-                "total_pnl": paired["total_pnl"],
+                FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],
             }
         )
         if len(store.equity_curve) > 1000:
