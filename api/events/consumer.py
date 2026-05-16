@@ -409,7 +409,7 @@ class BaseStreamConsumer(ABC):
             message_id=msg_id,
         )
         # Soft guard: use redis stream ID as fallback if producer omitted msg_id
-        if "msg_id" not in data:
+        if FieldName.MSG_ID not in data:
             data = {**data, FieldName.MSG_ID: msg_id}
             log_structured(
                 "debug",
