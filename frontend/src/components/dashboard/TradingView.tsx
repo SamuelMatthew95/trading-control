@@ -10,7 +10,7 @@ import { Activity, BarChart2, Layers, TrendingDown, TrendingUp } from 'lucide-re
 // ---------------------------------------------------------------------------
 
 const formatUSD = (v: number | null | undefined): string => {
-  if (v == null || !isFinite(v)) return '$0.00'
+  if (v == null || !isFinite(v)) return '--'
   return `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
@@ -254,10 +254,25 @@ function TradeFeedPanel({
 // Agent Activity
 // ---------------------------------------------------------------------------
 
+const ACTIVITY_FRESH_MS = 60_000
+
 function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: string) => void }) {
   const { agentLogs = [], wsConnected = false } = useCodexStore()
 
   const logs = useMemo(() => agentLogs.slice(-25).reverse(), [agentLogs])
+
+  const activityIndicator = useMemo(() => {
+    if (logs.length > 0) {
+      const ts = logs[0].timestamp
+      if (ts) {
+        const d = new Date(ts)
+        if (!isNaN(d.getTime()) && Date.now() - d.getTime() < ACTIVITY_FRESH_MS) {
+          return 'live' as const
+        }
+      }
+    }
+    return wsConnected ? ('waiting' as const) : ('offline' as const)
+  }, [logs, wsConnected])
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -270,11 +285,11 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
           <span
             className={cn(
               'h-2 w-2 rounded-full',
-              wsConnected ? 'animate-pulse bg-emerald-500' : 'bg-slate-400',
+              activityIndicator === 'live' ? 'animate-pulse bg-emerald-500' : activityIndicator === 'waiting' ? 'bg-amber-400' : 'bg-slate-400',
             )}
           />
           <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-            {wsConnected ? 'LIVE' : 'OFFLINE'}
+            {activityIndicator === 'live' ? 'LIVE' : activityIndicator === 'waiting' ? 'WAITING' : 'OFFLINE'}
           </span>
         </div>
       </div>
@@ -520,6 +535,9 @@ export function TradingView({
         ? performanceSummary.total_pnl
         : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
+    const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
+    const wins = performanceSummary?.wins ?? tradeFeed.filter((t) => (t.pnl ?? 0) > 0).length
+
     const winRatePct =
       performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
         ? performanceSummary.win_rate * 100
@@ -529,9 +547,7 @@ export function TradingView({
             return (withPnl.filter((t) => (t.pnl ?? 0) > 0).length / withPnl.length) * 100
           })()
 
-    const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
-
-    return { totalPnl, winRatePct, totalTrades, fills: tradeFeed.length, activePositions: positions.length }
+    return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions: positions.length }
   }, [tradeFeed, positions, performanceSummary])
 
   const pnlSign =
@@ -553,7 +569,7 @@ export function TradingView({
         <StatTile
           label="Win Rate"
           value={stats.winRatePct != null ? `${stats.winRatePct.toFixed(1)}%` : '--'}
-          sub={stats.totalTrades > 0 ? `${stats.totalTrades} trades` : undefined}
+          sub={stats.totalTrades > 0 ? `${stats.wins} of ${stats.totalTrades} closed` : 'no closed trades'}
           sign={winRateSign}
         />
         <StatTile
