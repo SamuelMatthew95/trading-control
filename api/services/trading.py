@@ -40,9 +40,9 @@ class TradingService:
             return {
                 "DECISION": "FLAT",
                 FieldName.CONFIDENCE: 0.0,
-                "reasoning": "MOCK MODE: Orchestrator not available - analysis disabled",
-                "position_size": 0.0,
-                "risk_assessment": "low",
+                FieldName.REASONING: "MOCK MODE: Orchestrator not available - analysis disabled",
+                FieldName.POSITION_SIZE: 0.0,
+                FieldName.RISK_ASSESSMENT: "low",
             }
         signals = [{FieldName.SYMBOL: symbol, FieldName.PRICE: price}, *extra_signals]
         return self.orchestrator.process_trade_signals(signals)
@@ -77,9 +77,11 @@ class TradingService:
         return {
             FieldName.STATUS: "evaluated",
             FieldName.SYMBOL: symbol,
-            "decision": trade.decision,
-            "slippage_variance": round(slippage_variance, 6),
-            "trajectory_similarity": 1.0 if profitable else 0.0,
-            "confidence_score": round((1 - min(slippage_variance, 1.0)) * trade.confidence, 4),
-            "age_seconds": int(age_seconds),
+            FieldName.DECISION: trade.decision,
+            FieldName.SLIPPAGE_VARIANCE: round(slippage_variance, 6),
+            FieldName.TRAJECTORY_SIMILARITY: 1.0 if profitable else 0.0,
+            FieldName.CONFIDENCE_SCORE: round(
+                (1 - min(slippage_variance, 1.0)) * trade.confidence, 4
+            ),
+            FieldName.AGE_SECONDS: int(age_seconds),
         }
