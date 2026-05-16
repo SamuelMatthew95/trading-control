@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, text
 from api.constants import FieldName
 from api.observability import log_structured
 from api.services.agents.prompts import ADAPTIVE_TRADING_SYSTEM_PROMPT
+from api.utils import get_nested
 
 try:
     import anthropic
@@ -190,7 +191,9 @@ class DeterministicReasoningModel:
 
     def complete_json(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         if "normalize trade signals" in system_prompt.lower():
-            direction: Direction = "LONG" if payload["asset"] in {"AAPL", "MSFT"} else "FLAT"
+            direction: Direction = (
+                "LONG" if payload[FieldName.ASSET] in {"AAPL", "MSFT"} else "FLAT"
+            )
             return [
                 {
                     "source": "heuristic",
@@ -218,7 +221,7 @@ class DeterministicReasoningModel:
                 "signal_strength": round(agreement * confidence, 3),
             }
         if "enforce risk limits" in system_prompt.lower():
-            drawdown = float(payload.get("portfolio", {}).get("drawdown", 0))
+            drawdown = float(get_nested(payload, "portfolio", "drawdown", default=0))
             veto = drawdown < -0.15
             return {
                 "approved": not veto,
@@ -385,9 +388,11 @@ class ExecutionEngine:
 
     def run_step(self, step: PlanStep, context: dict[str, Any]) -> dict[str, Any]:
         if step.name == "signal":
-            grounding = self.retriever.retrieve(f"{context['asset']} {context['timeframe']} signal")
+            grounding = self.retriever.retrieve(
+                f"{context[FieldName.ASSET]} {context['timeframe']} signal"
+            )
             payload = {
-                "asset": context["asset"],
+                "asset": context[FieldName.ASSET],
                 "timeframe": context["timeframe"],
                 "grounding": grounding,
             }
@@ -413,8 +418,8 @@ class ExecutionEngine:
                 payload={
                     "consensus": context["consensus"],
                     "risk": context["risk"],
-                    "asset_price": self.tools.get_current_price(context["asset"]),
-                    "atr": self.tools.get_atr(context["asset"], context["timeframe"]),
+                    "asset_price": self.tools.get_current_price(context[FieldName.ASSET]),
+                    "atr": self.tools.get_atr(context[FieldName.ASSET], context["timeframe"]),
                     "portfolio_value": context["portfolio_state"].get("total_value", 100000),
                 },
             )
@@ -432,7 +437,7 @@ class ExecutionEngine:
         )
         return {
             "DECISION": consensus.get(FieldName.DIRECTION, "FLAT"),
-            "ASSET": context["asset"],
+            "ASSET": context[FieldName.ASSET],
             "SIZE": f"{sizing.get('units', 0)} units",
             "ENTRY": f"{float(sizing.get('entry', 0)):.2f}",
             "STOP": f"{float(sizing.get('stop', 0)):.2f}",
