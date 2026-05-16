@@ -116,7 +116,7 @@ class StreamManager:
                     result.append(
                         {
                             FieldName.STREAM: stream_name,
-                            "message_id": message_id,
+                            FieldName.MESSAGE_ID: message_id,
                             FieldName.DATA: fields,
                         }
                     )
@@ -140,22 +140,22 @@ class StreamManager:
             dlq_data = self.message_processor.create_dlq_entry(message, error)
 
             await self.redis_client.xadd(STREAM_DLQ, dlq_data)
-            await self._atomic_ack(message[FieldName.STREAM], message["message_id"])
+            await self._atomic_ack(message[FieldName.STREAM], message[FieldName.MESSAGE_ID])
 
-            log_structured("warning", "sent to dlq", message_id=message["message_id"])
+            log_structured("warning", "sent to dlq", message_id=message[FieldName.MESSAGE_ID])
 
         except Exception:
             log_structured(
                 "error",
                 "dlq send failed",
-                message_id=message["message_id"],
+                message_id=message[FieldName.MESSAGE_ID],
                 exc_info=True,
             )
 
     async def _process_message(self, message: dict[str, Any]) -> bool:
         """Process a single message with atomic guarantees."""
         stream = message[FieldName.STREAM]
-        message_id = message["message_id"]
+        message_id = message[FieldName.MESSAGE_ID]
         data = message[FieldName.DATA]
         msg_id = data.get(FieldName.MSG_ID, message_id)
         trace_id = data.get(FieldName.TRACE_ID, message_id)
