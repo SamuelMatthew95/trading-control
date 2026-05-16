@@ -41,10 +41,10 @@ async def debug_redis(request: Request) -> dict[str, Any]:
     pong = await redis_client.ping()
     return {
         FieldName.STATUS: "ok" if pong else "error",
-        "ping": bool(pong),
-        "masked_url": _mask_redis_url(settings.REDIS_URL or ""),
+        FieldName.PING: bool(pong),
+        FieldName.MASKED_URL: _mask_redis_url(settings.REDIS_URL or ""),
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-        "last_error": getattr(
+        FieldName.LAST_ERROR: getattr(
             getattr(request.app.state, "event_pipeline", None), "_last_error", None
         ),
     }
@@ -58,10 +58,12 @@ async def debug_agents(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Agent registry unavailable")
     states = registry.snapshot()
     return {
-        "agents": states,
-        "count": len(states),
-        "last_error": getattr(pipeline, "_last_error", None) if pipeline else None,
-        "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
+        FieldName.AGENTS: states,
+        FieldName.COUNT: len(states),
+        FieldName.LAST_ERROR: getattr(pipeline, "_last_error", None) if pipeline else None,
+        FieldName.RECENT_ACTIVITY: pipeline.status().get(FieldName.RECENT, [])[:10]
+        if pipeline
+        else [],
     }
 
 
@@ -85,7 +87,7 @@ async def debug_streams(
                         FieldName.MSG_ID: (
                             msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)
                         ),
-                        "fields": {
+                        FieldName.FIELDS: {
                             (k.decode() if isinstance(k, bytes) else str(k)): (
                                 v.decode() if isinstance(v, bytes) else v
                             )
@@ -99,10 +101,12 @@ async def debug_streams(
             data[stream] = [{FieldName.ERROR: str(exc)}]
 
     return {
-        "streams": data,
-        "limit": limit,
-        "last_error": getattr(pipeline, "_last_error", None) if pipeline else None,
-        "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
+        FieldName.STREAMS: data,
+        FieldName.LIMIT: limit,
+        FieldName.LAST_ERROR: getattr(pipeline, "_last_error", None) if pipeline else None,
+        FieldName.RECENT_ACTIVITY: pipeline.status().get(FieldName.RECENT, [])[:10]
+        if pipeline
+        else [],
     }
 
 
@@ -113,10 +117,12 @@ async def debug_ws(request: Request) -> dict[str, Any]:
     if broadcaster is None:
         raise HTTPException(status_code=503, detail="WebSocket broadcaster unavailable")
     return {
-        "active_connections": broadcaster.active_connections,
-        "messages_sent": broadcaster.messages_sent,
-        "last_error": broadcaster.last_error,
-        "recent_activity": pipeline.status().get("recent", [])[:10] if pipeline else [],
+        FieldName.ACTIVE_CONNECTIONS: broadcaster.active_connections,
+        FieldName.MESSAGES_SENT: broadcaster.messages_sent,
+        FieldName.LAST_ERROR: broadcaster.last_error,
+        FieldName.RECENT_ACTIVITY: pipeline.status().get(FieldName.RECENT, [])[:10]
+        if pipeline
+        else [],
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
     }
 
@@ -139,9 +145,9 @@ async def debug_dlq(
         raise HTTPException(status_code=503, detail="DLQ manager unavailable")
     events = await dlq.get_recent(limit=limit)
     return {
-        "events": events,
-        "count": len(events),
-        "last_error": getattr(pipeline, "_last_error", None) if pipeline else None,
+        FieldName.EVENTS: events,
+        FieldName.COUNT: len(events),
+        FieldName.LAST_ERROR: getattr(pipeline, "_last_error", None) if pipeline else None,
     }
 
 
@@ -152,7 +158,9 @@ async def debug_dlq_stats(request: Request) -> dict[str, Any]:
     if dlq is None:
         raise HTTPException(status_code=503, detail="DLQ manager unavailable")
     stats = await dlq.stats()
-    stats["recent_activity"] = pipeline.status().get("recent_failures", [])[:10] if pipeline else []
+    stats[FieldName.RECENT_ACTIVITY] = (
+        pipeline.status().get(FieldName.RECENT_FAILURES, [])[:10] if pipeline else []
+    )
     return stats
 
 
@@ -175,6 +183,6 @@ async def publish_test_event(request: Request, payload: TestEventRequest) -> dic
         FieldName.STATUS: "published",
         FieldName.STREAM: payload.stream,
         FieldName.MSG_ID: msg_id,
-        "redis_id": redis_id,
-        "event": event,
+        FieldName.REDIS_ID: redis_id,
+        FieldName.EVENT: event,
     }
