@@ -89,7 +89,7 @@ class RedisStore:
             entry["id"] = str(uuid.uuid4())
         if not entry.get(FieldName.TIMESTAMP):
             entry[FieldName.TIMESTAMP] = _now_iso()
-        entry.setdefault("severity", "info")
+        entry.setdefault(FieldName.SEVERITY, "info")
         entry.setdefault("read", False)
         encoded = json.dumps(entry, default=str)
         try:
