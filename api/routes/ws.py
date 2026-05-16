@@ -43,7 +43,7 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     """
     if not is_db_available():
         data = get_runtime_store().dashboard_fallback_snapshot()
-        data["mode"] = runtime_mode()
+        data[FieldName.MODE] = runtime_mode()
         data[FieldName.PNL] = get_runtime_store().paired_pnl_payload()
     else:
         try:
@@ -61,7 +61,7 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
         except Exception:
             log_structured("warning", "ws_snapshot_db_unavailable", exc_info=True)
             data = get_runtime_store().dashboard_fallback_snapshot()
-            data["mode"] = runtime_mode()
+            data[FieldName.MODE] = runtime_mode()
             data[FieldName.PNL] = get_runtime_store().paired_pnl_payload()
 
     # Enrich with current prices from Redis cache
@@ -78,7 +78,7 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
                     except (json.JSONDecodeError, TypeError):
                         pass
             if prices:
-                data["prices"] = prices
+                data[FieldName.PRICES] = prices
         except Exception:
             log_structured("warning", "ws_snapshot_prices_failed", exc_info=True)
 
@@ -106,23 +106,23 @@ async def _build_snapshot(redis_client: Any) -> dict[str, Any]:
             )
             agents.append(
                 {
-                    "name": name,
+                    FieldName.NAME: name,
                     "status": status,
                     "event_count": data.get(FieldName.EVENT_COUNT, 0),
                     "last_event": data.get(FieldName.LAST_EVENT, ""),
                     "last_seen": last_seen,
-                    "seconds_ago": age,
+                    FieldName.SECONDS_AGO: age,
                 }
             )
         else:
             agents.append(
                 {
-                    "name": name,
+                    FieldName.NAME: name,
                     "status": AgentStatus.WAITING,
                     "event_count": 0,
                     "last_event": "",
                     "last_seen": 0,
-                    "seconds_ago": 0,
+                    FieldName.SECONDS_AGO: 0,
                 }
             )
 
@@ -135,7 +135,7 @@ async def _build_snapshot(redis_client: Any) -> dict[str, Any]:
 
     return {
         "type": "agent_status_update",
-        "agents": agents,
+        FieldName.AGENTS: agents,
         "metrics": metrics,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
