@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.constants import FieldName
 from api.observability import log_structured
+from api.utils import get_nested
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
@@ -97,14 +98,16 @@ async def get_monitoring_summary() -> dict[str, Any]:
             "overall_status": health_score.get(FieldName.STATUS, "unknown"),
             "health_score": health_score.get(FieldName.SCORE, 0),
             "active_alerts": len(alerts),
-            "critical_alerts": len([a for a in alerts if a.get("severity") == "critical"]),
-            "system_load": metrics.get("performance", {}).get("system_load", 0),
-            "success_rate": metrics.get("tasks", {}).get("success_rate", 0),
-            "agents_active": metrics.get("agents", {}).get("agents_active", 0),
-            "data_freshness_ms": metrics.get(FieldName.DATA, {}).get("data_freshness_ms", 0),
+            "critical_alerts": len([a for a in alerts if a.get(FieldName.SEVERITY) == "critical"]),
+            "system_load": get_nested(metrics, "performance", "system_load", default=0),
+            "success_rate": get_nested(metrics, "tasks", "success_rate", default=0),
+            "agents_active": get_nested(metrics, "agents", "agents_active", default=0),
+            "data_freshness_ms": get_nested(
+                metrics, FieldName.DATA, "data_freshness_ms", default=0
+            ),
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
-        return {"success": True, "summary": summary}
+        return {"success": True, FieldName.SUMMARY: summary}
     except Exception as e:
         log_structured("error", "monitoring summary failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from None
