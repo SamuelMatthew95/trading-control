@@ -472,6 +472,8 @@ class ExecutionEngine(BaseStreamConsumer):
         else:
             store.upsert_position(symbol, new_pos)
 
+        self._append_equity_snapshot(store, filled_at)
+
         ctx = FillContext(
             order_id=fallback_order_id,
             strategy_id=strategy_id,
@@ -648,18 +650,7 @@ class ExecutionEngine(BaseStreamConsumer):
             else:
                 store.upsert_position(symbol, new_pos)
 
-            paired = store.paired_pnl_payload()["summary"]
-            store.equity_curve.append(
-                {
-                    FieldName.TIMESTAMP: filled_at.isoformat(),
-                    "value": paired["total_pnl"],
-                    "realized_pnl": paired["realized_pnl"],
-                    FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
-                    "total_pnl": paired["total_pnl"],
-                }
-            )
-            if len(store.equity_curve) > 1000:
-                store.equity_curve = store.equity_curve[-1000:]
+            self._append_equity_snapshot(store, filled_at)
 
             ctx = FillContext(
                 order_id=order_id,
@@ -742,6 +733,27 @@ class ExecutionEngine(BaseStreamConsumer):
     def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:
         """Thin alias for ``extract_decision_scores`` kept for call-site symmetry."""
         return extract_decision_scores(data)
+
+    @staticmethod
+    def _append_equity_snapshot(store: Any, filled_at: datetime) -> None:
+        """Append a PnL snapshot to equity_curve after any in-memory fill recording.
+
+        Called from both _process_in_memory and _handle_db_failure so the
+        performance-trends chart stays in sync with orders/positions regardless
+        of which code path recorded the fill.
+        """
+        paired = store.paired_pnl_payload()["summary"]
+        store.equity_curve.append(
+            {
+                FieldName.TIMESTAMP: filled_at.isoformat(),
+                "value": paired["total_pnl"],
+                "realized_pnl": paired["realized_pnl"],
+                FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
+                "total_pnl": paired["total_pnl"],
+            }
+        )
+        if len(store.equity_curve) > 1000:
+            store.equity_curve = store.equity_curve[-1000:]
 
     async def _check_pre_execution_gates(
         self,
