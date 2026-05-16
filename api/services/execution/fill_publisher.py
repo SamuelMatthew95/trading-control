@@ -71,7 +71,7 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
             FieldName.SESSION_ID: ctx.strategy_id,
             FieldName.IDEMPOTENCY_KEY: ctx.idempotency_key,
             FieldName.TRACE_ID: ctx.trace_id,
-            "vwap_plan": ctx.vwap_plan,
+            FieldName.VWAP_PLAN: ctx.vwap_plan,
             FieldName.SOURCE: SOURCE_EXECUTION,
         },
     )
