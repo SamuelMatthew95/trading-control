@@ -7,7 +7,7 @@ import time
 from contextlib import suppress
 from typing import Any
 
-from api.constants import FieldName
+from api.constants import FieldName, LifecyclePhase
 from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
@@ -89,7 +89,7 @@ class MultiStreamAgent:
             await write_agent_lifecycle_event(
                 pool_name=pool_name,
                 instance_id=self._instance_id,
-                lifecycle_phase="started",
+                lifecycle_phase=LifecyclePhase.STARTED,
             )
             log_structured(
                 "info",
@@ -114,7 +114,7 @@ class MultiStreamAgent:
             await write_agent_lifecycle_event(
                 pool_name=self._state_name or self.consumer,
                 instance_id=self._instance_id,
-                lifecycle_phase="stopped",
+                lifecycle_phase=LifecyclePhase.STOPPED,
             )
             log_structured(
                 "info",
@@ -253,7 +253,7 @@ class MultiStreamAgent:
                                 await write_agent_lifecycle_event(
                                     pool_name=self._state_name or self.consumer,
                                     instance_id=self._instance_id,
-                                    lifecycle_phase="crashed",
+                                    lifecycle_phase=LifecyclePhase.CRASHED,
                                     details={FieldName.STREAM: stream, "redis_id": redis_id},
                                 )
                             except Exception:
