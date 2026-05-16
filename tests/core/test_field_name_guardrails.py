@@ -164,6 +164,7 @@ SQL_BIND_HEAVY_FILES: frozenset[str] = frozenset(
     {
         "api/core/models/analytics.py",
         "api/core/writer/safe_writer.py",
+        "api/database.py",
         "api/events/dlq.py",
         "api/health.py",
         "api/in_memory_store.py",
