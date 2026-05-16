@@ -43,11 +43,11 @@ from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 
 SYMBOLS = {
-    "crypto": ["BTC/USD", "ETH/USD", "SOL/USD"],
-    "stocks": ["AAPL", "TSLA", "SPY"],
+    FieldName.CRYPTO: ["BTC/USD", "ETH/USD", "SOL/USD"],
+    FieldName.STOCKS: ["AAPL", "TSLA", "SPY"],
 }
 
-ALL_SYMBOLS = SYMBOLS["crypto"] + SYMBOLS["stocks"]
+ALL_SYMBOLS = SYMBOLS[FieldName.CRYPTO] + SYMBOLS[FieldName.STOCKS]
 
 _POLL_INTERVAL = 5  # seconds between cycles
 
@@ -223,8 +223,8 @@ async def flush_to_db(payloads: list[dict]) -> None:
                         {
                             "symbol": p[FieldName.SYMBOL],
                             "price": p[FieldName.PRICE],
-                            "change_amt": p[FieldName.CHANGE],
-                            "change_pct": p[FieldName.PCT],
+                            FieldName.CHANGE_AMT: p[FieldName.CHANGE],
+                            FieldName.CHANGE_PCT: p[FieldName.PCT],
                         },
                     )
                     await session.execute(
@@ -237,7 +237,7 @@ async def flush_to_db(payloads: list[dict]) -> None:
                         """),
                         {
                             "price": p[FieldName.PRICE],
-                            "tags": json.dumps(
+                            FieldName.TAGS: json.dumps(
                                 {
                                     FieldName.SYMBOL: p[FieldName.SYMBOL],
                                     FieldName.TS: p[FieldName.TS],
@@ -277,8 +277,8 @@ async def poll_prices() -> None:
         try:
             # Fetch both asset classes concurrently — each runs in a thread, not the event loop
             crypto_prices, stock_prices = await asyncio.gather(
-                fetch_crypto_prices(crypto_client, SYMBOLS["crypto"]),
-                fetch_stock_prices(stock_client, SYMBOLS["stocks"]),
+                fetch_crypto_prices(crypto_client, SYMBOLS[FieldName.CRYPTO]),
+                fetch_stock_prices(stock_client, SYMBOLS[FieldName.STOCKS]),
                 return_exceptions=True,
             )
 
