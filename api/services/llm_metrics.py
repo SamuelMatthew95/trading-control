@@ -148,28 +148,30 @@ class LLMMetricsCollector:
         success_count = len(successes)
 
         return {
-            "window_seconds": window_seconds,
+            FieldName.WINDOW_SECONDS: window_seconds,
             FieldName.TOTAL_IN_WINDOW: total_w,
-            "success_count": success_count,
+            FieldName.SUCCESS_COUNT: success_count,
             FieldName.SUCCESS_RATE_PCT: round(success_count / total_w * 100, 1) if total_w else 0.0,
-            "avg_latency_ms": (
+            FieldName.AVG_LATENCY_MS: (
                 round(sum(r.latency_ms for r in successes) / success_count) if successes else 0.0
             ),
-            "rate_limited_count": sum(1 for r in window if r.result == LLMCallResult.RATE_LIMITED),
-            "timeout_count": sum(1 for r in window if r.result == LLMCallResult.TIMEOUT),
-            "error_count": sum(1 for r in window if r.result == LLMCallResult.ERROR),
+            FieldName.RATE_LIMITED_COUNT: sum(
+                1 for r in window if r.result == LLMCallResult.RATE_LIMITED
+            ),
+            FieldName.TIMEOUT_COUNT: sum(1 for r in window if r.result == LLMCallResult.TIMEOUT),
+            FieldName.ERROR_COUNT: sum(1 for r in window if r.result == LLMCallResult.ERROR),
             FieldName.TOTAL_CALLS_LIFETIME: total_calls,
             FieldName.DAILY_CALLS: daily_calls,
-            "effective_delay_ms": effective_delay_ms,
-            "grade_adjusted_delay": grade_adjusted,
-            "last_error": {
-                "kind": last_error_kind,
+            FieldName.EFFECTIVE_DELAY_MS: effective_delay_ms,
+            FieldName.GRADE_ADJUSTED_DELAY: grade_adjusted,
+            FieldName.LAST_ERROR: {
+                FieldName.KIND: last_error_kind,
                 FieldName.MESSAGE: last_error_message,
-                "at": last_error_at,
+                FieldName.AT: last_error_at,
             },
-            "recent_results": [
+            FieldName.RECENT_RESULTS: [
                 {
-                    "result": r.result,
+                    FieldName.RESULT: r.result,
                     FieldName.LATENCY_MS: round(r.latency_ms)
                     if r.result == LLMCallResult.SUCCESS
                     else None,
