@@ -120,7 +120,7 @@ class BaseStreamConsumer(ABC):
                 pool_name=self.consumer,
                 instance_id=self._instance_id,
                 lifecycle_phase="started",
-                details={"stream": self.stream},
+                details={FieldName.STREAM: self.stream},
             )
         except Exception:
             log_structured("warning", "consumer_instance_register_failed", exc_info=True)
@@ -172,7 +172,7 @@ class BaseStreamConsumer(ABC):
                         pool_name=self.consumer,
                         instance_id=self._instance_id,
                         lifecycle_phase="stopped",
-                        details={"stream": self.stream},
+                        details={FieldName.STREAM: self.stream},
                     )
                 except Exception:
                     log_structured("warning", "consumer_instance_retire_failed", exc_info=True)
@@ -191,7 +191,7 @@ class BaseStreamConsumer(ABC):
                 "error",
                 "Missing msg_id in producer payload",
                 extra={
-                    "stream": self.stream,
+                    FieldName.STREAM: self.stream,
                     "data_keys": list(data.keys()),
                 },
             )
@@ -293,7 +293,7 @@ class BaseStreamConsumer(ABC):
                             pool_name=self.consumer,
                             instance_id=self._instance_id,
                             lifecycle_phase="recovered",
-                            details={"stream": self.stream},
+                            details={FieldName.STREAM: self.stream},
                         )
                     except Exception:
                         pass
@@ -327,7 +327,7 @@ class BaseStreamConsumer(ABC):
                             pool_name=self.consumer,
                             instance_id=self._instance_id,
                             lifecycle_phase="crashed",
-                            details={"stream": self.stream},
+                            details={FieldName.STREAM: self.stream},
                         )
                     except Exception:
                         pass
