@@ -5,6 +5,7 @@ import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/use
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
@@ -22,31 +23,6 @@ const sanitizeValue = (value: string | number | boolean | null | undefined): str
   if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
   if (typeof value === 'boolean') return value ? 'True' : 'False';
   return String(value);
-};
-
-
-const formatUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
-  return `$${Math.abs(value).toFixed(2)}`;
-};
-
-// Renders a signed USD value with leading sign — BUT never produces "-$0.00".
-// Zero (or near-zero rounding to zero) is always rendered without a sign.
-const signedUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '--';
-  const abs = Math.abs(value);
-  if (abs < 0.005) return '$0.00';
-  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`;
-};
-
-const formatTimeAgo = (date: Date): string => {
-  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 };
 
 const formatTimestamp = (value?: string | null): string => {
@@ -122,11 +98,6 @@ const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
 }
 const getLiveThresholdMs = (agentKey: string): number =>
   AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
-
-function toFiniteNumber(value: unknown): number | null {
-  const cast = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(cast) ? cast : null
-}
 
 function isClosedTrade(order: Record<string, unknown> | null | undefined): boolean {
   if (!order) return false
@@ -708,24 +679,9 @@ export function DashboardView({ section }: { section: Section }) {
         const r = await fetch(api(API_ENDPOINTS.NOTIFICATIONS_RECENT))
         if (!r.ok) return
         const items = (await r.json()) as Array<Record<string, unknown>>
+        // Pass raw items — addNotification calls normalizeStoredNotification internally.
         for (const raw of [...items].reverse()) {
-          const message = String(
-            raw.body ?? raw.message ?? raw.title ?? '',
-          ).trim()
-          if (!message) continue
-          const severity = String(raw.severity ?? 'info').toUpperCase()
-          addNotification({
-            notification_id: typeof raw.id === 'string' ? raw.id : undefined,
-            severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
-            title: raw.title ? String(raw.title) : undefined,
-            message,
-            notification_type: String(raw.type ?? raw.notification_type ?? 'system'),
-            stream_source: 'rest',
-            symbol: raw.symbol ? String(raw.symbol) : undefined,
-            action: raw.action ? String(raw.action) : undefined,
-            trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
-            timestamp: String(raw.timestamp ?? new Date().toISOString()),
-          })
+          addNotification({ ...raw, stream_source: raw.stream_source ?? 'rest' })
         }
       } catch {
         // non-fatal — WebSocket may still deliver realtime events
@@ -1232,7 +1188,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Active Agents</p>
               <p className={valueClass}>{sanitizeValue(realAgents.filter((agent) => agent.status === 'Live').length)}</p>
-              <p className={mutedClass}>Live heartbeat &lt; 5s</p>
+              <p className={mutedClass}>Live heartbeat &lt; 10s</p>
             </div>
             <div className={cardClass}>
               <p className={sectionTitleClass}>Pipeline Events</p>
@@ -1427,7 +1383,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Data latency</p>
-                <p className="text-sm font-mono">{formatAgeFromMs(effectiveLatencyMs)} ({effectiveLatencyMs ?? '--'}ms)</p>
+                <p className="text-sm font-mono">{effectiveLatencyMs != null ? `${formatAgeFromMs(effectiveLatencyMs)} (${effectiveLatencyMs}ms)` : '--'}</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Events/sec throughput</p>
@@ -1478,7 +1434,7 @@ export function DashboardView({ section }: { section: Section }) {
           {/* ── Connection Diagnostics ── always visible so broken configs are obvious */}
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Connection Diagnostics</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>WebSocket</p>
                 <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-rose-500')}>
@@ -1515,6 +1471,14 @@ export function DashboardView({ section }: { section: Section }) {
                 <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{Number.isFinite(wsDiagnostics.messageRate) ? wsDiagnostics.messageRate.toFixed(2) : '0.00'} /sec</p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Messages received</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className={mutedClass}>Last message</p>
+                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Last error</p>
                 <p className="text-xs font-mono text-slate-700 dark:text-slate-300">{wsDiagnostics.lastError ?? 'None'}</p>
               </div>
@@ -1524,12 +1488,12 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{formatUSD(realizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{formatUSD(unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{formatUSD(realizedPnl + unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? formatUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{totalTrades === 0 ? '--' : signedUSD(realizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{positions.length === 0 ? '--' : signedUSD(unrealizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{totalTrades === 0 && positions.length === 0 ? '--' : signedUSD(realizedPnl + unrealizedPnl)}</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Trades</p><p className="text-sm font-mono">{totalTrades}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{pnlWinRate.toFixed(1)}%</p></div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{totalTrades === 0 ? '--' : `${pnlWinRate.toFixed(1)}% (${wins}/${totalTrades})`}</p></div>
             </div>
           </div>
 
@@ -1562,24 +1526,6 @@ export function DashboardView({ section }: { section: Section }) {
                   </div>
                 )
               })}
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>WebSocket Status</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Connection</p>
-                <p className={cn('text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-slate-500')}>{wsConnected ? 'Connected' : 'Disconnected'}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Messages Received</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Last Message</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
-              </div>
             </div>
           </div>
 
@@ -1713,6 +1659,17 @@ export function DashboardView({ section }: { section: Section }) {
         >
           System Status: {systemStatus}
         </div>
+        {/* Persistence / memory-mode banner — single page-level indicator */}
+        {dashboardData?.degraded_mode && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-300">
+            <span className="mt-0.5 shrink-0">⚠</span>
+            <span>
+              <strong>Memory mode</strong> — database unavailable
+              {dashboardData.degraded_reason === 'db_unavailable' ? ': PostgreSQL unreachable' : ''}.
+              Data is ephemeral and will be lost on restart. Trade history and grades are stored in-process only.
+            </span>
+          </div>
+        )}
         {contentBySection}
       </main>
 

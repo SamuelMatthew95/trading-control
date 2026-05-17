@@ -3,36 +3,13 @@
 import { useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
+import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
+import { formatUSD, formatTimeAgo, toFiniteNum as toNum } from '@/lib/formatters'
+import { GRADE_STYLES } from '@/lib/grade-colors'
 import { Activity, BarChart2, Layers, TrendingDown, TrendingUp } from 'lucide-react'
 
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
-const formatUSD = (v: number | null | undefined): string => {
-  if (v == null || !isFinite(v)) return '$0.00'
-  return `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-
-const toNum = (v: unknown): number | null => {
-  const n = typeof v === 'number' ? v : Number(v)
-  return isFinite(n) ? n : null
-}
-
-const formatTimeAgo = (v: string | null | undefined): string => {
-  if (!v) return ''
-  const d = new Date(v)
-  if (isNaN(d.getTime())) return ''
-  const seconds = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000))
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
+// Modes the ReasoningAgent emits when the LLM is unavailable and it falls back
+// to a rule-based decision. The prefix "fallback:" is set by the agent itself.
 const FALLBACK_LABELS: Record<string, string> = {
   skip_reasoning: 'Rule-based fallback decision',
   reject_signal: 'Signal rejected (rule-based)',
@@ -47,18 +24,6 @@ const resolveMessage = (raw: unknown): string => {
     return FALLBACK_LABELS[mode] ?? 'Rule-based fallback (LLM unavailable)'
   }
   return text
-}
-
-// ---------------------------------------------------------------------------
-// Grade styling
-// ---------------------------------------------------------------------------
-
-const GRADE_STYLES: Record<string, { badge: string }> = {
-  A: { badge: 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30' },
-  B: { badge: 'bg-sky-500/15 text-sky-600 dark:text-sky-300 ring-1 ring-sky-500/20' },
-  C: { badge: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30' },
-  D: { badge: 'bg-rose-500/15 text-rose-500 ring-1 ring-rose-500/20' },
-  F: { badge: 'bg-rose-500/20 text-rose-600 ring-1 ring-rose-500/30' },
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +222,14 @@ function TradeFeedPanel({
 function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: string) => void }) {
   const { agentLogs = [], wsConnected = false } = useCodexStore()
 
-  const logs = useMemo(() => agentLogs.slice(-25).reverse(), [agentLogs])
+  const logs = useMemo(() => agentLogs.slice(0, 25), [agentLogs])
+
+  // Use agentLogs[0] (newest entry — store prepends) for freshness, not logs[0]
+  // which is the oldest of the display window when agentLogs has >25 entries.
+  const activityIndicator = useMemo(
+    () => deriveActivityIndicator(agentLogs[0]?.timestamp, wsConnected, ACTIVITY_FRESH_MS),
+    [agentLogs, wsConnected],
+  )
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -270,11 +242,11 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
           <span
             className={cn(
               'h-2 w-2 rounded-full',
-              wsConnected ? 'animate-pulse bg-emerald-500' : 'bg-slate-400',
+              activityIndicator === 'live' ? 'animate-pulse bg-emerald-500' : activityIndicator === 'waiting' ? 'bg-amber-400' : 'bg-slate-400',
             )}
           />
           <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-            {wsConnected ? 'LIVE' : 'OFFLINE'}
+            {activityIndicator === 'live' ? 'LIVE' : activityIndicator === 'waiting' ? 'WAITING' : 'OFFLINE'}
           </span>
         </div>
       </div>
@@ -287,7 +259,9 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
       ) : (
         <div className="relative max-h-[480px] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800/60">
           {logs.map((log, idx) => {
+            // ReasoningAgent emits confidence_score (0-100); SignalGenerator emits confidence (0-1).
             const rawConf = toNum((log as Record<string, unknown>)?.confidence_score ?? log?.confidence)
+            // Normalise to 0-1 fraction: values > 1 are percentages from the reasoning agent.
             const conf = rawConf == null ? null : rawConf > 1 ? rawConf / 100 : rawConf
             const confPct = conf == null ? null : Math.round(conf * 100)
             const confColor =
@@ -415,6 +389,7 @@ function OpenPositionsPanel() {
                 const isPos = (pnl ?? 0) >= 0
                 const side = String((pos as Record<string, unknown>)?.side ?? '').toUpperCase()
                 const symbol = String((pos as Record<string, unknown>)?.symbol ?? '--')
+                // ORM uses `quantity`; paper-broker Redis state uses `qty` — try both.
                 const qty = toNum((pos as Record<string, unknown>)?.quantity) ?? toNum((pos as Record<string, unknown>)?.qty)
                 const entryPrice = toNum((pos as Record<string, unknown>)?.entry_price)
                 const currentPrice = toNum((pos as Record<string, unknown>)?.current_price)
@@ -520,6 +495,14 @@ export function TradingView({
         ? performanceSummary.total_pnl
         : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
+    const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
+    // Derive wins from summary when available so sub-text matches the aggregate win rate.
+    // tradeFeed is a bounded cache; it undershoots when total_trades > cache size.
+    const wins =
+      performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
+        ? Math.round(performanceSummary.win_rate * performanceSummary.total_trades)
+        : tradeFeed.filter((t) => (t.pnl ?? 0) > 0).length
+
     const winRatePct =
       performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
         ? performanceSummary.win_rate * 100
@@ -529,9 +512,7 @@ export function TradingView({
             return (withPnl.filter((t) => (t.pnl ?? 0) > 0).length / withPnl.length) * 100
           })()
 
-    const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
-
-    return { totalPnl, winRatePct, totalTrades, fills: tradeFeed.length, activePositions: positions.length }
+    return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions: positions.length }
   }, [tradeFeed, positions, performanceSummary])
 
   const pnlSign =
@@ -553,7 +534,7 @@ export function TradingView({
         <StatTile
           label="Win Rate"
           value={stats.winRatePct != null ? `${stats.winRatePct.toFixed(1)}%` : '--'}
-          sub={stats.totalTrades > 0 ? `${stats.totalTrades} trades` : undefined}
+          sub={stats.totalTrades > 0 ? `${stats.wins} of ${stats.totalTrades} closed` : 'no closed trades'}
           sign={winRateSign}
         />
         <StatTile

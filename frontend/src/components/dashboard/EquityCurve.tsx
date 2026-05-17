@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { cn } from '@/lib/utils'
+import { toFiniteNum as toFinite, parseTimestampMs as parseTimestamp } from '@/lib/formatters'
 
 type EquityOrder = Record<string, unknown>
 
@@ -21,32 +22,6 @@ type EquityPoint = {
   pnl: number
   delta: number
   equity: number
-}
-
-const toFinite = (value: unknown): number | null => {
-  if (typeof value === 'number') {
-    if (Number.isNaN(value) || !Number.isFinite(value)) return null
-    return value
-  }
-  if (typeof value === 'string') {
-    const parsed = Number(value.trim())
-    if (Number.isNaN(parsed) || !Number.isFinite(parsed)) return null
-    return parsed
-  }
-  return null
-}
-
-const parseTimestamp = (value: unknown): number | null => {
-  if (!value) return null
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.getTime()
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) return null
-    const asMs = value > 10_000_000_000 ? value : value * 1000
-    return Number.isFinite(asMs) ? asMs : null
-  }
-  if (typeof value !== 'string') return null
-  const parsed = Date.parse(value)
-  return Number.isNaN(parsed) ? null : parsed
 }
 
 const getOrderTimestamp = (order: EquityOrder): number | null => {
@@ -59,6 +34,10 @@ const getOrderTimestamp = (order: EquityOrder): number | null => {
   )
 }
 
+// Chart-specific formatter: Recharts callbacks always supply a number (never null),
+// and axis/tooltip labels must be locale-stable regardless of user system locale.
+// Use Intl.NumberFormat('en-US') rather than the shared formatUSD (which uses
+// toLocaleString(undefined, ...) and would vary by device locale on a chart axis).
 const formatUSD = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
 

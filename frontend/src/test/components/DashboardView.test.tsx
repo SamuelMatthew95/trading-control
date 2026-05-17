@@ -148,7 +148,7 @@ describe('DashboardView — agents', () => {
   it('shows empty state when no agent wiring data is available', () => {
     render(<DashboardView section="agents" />)
     expect(screen.getByText(/Active Agents/i)).toBeInTheDocument()
-    expect(screen.getByText(/Live heartbeat < 5s/i)).toBeInTheDocument()
+    expect(screen.getByText(/Live heartbeat < 10s/i)).toBeInTheDocument()
     expect(screen.getByText(/System Diagnostics/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
     expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()

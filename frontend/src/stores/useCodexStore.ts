@@ -7,9 +7,16 @@ export type { NotificationSeverity } from '@/constants/notifications'
 
 export interface AgentLog {
   agent_name: string
+  event_type?: string
   message?: string
+  trace_id?: string
   timestamp: string
   confidence?: number
+  latency_ms?: number
+  primary_edge?: string
+  stream?: unknown
+  message_id?: unknown
+  data?: unknown
   id?: string | number
   agent?: string
   action?: string
@@ -180,6 +187,33 @@ export interface TradeFeedItem {
   created_at: string | null
 }
 
+/** Normalize a raw trade dict (from REST or WS) into a well-typed TradeFeedItem. */
+export function normalizeTradeFeedItem(raw: Record<string, unknown>): TradeFeedItem {
+  const toNum = (v: unknown): number | null => (typeof v === 'number' && isFinite(v) ? v : null)
+  const toStr = (v: unknown): string | null => (v != null ? String(v) : null)
+  return {
+    id: String(raw.id ?? Date.now()),
+    symbol: String(raw.symbol ?? ''),
+    side: raw.side === 'sell' ? 'sell' : 'buy',
+    qty: toNum(raw.qty),
+    entry_price: toNum(raw.entry_price),
+    exit_price: toNum(raw.exit_price),
+    pnl: toNum(raw.pnl),
+    pnl_percent: toNum(raw.pnl_percent),
+    order_id: toStr(raw.order_id),
+    execution_trace_id: toStr(raw.execution_trace_id),
+    signal_trace_id: toStr(raw.signal_trace_id),
+    grade: toStr(raw.grade),
+    grade_score: toNum(raw.grade_score),
+    grade_label: toStr(raw.grade_label),
+    status: String(raw.status ?? 'filled'),
+    filled_at: toStr(raw.filled_at),
+    graded_at: toStr(raw.graded_at),
+    reflected_at: toStr(raw.reflected_at),
+    created_at: String(raw.created_at ?? raw.timestamp ?? new Date().toISOString()),
+  }
+}
+
 export interface AgentInstance {
   id: string
   instance_key: string
@@ -231,6 +265,12 @@ type DashboardData = {
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
   timestamp: string
+  /** Runtime persistence mode — "db" | "in_memory_fallback". Present when backend is in memory mode. */
+  mode?: string
+  /** True when DB is unavailable and the system is operating from in-memory state. */
+  degraded_mode?: boolean
+  /** Machine-readable reason: "db_unavailable" | "redis_unavailable" */
+  degraded_reason?: string
 }
 
 type PriceRecord = Record<string, PriceData>
@@ -264,7 +304,7 @@ function buildDeterministicNotificationId(raw: Record<string, unknown>): string 
   return `${Math.abs(hash >>> 0)}-det`
 }
 
-function normalizeStoredNotification(input: unknown): Notification | null {
+export function normalizeStoredNotification(input: unknown): Notification | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
   const severity = String(raw.severity || NOTIFICATION_FALLBACKS.severity).toLowerCase()
@@ -278,7 +318,7 @@ function normalizeStoredNotification(input: unknown): Notification | null {
     raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display)
       ? (raw.display as NotificationDisplay)
       : undefined
-  const message = String(raw.message || raw.body || display?.subtitle || '').trim()
+  const message = String(raw.message || raw.body || display?.subtitle || raw.title || '').trim()
   if (!message) return null
 
   // Prefer the backend's stable notification_id so the same fill survives a
@@ -364,7 +404,7 @@ type CodexState = {
   updateOrder: (order: Order) => void
   addAgentLog: (log: AgentLog) => void
   addRiskAlert: (alert: Record<string, unknown>) => void
-  addNotification: (notification: Omit<Notification, 'id'> & { id?: string; notification_id?: string }) => void
+  addNotification: (notification: unknown) => void
   addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
   updateProposalStatus: (id: string, status: ProposalStatus) => void
   addLearningEvent: (event: LearningEvent) => void
@@ -447,10 +487,19 @@ export const useCodexStore = create<CodexState>((set) => ({
   pipelineMetrics: {},
   setAgentStatuses: (agentStatuses) => set({ agentStatuses }),
   setPipelineMetrics: (pipelineMetrics) => set({ pipelineMetrics }),
-  setTradeFeed: (tradeFeed) => set({ tradeFeed }),
-  addTradeFeedItem: (trade) => set((state) => ({
-    tradeFeed: [trade, ...state.tradeFeed].slice(0, 200),
-  })),
+  setTradeFeed: (trades) => set((state) => {
+    const normalized = (trades as unknown[])
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+      .map(normalizeTradeFeedItem)
+    const snapshotIds = new Set(normalized.map((t) => t.id))
+    // Preserve WS-received trades that arrived after the last REST snapshot.
+    const wsOnly = state.tradeFeed.filter((t) => !snapshotIds.has(t.id))
+    return { tradeFeed: [...normalized, ...wsOnly].slice(0, 200) }
+  }),
+  addTradeFeedItem: (trade) => set((state) => {
+    if (state.tradeFeed.some((t) => t.id === trade.id)) return state
+    return { tradeFeed: [trade, ...state.tradeFeed].slice(0, 200) }
+  }),
   setAgentInstances: (agentInstances) => set({ agentInstances }),
   setPerformanceSummary: (performanceSummary) => set({ performanceSummary }),
   setDailyPnl: (dailyPnl) => set({ dailyPnl }),
@@ -532,28 +581,10 @@ export const useCodexStore = create<CodexState>((set) => ({
     riskAlerts: [alert, ...state.riskAlerts].slice(0, 50)
   })),
   addNotification: (notification) => set((state) => {
-    const resolvedMessage = String(
-      notification.message || notification.body || notification.display?.subtitle || '',
-    ).trim()
-    const normalizedNotification = {
-      ...notification,
-      message: resolvedMessage,
-      title: notification.title ?? notification.body,
-    }
-    if (!resolvedMessage) return state
-    const stableId =
-      normalizedNotification.notification_id ??
-      normalizedNotification.id ??
-      buildDeterministicNotificationId(normalizedNotification as unknown as Record<string, unknown>)
-    if (state.notifications.some((n) => n.id === stableId)) return state
-
-    const { notification_id: _drop, id: _alsoDrop, ...rest } = normalizedNotification
-    void _drop
-    void _alsoDrop
-    const next = [
-      { ...rest, id: stableId },
-      ...state.notifications,
-    ].slice(0, 200)
+    const normalized = normalizeStoredNotification(notification)
+    if (!normalized) return state
+    if (state.notifications.some((n) => n.id === normalized.id)) return state
+    const next = [normalized, ...state.notifications].slice(0, 200)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('codex.notifications', JSON.stringify(next))
     }
@@ -675,11 +706,33 @@ export const useCodexStore = create<CodexState>((set) => ({
       }
 
       if (data.agent_logs) {
+        const incomingLogs = (data.agent_logs as unknown[]).flatMap((raw) => {
+          if (!raw || typeof raw !== 'object') return []
+          const r = raw as Record<string, unknown>
+          const log: AgentLog = {
+            agent_name: String(r.agent_name || r.agent || r.source_agent || 'Unknown'),
+            event_type: String(r.event_type || r.action || r.type || 'processed'),
+            timestamp: String(r.timestamp || r.created_at || new Date().toISOString()),
+            symbol: r.symbol as string | undefined,
+            action: r.action as string | undefined,
+            latency_ms: Number(r.latency_ms) || 0,
+            primary_edge: r.primary_edge as string | undefined,
+          }
+          if (r.id != null) log.id = r.id as string | number
+          if (r.message != null) log.message = String(r.message)
+          if (r.trace_id != null) log.trace_id = String(r.trace_id)
+          if (r.confidence != null) log.confidence = Number(r.confidence) || undefined
+          if (r.stream) log.stream = r.stream
+          if (r.message_id) log.message_id = r.message_id
+          if (r.data) log.data = r.data
+          return [log]
+        })
+        const logKey = (l: AgentLog) =>
+          l.id != null ? String(l.id) : `${l.timestamp}|${l.agent_name}|${l.event_type}`
+        const incomingKeys = new Set(incomingLogs.map(logKey))
         updates.agentLogs = [
-          ...data.agent_logs,
-          ...currentState.agentLogs.filter((log) =>
-            !data.agent_logs?.some((newLog) => newLog.id === log.id)
-          )
+          ...incomingLogs,
+          ...currentState.agentLogs.filter((log) => !incomingKeys.has(logKey(log))),
         ].slice(0, 100)
       }
 
@@ -739,11 +792,12 @@ export const useCodexStore = create<CodexState>((set) => ({
       }
 
       if (data.trade_feed && Array.isArray(data.trade_feed)) {
-        const existingTfIds = new Set(currentState.tradeFeed.map((t) => t.id))
-        const newTrades = data.trade_feed.filter((t) => t?.id != null && !existingTfIds.has(t.id))
-        if (newTrades.length > 0) {
-          updates.tradeFeed = [...newTrades, ...currentState.tradeFeed].slice(0, 200)
-        }
+        const normalized = (data.trade_feed as unknown[])
+          .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+          .map(normalizeTradeFeedItem)
+        const existingTfIds = new Set(normalized.map((t) => t.id))
+        const kept = currentState.tradeFeed.filter((t) => !existingTfIds.has(t.id))
+        updates.tradeFeed = [...normalized, ...kept].slice(0, 200)
       }
 
       // Notifications hydrate from /dashboard/state so buy/sell fills survive
