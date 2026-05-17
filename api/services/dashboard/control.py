@@ -18,12 +18,13 @@ async def spawn_challenger_payload(
     event_bus: Any,
     dlq_manager: Any,
     agents: list[Any],
-    challenger_config: dict[str, Any],
-    max_fills: int,
+    body: dict[str, Any],
 ) -> dict[str, Any]:
     """Spawn a new ChallengerAgent from an approved new_agent proposal."""
     from api.services.agents.pipeline_agents import ChallengerAgent  # noqa: PLC0415
 
+    challenger_config = body.get(FieldName.CHALLENGER_CONFIG, {})
+    max_fills = int(body.get(FieldName.MAX_FILLS, ChallengerAgent.DEFAULT_MAX_FILLS))
     try:
         challenger = ChallengerAgent(
             event_bus,
