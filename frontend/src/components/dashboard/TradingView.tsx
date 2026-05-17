@@ -262,9 +262,11 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
 
   const logs = useMemo(() => agentLogs.slice(-25).reverse(), [agentLogs])
 
+  // Use agentLogs[0] (newest entry — store prepends) for freshness, not logs[0]
+  // which is the oldest of the display window when agentLogs has >25 entries.
   const activityIndicator = useMemo(
-    () => deriveActivityIndicator(logs[0]?.timestamp, wsConnected, ACTIVITY_FRESH_MS),
-    [logs, wsConnected],
+    () => deriveActivityIndicator(agentLogs[0]?.timestamp, wsConnected, ACTIVITY_FRESH_MS),
+    [agentLogs, wsConnected],
   )
 
   return (
