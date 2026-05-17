@@ -170,10 +170,10 @@ async def classify_health() -> dict[str, Any]:
         classification = "healthy"
     elif not db_available and has_activity:
         classification = "expected_memory_mode_noise"
-    elif not has_activity and debug_state_raw:
-        classification = "config_only"
     elif db_available and not has_activity:
         classification = "code_bug_suspected"
+    elif not has_activity:
+        classification = "config_only"
     else:
         classification = "unknown"
 
