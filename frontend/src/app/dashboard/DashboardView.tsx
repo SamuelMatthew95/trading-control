@@ -5,6 +5,7 @@ import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/use
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
+import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
@@ -22,31 +23,6 @@ const sanitizeValue = (value: string | number | boolean | null | undefined): str
   if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--';
   if (typeof value === 'boolean') return value ? 'True' : 'False';
   return String(value);
-};
-
-
-const formatUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '$0.00';
-  return `$${Math.abs(value).toFixed(2)}`;
-};
-
-// Renders a signed USD value with leading sign — BUT never produces "-$0.00".
-// Zero (or near-zero rounding to zero) is always rendered without a sign.
-const signedUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '--';
-  const abs = Math.abs(value);
-  if (abs < 0.005) return '$0.00';
-  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`;
-};
-
-const formatTimeAgo = (date: Date): string => {
-  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 };
 
 const formatTimestamp = (value?: string | null): string => {
@@ -122,11 +98,6 @@ const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
 }
 const getLiveThresholdMs = (agentKey: string): number =>
   AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
-
-function toFiniteNumber(value: unknown): number | null {
-  const cast = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(cast) ? cast : null
-}
 
 function isClosedTrade(order: Record<string, unknown> | null | undefined): boolean {
   if (!order) return false
