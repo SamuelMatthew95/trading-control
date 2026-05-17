@@ -9,6 +9,7 @@ export interface AgentLog {
   agent_name: string
   event_type?: string
   message?: string
+  trace_id?: string
   timestamp: string
   confidence?: number
   latency_ms?: number
@@ -317,7 +318,7 @@ export function normalizeStoredNotification(input: unknown): Notification | null
     raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display)
       ? (raw.display as NotificationDisplay)
       : undefined
-  const message = String(raw.message || raw.body || display?.subtitle || '').trim()
+  const message = String(raw.message || raw.body || display?.subtitle || raw.title || '').trim()
   if (!message) return null
 
   // Prefer the backend's stable notification_id so the same fill survives a
@@ -718,6 +719,9 @@ export const useCodexStore = create<CodexState>((set) => ({
             primary_edge: r.primary_edge as string | undefined,
           }
           if (r.id != null) log.id = r.id as string | number
+          if (r.message != null) log.message = String(r.message)
+          if (r.trace_id != null) log.trace_id = String(r.trace_id)
+          if (r.confidence != null) log.confidence = Number(r.confidence) || undefined
           if (r.stream) log.stream = r.stream
           if (r.message_id) log.message_id = r.message_id
           if (r.data) log.data = r.data
