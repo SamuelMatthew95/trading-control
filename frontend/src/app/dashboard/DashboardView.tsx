@@ -708,24 +708,9 @@ export function DashboardView({ section }: { section: Section }) {
         const r = await fetch(api(API_ENDPOINTS.NOTIFICATIONS_RECENT))
         if (!r.ok) return
         const items = (await r.json()) as Array<Record<string, unknown>>
+        // Pass raw items — addNotification calls normalizeStoredNotification internally.
         for (const raw of [...items].reverse()) {
-          const message = String(
-            raw.body ?? raw.message ?? raw.title ?? '',
-          ).trim()
-          if (!message) continue
-          const severity = String(raw.severity ?? 'info').toUpperCase()
-          addNotification({
-            notification_id: typeof raw.id === 'string' ? raw.id : undefined,
-            severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
-            title: raw.title ? String(raw.title) : undefined,
-            message,
-            notification_type: String(raw.type ?? raw.notification_type ?? 'system'),
-            stream_source: 'rest',
-            symbol: raw.symbol ? String(raw.symbol) : undefined,
-            action: raw.action ? String(raw.action) : undefined,
-            trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
-            timestamp: String(raw.timestamp ?? new Date().toISOString()),
-          })
+          addNotification({ ...raw, stream_source: raw.stream_source ?? 'rest' })
         }
       } catch {
         // non-fatal — WebSocket may still deliver realtime events
