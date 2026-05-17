@@ -33,8 +33,7 @@ def test_kill_switch_stored_as_one_zero() -> None:
 
     # Ensure old pattern is gone
     assert '"true" if active' not in src, (
-        "control.py still stores kill switch as 'true'. "
-        "Change to '1' to match consumer checks."
+        "control.py still stores kill switch as 'true'. Change to '1' to match consumer checks."
     )
 
 

@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import api.services.dashboard.state as state_svc
 from api.constants import (
     AGENT_CHALLENGER,
     AGENT_EXECUTION,
@@ -37,7 +38,6 @@ from api.constants import (
     REDIS_AGENT_STATUS_KEY,
     LogType,
 )
-import api.services.dashboard.state as state_svc
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_runtime_store

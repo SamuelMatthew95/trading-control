@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+import api.services.dashboard.trading as trading_svc
 from api.constants import (
     AGENT_EXECUTION,
     REDIS_AGENT_STATUS_KEY,
@@ -19,7 +20,6 @@ from api.constants import (
     FieldName,
 )
 from api.routes import dashboard_v2
-import api.services.dashboard.trading as trading_svc
 
 # ---------------------------------------------------------------------------
 # Session / DB helpers (mirrors patterns from test_dashboard_v2_resilience.py)

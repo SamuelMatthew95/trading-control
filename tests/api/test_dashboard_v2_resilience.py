@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from api.constants import LogType
-from api.in_memory_store import InMemoryStore
-from api.routes import dashboard_v2
-from api.runtime_state import set_db_available, set_runtime_store
 import api.services.dashboard.agents as agents_svc
 import api.services.dashboard.events as events_svc
 import api.services.dashboard.flow as flow_svc
@@ -14,8 +10,12 @@ import api.services.dashboard.pnl as pnl_svc
 import api.services.dashboard.proposals as proposals_svc
 import api.services.dashboard.state as state_svc
 import api.services.dashboard.system as system_svc
-import api.services.dashboard.trading as trading_svc
 import api.services.dashboard.traces as traces_svc
+import api.services.dashboard.trading as trading_svc
+from api.constants import LogType
+from api.in_memory_store import InMemoryStore
+from api.routes import dashboard_v2
+from api.runtime_state import set_db_available, set_runtime_store
 
 
 class _ExplodingSession:
