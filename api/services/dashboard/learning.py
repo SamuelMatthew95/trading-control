@@ -14,6 +14,8 @@ from api.constants import (
     REDIS_KEY_TRADING_PAUSED_REASON,
     FieldName,
     LogType,
+    OrderStatus,
+    ProposalStatus,
 )
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
@@ -386,3 +388,135 @@ async def get_learning_loop_payload() -> dict[str, Any]:
         log_structured("warning", "learning_loop_loss_attribution_failed", exc_info=True)
 
     return out
+
+
+async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
+    """Get recent strategy proposals from agent_logs."""
+    from api.services.dashboard.proposals import _in_memory_proposals  # noqa: PLC0415
+
+    if not is_db_available():
+        proposals = _in_memory_proposals(limit=limit)
+        return {
+            FieldName.PROPOSALS: proposals,
+            FieldName.TOTAL: len(proposals),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    SELECT trace_id, payload, created_at
+                    FROM agent_logs
+                    WHERE log_type = :log_type
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"log_type": LogType.PROPOSAL, FieldName.LIMIT: limit},
+            )
+            rows = result.all()
+        proposals = []
+        for row in rows:
+            payload = _as_dict(row[1])
+            proposals.append(
+                {
+                    FieldName.ID: row[0],
+                    "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
+                    "content": payload.get(FieldName.CONTENT, {}),
+                    "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
+                    "confidence": payload.get(FieldName.CONFIDENCE),
+                    "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
+                    "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
+                    "timestamp": row[2].isoformat() if row[2] else None,
+                }
+            )
+
+        if not proposals:
+            try:
+                async with AsyncSessionFactory() as session:
+                    fallback_result = await session.execute(
+                        text("""
+                            SELECT
+                                e.id,
+                                COALESCE(
+                                    to_jsonb(e)->'data',
+                                    to_jsonb(e)->'payload',
+                                    '{}'::jsonb
+                                ) AS payload,
+                                e.created_at
+                            FROM events e
+                            WHERE event_type = 'strategy.proposal'
+                            ORDER BY created_at DESC
+                            LIMIT :limit
+                        """),
+                        {FieldName.LIMIT: limit},
+                    )
+                    for row in fallback_result.all():
+                        data = _as_dict(row[1])
+                        proposals.append(
+                            {
+                                FieldName.ID: str(row[0]),
+                                "proposal_type": data.get(
+                                    FieldName.PROPOSAL_TYPE, "strategy_proposal"
+                                ),
+                                "content": data,
+                                "requires_approval": True,
+                                "confidence": data.get(FieldName.CONFIDENCE),
+                                "reflection_trace_id": data.get(FieldName.TRACE_ID),
+                                "status": data.get(FieldName.STATUS, OrderStatus.PENDING),
+                                "timestamp": row[2].isoformat() if row[2] else None,
+                            }
+                        )
+            except Exception:
+                log_structured(
+                    "warning",
+                    "learning proposals events fallback unavailable",
+                    exc_info=True,
+                )
+        return {
+            FieldName.PROPOSALS: proposals,
+            FieldName.TOTAL: len(proposals),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        log_structured("error", "proposals fetch failed", exc_info=True)
+        return {
+            FieldName.PROPOSALS: [],
+            FieldName.TOTAL: 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+async def update_proposal_status_payload(trace_id: str, status: str) -> dict[str, Any]:
+    """Persist proposal approval or rejection back to agent_logs payload."""
+    from api.services.dashboard.proposals import _update_in_memory_proposal_status  # noqa: PLC0415
+
+    if status not in {ProposalStatus.APPROVED, ProposalStatus.REJECTED}:
+        raise HTTPException(status_code=400, detail="status must be 'approved' or 'rejected'")
+    if not is_db_available():
+        if not _update_in_memory_proposal_status(trace_id, status):
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return {"trace_id": trace_id, "status": status, "source": "in_memory"}
+
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE agent_logs
+                    SET payload = (payload::jsonb || jsonb_build_object('status', :status::text))::text
+                    WHERE trace_id = :trace_id AND log_type = :log_type
+                    RETURNING trace_id
+                """),
+                {"trace_id": trace_id, "status": status, "log_type": LogType.PROPOSAL},
+            )
+            updated = result.fetchone()
+            await session.commit()
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return {"trace_id": trace_id, "status": status}
+    except HTTPException:
+        raise
+    except Exception:
+        log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
