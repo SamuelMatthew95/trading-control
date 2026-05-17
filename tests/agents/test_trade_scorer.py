@@ -27,9 +27,13 @@ def _alternating_evals(n: int) -> list[dict]:
     result = []
     for i in range(n):
         if i % 2 == 0:
-            result.append({FieldName.PNL_PERCENT: 2.0, FieldName.PNL: 20.0, FieldName.OVERALL_SCORE: 0.8})
+            result.append(
+                {FieldName.PNL_PERCENT: 2.0, FieldName.PNL: 20.0, FieldName.OVERALL_SCORE: 0.8}
+            )
         else:
-            result.append({FieldName.PNL_PERCENT: -1.0, FieldName.PNL: -10.0, FieldName.OVERALL_SCORE: 0.4})
+            result.append(
+                {FieldName.PNL_PERCENT: -1.0, FieldName.PNL: -10.0, FieldName.OVERALL_SCORE: 0.4}
+            )
     return result
 
 
