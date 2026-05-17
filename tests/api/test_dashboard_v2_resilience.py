@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import pytest
 
+import api.services.dashboard.agents as agents_svc
+import api.services.dashboard.events as events_svc
+import api.services.dashboard.flow as flow_svc
+import api.services.dashboard.learning as learning_svc
+import api.services.dashboard.pnl as pnl_svc
+import api.services.dashboard.proposals as proposals_svc
+import api.services.dashboard.state as state_svc
+import api.services.dashboard.system as system_svc
+import api.services.dashboard.traces as traces_svc
+import api.services.dashboard.trading as trading_svc
 from api.constants import LogType
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
-
-
-# Helper: enable the DB code path in tests that mock the session factory
-def _enable_db(monkeypatch):
-    """Patch is_db_available to True so DB-path branches execute in tests."""
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
 
 
 class _ExplodingSession:
@@ -93,8 +97,8 @@ class _FactoryOneSuccessThenFail:
 
 @pytest.mark.asyncio
 async def test_trade_feed_falls_back_when_query_fails(monkeypatch):
-    _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_trade_feed()
 
     assert payload["count"] == 0
@@ -210,7 +214,7 @@ class _MemoryModeRedis:
 @pytest.mark.asyncio
 async def test_performance_trends_falls_back_to_runtime_store_when_query_fails(monkeypatch):
     """DB failure should return runtime store data, not empty zeros."""
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
     store = InMemoryStore()
     store.apply_decision(
         {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "pt1"}
@@ -219,7 +223,7 @@ async def test_performance_trends_falls_back_to_runtime_store_when_query_fails(m
         {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "pt2"}
     )
     set_runtime_store(store)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _exploding_factory)
 
     payload = await dashboard_v2.get_performance_trends()
 
@@ -233,8 +237,8 @@ async def test_performance_trends_falls_back_to_runtime_store_when_query_fails(m
 
 @pytest.mark.asyncio
 async def test_agent_instances_falls_back_when_query_fails(monkeypatch):
-    _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    monkeypatch.setattr(agents_svc, "is_db_available", lambda: True)
+    monkeypatch.setattr(agents_svc, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_agent_instances()
 
     assert payload["instances"] == []
@@ -248,7 +252,7 @@ async def test_agent_instances_use_memory_without_opening_db_when_db_unavailable
     def _raise_if_called():
         raise AssertionError("DB session should not be created in memory mode")
 
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _raise_if_called)
+    monkeypatch.setattr(agents_svc, "AsyncSessionFactory", _raise_if_called)
     store = InMemoryStore()
     store.upsert_agent(
         "SIGNAL_AGENT",
@@ -287,7 +291,7 @@ def test_system_metrics_alias_route_exists():
 
 @pytest.mark.asyncio
 async def test_event_history_falls_back_when_query_fails(monkeypatch):
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _exploding_factory)
+    monkeypatch.setattr(events_svc, "AsyncSessionFactory", _exploding_factory)
     payload = await dashboard_v2.get_event_history()
 
     assert payload["stream_counts"] == []
@@ -297,14 +301,14 @@ async def test_event_history_falls_back_when_query_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_learning_proposals_fallbacks_to_events_when_agent_logs_empty(monkeypatch):
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(learning_svc, "is_db_available", lambda: True)
     # First session (agent_logs query): empty. Second session (events query): one row.
     session_rows = [
         [[]],
         [[("evt-1", {"status": "pending", "confidence": 0.71}, None)]],
     ]
     monkeypatch.setattr(
-        dashboard_v2,
+        learning_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -318,9 +322,9 @@ async def test_learning_proposals_fallbacks_to_events_when_agent_logs_empty(monk
 
 @pytest.mark.asyncio
 async def test_learning_proposals_returns_empty_when_events_fallback_errors(monkeypatch):
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(learning_svc, "is_db_available", lambda: True)
     monkeypatch.setattr(
-        dashboard_v2,
+        learning_svc,
         "AsyncSessionFactory",
         _FactoryOneSuccessThenFail(first_rows=[]),
     )
@@ -333,13 +337,13 @@ async def test_learning_proposals_returns_empty_when_events_fallback_errors(monk
 
 @pytest.mark.asyncio
 async def test_learning_grades_fallbacks_to_agent_grades_when_logs_empty(monkeypatch):
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(learning_svc, "is_db_available", lambda: True)
     session_rows = [
         [[]],
         [[("trace-1", 0.84, {"fills_graded": 4}, None)]],
     ]
     monkeypatch.setattr(
-        dashboard_v2,
+        learning_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -379,13 +383,13 @@ async def test_learning_grades_uses_in_memory_when_db_unavailable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
     session_rows = [
         [[]],
         [[("ord-1", "AAPL", "buy", 1.5, 190.0, "filled", None, None, None, None)]],
     ]
     monkeypatch.setattr(
-        dashboard_v2,
+        trading_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -401,13 +405,13 @@ async def test_trade_feed_fallbacks_to_orders_when_lifecycle_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_proposals_endpoint_falls_back_to_agent_logs_when_events_unavailable(monkeypatch):
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(proposals_svc, "is_db_available", lambda: True)
     session_rows = [
         [[]],
         [[("trace-99", {"symbol": "TSLA", "status": "pending"}, None)]],
     ]
     monkeypatch.setattr(
-        dashboard_v2,
+        proposals_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -424,7 +428,8 @@ async def test_proposals_use_memory_without_opening_db_when_db_unavailable(monke
     def _raise_if_called():
         raise AssertionError("DB session should not be created in memory mode")
 
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _raise_if_called)
+    monkeypatch.setattr(proposals_svc, "AsyncSessionFactory", _raise_if_called)
+    monkeypatch.setattr(learning_svc, "AsyncSessionFactory", _raise_if_called)
     store = InMemoryStore()
     store.add_event(
         {
@@ -462,8 +467,25 @@ async def test_dashboard_memory_mode_never_opens_db_sessions(monkeypatch):
     async def _get_redis():
         return _MemoryModeRedis()
 
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _record_db_call)
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    # Patch AsyncSessionFactory on all service modules that have it
+    for svc in (
+        agents_svc,
+        events_svc,
+        flow_svc,
+        learning_svc,
+        pnl_svc,
+        proposals_svc,
+        state_svc,
+        system_svc,
+        trading_svc,
+        traces_svc,
+    ):
+        monkeypatch.setattr(svc, "AsyncSessionFactory", _record_db_call)
+
+    # Patch get_redis on all service modules that have it
+    for svc in (agents_svc, state_svc, system_svc, trading_svc, learning_svc):
+        monkeypatch.setattr(svc, "get_redis", _get_redis)
+
     store = InMemoryStore()
     store.add_event(
         {
@@ -552,13 +574,13 @@ async def test_dashboard_memory_mode_never_opens_db_sessions(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_learning_endpoints_accept_stringified_payloads(monkeypatch):
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(learning_svc, "is_db_available", lambda: True)
     session_rows = [
         [[("trace-prop", '{"status":"approved","content":{"k":"v"}}', None)]],
         [[("trace-grade", '{"grade":"A","score":0.92,"metrics":{"fills_graded":3}}', None)]],
     ]
     monkeypatch.setattr(
-        dashboard_v2,
+        learning_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -588,8 +610,8 @@ async def test_dashboard_state_db_failure_returns_in_memory_snapshot(monkeypatch
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FailingAggregator)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(state_svc, "MetricsAggregator", _FailingAggregator)
+    monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: _SessionOk())
     store = InMemoryStore()
     store.last_health = "db_down"
     store.add_notification("db down", level="warning", notification_type="startup")
@@ -612,8 +634,8 @@ async def test_agents_status_active_has_non_null_last_seen_at(monkeypatch):
     async def _get_redis():
         return _Redis()
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: False)
+    monkeypatch.setattr(agents_svc, "get_redis", _get_redis)
+    monkeypatch.setattr(agents_svc, "is_db_available", lambda: False)
     payload = await dashboard_v2.get_agents_status()
     assert payload["agents"]
     assert all(
@@ -651,9 +673,9 @@ async def test_agents_status_merges_db_and_heartbeat_by_agent_name(monkeypatch):
     async def _get_redis():
         return _Redis()
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _Session())
+    monkeypatch.setattr(agents_svc, "get_redis", _get_redis)
+    monkeypatch.setattr(agents_svc, "is_db_available", lambda: True)
+    monkeypatch.setattr(agents_svc, "AsyncSessionFactory", lambda: _Session())
     payload = await dashboard_v2.get_agents_status()
     rows = [r for r in payload["agents"] if r["name"] == "REASONING_AGENT"]
     assert len(rows) == 1
@@ -703,10 +725,10 @@ async def test_trade_feed_returns_in_memory_trades_when_db_unavailable():
 async def test_trade_feed_prefers_in_memory_when_db_returns_empty(monkeypatch):
     """When the DB is up but trade_lifecycle AND orders are both empty, the endpoint
     must fall back to the in-memory trade_feed — not return count=0."""
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
     session_rows = [[[]], [[]]]  # lifecycle empty, orders empty
     monkeypatch.setattr(
-        dashboard_v2,
+        trading_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -736,13 +758,13 @@ async def test_trade_feed_prefers_in_memory_when_db_returns_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_trade_feed_db_orders_fallback_honors_session_filter(monkeypatch):
     """If lifecycle is empty and orders fallback is used, session_id filtering must still apply."""
-    _enable_db(monkeypatch)
+    monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
     session_rows = [
         [[]],  # trade_lifecycle empty
         [[("ord-1", "BTC/USD", "buy", 0.1, 50000.0, "filled", "trace-1", None, None, "sess-a")]],
     ]
     monkeypatch.setattr(
-        dashboard_v2,
+        trading_svc,
         "AsyncSessionFactory",
         _FactoryWithQueuedSessions(session_rows),
     )
@@ -819,7 +841,7 @@ async def test_trade_feed_in_memory_filters_malformed_rows():
 
 @pytest.mark.asyncio
 async def test_dashboard_state_sets_mode_even_if_redis_unavailable(monkeypatch):
-    monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeAggregator)
+    monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeAggregator)
 
     class _SessionOk:
         async def __aenter__(self):
@@ -828,12 +850,12 @@ async def test_dashboard_state_sets_mode_even_if_redis_unavailable(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _SessionOk())
+    monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: _SessionOk())
 
     async def _raise_redis():
         raise RuntimeError("redis down")
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _raise_redis)
+    monkeypatch.setattr(state_svc, "get_redis", _raise_redis)
     set_db_available(False)
 
     payload = await dashboard_v2.get_dashboard_state()

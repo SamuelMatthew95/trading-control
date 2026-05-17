@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+import api.services.dashboard.trading as trading_svc
 from api.constants import (
     AGENT_EXECUTION,
     REDIS_AGENT_STATUS_KEY,
@@ -130,7 +131,7 @@ class _FakeRedis:
 
 
 def _enable_db(monkeypatch):
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
+    monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
 
 
 def _make_empty_db_factory():
@@ -165,14 +166,14 @@ class _EmptyAllSession:
 async def test_trade_feed_empty_includes_upstream_activity_key(monkeypatch):
     """Empty trade feed response must contain an ``upstream_activity`` key."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     fake_redis = _FakeRedis()
 
     async def _get_redis():
         return fake_redis
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _get_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -185,14 +186,14 @@ async def test_trade_feed_empty_includes_upstream_activity_key(monkeypatch):
 async def test_trade_feed_upstream_has_required_fields(monkeypatch):
     """upstream_activity must expose signal_events and decisions_evaluated."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     fake_redis = _FakeRedis()
 
     async def _get_redis():
         return fake_redis
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _get_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -205,7 +206,7 @@ async def test_trade_feed_upstream_has_required_fields(monkeypatch):
 async def test_trade_feed_upstream_shows_stream_lengths(monkeypatch):
     """upstream_activity must reflect the actual stream lengths from Redis."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     fake_redis = _FakeRedis(
         xlen_map={
@@ -217,7 +218,7 @@ async def test_trade_feed_upstream_shows_stream_lengths(monkeypatch):
     async def _get_redis():
         return fake_redis
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _get_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -230,7 +231,7 @@ async def test_trade_feed_upstream_shows_stream_lengths(monkeypatch):
 async def test_trade_feed_upstream_shows_ee_status(monkeypatch):
     """When the execution engine heartbeat is present, ee_last_status must be populated."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     ee_heartbeat = json.dumps(
         {
@@ -245,7 +246,7 @@ async def test_trade_feed_upstream_shows_ee_status(monkeypatch):
     async def _get_redis():
         return fake_redis
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _get_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -260,14 +261,14 @@ async def test_trade_feed_upstream_shows_ee_status(monkeypatch):
 async def test_trade_feed_upstream_ee_status_none_when_no_heartbeat(monkeypatch):
     """When the EE heartbeat key is absent in Redis, ee_last_status should be None."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     fake_redis = _FakeRedis()  # no keys set
 
     async def _get_redis():
         return fake_redis
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _get_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -279,12 +280,12 @@ async def test_trade_feed_upstream_defaults_to_zero_when_redis_fails(monkeypatch
     """If Redis is unavailable the upstream_activity block must still be present
     with safe defaults (zeros / None) rather than crashing the endpoint."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     async def _failing_redis():
         raise RuntimeError("redis down")
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _failing_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _failing_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -345,7 +346,7 @@ async def test_trade_feed_upstream_not_present_when_trades_exist(monkeypatch):
                 )
             ]
 
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: _OneTradeSession())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", lambda: _OneTradeSession())
 
     payload = await dashboard_v2.get_trade_feed()
 
@@ -357,14 +358,14 @@ async def test_trade_feed_upstream_not_present_when_trades_exist(monkeypatch):
 async def test_trade_feed_empty_reason_present_alongside_upstream_activity(monkeypatch):
     """empty_reason must be included in the same response as upstream_activity."""
     _enable_db(monkeypatch)
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _make_empty_db_factory())
+    monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _make_empty_db_factory())
 
     fake_redis = _FakeRedis()
 
     async def _get_redis():
         return fake_redis
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
+    monkeypatch.setattr(trading_svc, "get_redis", _get_redis)
 
     payload = await dashboard_v2.get_trade_feed()
 

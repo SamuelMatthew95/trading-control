@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import api.services.dashboard.state as state_svc
 from api.constants import (
     AGENT_CHALLENGER,
     AGENT_EXECUTION,
@@ -494,7 +495,7 @@ class TestDashboardStateRedisKeys:
         redis.mget = fake_mget
         redis.get = AsyncMock(return_value=None)
 
-        monkeypatch.setattr(dashboard_v2, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(state_svc, "get_redis", AsyncMock(return_value=redis))
 
         snapshot = {
             "orders": [],
@@ -518,8 +519,8 @@ class TestDashboardStateRedisKeys:
             async def get_raw_snapshot(self) -> dict[str, Any]:
                 return dict(snapshot)
 
-        monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeMagg)
-        monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: fake_session_ctx)
+        monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeMagg)
+        monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: fake_session_ctx)
 
         await dashboard_v2.get_dashboard_state()
 
@@ -564,7 +565,7 @@ class TestDashboardStateRedisKeys:
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=ordered_values)
         redis.get = AsyncMock(return_value=None)
-        monkeypatch.setattr(dashboard_v2, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(state_svc, "get_redis", AsyncMock(return_value=redis))
 
         snapshot = {
             "orders": [],
@@ -588,8 +589,8 @@ class TestDashboardStateRedisKeys:
         fake_ctx = MagicMock()
         fake_ctx.__aenter__ = AsyncMock(return_value=fake_ctx)
         fake_ctx.__aexit__ = AsyncMock(return_value=False)
-        monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeMagg)
-        monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: fake_ctx)
+        monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeMagg)
+        monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: fake_ctx)
 
         result = await dashboard_v2.get_dashboard_state()
 
@@ -610,7 +611,7 @@ class TestDashboardStateRedisKeys:
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=[None] * len(ALL_AGENT_NAMES))
         redis.get = AsyncMock(return_value=None)
-        monkeypatch.setattr(dashboard_v2, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(state_svc, "get_redis", AsyncMock(return_value=redis))
 
         snapshot = {
             "orders": [],
@@ -634,8 +635,8 @@ class TestDashboardStateRedisKeys:
         fake_ctx = MagicMock()
         fake_ctx.__aenter__ = AsyncMock(return_value=fake_ctx)
         fake_ctx.__aexit__ = AsyncMock(return_value=False)
-        monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeMagg)
-        monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: fake_ctx)
+        monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeMagg)
+        monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: fake_ctx)
 
         result = await dashboard_v2.get_dashboard_state()
         names_in_response = {s["name"] for s in result["agent_statuses"]}
@@ -657,7 +658,7 @@ class TestDashboardStateRedisKeys:
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=[None] * len(ALL_AGENT_NAMES))
         redis.get = fake_get
-        monkeypatch.setattr(dashboard_v2, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(state_svc, "get_redis", AsyncMock(return_value=redis))
 
         snapshot = {
             "orders": [],
@@ -681,8 +682,8 @@ class TestDashboardStateRedisKeys:
         fake_ctx = MagicMock()
         fake_ctx.__aenter__ = AsyncMock(return_value=fake_ctx)
         fake_ctx.__aexit__ = AsyncMock(return_value=False)
-        monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeMagg)
-        monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: fake_ctx)
+        monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeMagg)
+        monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: fake_ctx)
 
         result = await dashboard_v2.get_dashboard_state()
 
@@ -758,11 +759,11 @@ class TestDashboardStateResponseShape:
     ) -> None:
         """The REST hydration response must include all keys used by the frontend."""
         # Activate DB path so MetricsAggregator is called instead of memory fallback.
-        monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
+        monkeypatch.setattr(state_svc, "is_db_available", lambda: True)
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=[None] * len(ALL_AGENT_NAMES))
         redis.get = AsyncMock(return_value=None)
-        monkeypatch.setattr(dashboard_v2, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(state_svc, "get_redis", AsyncMock(return_value=redis))
 
         snapshot = {
             "orders": [{"order_id": "o1", "symbol": "AAPL"}],
@@ -796,8 +797,8 @@ class TestDashboardStateResponseShape:
         fake_ctx = MagicMock()
         fake_ctx.__aenter__ = AsyncMock(return_value=fake_ctx)
         fake_ctx.__aexit__ = AsyncMock(return_value=False)
-        monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeMagg)
-        monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: fake_ctx)
+        monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeMagg)
+        monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: fake_ctx)
 
         result = await dashboard_v2.get_dashboard_state()
 
@@ -823,11 +824,11 @@ class TestDashboardStateResponseShape:
     async def test_orders_list_preserved_in_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """orders[] from get_raw_snapshot() must pass through unchanged."""
         # Activate DB path so MetricsAggregator is called instead of memory fallback.
-        monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
+        monkeypatch.setattr(state_svc, "is_db_available", lambda: True)
         redis = AsyncMock()
         redis.mget = AsyncMock(return_value=[None] * len(ALL_AGENT_NAMES))
         redis.get = AsyncMock(return_value=None)
-        monkeypatch.setattr(dashboard_v2, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(state_svc, "get_redis", AsyncMock(return_value=redis))
 
         order_data = [{"order_id": "x1", "symbol": "TSLA", "side": "buy"}]
         snapshot = {
@@ -852,8 +853,8 @@ class TestDashboardStateResponseShape:
         fake_ctx = MagicMock()
         fake_ctx.__aenter__ = AsyncMock(return_value=fake_ctx)
         fake_ctx.__aexit__ = AsyncMock(return_value=False)
-        monkeypatch.setattr(dashboard_v2, "MetricsAggregator", _FakeMagg)
-        monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", lambda: fake_ctx)
+        monkeypatch.setattr(state_svc, "MetricsAggregator", _FakeMagg)
+        monkeypatch.setattr(state_svc, "AsyncSessionFactory", lambda: fake_ctx)
 
         result = await dashboard_v2.get_dashboard_state()
         assert result["orders"] == order_data

@@ -48,8 +48,8 @@ async def client():
 async def test_paired_pnl_returns_expected_keys(client):
     """GET /dashboard/pnl/paired must return closed_trades, open_positions, summary."""
     with (
-        patch("api.routes.dashboard_v2.MetricsAggregator") as mock_agg_cls,
-        patch("api.routes.dashboard_v2.AsyncSessionFactory") as mock_factory,
+        patch("api.services.dashboard.pnl.MetricsAggregator") as mock_agg_cls,
+        patch("api.services.dashboard.pnl.AsyncSessionFactory") as mock_factory,
     ):
         mock_session = AsyncMock()
         mock_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -81,7 +81,7 @@ async def test_paired_pnl_returns_expected_keys(client):
 
 async def test_paired_pnl_db_unavailable_returns_fallback(client):
     """When DB raises, endpoint returns a zero-filled fallback (no 500)."""
-    with patch("api.routes.dashboard_v2.AsyncSessionFactory") as mock_factory:
+    with patch("api.services.dashboard.pnl.AsyncSessionFactory") as mock_factory:
         mock_factory.return_value.__aenter__ = AsyncMock(side_effect=RuntimeError("db_down"))
         mock_factory.return_value.__aexit__ = AsyncMock(return_value=False)
 
