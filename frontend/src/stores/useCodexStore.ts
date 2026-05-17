@@ -7,9 +7,15 @@ export type { NotificationSeverity } from '@/constants/notifications'
 
 export interface AgentLog {
   agent_name: string
+  event_type?: string
   message?: string
   timestamp: string
   confidence?: number
+  latency_ms?: number
+  primary_edge?: string
+  stream?: unknown
+  message_id?: unknown
+  data?: unknown
   id?: string | number
   agent?: string
   action?: string
@@ -490,9 +496,8 @@ export const useCodexStore = create<CodexState>((set) => ({
     return { tradeFeed: [...normalized, ...wsOnly].slice(0, 200) }
   }),
   addTradeFeedItem: (trade) => set((state) => {
-    const normalized = normalizeTradeFeedItem(trade as unknown as Record<string, unknown>)
-    if (state.tradeFeed.some((t) => t.id === normalized.id)) return state
-    return { tradeFeed: [normalized, ...state.tradeFeed].slice(0, 200) }
+    if (state.tradeFeed.some((t) => t.id === trade.id)) return state
+    return { tradeFeed: [trade, ...state.tradeFeed].slice(0, 200) }
   }),
   setAgentInstances: (agentInstances) => set({ agentInstances }),
   setPerformanceSummary: (performanceSummary) => set({ performanceSummary }),
