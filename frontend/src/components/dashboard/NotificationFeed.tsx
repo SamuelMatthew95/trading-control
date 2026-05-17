@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { Notification } from '@/stores/useCodexStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
+import { groupNotifications } from '@/lib/notification-grouping'
 
 const cardClass =
   'rounded-lg border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
@@ -182,7 +183,7 @@ export function NotificationFeed({
         <NotificationEmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
       ) : (
         <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-0.5">
-          {notifications.map((notification) => {
+          {groupNotifications(notifications).map(({ latest: notification, count }) => {
             const display = notification.display
             const tone = normalizeTone(display?.tone || notification.severity)
             const style = toneStyles[tone]
@@ -221,6 +222,11 @@ export function NotificationFeed({
                         )
                       })}
                       <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100">{title}</h3>
+                      {count > 1 && (
+                        <span className="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                          ×{count}
+                        </span>
+                      )}
                       <time className={cn(mutedClass, 'shrink-0 tabular-nums')} title={notification.timestamp ?? undefined}>
                         {formatRelativeTime(notification.timestamp)}
                       </time>
