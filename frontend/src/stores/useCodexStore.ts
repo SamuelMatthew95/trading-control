@@ -718,11 +718,12 @@ export const useCodexStore = create<CodexState>((set) => ({
           if (r.data) log.data = r.data
           return [log]
         })
+        const logKey = (l: AgentLog) =>
+          l.id != null ? String(l.id) : `${l.timestamp}|${l.agent_name}|${l.event_type}`
+        const incomingKeys = new Set(incomingLogs.map(logKey))
         updates.agentLogs = [
           ...incomingLogs,
-          ...currentState.agentLogs.filter((log) =>
-            !incomingLogs.some((newLog) => newLog.id != null && newLog.id === log.id)
-          ),
+          ...currentState.agentLogs.filter((log) => !incomingKeys.has(logKey(log))),
         ].slice(0, 100)
       }
 
