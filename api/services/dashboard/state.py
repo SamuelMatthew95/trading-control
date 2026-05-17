@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import text
 
 from api.config import settings
 from api.constants import (
