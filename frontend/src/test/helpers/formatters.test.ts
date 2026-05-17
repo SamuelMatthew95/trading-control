@@ -1,26 +1,8 @@
 /**
- * Tests for money formatting helpers defined in TradingView / DashboardView.
- *
- * The formatUSD function in TradingView must return '--' (not '$0.00') for
- * null / undefined input, so that unfilled P&L doesn't look like a break-even.
+ * Contract tests for shared formatting helpers in src/lib/formatters.ts.
  */
 import { describe, it, expect } from 'vitest'
-
-// We test the behaviour via a standalone re-implementation that matches the
-// production code, because the formatter is module-local (not exported).
-// If the production implementation changes, these tests act as a contract.
-
-function formatUSD(v: number | null | undefined): string {
-  if (v == null || !isFinite(v)) return '--'
-  return `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function signedUSD(value: number | null | undefined): string {
-  if (value == null || isNaN(value) || !isFinite(value)) return '--'
-  const abs = Math.abs(value)
-  if (abs < 0.005) return '$0.00'
-  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`
-}
+import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum } from '@/lib/formatters'
 
 describe('formatUSD', () => {
   it('returns -- for null', () => {
@@ -78,4 +60,39 @@ describe('signedUSD', () => {
     expect(signedUSD(-0.001)).toBe('$0.00')
     expect(signedUSD(0.001)).toBe('$0.00')
   })
+})
+
+describe('formatTimeAgo', () => {
+  it('returns empty string for null', () => {
+    expect(formatTimeAgo(null)).toBe('')
+  })
+
+  it('returns empty string for undefined', () => {
+    expect(formatTimeAgo(undefined)).toBe('')
+  })
+
+  it('returns empty string for invalid string', () => {
+    expect(formatTimeAgo('not-a-date')).toBe('')
+  })
+
+  it('handles a recent timestamp as seconds', () => {
+    const ts = new Date(Date.now() - 30_000).toISOString()
+    expect(formatTimeAgo(ts)).toBe('30s ago')
+  })
+
+  it('handles a Date object', () => {
+    const d = new Date(Date.now() - 90_000)
+    expect(formatTimeAgo(d)).toBe('1m ago')
+  })
+})
+
+describe('toFiniteNum', () => {
+  it('returns null for null', () => expect(toFiniteNum(null)).toBeNull())
+  it('returns null for undefined', () => expect(toFiniteNum(undefined)).toBeNull())
+  it('returns null for NaN', () => expect(toFiniteNum(NaN)).toBeNull())
+  it('returns null for Infinity', () => expect(toFiniteNum(Infinity)).toBeNull())
+  it('returns null for empty string', () => expect(toFiniteNum('')).toBeNull())
+  it('converts a numeric string', () => expect(toFiniteNum('42.5')).toBe(42.5))
+  it('passes through a finite number', () => expect(toFiniteNum(7)).toBe(7))
+  it('returns null for non-numeric string', () => expect(toFiniteNum('abc')).toBeNull())
 })
