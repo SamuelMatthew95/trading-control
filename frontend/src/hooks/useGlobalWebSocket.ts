@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { useCodexStore, type AgentStatus, type NotificationDisplay } from '@/stores/useCodexStore'
+import { useCodexStore, normalizeTradeFeedItem, type AgentStatus } from '@/stores/useCodexStore'
 
 // --- Types ---
 type WebSocketMessage = {
@@ -30,12 +30,6 @@ export enum ConnectionState {
 }
 
 type Listener = (event: CustomEvent) => void
-
-function notificationNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  const cast = Number(value)
-  return Number.isFinite(cast) ? cast : null
-}
 
 // --- WebSocketManager Singleton ---
 class WebSocketManager {
@@ -295,23 +289,9 @@ class WebSocketManager {
       const eventPayload = msg.data ?? (msg as unknown as { payload?: unknown }).payload
       if (msg.type === 'dashboard_update' && msg.data) {
         try {
-          // Normalize data safely before passing to store
-          const normalizedData = this._normalizeDashboardData(msg.data)
-          store.hydrateDashboard(normalizedData)
+          store.hydrateDashboard(this._normalizeDashboardData(msg.data))
         } catch (error) {
           console.error('Error hydrating dashboard:', error)
-        }
-        if (Array.isArray(msg.data.agent_logs)) {
-          for (const log of msg.data.agent_logs) {
-            const norm = this._normalizeAgentEvent(log)
-            if (norm) store.addAgentLog(norm)
-          }
-        }
-        if (Array.isArray(msg.data.system_metrics)) {
-          for (const metric of msg.data.system_metrics) {
-            const norm = this._normalizeSystemMetric(metric)
-            if (norm) store.addSystemMetric(norm)
-          }
         }
       } else if (msg.type === 'system_metric' && eventPayload) {
         const norm = this._normalizeSystemMetric(eventPayload)
@@ -354,31 +334,11 @@ class WebSocketManager {
       } else if (msg.stream === 'notifications') {
         const messageRaw = msg as unknown as Record<string, unknown>
         const payloadRaw = this._coerceObject(messageRaw.payload)
-        const raw = msg.type === 'event' && payloadRaw ? payloadRaw : messageRaw
-        const delivery = this._coerceObject(raw.delivery)
-        const display = this._coerceObject(raw.display)
-        const severity = String(raw.severity || 'INFO').toUpperCase()
-        store.addNotification({
-          notification_id: typeof raw.notification_id === 'string' ? raw.notification_id : undefined,
-          severity: severity as import('@/stores/useCodexStore').NotificationSeverity,
-          title: raw.title ? String(raw.title) : undefined,
-          message: String(raw.message || raw.summary || ''),
-          notification_type: String(raw.notification_type || raw.type || 'system'),
-          stream_source: String(raw.stream_source || raw.source || (msg.type === 'event' ? msg.stream : '') || ''),
-          action: raw.action ? String(raw.action) : raw.side ? String(raw.side) : undefined,
-          symbol: raw.symbol ? String(raw.symbol) : undefined,
-          qty: notificationNumber(raw.qty),
-          fill_price: notificationNumber(raw.fill_price),
-          notional: notificationNumber(raw.notional),
-          pnl: notificationNumber(raw.pnl),
-          pnl_percent: notificationNumber(raw.pnl_percent),
-          order_id: raw.order_id == null ? null : String(raw.order_id),
-          trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
-          state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
-          delivery: delivery ?? undefined,
-          display: display ? display as NotificationDisplay : undefined,
-          timestamp: String(raw.timestamp || msg.timestamp || new Date().toISOString()),
-        })
+        // Unwrap event envelope if present; merge timestamp/stream from the outer msg.
+        const raw = msg.type === 'event' && payloadRaw
+          ? { ...payloadRaw, timestamp: payloadRaw.timestamp ?? msg.timestamp, stream_source: payloadRaw.stream_source ?? msg.stream }
+          : { ...messageRaw, stream_source: messageRaw.stream_source ?? messageRaw.source ?? msg.stream }
+        store.addNotification(raw)
       } else if (msg.stream === 'proposals') {
         const raw = msg as unknown as Record<string, unknown>
         store.addProposal({
@@ -390,29 +350,8 @@ class WebSocketManager {
           timestamp: msg.timestamp || new Date().toISOString(),
         })
       } else if (msg.stream === 'trade_lifecycle') {
-        // Live trade fill / grade update pushed from execution_engine / grade_agent
-        const raw = msg as unknown as Record<string, unknown>
-        store.addTradeFeedItem({
-          id: (raw.id as string | null) ?? String(Date.now()),
-          symbol: String(raw.symbol ?? ''),
-          side: (raw.side as 'buy' | 'sell') ?? 'buy',
-          qty: typeof raw.qty === 'number' ? raw.qty : null,
-          entry_price: typeof raw.entry_price === 'number' ? raw.entry_price : null,
-          exit_price: typeof raw.exit_price === 'number' ? raw.exit_price : null,
-          pnl: typeof raw.pnl === 'number' ? raw.pnl : null,
-          pnl_percent: typeof raw.pnl_percent === 'number' ? raw.pnl_percent : null,
-          order_id: (raw.order_id as string | null) ?? null,
-          execution_trace_id: (raw.execution_trace_id as string | null) ?? null,
-          signal_trace_id: (raw.signal_trace_id as string | null) ?? null,
-          grade: (raw.grade as string | null) ?? null,
-          grade_score: typeof raw.grade_score === 'number' ? raw.grade_score : null,
-          grade_label: (raw.grade_label as string | null) ?? null,
-          status: String(raw.status ?? 'filled'),
-          filled_at: (raw.filled_at as string | null) ?? null,
-          graded_at: (raw.graded_at as string | null) ?? null,
-          reflected_at: (raw.reflected_at as string | null) ?? null,
-          created_at: msg.timestamp ?? new Date().toISOString(),
-        })
+        const raw = { ...(msg as unknown as Record<string, unknown>), created_at: msg.timestamp }
+        store.addTradeFeedItem(normalizeTradeFeedItem(raw))
       } else if (msg.stream === 'agent_grades' || msg.stream === 'reflection_outputs') {
         store.addLearningEvent({
           type: msg.stream === 'agent_grades' ? 'trade_evaluated' : 'reflection',
