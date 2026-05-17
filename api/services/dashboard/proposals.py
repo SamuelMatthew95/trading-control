@@ -193,7 +193,7 @@ async def list_proposals_payload() -> dict[str, Any]:
         }
 
 
-async def approve_proposal_db(proposal_id: str) -> dict[str, Any]:
+async def approve_proposal_payload(proposal_id: str) -> dict[str, Any]:
     """Mark a strategy proposal as approved."""
     if not is_db_available():
         if not _update_in_memory_proposal_status(proposal_id, ProposalStatus.APPROVED):
@@ -228,7 +228,7 @@ async def approve_proposal_db(proposal_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
-async def reject_proposal_db(proposal_id: str) -> dict[str, Any]:
+async def reject_proposal_payload(proposal_id: str) -> dict[str, Any]:
     """Mark a strategy proposal as rejected."""
     if not is_db_available():
         if not _update_in_memory_proposal_status(proposal_id, ProposalStatus.REJECTED):
@@ -360,7 +360,7 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
         }
 
 
-async def update_proposal_status_db(trace_id: str, status: str) -> dict[str, Any]:
+async def update_proposal_status_payload(trace_id: str, status: str) -> dict[str, Any]:
     """Persist proposal approval or rejection back to agent_logs payload."""
     if not is_db_available():
         if not _update_in_memory_proposal_status(trace_id, status):
