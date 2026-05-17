@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
+import { deriveActivityIndicator } from '@/lib/agent-activity'
 import { Activity, BarChart2, Layers, TrendingDown, TrendingUp } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -261,18 +262,10 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
 
   const logs = useMemo(() => agentLogs.slice(-25).reverse(), [agentLogs])
 
-  const activityIndicator = useMemo(() => {
-    if (logs.length > 0) {
-      const ts = logs[0].timestamp
-      if (ts) {
-        const d = new Date(ts)
-        if (!isNaN(d.getTime()) && Date.now() - d.getTime() < ACTIVITY_FRESH_MS) {
-          return 'live' as const
-        }
-      }
-    }
-    return wsConnected ? ('waiting' as const) : ('offline' as const)
-  }, [logs, wsConnected])
+  const activityIndicator = useMemo(
+    () => deriveActivityIndicator(logs[0]?.timestamp, wsConnected, ACTIVITY_FRESH_MS),
+    [logs, wsConnected],
+  )
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -536,7 +529,12 @@ export function TradingView({
         : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
     const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
-    const wins = tradeFeed.filter((t) => (t.pnl ?? 0) > 0).length
+    // Derive wins from summary when available so sub-text matches the aggregate win rate.
+    // tradeFeed is a bounded cache; it undershoots when total_trades > cache size.
+    const wins =
+      performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
+        ? Math.round(performanceSummary.win_rate * performanceSummary.total_trades)
+        : tradeFeed.filter((t) => (t.pnl ?? 0) > 0).length
 
     const winRatePct =
       performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
