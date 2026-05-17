@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     ANTHROPIC_COST_ALERT_USD: float = 5.0
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # MCP auth token (optional). When set, /mcp requires Bearer auth.
+    MCP_SHARED_TOKEN: str = ""
+
     # Market data
     MARKET_DATA_PROVIDER: str = "alpaca"
     MARKET_TICK_INTERVAL_SECONDS: float = 10.0

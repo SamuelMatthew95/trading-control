@@ -64,3 +64,11 @@ async def test_notifications_unavailable_payload_when_store_missing(monkeypatch)
     assert payload["status"] == "unavailable"
     assert payload["reason"] == "redis_store_not_ready"
     assert payload["items"] is None
+
+
+def test_settings_exposes_mcp_shared_token_field() -> None:
+    """Config must define MCP_SHARED_TOKEN so env-based auth can be enforced."""
+    from api.config import settings
+
+    assert hasattr(settings, "MCP_SHARED_TOKEN")
+    assert isinstance(settings.MCP_SHARED_TOKEN, str)
