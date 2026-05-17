@@ -231,6 +231,12 @@ type DashboardData = {
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
   timestamp: string
+  /** Runtime persistence mode — "db" | "in_memory_fallback". Present when backend is in memory mode. */
+  mode?: string
+  /** True when DB is unavailable and the system is operating from in-memory state. */
+  degraded_mode?: boolean
+  /** Machine-readable reason: "db_unavailable" | "redis_unavailable" */
+  degraded_reason?: string
 }
 
 type PriceRecord = Record<string, PriceData>
