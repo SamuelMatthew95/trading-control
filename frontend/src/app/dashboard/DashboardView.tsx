@@ -1703,6 +1703,17 @@ export function DashboardView({ section }: { section: Section }) {
         >
           System Status: {systemStatus}
         </div>
+        {/* Persistence / memory-mode banner — single page-level indicator */}
+        {dashboardData?.degraded_mode && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-300">
+            <span className="mt-0.5 shrink-0">⚠</span>
+            <span>
+              <strong>Memory mode</strong> — database unavailable
+              {dashboardData.degraded_reason === 'db_unavailable' ? ': PostgreSQL unreachable' : ''}.
+              Data is ephemeral and will be lost on restart. Trade history and grades are stored in-process only.
+            </span>
+          </div>
+        )}
         {contentBySection}
       </main>
 
