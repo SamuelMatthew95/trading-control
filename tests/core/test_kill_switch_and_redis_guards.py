@@ -16,21 +16,24 @@ import re
 
 
 def test_kill_switch_stored_as_one_zero() -> None:
-    """dashboard_v2.py must store kill switch as '1'/'0', not 'true'/'false'.
+    """Kill switch toggle must store '1'/'0', not 'true'/'false'.
 
     Consumers check == '1'. If the write side stores 'true', the check never
     matches and the kill switch silently does nothing.
-    """
-    src = pathlib.Path("api/routes/dashboard_v2.py").read_text()
 
-    # The toggle endpoint must use "1" for active
+    The toggle implementation lives in api/services/dashboard/control.py
+    (extracted from dashboard_v2.py during the modular refactor).
+    """
+    src = pathlib.Path("api/services/dashboard/control.py").read_text()
+
+    # The toggle function must use "1" for active
     assert '"1" if active' in src or '"1" if active else "0"' in src, (
-        "dashboard_v2.py must store kill switch as '1' (not 'true'). All consumers check == '1'."
+        "control.py must store kill switch as '1' (not 'true'). All consumers check == '1'."
     )
 
     # Ensure old pattern is gone
     assert '"true" if active' not in src, (
-        "dashboard_v2.py still stores kill switch as 'true'. "
+        "control.py still stores kill switch as 'true'. "
         "Change to '1' to match consumer checks."
     )
 
