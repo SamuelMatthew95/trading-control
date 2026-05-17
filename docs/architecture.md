@@ -192,3 +192,86 @@ Key tables:
 | `audit_log` | Immutable change history |
 
 Schema version: **v3**. Always use `schema_version='v3'` on new inserts.
+
+---
+
+## Frontend Data Flow
+
+The dashboard is a Next.js 14 app with a single Zustand store (`useCodexStore`) as the
+authoritative client-side state. All data enters the store through one of three paths:
+
+```
+Backend (FastAPI)
+  │
+  ├─ WebSocket (/ws/dashboard)
+  │    └─ WebSocketManager singleton → store write actions
+  │
+  ├─ REST snapshot (GET /dashboard/state, polled on mount + every reconnect)
+  │    └─ hydrateDashboard() → bulk merge into store
+  │
+  └─ REST catch-up (GET /notifications, /decisions — replayed on reconnect)
+       └─ addNotification() per item
+```
+
+### Single-write-path rule
+
+Every collection has exactly one function that writes to it. Normalization happens
+**inside the store action**, not in the caller, so all paths produce consistent shapes:
+
+| Store action | Collection | Normalizer applied |
+|---|---|---|
+| `addNotification(unknown)` | `notifications[]` | `normalizeStoredNotification` |
+| `addTradeFeedItem(TradeFeedItem)` | `tradeFeed[]` | (caller normalizes; action deduplicates) |
+| `setTradeFeed(raw[])` | `tradeFeed[]` | `normalizeTradeFeedItem` + merge with WS-only items |
+| `hydrateDashboard(DashboardData)` | all collections | per-collection normalizers + dedup keys |
+
+Callers (WS handler, REST poll) pass raw data. The store actions convert, deduplicate,
+and cap array sizes. No component reads raw API payloads directly.
+
+### Agent-log dedup key
+
+Memory-mode logs from `build_memory_agent_log_row` have no `id`. The dedup key in
+`hydrateDashboard` falls back to `timestamp|agent_name|event_type` so repeated REST
+snapshots don't accumulate stale duplicates (bug fixed: 2026-05-17).
+
+### Trade feed merge strategy
+
+`setTradeFeed` (REST snapshot) normalizes the incoming list, then re-appends any WS-only
+trades whose IDs don't appear in the snapshot. This preserves live fills received between
+REST polls that wouldn't yet be in the backend snapshot.
+
+### Notification grouping
+
+`NotificationFeed` collapses semantically identical notifications (same
+`notification_type + symbol + action`) into a single card with a count badge using
+`groupNotifications` from `src/lib/notification-grouping.ts`. This prevents repeated
+BUY/SELL signals from flooding the feed during high-frequency sessions.
+
+### Persistence banner
+
+When `dashboardData.degraded_mode` is true (backend is in memory-mode — DB unavailable),
+`DashboardView` renders an amber warning banner. The `degraded_reason` field provides a
+machine-readable cause (`"db_unavailable"` | `"redis_unavailable"`).
+
+### Agent activity freshness
+
+`deriveActivityIndicator` in `src/lib/agent-activity.ts` maps a timestamp + connection
+state to `'live' | 'waiting' | 'offline'`. It uses `agentLogs[0]?.timestamp` (newest
+entry — store prepends) to decide freshness, not the display-window tail.
+
+### Key files
+
+```
+frontend/src/
+├── stores/useCodexStore.ts           # Zustand store — single source of truth
+├── hooks/useGlobalWebSocket.ts       # WS singleton + message routing
+├── app/dashboard/DashboardView.tsx   # Page shell, REST hydration, section routing
+├── components/dashboard/
+│   ├── TradingView.tsx               # Trading tab — fills, positions, stats
+│   ├── NotificationFeed.tsx          # Notification list with grouping
+│   └── ...
+├── lib/
+│   ├── agent-activity.ts             # deriveActivityIndicator — pure, tested
+│   └── notification-grouping.ts      # groupNotifications — pure, tested
+└── test/                             # Vitest unit tests
+```
