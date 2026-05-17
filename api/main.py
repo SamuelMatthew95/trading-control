@@ -20,6 +20,7 @@ from api.database import engine, get_settings_info, init_database, test_database
 from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
 from api.in_memory_store import InMemoryStore
+from api.mcp.server import mcp_app
 from api.observability import (
     bind_request_context,
     configure_logging,
@@ -372,6 +373,7 @@ app.include_router(decisions_router, prefix="/api")
 app.include_router(system_router)
 app.include_router(system_router, prefix="/api")
 app.include_router(ws_router)
+app.mount("/mcp", mcp_app)
 
 
 @app.get("/")

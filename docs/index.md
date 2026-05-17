@@ -21,3 +21,5 @@ This folder contains focused reference docs for contributors working on Trading 
 - Claude Code rules: [../CLAUDE.md](../CLAUDE.md)
 - Live API docs: https://matthew.docs.buildwithfern.com/
 - Live dashboard: https://trading-control-khaki.vercel.app/dashboard
+
+| [mcp.md](mcp.md) | MCP endpoint usage, auth, and production verification checklist |

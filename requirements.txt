@@ -45,3 +45,5 @@ mypy==1.7.1
 factory-boy>=3.3.0
 httpx>=0.28.0
 faker>=20.0.0
+
+fastmcp>=2.0.0
