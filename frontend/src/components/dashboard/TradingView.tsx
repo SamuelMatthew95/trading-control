@@ -260,7 +260,7 @@ const ACTIVITY_FRESH_MS = 60_000
 function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: string) => void }) {
   const { agentLogs = [], wsConnected = false } = useCodexStore()
 
-  const logs = useMemo(() => agentLogs.slice(-25).reverse(), [agentLogs])
+  const logs = useMemo(() => agentLogs.slice(0, 25), [agentLogs])
 
   // Use agentLogs[0] (newest entry — store prepends) for freshness, not logs[0]
   // which is the oldest of the display window when agentLogs has >25 entries.
