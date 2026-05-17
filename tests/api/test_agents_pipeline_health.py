@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import api.services.dashboard.agents as agents_svc
 from api.routes import dashboard_v2
 
 
@@ -20,8 +21,8 @@ async def test_agents_status_includes_pipeline_health_key(monkeypatch):
     async def _get_redis():
         return _BaseRedis()
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: False)
+    monkeypatch.setattr(agents_svc, "get_redis", _get_redis)
+    monkeypatch.setattr(agents_svc, "is_db_available", lambda: False)
 
     payload = await dashboard_v2.get_agents_status()
 
@@ -34,8 +35,8 @@ async def test_pipeline_health_has_required_fields(monkeypatch):
     async def _get_redis():
         return _BaseRedis()
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: False)
+    monkeypatch.setattr(agents_svc, "get_redis", _get_redis)
+    monkeypatch.setattr(agents_svc, "is_db_available", lambda: False)
 
     payload = await dashboard_v2.get_agents_status()
 
@@ -59,8 +60,8 @@ async def test_pipeline_health_shows_stream_lengths(monkeypatch):
     async def _get_redis():
         return _StreamRedis()
 
-    monkeypatch.setattr(dashboard_v2, "get_redis", _get_redis)
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: False)
+    monkeypatch.setattr(agents_svc, "get_redis", _get_redis)
+    monkeypatch.setattr(agents_svc, "is_db_available", lambda: False)
 
     payload = await dashboard_v2.get_agents_status()
 
