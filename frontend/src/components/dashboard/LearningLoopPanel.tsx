@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { LEARNING_REFRESH_MS, gradeColor } from '@/lib/grade-colors'
 
 type LatestGrade = {
   trace_id: string
@@ -48,22 +49,6 @@ type LearningLoopState = {
   timestamp: string
 }
 
-const REFRESH_MS = 15_000
-
-const gradeColor = (grade: string | null): string => {
-  switch (grade) {
-    case 'A':
-    case 'B':
-      return 'text-emerald-500'
-    case 'C':
-      return 'text-amber-500'
-    case 'D':
-    case 'F':
-      return 'text-rose-500'
-    default:
-      return 'text-slate-500 dark:text-slate-400'
-  }
-}
 
 const fmtUSD = (n: number): string =>
   (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -86,7 +71,7 @@ export function LearningLoopPanel() {
       }
     }
     load()
-    const id = window.setInterval(load, REFRESH_MS)
+    const id = window.setInterval(load, LEARNING_REFRESH_MS)
     return () => {
       cancelled = true
       window.clearInterval(id)
