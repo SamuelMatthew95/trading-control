@@ -1,3 +1,0 @@
-# Dev/test dependencies install path
-# CI and local contributors can install this file in addition to requirements.txt.
--r requirements.txt

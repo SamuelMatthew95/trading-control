@@ -1,3 +1,8 @@
+# NOTE: This single file intentionally contains both runtime and dev/test tooling.
+# Reason: CI and local onboarding install one file, and tests rely on packages like
+# fakeredis/httpx/pytest plugins being present in the same environment as runtime deps.
+# Deployment still uses this file safely because extra dev tools are inert at runtime.
+
 # ── Runtime dependencies ─────────────────────────────────────────────────────
 fastapi==0.115.12
 uvicorn[standard]==0.24.0
