@@ -11,6 +11,7 @@ fastapi==0.115.12
 fastmcp>=2.0.0,<2.10.0
 google-genai>=1.0.0
 groq
+openai>=1.0.0
 gunicorn==21.2.0
 pydantic==2.11.7
 pydantic-settings>=2.0.0
