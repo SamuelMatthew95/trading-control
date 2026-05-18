@@ -8,7 +8,16 @@ import re
 import time as _time
 
 from api.config import settings
-from api.constants import LM_STUDIO_PROVIDER, AgentAction, FieldName
+from api.constants import (
+    LLM_MAX_RETRIES,
+    LLM_MAX_TOKENS_ANALYSIS,
+    LLM_MAX_TOKENS_TRADING,
+    LLM_TEMPERATURE_ANALYSIS,
+    LLM_TEMPERATURE_TRADING,
+    LM_STUDIO_PROVIDER,
+    AgentAction,
+    FieldName,
+)
 from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
 from api.services.lmstudio_provider import (
@@ -126,8 +135,8 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
-        max_tokens=300,
-        temperature=0.2,
+        max_tokens=LLM_MAX_TOKENS_TRADING,
+        temperature=LLM_TEMPERATURE_TRADING,
         messages=[
             {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
             {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -145,8 +154,8 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
 
     payload = {
         FieldName.MODEL: settings.ANTHROPIC_MODEL,
-        FieldName.MAX_TOKENS: 300,
-        FieldName.TEMPERATURE: 0.2,
+        FieldName.MAX_TOKENS: LLM_MAX_TOKENS_TRADING,
+        FieldName.TEMPERATURE: LLM_TEMPERATURE_TRADING,
         FieldName.SYSTEM: SYSTEM_PROMPT,
         FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
     }
@@ -181,8 +190,8 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
-        max_tokens=300,
-        temperature=0.2,
+        max_tokens=LLM_MAX_TOKENS_TRADING,
+        temperature=LLM_TEMPERATURE_TRADING,
         messages=[
             {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
             {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -248,7 +257,7 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     genai, genai_errors = _get_gemini_sdk()
     client = genai.Client(api_key=_get_gemini_api_key())
     model_name = settings.GEMINI_MODEL
-    retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
+    retries = max(0, int(LLM_MAX_RETRIES))
 
     for attempt in range(retries + 1):
         # Acquire a rate-limiter slot before each attempt (not held during sleep).
@@ -322,8 +331,8 @@ async def _call_provider_raw(
         client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.chat.completions.create(
             model=settings.GROQ_MODEL,
-            max_tokens=800,
-            temperature=0.3,
+            max_tokens=LLM_MAX_TOKENS_ANALYSIS,
+            temperature=LLM_TEMPERATURE_ANALYSIS,
             messages=[
                 {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
                 {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -340,8 +349,8 @@ async def _call_provider_raw(
 
         payload = {
             FieldName.MODEL: settings.ANTHROPIC_MODEL,
-            FieldName.MAX_TOKENS: 800,
-            FieldName.TEMPERATURE: 0.3,
+            FieldName.MAX_TOKENS: LLM_MAX_TOKENS_ANALYSIS,
+            FieldName.TEMPERATURE: LLM_TEMPERATURE_ANALYSIS,
             FieldName.SYSTEM: system_prompt,
             FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
         }
@@ -374,8 +383,8 @@ async def _call_provider_raw(
         client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
         response = await client.chat.completions.create(
             model=settings.OPENAI_MODEL,
-            max_tokens=800,
-            temperature=0.3,
+            max_tokens=LLM_MAX_TOKENS_ANALYSIS,
+            temperature=LLM_TEMPERATURE_ANALYSIS,
             messages=[
                 {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
                 {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -389,7 +398,7 @@ async def _call_provider_raw(
         genai, genai_errors = _get_gemini_sdk()
         client = genai.Client(api_key=_get_gemini_api_key())
         model_name = settings.GEMINI_MODEL
-        retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
+        retries = max(0, int(LLM_MAX_RETRIES))
 
         for attempt in range(retries + 1):
             await _gemini_rate_limiter.acquire()
@@ -485,7 +494,11 @@ async def call_llm_with_system(
         try:
             t0 = _time.monotonic()
             result = await call_lmstudio(
-                prompt, system_prompt, trace_id, max_tokens=800, temperature=0.3
+                prompt,
+                system_prompt,
+                trace_id,
+                max_tokens=LLM_MAX_TOKENS_ANALYSIS,
+                temperature=LLM_TEMPERATURE_ANALYSIS,
             )
             llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
             return result
