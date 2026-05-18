@@ -104,7 +104,7 @@ git clone https://github.com/SamuelMatthew95/trading-control.git
 cd trading-control
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 ### Configuration
