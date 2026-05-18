@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastmcp import FastMCP
 from starlette.requests import Request
@@ -20,21 +19,21 @@ mcp = FastMCP("trading-control", instructions="Read-only trading-control telemet
 _base_mcp_app = mcp.http_app(path="/")
 
 
-def _error_payload(message: str, *, details: str | None = None) -> dict[str, Any]:
-    payload: dict[str, Any] = {"status": "error", "error": message}
+def _error_payload(message: str, *, details: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"status": "error", "error": message}
     if details:
         payload["details"] = details
     return payload
 
 
-async def _safe_call(func: Callable[[], Awaitable[Any]]) -> Any:
+async def _safe_call(func: Callable[[], Awaitable[object]]) -> object:
     try:
         return await func()
     except Exception as exc:  # noqa: BLE001
         return _error_payload("unavailable", details=str(exc))
 
 
-async def _get_decisions(limit: int = 50, action: str | None = None) -> dict[str, Any]:
+async def _get_decisions(limit: int = 50, action: str | None = None) -> dict[str, object]:
     try:
         store = get_redis_store()
         if store is None:
@@ -44,7 +43,7 @@ async def _get_decisions(limit: int = 50, action: str | None = None) -> dict[str
         return _error_payload("unavailable", details=str(exc))
 
 
-async def _get_notifications(limit: int = 50) -> dict[str, Any]:
+async def _get_notifications(limit: int = 50) -> dict[str, object]:
     try:
         store = get_redis_store()
         if store is None:
@@ -84,7 +83,7 @@ class _TokenGuardApp:
 
 
 @mcp.tool
-async def get_service_health() -> dict[str, Any]:
+async def get_service_health() -> dict[str, object]:
     return {
         "status": "ok",
         "db_available": is_db_available(),
@@ -93,20 +92,20 @@ async def get_service_health() -> dict[str, Any]:
 
 
 @mcp.tool
-async def get_debug_state() -> dict[str, Any]:
+async def get_debug_state() -> dict[str, object]:
     data = await _safe_call(get_debug_state_payload)
     return data if isinstance(data, dict) else {"status": "ok", "data": data}
 
 
 @mcp.tool
-async def get_pnl() -> dict[str, Any]:
+async def get_pnl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
     return data if isinstance(data, dict) else {"status": "ok", "data": data}
 
 
 @mcp.tool
-async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, Any]:
-    async def _call() -> dict[str, Any]:
+async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, object]:
+    async def _call() -> dict[str, object]:
         return await get_trade_feed_payload(limit=limit, session_id=session_id)
 
     data = await _safe_call(_call)
@@ -114,27 +113,27 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
 
 
 @mcp.tool
-async def get_performance_trends() -> dict[str, Any]:
+async def get_performance_trends() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
     return data if isinstance(data, dict) else {"status": "ok", "data": data}
 
 
 @mcp.tool
-async def get_decisions(limit: int = 50) -> dict[str, Any]:
+async def get_decisions(limit: int = 50) -> dict[str, object]:
     return await _get_decisions(limit=limit)
 
 
 @mcp.tool
-async def get_notifications(limit: int = 50) -> dict[str, Any]:
+async def get_notifications(limit: int = 50) -> dict[str, object]:
     return await _get_notifications(limit=limit)
 
 
 @mcp.tool
-async def get_health_summary() -> dict[str, Any]:
+async def get_health_summary() -> dict[str, object]:
     debug_state = await _safe_call(get_debug_state_payload)
     pnl = await _safe_call(get_pnl_payload)
 
-    async def _feed() -> dict[str, Any]:
+    async def _feed() -> dict[str, object]:
         return await get_trade_feed_payload(limit=20, session_id=None)
 
     trade_feed = await _safe_call(_feed)
@@ -155,7 +154,7 @@ async def get_health_summary() -> dict[str, Any]:
 
 
 @mcp.tool
-async def classify_health() -> dict[str, Any]:
+async def classify_health() -> dict[str, object]:
     debug_state_raw = await _safe_call(get_debug_state_payload)
     if not isinstance(debug_state_raw, dict) or debug_state_raw.get("status") == "error":
         return {
