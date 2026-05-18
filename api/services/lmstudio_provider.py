@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from api.config import settings
@@ -104,12 +105,20 @@ def _make_client() -> AsyncOpenAI:
     front of LM Studio); the local LM Studio server accepts any non-empty string.
     LM Link itself is Tailscale-based — set LM_STUDIO_HOST to the Tailscale
     hostname/IP of your GPU machine and LM Link handles the network layer.
+
+    When LM_LINK_ENABLED, we pass trust_env=False to the underlying httpx client
+    so it ignores ALL_PROXY / HTTP_PROXY env vars set by Tailscale.  Routing to
+    the Tailscale peer happens at the OS network layer; sending the HTTP stream
+    through the SOCKS5 proxy a second time produces "incompatible SOCKS version"
+    and "peerapi: unknown peer" errors in the Tailscale daemon.
     """
+    http_client = httpx.AsyncClient(trust_env=False) if settings.LM_LINK_ENABLED else None
     return AsyncOpenAI(
         base_url=f"http://{settings.LM_STUDIO_HOST}:{settings.LM_STUDIO_PORT}/v1",
         api_key=settings.LM_LINK_TOKEN or "lm-studio",
         timeout=float(settings.LM_STUDIO_TIMEOUT_SECONDS),
         max_retries=0,
+        http_client=http_client,
     )
 
 
