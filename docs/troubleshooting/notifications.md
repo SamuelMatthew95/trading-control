@@ -35,6 +35,18 @@ Note: notification delivery and PnL summary charts are separate paths. A notific
 - WebSocket status is connected.
 - `notifications` stream length increases while trades execute.
 
+## Dedup test used different stream msg IDs but no trace_id
+
+**Symptom:** `test_deduplication_skips_repeat` failed — second notification was forwarded even though the event content was identical.
+
+**Root cause:** The dedup key includes `trace_key`, which falls back to the Redis stream message ID when neither `trace_id` nor `msg_id` is present in the event payload. Sending two events with `redis_id="id-1"` and `redis_id="id-2"` produced two distinct dedup keys, so dedup was correctly NOT triggered, but the test expected it to be.
+
+**Fix:** Updated the test event to include a shared `trace_id`. Same `stream+type+side+symbol+trace_id` → same dedup key → second event is suppressed as intended. (`tests/agents/test_notification_agent.py:107`)
+
+**Regression test:** `tests/agents/test_notification_agent.py::test_deduplication_skips_repeat`
+
+---
+
 ## Regression tests
 
 - `tests/core/test_websocket_notifications_regression.py`

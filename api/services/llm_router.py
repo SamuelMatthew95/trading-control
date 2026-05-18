@@ -8,9 +8,26 @@ import re
 import time as _time
 
 from api.config import settings
-from api.constants import AgentAction, FieldName
+from api.constants import (
+    LLM_MAX_RETRIES,
+    LLM_MAX_TOKENS_ANALYSIS,
+    LLM_MAX_TOKENS_TRADING,
+    LLM_TEMPERATURE_ANALYSIS,
+    LLM_TEMPERATURE_TRADING,
+    LM_STUDIO_PROVIDER,
+    AgentAction,
+    FieldName,
+)
 from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
+from api.services.lmstudio_provider import (
+    LMStudioUnavailableError,
+    call_lmstudio,
+    should_try_local,
+)
+from api.services.lmstudio_provider import (
+    _record_failure as _record_lm_failure,
+)
 from api.utils import get_nested
 
 _GEMINI_RPM = 15
@@ -119,8 +136,8 @@ async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
-        max_tokens=300,
-        temperature=0.2,
+        max_tokens=LLM_MAX_TOKENS_TRADING,
+        temperature=LLM_TEMPERATURE_TRADING,
         messages=[
             {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
             {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -138,8 +155,8 @@ async def _call_anthropic(prompt: str, trace_id: str) -> tuple[dict, int, float]
 
     payload = {
         FieldName.MODEL: settings.ANTHROPIC_MODEL,
-        FieldName.MAX_TOKENS: 300,
-        FieldName.TEMPERATURE: 0.2,
+        FieldName.MAX_TOKENS: LLM_MAX_TOKENS_TRADING,
+        FieldName.TEMPERATURE: LLM_TEMPERATURE_TRADING,
         FieldName.SYSTEM: SYSTEM_PROMPT,
         FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
     }
@@ -174,8 +191,8 @@ async def _call_openai(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
-        max_tokens=300,
-        temperature=0.2,
+        max_tokens=LLM_MAX_TOKENS_TRADING,
+        temperature=LLM_TEMPERATURE_TRADING,
         messages=[
             {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
             {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -241,7 +258,7 @@ async def _call_gemini(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     genai, genai_errors = _get_gemini_sdk()
     client = genai.Client(api_key=_get_gemini_api_key())
     model_name = settings.GEMINI_MODEL
-    retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
+    retries = max(0, int(LLM_MAX_RETRIES))
 
     for attempt in range(retries + 1):
         # Acquire a rate-limiter slot before each attempt (not held during sleep).
@@ -299,6 +316,11 @@ _PROVIDERS = {
     FieldName.GEMINI: _call_gemini,
 }
 
+# Providers that authenticate via local connection rather than an API key.
+# The api_key presence check in call_llm / call_llm_with_system is skipped
+# for these provider names.
+_LOCAL_PROVIDERS: frozenset[str] = frozenset({LM_STUDIO_PROVIDER})
+
 
 async def _call_provider_raw(
     provider: str, prompt: str, system_prompt: str, trace_id: str
@@ -310,8 +332,8 @@ async def _call_provider_raw(
         client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.chat.completions.create(
             model=settings.GROQ_MODEL,
-            max_tokens=800,
-            temperature=0.3,
+            max_tokens=LLM_MAX_TOKENS_ANALYSIS,
+            temperature=LLM_TEMPERATURE_ANALYSIS,
             messages=[
                 {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
                 {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -328,8 +350,8 @@ async def _call_provider_raw(
 
         payload = {
             FieldName.MODEL: settings.ANTHROPIC_MODEL,
-            FieldName.MAX_TOKENS: 800,
-            FieldName.TEMPERATURE: 0.3,
+            FieldName.MAX_TOKENS: LLM_MAX_TOKENS_ANALYSIS,
+            FieldName.TEMPERATURE: LLM_TEMPERATURE_ANALYSIS,
             FieldName.SYSTEM: system_prompt,
             FieldName.MESSAGES: [{FieldName.ROLE: "user", FieldName.CONTENT: prompt}],
         }
@@ -362,8 +384,8 @@ async def _call_provider_raw(
         client = AsyncOpenAI(api_key=getattr(settings, "OPENAI_API_KEY", ""))
         response = await client.chat.completions.create(
             model=settings.OPENAI_MODEL,
-            max_tokens=800,
-            temperature=0.3,
+            max_tokens=LLM_MAX_TOKENS_ANALYSIS,
+            temperature=LLM_TEMPERATURE_ANALYSIS,
             messages=[
                 {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
                 {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
@@ -377,7 +399,7 @@ async def _call_provider_raw(
         genai, genai_errors = _get_gemini_sdk()
         client = genai.Client(api_key=_get_gemini_api_key())
         model_name = settings.GEMINI_MODEL
-        retries = max(0, int(getattr(settings, "LLM_MAX_RETRIES", 2)))
+        retries = max(0, int(LLM_MAX_RETRIES))
 
         for attempt in range(retries + 1):
             await _gemini_rate_limiter.acquire()
@@ -463,12 +485,35 @@ async def call_llm_with_system(
 ) -> tuple[str, int, float]:
     """Call the configured LLM provider with a custom system prompt.
 
+    When LM_STUDIO_ENABLED is true, LM Studio is attempted first.  On any
+    local failure the call falls through to the cloud provider transparently.
+
     Returns (raw_text, tokens_used, cost_usd). The caller is responsible
     for parsing the response.
     """
+    if settings.LM_STUDIO_ENABLED and should_try_local():
+        try:
+            t0 = _time.monotonic()
+            result = await call_lmstudio(
+                prompt,
+                system_prompt,
+                trace_id,
+                max_tokens=LLM_MAX_TOKENS_ANALYSIS,
+                temperature=LLM_TEMPERATURE_ANALYSIS,
+            )
+            llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
+            return result
+        except LMStudioUnavailableError as exc:
+            log_structured(
+                "info",
+                "lmstudio_unavailable_falling_back",
+                reason=str(exc),
+                trace_id=trace_id,
+            )
+
     provider = settings.LLM_PROVIDER.lower().strip()
     api_key = _get_provider_key(provider)
-    if not api_key:
+    if not api_key and provider not in _LOCAL_PROVIDERS:
         msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
         llm_metrics.record_error(message=msg, kind="config")
         raise RuntimeError(msg)
@@ -497,17 +542,45 @@ async def call_llm_with_system(
 
 
 async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
-    """
-    Call configured LLM provider.
-    To switch provider set 2 env vars:
+    """Call configured LLM provider and return a parsed trading decision.
+
+    When LM_STUDIO_ENABLED is true, LM Studio is attempted first.  On any
+    local failure the call falls through to the cloud provider transparently.
+
+    To switch the cloud provider set two env vars:
       LLM_PROVIDER=groq
       GROQ_API_KEY=gsk_...
     """
+    if settings.LM_STUDIO_ENABLED and should_try_local():
+        try:
+            t0 = _time.monotonic()
+            raw_text, tokens, cost = await call_lmstudio(prompt, SYSTEM_PROMPT, trace_id)
+            latency_ms = (_time.monotonic() - t0) * 1000
+            parsed = _parse_response(raw_text, trace_id, cost)
+            if not parsed.get(FieldName.FALLBACK):
+                parsed[FieldName.PROVIDER] = LM_STUDIO_PROVIDER
+                llm_metrics.record_success(latency_ms=latency_ms)
+                return parsed, tokens, cost
+            _record_lm_failure("parse_returned_fallback")
+            log_structured(
+                "info",
+                "lmstudio_parse_failed_falling_back",
+                error=parsed.get(FieldName.ERROR),
+                trace_id=trace_id,
+            )
+        except LMStudioUnavailableError as exc:
+            log_structured(
+                "info",
+                "lmstudio_unavailable_falling_back",
+                reason=str(exc),
+                trace_id=trace_id,
+            )
+
     provider = settings.LLM_PROVIDER.lower().strip()
     if provider not in _PROVIDERS:
         raise RuntimeError(f"unknown_provider: '{provider}' - supported: {list(_PROVIDERS.keys())}")
     api_key = _get_provider_key(provider)
-    if not api_key:
+    if not api_key and provider not in _LOCAL_PROVIDERS:
         msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
         llm_metrics.record_error(message=msg, kind="config")
         raise RuntimeError(msg)

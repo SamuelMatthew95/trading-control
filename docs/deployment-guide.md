@@ -54,6 +54,78 @@ ANTHROPIC_COST_ALERT_USD=5.0
 MAX_CONSUMER_LAG_ALERT=5000
 ```
 
+## Optional: Local GPU inference (LM Studio)
+
+The backend tries LM Studio first on every LLM call and falls back to the cloud provider transparently. This is entirely opt-in — leave all `LM_STUDIO_*` vars unset (default) to run cloud-only.
+
+### Render + LM Link (Tailscale)
+
+Render cannot access your home GPU directly. Use **LM Link** (Tailscale) to create an encrypted peer-to-peer tunnel:
+
+1. Install Tailscale on your home GPU machine and on your Render instance (via build command or sidecar).
+2. `tailscale up` on both — log in to the same Tailscale account.
+3. Note the Tailscale IP of your GPU machine (`tailscale ip -4`).
+4. Set these env vars in the Render dashboard:
+
+```env
+# ── Local GPU via LM Link / Tailscale ───────────────────────────
+LM_STUDIO_ENABLED=true
+LM_STUDIO_HOST=100.64.x.x          # Tailscale IP of your GPU machine
+LM_STUDIO_PORT=1234                 # LM Studio default HTTP port
+LM_STUDIO_MODEL=lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
+LM_STUDIO_TIMEOUT_SECONDS=90       # raise if your GPU is slow
+LM_LINK_ENABLED=true               # flags this as a remote-GPU setup in logs
+LM_LINK_DEVICE_NAME=my-gpu-rig    # optional label, appears in startup logs only
+# LM_LINK_TOKEN=                   # only needed if a custom proxy sits in front of LM Studio
+```
+
+> **LM_LINK_TOKEN** is for an optional authenticating proxy (e.g. nginx + HTTP basic auth) in front of LM Studio. LM Studio itself ignores HTTP `Authorization` headers — leave this unset for a plain Tailscale setup.
+
+### Local (same machine as backend)
+
+If you run the backend locally alongside LM Studio:
+
+```env
+LM_STUDIO_ENABLED=true
+LM_STUDIO_HOST=127.0.0.1
+LM_STUDIO_PORT=1234
+LM_STUDIO_MODEL=lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
+LM_STUDIO_TIMEOUT_SECONDS=90
+LM_LINK_ENABLED=false
+```
+
+### Call capacity
+
+The ReasoningAgent processes one signal at a time (Redis consumer group — one message per loop). That means at most **1 concurrent local inference call** at any moment, which is a natural fit for LM Studio's sequential inference model.
+
+| Model size | Typical latency | Effective calls/min |
+|---|---|---|
+| 7B Q4 (e.g. Llama-3-8B) | 0.5–3 s | 20–120 |
+| 13B Q4 | 2–8 s | 7–30 |
+| 30B+ Q4 | 10–60 s | 1–6 |
+
+If LM Studio is slower than `LM_STUDIO_TIMEOUT_SECONDS`, the call falls back to the configured cloud provider and `local_fallback_count` increments in `/llm/health`.
+
+### Verifying local inference is active
+
+```bash
+curl -sS https://<backend-host>/api/llm/health | jq '{active_provider, lm_studio_healthy, local_latency_ms, local_fallback_count}'
+```
+
+Expected when healthy:
+```json
+{
+  "active_provider": "lmstudio",
+  "lm_studio_healthy": true,
+  "local_latency_ms": 312,
+  "local_fallback_count": 0
+}
+```
+
+See `docs/local-inference.md` for the full env var reference and `docs/troubleshooting/lm-studio.md` for common failure modes.
+
+---
+
 ## Backend deployment checklist
 
 1. Provision PostgreSQL 15+ and enable the pgvector extension.
