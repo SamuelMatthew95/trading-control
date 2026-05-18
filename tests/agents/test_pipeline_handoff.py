@@ -381,8 +381,10 @@ async def test_flow_status_not_degraded_when_db_available(monkeypatch):
     set_runtime_store(InMemoryStore())
     set_db_available(False)  # autouse reset
 
-    # Patch is_db_available so the DB path executes, but mock the session
-    monkeypatch.setattr(dashboard_v2, "is_db_available", lambda: True)
+    # Patch is_db_available where it is looked up (flow service, not dashboard_v2 router)
+    import api.services.dashboard.flow as _flow_svc
+
+    monkeypatch.setattr(_flow_svc, "is_db_available", lambda: True)
 
     class _ZeroResult:
         def mappings(self):
@@ -420,7 +422,7 @@ async def test_flow_status_not_degraded_when_db_available(monkeypatch):
         async def __aexit__(self, *_):
             pass
 
-    monkeypatch.setattr(dashboard_v2, "AsyncSessionFactory", _ZeroFactory())
+    monkeypatch.setattr(_flow_svc, "AsyncSessionFactory", _ZeroFactory())
 
     result = await dashboard_v2.get_flow_status()
 

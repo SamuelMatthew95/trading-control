@@ -58,6 +58,7 @@ from api.services.agents.risk_guardian import RiskGuardian
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
+from api.services.lmstudio_provider import check_health as lm_studio_check_health
 from api.services.redis_store import set_redis_store
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
@@ -184,6 +185,36 @@ async def lifespan(app: FastAPI):
             event_type="system",
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+
+        # LM Studio / LM Link — optional local GPU inference.
+        # Non-blocking: failure here does NOT stop startup.
+        # Bounded to 10 s so a black-holed Tailscale peer can't hold up startup
+        # for the full LM_STUDIO_TIMEOUT_SECONDS (default 90 s).
+        if settings.LM_STUDIO_ENABLED:
+            try:
+                _lm_ok = await asyncio.wait_for(lm_studio_check_health(), timeout=10.0)
+            except asyncio.TimeoutError:
+                _lm_ok = False
+            log_structured(
+                "info",
+                "lmstudio_startup_check",
+                lm_studio_enabled=True,
+                lm_link_enabled=settings.LM_LINK_ENABLED,
+                device_name=settings.LM_LINK_DEVICE_NAME or None,
+                model=settings.LM_STUDIO_MODEL or None,
+                local_inference_healthy=_lm_ok,
+                fallback_provider=settings.LLM_PROVIDER,
+                degraded_mode=not _lm_ok,
+            )
+        else:
+            log_structured(
+                "info",
+                "lmstudio_startup_check",
+                lm_studio_enabled=False,
+                local_inference_healthy=False,
+                fallback_provider=settings.LLM_PROVIDER,
+                degraded_mode=False,
+            )
 
         event_bus = EventBus(redis_client)
         dlq_manager = DLQManager(redis_client, event_bus)

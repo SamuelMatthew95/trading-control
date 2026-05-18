@@ -33,3 +33,15 @@
 **Fix:** All three routes now gate on `is_db_available()` and return a safe memory-mode payload when the DB is not up.
 
 **Rule:** Any route that reads from PostgreSQL must check `is_db_available()` before calling `_make_session()` or any session factory. If it can serve from `get_runtime_store()`, it must.
+
+---
+
+## test_flow_status_not_degraded_when_db_available patches wrong module after dashboard refactor
+
+**Symptom:** `test_flow_status_not_degraded_when_db_available` failed with `AttributeError: module 'api.routes.dashboard_v2' has no attribute 'is_db_available'`.
+
+**Root cause:** After the dashboard route was refactored to delegate to `api.services.dashboard.flow.get_flow_status_payload()`, `is_db_available` and `AsyncSessionFactory` are imported in the `flow` service module, not in `dashboard_v2`. The test was still patching them on `dashboard_v2`.
+
+**Fix:** Updated the test to import and patch `api.services.dashboard.flow` for both `is_db_available` and `AsyncSessionFactory`. (`tests/agents/test_pipeline_handoff.py:385`)
+
+**Regression test:** `tests/agents/test_pipeline_handoff.py::test_flow_status_not_degraded_when_db_available`
