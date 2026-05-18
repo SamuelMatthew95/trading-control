@@ -264,6 +264,19 @@ async def test_health_snapshot_fields(monkeypatch):
     assert snap[FieldName.LOCAL_FALLBACK_COUNT] == 3
     assert snap[FieldName.LAST_LOCAL_ERROR] is None
     assert snap[FieldName.LOCAL_MODEL] == "my-model"
+    assert FieldName.LOCAL_LATENCY_MS in snap  # field always present (None when no calls yet)
+
+
+async def test_health_snapshot_latency_exposed(monkeypatch):
+    """local_latency_ms in snapshot reflects the last successful call latency."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "my-model")
+
+    _health.healthy = True
+    _health.last_latency_ms = 142.7
+
+    snap = health_snapshot()
+    assert snap[FieldName.LOCAL_LATENCY_MS] == 143  # rounded
 
 
 # ---------------------------------------------------------------------------

@@ -41,11 +41,14 @@ async def test_llm_health_root_path(client: AsyncClient):
     for key in (
         "status",
         "provider",
+        "active_provider",
         "model",
         "model_var",
         "timestamp",
         "success_rate_pct",
         "daily_calls",
+        "lm_studio_enabled",
+        "lm_studio_healthy",
     ):
         assert key in data, f"missing key: {key}"
 
@@ -250,3 +253,62 @@ async def test_adjust_llm_call_rate_new_burst_after_reset():
         )
     finally:
         _pa._llm_metrics = original
+
+
+# ---------------------------------------------------------------------------
+# active_provider routing — cloud fallback vs local inference
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_active_provider_is_cloud_when_lm_studio_disabled(client: AsyncClient, monkeypatch):
+    """active_provider equals the configured cloud provider when LM Studio is off."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "gemini")
+
+    r = await client.get("/llm/health")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["active_provider"] == "gemini"
+    assert data["provider"] == "gemini"
+
+
+@pytest.mark.asyncio
+async def test_active_provider_is_lmstudio_when_healthy(client: AsyncClient, monkeypatch):
+    """active_provider is 'lmstudio' when local inference is enabled and healthy."""
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import _health
+
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "gemini")
+    _health.healthy = True
+    try:
+        r = await client.get("/llm/health")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["active_provider"] == "lmstudio"
+        assert data["provider"] == "gemini"
+        assert data["lm_studio_healthy"] is True
+    finally:
+        _health.healthy = False
+
+
+@pytest.mark.asyncio
+async def test_active_provider_falls_back_when_lmstudio_unhealthy(
+    client: AsyncClient, monkeypatch
+):
+    """active_provider reverts to cloud when LM Studio is enabled but not healthy."""
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import _health
+
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "groq")
+    _health.healthy = False
+
+    r = await client.get("/llm/health")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["active_provider"] == "groq"
+    assert data["lm_studio_healthy"] is False
