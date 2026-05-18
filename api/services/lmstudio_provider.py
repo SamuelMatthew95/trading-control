@@ -42,14 +42,31 @@ class _LocalHealthState:
     last_error: str | None = None
     fallback_count: int = 0
     last_latency_ms: float = 0.0
+    last_failure_at: float = 0.0
 
 
 _health = _LocalHealthState()
+
+# After a failure, skip LM Studio for this many seconds before retrying.
+_RETRY_INTERVAL_S: float = 60.0
 
 
 def is_local_healthy() -> bool:
     """Return True if the last health probe or call succeeded."""
     return _health.healthy
+
+
+def should_try_local() -> bool:
+    """True when LM Studio should be attempted.
+
+    Returns True if the provider is currently healthy, OR if enough time has
+    elapsed since the last failure to warrant a retry attempt.  This prevents
+    the router from waiting up to LM_STUDIO_TIMEOUT_SECONDS on every call when
+    LM Studio is known-dead.
+    """
+    if _health.healthy:
+        return True
+    return (time.monotonic() - _health.last_failure_at) >= _RETRY_INTERVAL_S
 
 
 def health_snapshot() -> dict:
@@ -76,6 +93,7 @@ def _record_failure(error: str) -> None:
     _health.healthy = False
     _health.last_error = error[:120]
     _health.fallback_count += 1
+    _health.last_failure_at = time.monotonic()
 
 
 def _make_client() -> AsyncOpenAI:
