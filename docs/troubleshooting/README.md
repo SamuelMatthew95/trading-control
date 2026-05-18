@@ -9,6 +9,7 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [system-routes.md](system-routes.md) | Stream lag endpoint, trading-mode status, memory-mode guards |
 | [ci-cd.md](ci-cd.md) | CI lint failures, ruff version pinning, GitHub Actions config |
 | [frontend.md](frontend.md) | Dashboard UI bugs: stat tiles, P&L display, win-rate fallback |
+| [lm-studio.md](lm-studio.md) | LM Studio / LM Link local inference: startup, timeout, fallback, secrets |
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 
