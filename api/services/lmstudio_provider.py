@@ -70,6 +70,18 @@ def _base_url() -> str:
     return f"http://{settings.LM_STUDIO_HOST}:{settings.LM_STUDIO_PORT}"
 
 
+def _make_client(lms_module: object) -> object:
+    """Create an AsyncClient for local LM Studio or a remote LM Link connection.
+
+    When LM_LINK_ENABLED=True and LM_LINK_TOKEN is set the token is passed as
+    api_key so the remote LM Link endpoint can authenticate the request.
+    """
+    kwargs: dict = {"base_url": _base_url()}
+    if settings.LM_LINK_ENABLED and settings.LM_LINK_TOKEN:
+        kwargs["api_key"] = settings.LM_LINK_TOKEN
+    return lms_module.AsyncClient(**kwargs)  # type: ignore[attr-defined]
+
+
 async def check_health() -> bool:
     """Probe LM Studio. Non-blocking: returns False if unavailable."""
     if not settings.LM_STUDIO_ENABLED:
@@ -78,7 +90,7 @@ async def check_health() -> bool:
     try:
         import lmstudio as lms  # noqa: PLC0415
 
-        client = lms.AsyncClient(base_url=_base_url())
+        client = _make_client(lms)
         loaded = await asyncio.wait_for(
             client.llm.list_loaded(),
             timeout=float(settings.LM_STUDIO_TIMEOUT_SECONDS),
@@ -114,12 +126,16 @@ async def call_lmstudio(
     if not settings.LM_STUDIO_ENABLED:
         raise LMStudioUnavailableError("lm_studio_disabled")
 
+    model_id = settings.LM_STUDIO_MODEL
+    if not model_id:
+        _record_failure("lm_studio_model_not_configured")
+        raise LMStudioUnavailableError("lm_studio_model_not_configured")
+
     t0 = time.monotonic()
     try:
         import lmstudio as lms  # noqa: PLC0415
 
-        model_id = settings.LM_STUDIO_MODEL
-        client = lms.AsyncClient(base_url=_base_url())
+        client = _make_client(lms)
         result = await asyncio.wait_for(
             client.llm.respond(
                 model_id,
