@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from api.config import settings
 from api.constants import LLM_METRICS_WINDOW_SECONDS, FieldName
 from api.services.llm_metrics import llm_metrics
+from api.services.lmstudio_provider import health_snapshot as lm_studio_health_snapshot
 from api.services.redis_store import get_redis_store
 
 router = APIRouter(tags=["llm"])
@@ -71,5 +72,7 @@ async def llm_health() -> dict[str, Any]:
         FieldName.MODEL_VAR: _attr if _attr else "unknown",
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         FieldName.REDIS_METRICS: redis_metrics,
+        FieldName.LOCAL_INFERENCE_ENABLED: settings.LM_STUDIO_ENABLED,
+        **lm_studio_health_snapshot(),
         **snap,
     }
