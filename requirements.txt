@@ -1,47 +1,43 @@
-# NOTE: This single file intentionally contains both runtime and dev/test tooling.
-# Reason: CI and local onboarding install one file, and tests rely on packages like
-# fakeredis/httpx/pytest plugins being present in the same environment as runtime deps.
-# Deployment still uses this file safely because extra dev tools are inert at runtime.
+# NOTE: This repository intentionally uses a single dependency file.
+# CI, local development, and tests install from this file so the environment is
+# uniform and reproducible. Dev/test tools are inert in production unless invoked.
 
-# ── Runtime dependencies ─────────────────────────────────────────────────────
+# ── Runtime dependencies (API, workers, MCP, integrations) ───────────────────
+aiohttp==3.9.1
+aiosqlite>=0.19.0
+alpaca-py
+asyncpg==0.29.0
 fastapi==0.115.12
-uvicorn[standard]==0.24.0
+fastmcp>=2.0.0,<2.10.0
+google-genai>=1.0.0
+groq
 gunicorn==21.2.0
 pydantic==2.11.7
 pydantic-settings>=2.0.0
-aiohttp==3.9.1
-websockets>=15.0.1,<16
-requests>=2.32.2
 python-dotenv==1.2.0
-structlog==23.2.0
 redis==5.0.1
-asyncpg==0.29.0
-aiosqlite>=0.19.0
+requests>=2.32.2
 schedule==1.2.0
-groq
-google-genai>=1.0.0
-alpaca-py
+structlog==23.2.0
+uvicorn[standard]==0.24.0
+websockets>=15.0.1,<16
 
-# ── Database ─────────────────────────────────────────────────────────────────
-sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.0
-pgvector>=0.4.2
+# ── Database dependencies ─────────────────────────────────────────────────────
 alembic>=1.13.0
+pgvector>=0.4.2
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
 
-# ── Linting / formatting ──────────────────────────────────────────────────────
-ruff==0.15.13
-
-# ── Dev / test dependencies ──────────────────────────────────────────────────
+# ── Lint/format/type/test tooling ─────────────────────────────────────────────
+coverage==7.3.2
+factory-boy>=3.3.0
+faker>=20.0.0
+fakeredis==2.34.1
+httpx>=0.28.1
+mypy==1.7.1
 pytest==7.4.0
 pytest-asyncio==0.21.0
 pytest-cov==4.1.0
 pytest-mock==3.12.0
 pytest-xdist==3.3.0
-coverage==7.3.2
-fakeredis==2.34.1
-mypy==1.7.1
-factory-boy>=3.3.0
-httpx>=0.28.1
-faker>=20.0.0
-
-fastmcp>=2.0.0,<2.10.0
+ruff==0.15.13
