@@ -22,6 +22,7 @@ Covers:
  19. should_try_local returns True when healthy.
  20. should_try_local returns False immediately after a failure (within cooldown).
  21. should_try_local returns True again after the cooldown elapses.
+ 22. _make_client passes trust_env=False when LM_LINK_ENABLED to avoid SOCKS5 proxy errors.
 """
 
 from __future__ import annotations

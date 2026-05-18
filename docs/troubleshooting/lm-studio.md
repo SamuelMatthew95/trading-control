@@ -69,3 +69,27 @@
 **Fix:** `call_lmstudio()` now strips the model ID before the guard: `model_id = settings.LM_STUDIO_MODEL.strip()`. `health_snapshot()` also strips before the `or None` coercion so the dashboard never displays a whitespace model name.
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_whitespace_model_raises`
+
+---
+
+## LM Link produces "peerapi: unknown peer" and "incompatible SOCKS version" in Tailscale daemon
+
+**Symptom:** Tailscale daemon logs `peerapi: unknown peer 127.0.0.1:<port>` and `socks5: client connection failed: incompatible SOCKS version` whenever LM Studio calls are made via LM Link.
+
+**Root cause:** The `openai.AsyncOpenAI` client uses `httpx` internally, which by default reads system proxy environment variables (`ALL_PROXY`, `HTTP_PROXY`). Tailscale sets `ALL_PROXY=socks5://127.0.0.1:<port>` to route non-Tailscale traffic through its SOCKS5 proxy. But LM Link traffic to a Tailscale peer is already routed at the OS network layer — the SOCKS5 proxy receives plain HTTP instead of a SOCKS5 handshake, causing both errors.
+
+**Fix:** `_make_client()` in `api/services/lmstudio_provider.py` passes `httpx.AsyncClient(trust_env=False)` when `LM_LINK_ENABLED=True`, bypassing system proxy env vars. Tailscale handles routing at the network layer without an explicit proxy.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_make_client_lm_link_uses_trust_env_false`
+
+---
+
+## LLM Health panel shows "0/0 last 5m" and "--" latency after backend restart
+
+**Symptom:** Dashboard LLM Health card shows "Success Rate: 0% (0/0 last 5m)", "Avg Latency: --", and status "Unknown" even though Redis shows dozens of lifetime/daily calls.
+
+**Root cause:** The in-process `LLMMetricsCollector` ring buffer resets to empty on every backend restart. The `/llm/health` endpoint already merges Redis durable counters for `total_calls_lifetime` and `daily_calls`, but `avg_latency_ms` (used for the Avg Latency display) was left at 0 from the empty ring buffer. No fallback existed for the last known latency.
+
+**Fix:** `api/routes/llm_health.py` now falls back to `redis_metrics.last_latency_ms` for `avg_latency_ms` when the ring buffer has no recent successes. It also surfaces `last_success_at` at the top level of the response. `LLMHealthPanel.tsx` shows "No calls in window — last: Xh ago" when `total_in_window === 0` and `last_success_at` is available.
+
+**Regression test:** `tests/api/test_llm_health.py::test_llm_health_avg_latency_fallback_from_redis`
