@@ -100,14 +100,16 @@ class _TokenGuardApp:
 
         token = getattr(settings, "MCP_SHARED_TOKEN", "")
         if token:
-            request = Request(scope, receive=receive)
-            auth_header = request.headers.get("authorization")
-            if auth_header != f"Bearer {token}":
-                response = JSONResponse(
-                    {"status": "error", "error": "unauthorized"}, status_code=401
-                )
-                await response(scope, receive, send)
-                return
+            method = str(scope.get("method", "")).upper()
+            if method not in {"OPTIONS", "HEAD"}:
+                request = Request(scope, receive=receive)
+                auth_header = request.headers.get("authorization")
+                if auth_header != f"Bearer {token}":
+                    response = JSONResponse(
+                        {"status": "error", "error": "unauthorized"}, status_code=401
+                    )
+                    await response(scope, receive, send)
+                    return
 
         await self._app(scope, receive, send)
 
@@ -223,4 +225,4 @@ async def mcp_lifespan_context():
         yield
 
 
-mcp_app = _TokenGuardApp(_base_mcp_app)
+mcp_app = _base_mcp_app
