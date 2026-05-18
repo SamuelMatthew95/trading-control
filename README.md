@@ -107,6 +107,8 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+`requirements.txt` is the single source for runtime + CI/test tooling so local and CI environments stay aligned.
+
 ### Configuration
 
 ```bash
