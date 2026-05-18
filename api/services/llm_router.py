@@ -23,6 +23,7 @@ from api.services.llm_metrics import llm_metrics
 from api.services.lmstudio_provider import (
     LMStudioUnavailableError,
     call_lmstudio,
+    should_try_local,
 )
 from api.services.lmstudio_provider import (
     _record_failure as _record_lm_failure,
@@ -490,7 +491,7 @@ async def call_llm_with_system(
     Returns (raw_text, tokens_used, cost_usd). The caller is responsible
     for parsing the response.
     """
-    if settings.LM_STUDIO_ENABLED:
+    if settings.LM_STUDIO_ENABLED and should_try_local():
         try:
             t0 = _time.monotonic()
             result = await call_lmstudio(
@@ -550,7 +551,7 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
       LLM_PROVIDER=groq
       GROQ_API_KEY=gsk_...
     """
-    if settings.LM_STUDIO_ENABLED:
+    if settings.LM_STUDIO_ENABLED and should_try_local():
         try:
             t0 = _time.monotonic()
             raw_text, tokens, cost = await call_lmstudio(prompt, SYSTEM_PROMPT, trace_id)
