@@ -494,6 +494,7 @@ class FieldName(StrEnum):
     LAST_HOUR = "last_hour"
     LAST_LATENCY_MS = "last_latency_ms"
     LAST_LEVEL = "last_level"
+    LAST_LOCAL_ERROR = "last_local_error"
     LAST_PRICE = "last_price"
     LAST_PROCESSED_AT = "last_processed_at"
     LAST_PROCESSED_ID = "last_processed_id"
@@ -531,6 +532,13 @@ class FieldName(StrEnum):
     LLM_SUCCEEDED = "llm_succeeded"
     LLM_SUCCESS_RATE_PCT = "llm_success_rate_pct"
     LLM_TIMEOUT_COUNT = "llm_timeout_count"
+    LM_STUDIO = "lm_studio"
+    LM_STUDIO_ENABLED = "lm_studio_enabled"
+    LM_STUDIO_HEALTHY = "lm_studio_healthy"
+    LOCAL_FALLBACK_COUNT = "local_fallback_count"
+    LOCAL_INFERENCE_ENABLED = "local_inference_enabled"
+    LOCAL_INFERENCE_HEALTHY = "local_inference_healthy"
+    LOCAL_MODEL = "local_model"
     LOGS = "logs"
     LOG_LEVEL = "log_level"
     LOG_TYPE = "log_type"
@@ -1168,6 +1176,9 @@ LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"
 LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
 LLM_FALLBACK_MODE_USE_LAST_REFLECTION: Final[str] = "use_last_reflection"
 LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
+
+# LM Studio provider identifier — used in provider fields of inference responses
+LM_STUDIO_PROVIDER: Final[str] = "lmstudio"
 
 # Symbol constants
 SYMBOL_BTC_USD: Final[str] = "BTC/USD"
