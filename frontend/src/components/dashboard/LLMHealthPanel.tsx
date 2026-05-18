@@ -42,6 +42,9 @@ interface LLMHealthData extends LocalInferenceData {
     at: string | null
   }
 
+  /** ISO timestamp of the last successful LLM call, from durable Redis storage. */
+  last_success_at?: string | null
+
   status: LLMStatus
   /** Configured cloud fallback provider (gemini / groq / anthropic / openai) */
   provider: string
@@ -202,6 +205,16 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
   )
 }
 
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const diffMin = Math.round(diffMs / 60_000)
+  if (diffMin < 1) return 'just now'
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHrs = Math.floor(diffMin / 60)
+  if (diffHrs < 24) return `${diffHrs}h ${diffMin % 60}m ago`
+  return `${Math.floor(diffHrs / 24)}d ago`
+}
+
 function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted: boolean }) {
   const color = gradeAdjusted
     ? delayMs >= 1000
@@ -323,6 +336,13 @@ export function LLMHealthPanel() {
         <span className={MUTED}>
           Lifetime: <span className={VALUE}>{data.total_calls_lifetime}</span>
         </span>
+
+        {data.total_in_window === 0 && data.last_success_at && (
+          <span className={`${MUTED} col-span-2 italic`}>
+            No calls in window — last:{' '}
+            <span className={VALUE}>{timeAgo(data.last_success_at)}</span>
+          </span>
+        )}
       </div>
 
       <LocalInferenceStrip data={data} />

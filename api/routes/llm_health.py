@@ -65,6 +65,18 @@ async def llm_health() -> dict[str, Any]:
     if redis_daily > snap_daily:
         snap[FieldName.DAILY_CALLS] = redis_daily
 
+    # After a restart the ring buffer has no recent successes so avg_latency_ms
+    # is 0 and the panel shows "--". Fall back to the last known latency from
+    # Redis so the panel shows a meaningful value instead.
+    if not snap.get(FieldName.AVG_LATENCY_MS):
+        redis_latency = redis_metrics.get(FieldName.LAST_LATENCY_MS) or 0
+        if redis_latency:
+            snap[FieldName.AVG_LATENCY_MS] = redis_latency
+
+    # Surface last_success_at at the top level so the dashboard can show
+    # "last call X ago" when the current window is empty (post-restart).
+    last_success_at: str | None = redis_metrics.get(FieldName.LAST_SUCCESS_AT)
+
     lm_snap = lm_studio_health_snapshot()
     # active_provider reflects what is actually serving requests right now:
     # "lmstudio" when local inference is healthy, otherwise the cloud provider.
@@ -77,6 +89,7 @@ async def llm_health() -> dict[str, Any]:
         FieldName.MODEL: model_name,
         FieldName.MODEL_VAR: _attr if _attr else "unknown",
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.LAST_SUCCESS_AT: last_success_at,
         FieldName.REDIS_METRICS: redis_metrics,
         FieldName.LOCAL_INFERENCE_ENABLED: settings.LM_STUDIO_ENABLED,
         **lm_snap,

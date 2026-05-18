@@ -310,3 +310,79 @@ async def test_active_provider_falls_back_when_lmstudio_unhealthy(client: AsyncC
     data = r.json()
     assert data["active_provider"] == "groq"
     assert data["lm_studio_healthy"] is False
+
+
+# ---------------------------------------------------------------------------
+# 10  avg_latency_ms falls back to Redis last_latency_ms when ring buffer empty
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_llm_health_avg_latency_fallback_from_redis(client: AsyncClient, monkeypatch):
+    """After a restart (empty ring buffer), avg_latency_ms uses redis last_latency_ms."""
+    from unittest.mock import AsyncMock, patch
+
+    from api.routes.llm_health import llm_metrics as route_metrics
+
+    # Ensure in-process buffer has no successes
+    route_metrics._records.clear()
+    route_metrics._total_calls = 0
+    route_metrics._daily_calls = 0
+
+    fake_redis_metrics = {
+        "total_calls": 85,
+        "daily_calls": 85,
+        "last_latency_ms": 1234,
+        "last_success_at": "2026-05-18T10:00:00+00:00",
+        "successes": 85,
+        "rate_limits": 0,
+        "timeouts": 0,
+        "errors": 0,
+    }
+
+    mock_store = AsyncMock()
+    mock_store.get_llm_metrics = AsyncMock(return_value=fake_redis_metrics)
+
+    with patch("api.routes.llm_health.get_redis_store", return_value=mock_store):
+        r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["avg_latency_ms"] == 1234, "should fall back to Redis last_latency_ms"
+    assert data["total_calls_lifetime"] == 85
+    assert data["last_success_at"] == "2026-05-18T10:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_llm_health_avg_latency_not_overridden_when_ring_buffer_active(
+    client: AsyncClient, monkeypatch
+):
+    """When ring buffer has recent successes, avg_latency_ms comes from the buffer, not Redis."""
+    from unittest.mock import AsyncMock, patch
+
+    from api.services.llm_metrics import LLMMetricsCollector
+
+    col = LLMMetricsCollector(max_records=50)
+    col.record_success(latency_ms=500.0)
+
+    fake_redis_metrics = {
+        "total_calls": 100,
+        "daily_calls": 100,
+        "last_latency_ms": 9999,  # should NOT override the ring-buffer value
+        "last_success_at": "2026-05-18T10:00:00+00:00",
+        "successes": 100,
+        "rate_limits": 0,
+        "timeouts": 0,
+        "errors": 0,
+    }
+
+    mock_store = AsyncMock()
+    mock_store.get_llm_metrics = AsyncMock(return_value=fake_redis_metrics)
+
+    with patch("api.routes.llm_health.get_redis_store", return_value=mock_store):
+        with patch("api.routes.llm_health.llm_metrics", col):
+            r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["avg_latency_ms"] == 500, "ring-buffer latency must not be overridden by Redis"
