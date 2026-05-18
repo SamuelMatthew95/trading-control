@@ -4,11 +4,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
 
-from api.config import settings
 from api.runtime_state import is_db_available, runtime_mode
 from api.services.dashboard.control import get_debug_state_payload
 from api.services.dashboard.pnl import get_pnl_payload
@@ -81,37 +77,6 @@ def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
             return True
 
     return False
-
-
-class _TokenGuardApp:
-    """ASGI wrapper for optional MCP bearer-token protection.
-
-    If MCP_SHARED_TOKEN is configured, all /mcp requests must include
-    Authorization: Bearer <token>.
-    """
-
-    def __init__(self, app: ASGIApp):
-        self._app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self._app(scope, receive, send)
-            return
-
-        token = getattr(settings, "MCP_SHARED_TOKEN", "")
-        if token:
-            method = str(scope.get("method", "")).upper()
-            if method not in {"OPTIONS", "HEAD"}:
-                request = Request(scope, receive=receive)
-                auth_header = request.headers.get("authorization")
-                if auth_header != f"Bearer {token}":
-                    response = JSONResponse(
-                        {"status": "error", "error": "unauthorized"}, status_code=401
-                    )
-                    await response(scope, receive, send)
-                    return
-
-        await self._app(scope, receive, send)
 
 
 @mcp.tool

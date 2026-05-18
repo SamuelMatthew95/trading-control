@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from starlette.applications import Starlette
-from starlette.responses import JSONResponse
-from starlette.routing import Route
-
 from api.main import app
 from api.mcp.server import _debug_state_has_activity, _get_decisions, _get_notifications
 
@@ -12,13 +8,6 @@ def test_mcp_mount_exists_on_main_app() -> None:
     """/mcp should be mounted on the main application."""
     mounted_paths = [getattr(route, "path", "") for route in app.routes]
     assert "/mcp" in mounted_paths
-
-
-def _ok_app() -> Starlette:
-    async def ok(_request):
-        return JSONResponse({"ok": True})
-
-    return Starlette(routes=[Route("/", ok)])
 
 
 async def test_decisions_unavailable_payload_when_store_missing(monkeypatch) -> None:
@@ -44,7 +33,7 @@ async def test_notifications_unavailable_payload_when_store_missing(monkeypatch)
 
 
 def test_settings_exposes_mcp_shared_token_field() -> None:
-    """Config must define MCP_SHARED_TOKEN so env-based auth can be enforced."""
+    """Config keeps MCP_SHARED_TOKEN field for optional future auth wiring."""
     from api.config import settings
 
     assert hasattr(settings, "MCP_SHARED_TOKEN")

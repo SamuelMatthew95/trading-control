@@ -25,6 +25,7 @@ These tools are telemetry-only. They do **not** place trades or mutate runtime c
 Current app behavior is **standard unauthenticated MCP mount**:
 
 - `/mcp` is mounted directly to the FastMCP app.
+- **All HTTP requests to `/mcp` are forwarded directly to FastMCP** (no bearer-token middleware in front).
 - No bearer token is required for MCP requests right now.
 
 If token auth is re-enabled in code later, this document should be updated in the same PR.
