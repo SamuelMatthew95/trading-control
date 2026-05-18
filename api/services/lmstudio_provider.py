@@ -56,6 +56,7 @@ def health_snapshot() -> dict:
         FieldName.LOCAL_FALLBACK_COUNT: _health.fallback_count,
         FieldName.LAST_LOCAL_ERROR: _health.last_error,
         FieldName.LOCAL_MODEL: settings.LM_STUDIO_MODEL or None,
+        FieldName.LOCAL_LATENCY_MS: round(_health.last_latency_ms) if _health.last_latency_ms else None,
     }
 
 
