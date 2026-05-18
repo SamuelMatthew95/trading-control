@@ -198,6 +198,8 @@ async def test_call_llm_lmstudio_malformed_falls_back(monkeypatch):
 
     # malformed LM Studio output → fallback=True in parsed → cloud used
     assert result[FieldName.ACTION] == "reject"
+    assert _health.healthy is False  # parse failure must be recorded
+    assert _health.fallback_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +349,7 @@ async def test_no_secrets_in_logs(monkeypatch, caplog):
 
 
 async def test_llm_health_endpoint_includes_lm_studio_fields(monkeypatch):
+    """The /llm/health response must include all LM Studio health fields."""
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
     _health.healthy = False
@@ -356,11 +359,26 @@ async def test_llm_health_endpoint_includes_lm_studio_fields(monkeypatch):
     from api.routes.llm_health import llm_health
 
     with patch("api.routes.llm_health.get_redis_store", return_value=None):
-        with patch("api.routes.llm_health.settings") as mock_settings:
-            mock_settings.LM_STUDIO_ENABLED = True
-            mock_settings.LM_STUDIO_MODEL = "test-model"
-            mock_settings.LLM_PROVIDER = "gemini"
-            mock_settings.GEMINI_MODEL = "gemini-1.5-flash"
-            response = await llm_health()
+        response = await llm_health()
 
-    assert FieldName.LOCAL_INFERENCE_ENABLED in response or FieldName.LM_STUDIO_ENABLED in response
+    assert response[FieldName.LM_STUDIO_ENABLED] is True
+    assert response[FieldName.LM_STUDIO_HEALTHY] is False
+    assert response[FieldName.LOCAL_FALLBACK_COUNT] == 1
+    assert response[FieldName.LAST_LOCAL_ERROR] == "timeout"
+    assert response[FieldName.LOCAL_MODEL] == "test-model"
+
+
+# ---------------------------------------------------------------------------
+# 13. call_lmstudio raises when LM_STUDIO_MODEL is not configured.
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_empty_model_raises(monkeypatch):
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "")
+
+    with pytest.raises(LMStudioUnavailableError, match="lm_studio_model_not_configured"):
+        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert _health.healthy is False
+    assert _health.fallback_count == 1
