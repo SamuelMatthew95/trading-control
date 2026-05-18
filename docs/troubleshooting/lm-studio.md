@@ -57,3 +57,15 @@
 **Fix:** The provider was rewritten to use `openai.AsyncOpenAI` pointed at LM Studio's stable OpenAI-compatible REST endpoint (`/v1/chat/completions`, `/v1/models`). The `lmstudio` package was removed from `requirements.txt`. The `_make_client()` helper is the only place that creates the client; tests mock it directly.
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_success`
+
+---
+
+## Whitespace LM_STUDIO_MODEL bypasses the unconfigured guard
+
+**Symptom:** `last_local_error` shows `lmstudio_inference_failed: ...` (a cryptic API error) instead of the expected `lm_studio_model_not_configured` when `LM_STUDIO_MODEL` is set to spaces or a tab.
+
+**Root cause:** `if not model_id:` treats any non-empty string as truthy, including `"   "`. The whitespace-only value was passed directly to LM Studio's `chat/completions` endpoint which rejected it with an opaque error.
+
+**Fix:** `call_lmstudio()` now strips the model ID before the guard: `model_id = settings.LM_STUDIO_MODEL.strip()`. `health_snapshot()` also strips before the `or None` coercion so the dashboard never displays a whitespace model name.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_whitespace_model_raises`
