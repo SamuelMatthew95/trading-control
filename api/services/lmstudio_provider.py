@@ -16,7 +16,12 @@ import time
 from dataclasses import dataclass
 
 from api.config import settings
-from api.constants import LM_STUDIO_PROVIDER, FieldName
+from api.constants import (
+    LLM_MAX_TOKENS_TRADING,
+    LLM_TEMPERATURE_TRADING,
+    LM_STUDIO_PROVIDER,
+    FieldName,
+)
 from api.observability import log_structured
 
 
@@ -115,8 +120,8 @@ async def call_lmstudio(
     prompt: str,
     system_prompt: str,
     trace_id: str,
-    max_tokens: int = 300,
-    temperature: float = 0.0,
+    max_tokens: int = LLM_MAX_TOKENS_TRADING,
+    temperature: float = LLM_TEMPERATURE_TRADING,
 ) -> tuple[str, int, float]:
     """Call LM Studio with the given system + user prompt.
 
