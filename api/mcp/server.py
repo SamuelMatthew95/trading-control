@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastmcp import FastMCP
@@ -178,6 +179,19 @@ async def classify_health() -> dict[str, Any]:
         classification = "unknown"
 
     return {"status": "ok", "classification": classification, "db_available": db_available}
+
+
+@asynccontextmanager
+async def mcp_lifespan_context():
+    """Expose FastMCP sub-app lifespan so parent FastAPI app can drive it."""
+    base_app = mcp.http_app(path="/")
+    router = getattr(base_app, "router", None)
+    if router is None or not hasattr(router, "lifespan_context"):
+        yield
+        return
+
+    async with router.lifespan_context(base_app):
+        yield
 
 
 mcp_app = _TokenGuardApp(mcp.http_app(path="/"))
