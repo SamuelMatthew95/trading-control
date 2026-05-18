@@ -17,6 +17,7 @@ from api.services.dashboard.trading import get_performance_trends_payload, get_t
 from api.services.redis_store import get_redis_store
 
 mcp = FastMCP("trading-control", instructions="Read-only trading-control telemetry MCP server")
+_base_mcp_app = mcp.http_app(path="/")
 
 
 def _error_payload(message: str, *, details: str | None = None) -> dict[str, Any]:
@@ -184,14 +185,13 @@ async def classify_health() -> dict[str, Any]:
 @asynccontextmanager
 async def mcp_lifespan_context():
     """Expose FastMCP sub-app lifespan so parent FastAPI app can drive it."""
-    base_app = mcp.http_app(path="/")
-    router = getattr(base_app, "router", None)
+    router = getattr(_base_mcp_app, "router", None)
     if router is None or not hasattr(router, "lifespan_context"):
         yield
         return
 
-    async with router.lifespan_context(base_app):
+    async with router.lifespan_context(_base_mcp_app):
         yield
 
 
-mcp_app = _TokenGuardApp(mcp.http_app(path="/"))
+mcp_app = _TokenGuardApp(_base_mcp_app)
