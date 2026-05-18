@@ -188,8 +188,13 @@ async def lifespan(app: FastAPI):
 
         # LM Studio / LM Link — optional local GPU inference.
         # Non-blocking: failure here does NOT stop startup.
+        # Bounded to 10 s so a black-holed Tailscale peer can't hold up startup
+        # for the full LM_STUDIO_TIMEOUT_SECONDS (default 90 s).
         if settings.LM_STUDIO_ENABLED:
-            _lm_ok = await lm_studio_check_health()
+            try:
+                _lm_ok = await asyncio.wait_for(lm_studio_check_health(), timeout=10.0)
+            except asyncio.TimeoutError:
+                _lm_ok = False
             log_structured(
                 "info",
                 "lmstudio_startup_check",
