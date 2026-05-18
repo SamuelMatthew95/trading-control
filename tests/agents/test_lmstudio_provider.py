@@ -14,6 +14,8 @@ Covers:
  11. No secrets are logged.
  12. /llm/health endpoint still responds (existing dashboard route).
  13. call_lmstudio raises when LM_STUDIO_MODEL is not configured.
+ 14. Whitespace-only LM_STUDIO_MODEL is treated as unconfigured (stripped before guard).
+ 15. health_snapshot returns None for whitespace-only model ID.
 """
 
 from __future__ import annotations
@@ -385,3 +387,30 @@ async def test_call_lmstudio_empty_model_raises(monkeypatch):
 
     assert _health.healthy is False
     assert _health.fallback_count == 1
+
+
+# ---------------------------------------------------------------------------
+# 14. Whitespace-only LM_STUDIO_MODEL is treated as unconfigured.
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_whitespace_model_raises(monkeypatch):
+    """A model ID of '  ' (spaces only) must be caught by the guard, not sent to the API."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "   ")
+
+    with pytest.raises(LMStudioUnavailableError, match="lm_studio_model_not_configured"):
+        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert _health.healthy is False
+    assert _health.fallback_count == 1
+
+
+async def test_health_snapshot_strips_whitespace_model(monkeypatch):
+    """health_snapshot must return None for a whitespace-only model ID, not '   '."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "   ")
+
+    snap = health_snapshot()
+
+    assert snap[FieldName.LOCAL_MODEL] is None
