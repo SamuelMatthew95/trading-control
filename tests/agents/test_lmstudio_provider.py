@@ -8,16 +8,16 @@ Covers:
   5. Local malformed output falls back to cloud provider.
   6. Cloud fallback failure raises (safe NO_ACTION handled by caller).
   7. Redis consumer does not crash on local inference failure.
-  8. Redis ack happens only after result handling.
-  9. DLQ still works for invalid messages.
+  8. health_snapshot reflects enabled + healthy state correctly.
+  9. check_health handles connection errors gracefully.
  10. call_llm_with_system succeeds via LM Studio then preserves shape.
  11. No secrets are logged.
  12. /llm/health endpoint still responds (existing dashboard route).
+ 13. call_lmstudio raises when LM_STUDIO_MODEL is not configured.
 """
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -64,21 +64,25 @@ _USER_PROMPT = "BTC/USD signal: rsi=35"
 _TRACE_ID = "trace-lmstudio-test"
 
 
-def _mock_lms_module(content: str | None = _VALID_JSON, raise_on_respond=None):
-    """Return a fake lmstudio module."""
-    result = MagicMock()
-    result.content = content
+def _mock_client(content: str | None = _VALID_JSON, raise_on_create=None, models=None):
+    """Build a mock openai.AsyncOpenAI client for LM Studio tests."""
+    message = MagicMock()
+    message.content = content
+    choice = MagicMock()
+    choice.message = message
+    completion = MagicMock()
+    completion.choices = [choice]
 
     client = MagicMock()
-    if raise_on_respond:
-        client.llm.respond = AsyncMock(side_effect=raise_on_respond)
+    if raise_on_create:
+        client.chat.completions.create = AsyncMock(side_effect=raise_on_create)
     else:
-        client.llm.respond = AsyncMock(return_value=result)
-    client.llm.list_loaded = AsyncMock(return_value=[MagicMock(id="test-model")])
+        client.chat.completions.create = AsyncMock(return_value=completion)
 
-    lms = MagicMock()
-    lms.AsyncClient.return_value = client
-    return lms, client
+    models_page = MagicMock()
+    models_page.data = models if models is not None else [MagicMock(id="test-model")]
+    client.models.list = AsyncMock(return_value=models_page)
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -100,14 +104,11 @@ async def test_check_health_when_disabled(monkeypatch):
 
 async def test_check_health_enabled_but_unavailable(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
-    monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 1)
 
-    lms_mod = MagicMock()
-    lms_mod.AsyncClient.return_value.llm.list_loaded = AsyncMock(
-        side_effect=ConnectionRefusedError("refused")
-    )
+    mock = _mock_client()
+    mock.models.list = AsyncMock(side_effect=ConnectionRefusedError("refused"))
 
-    with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         ok = await check_health()
 
     assert ok is False
@@ -125,9 +126,9 @@ async def test_call_lmstudio_success(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
     monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 10)
 
-    lms_mod, _ = _mock_lms_module(content=_VALID_JSON)
+    mock = _mock_client(content=_VALID_JSON)
 
-    with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
     assert isinstance(text, str)
@@ -144,10 +145,7 @@ async def test_call_lmstudio_success(monkeypatch):
 
 async def test_call_llm_lmstudio_timeout_falls_back_to_cloud(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
-    monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 1)
     monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
-
-    lms_mod, _ = _mock_lms_module(raise_on_respond=asyncio.TimeoutError())
 
     cloud_result = (
         {"action": "hold", "confidence": 0.6, "fallback": False, "trace_id": _TRACE_ID},
@@ -155,18 +153,17 @@ async def test_call_llm_lmstudio_timeout_falls_back_to_cloud(monkeypatch):
         0.0,
     )
 
-    with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+    with patch(
+        "api.services.llm_router.call_lmstudio", side_effect=LMStudioUnavailableError("timeout")
+    ):
         with patch(
-            "api.services.llm_router.call_lmstudio", side_effect=LMStudioUnavailableError("timeout")
+            "api.services.llm_router._PROVIDERS",
+            {"gemini": AsyncMock(return_value=cloud_result)},
         ):
-            with patch(
-                "api.services.llm_router._PROVIDERS",
-                {"gemini": AsyncMock(return_value=cloud_result)},
-            ):
-                with patch("api.services.llm_router._get_provider_key", return_value="fake-key"):
-                    from api.services.llm_router import call_llm
+            with patch("api.services.llm_router._get_provider_key", return_value="fake-key"):
+                from api.services.llm_router import call_llm
 
-                    result, tokens, cost = await call_llm(_USER_PROMPT, _TRACE_ID)
+                result, tokens, cost = await call_llm(_USER_PROMPT, _TRACE_ID)
 
     assert result[FieldName.ACTION] == "hold"
     assert _health.healthy is False  # local recorded failure
@@ -182,10 +179,10 @@ async def test_call_llm_lmstudio_malformed_falls_back(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
     monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 10)
 
-    lms_mod, _ = _mock_lms_module(content="not json at all {{{")
+    mock = _mock_client(content="not json at all {{{")
     cloud_parsed = {"action": "reject", "confidence": 0.0, "fallback": False, "trace_id": _TRACE_ID}
 
-    with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         with patch(
             "api.services.llm_router._PROVIDERS",
             {"gemini": AsyncMock(return_value=(cloud_parsed, 50, 0.0))},
@@ -232,11 +229,12 @@ async def test_call_llm_both_fail_raises(monkeypatch):
 
 async def test_lmstudio_unavailable_does_not_propagate_as_crash(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    lms_mod, client = _mock_lms_module()
-    client.llm.respond = AsyncMock(side_effect=OSError("connection refused"))
+    mock = _mock_client()
+    mock.chat.completions.create = AsyncMock(side_effect=OSError("connection refused"))
 
-    with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         with pytest.raises(LMStudioUnavailableError):
             await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
@@ -280,29 +278,21 @@ async def test_health_snapshot_latency_exposed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 9. check_health handles ImportError gracefully (lmstudio SDK not installed).
+# 9. check_health handles connection errors gracefully.
 # ---------------------------------------------------------------------------
 
 
-async def test_check_health_import_error(monkeypatch):
+async def test_check_health_connection_error(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
 
-    with patch.dict("sys.modules", {"lmstudio": None}):
-        # builtins import will raise ImportError for None module
-        import builtins
+    mock = _mock_client()
+    mock.models.list = AsyncMock(side_effect=OSError("connection refused"))
 
-        real_import = builtins.__import__
-
-        def _failing_import(name, *args, **kwargs):
-            if name == "lmstudio":
-                raise ImportError("lmstudio not installed")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=_failing_import):
-            ok = await check_health()
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
 
     assert ok is False
-    assert "not_installed" in (_health.last_error or "")
+    assert _health.last_error is not None
 
 
 # ---------------------------------------------------------------------------
@@ -316,9 +306,9 @@ async def test_call_llm_with_system_uses_lmstudio(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 10)
 
     raw = "This is a raw LLM reflection response."
-    lms_mod, _ = _mock_lms_module(content=raw)
+    mock = _mock_client(content=raw)
 
-    with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         from api.services.llm_router import call_llm_with_system
 
         text, tokens, cost = await call_llm_with_system(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
@@ -337,15 +327,15 @@ async def test_call_llm_with_system_uses_lmstudio(monkeypatch):
 async def test_no_secrets_in_logs(monkeypatch, caplog):
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_LINK_TOKEN", "super-secret-token-12345")
-    monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 1)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    lms_mod, client = _mock_lms_module()
-    client.llm.respond = AsyncMock(side_effect=OSError("connection refused"))
+    mock = _mock_client()
+    mock.chat.completions.create = AsyncMock(side_effect=OSError("connection refused"))
 
     import logging
 
     with caplog.at_level(logging.WARNING):
-        with patch.dict("sys.modules", {"lmstudio": lms_mod}):
+        with patch("api.services.lmstudio_provider._make_client", return_value=mock):
             try:
                 await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
             except LMStudioUnavailableError:
