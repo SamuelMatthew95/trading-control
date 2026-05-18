@@ -43,7 +43,7 @@ coverage==7.3.2
 fakeredis==2.34.1
 mypy==1.7.1
 factory-boy>=3.3.0
-httpx>=0.28.0
+httpx>=0.28.1
 faker>=20.0.0
 
 fastmcp>=2.0.0,<3.0.0
