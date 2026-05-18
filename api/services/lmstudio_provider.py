@@ -1,19 +1,23 @@
 """Centralized LM Studio local inference provider.
 
-All lmstudio SDK interaction is isolated here. No agent or other module
-imports the SDK directly.  Callers catch LMStudioUnavailableError and fall back
-to the configured cloud provider.
+All LM Studio interaction uses the OpenAI-compatible REST API at
+http://host:port/v1, accessed via the openai.AsyncOpenAI client.
 
-Health state is module-level, updated by check_health() at startup and by
-every call.  The startup probe is non-blocking — a False result means the app
-continues in degraded (cloud-only) mode.
+No agent or other module imports openai directly for local inference;
+all local calls go through this module.  Callers catch
+LMStudioUnavailableError and fall back to the configured cloud provider.
+
+Health state is module-level, updated by check_health() at startup and
+by every call.  The startup probe is non-blocking — a False result means
+the app continues in degraded (cloud-only) mode.
 """
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass
+
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from api.config import settings
 from api.constants import (
@@ -56,7 +60,9 @@ def health_snapshot() -> dict:
         FieldName.LOCAL_FALLBACK_COUNT: _health.fallback_count,
         FieldName.LAST_LOCAL_ERROR: _health.last_error,
         FieldName.LOCAL_MODEL: settings.LM_STUDIO_MODEL or None,
-        FieldName.LOCAL_LATENCY_MS: round(_health.last_latency_ms) if _health.last_latency_ms else None,
+        FieldName.LOCAL_LATENCY_MS: round(_health.last_latency_ms)
+        if _health.last_latency_ms
+        else None,
     }
 
 
@@ -72,44 +78,35 @@ def _record_failure(error: str) -> None:
     _health.fallback_count += 1
 
 
-def _base_url() -> str:
-    return f"http://{settings.LM_STUDIO_HOST}:{settings.LM_STUDIO_PORT}"
+def _make_client() -> AsyncOpenAI:
+    """Create an AsyncOpenAI client pointed at LM Studio's OpenAI-compatible endpoint.
 
-
-def _make_client(lms_module: object) -> object:
-    """Create an AsyncClient for local LM Studio or a remote LM Link connection.
-
-    When LM_LINK_ENABLED=True and LM_LINK_TOKEN is set the token is passed as
-    api_key so the remote LM Link endpoint can authenticate the request.
+    LM Studio exposes /v1 at http://host:port/v1.
+    api_key is set to LM_LINK_TOKEN when provided (optional proxy auth in
+    front of LM Studio); the local LM Studio server accepts any non-empty string.
+    LM Link itself is Tailscale-based — set LM_STUDIO_HOST to the Tailscale
+    hostname/IP of your GPU machine and LM Link handles the network layer.
     """
-    kwargs: dict = {"base_url": _base_url()}
-    if settings.LM_LINK_ENABLED and settings.LM_LINK_TOKEN:
-        kwargs["api_key"] = settings.LM_LINK_TOKEN
-    return lms_module.AsyncClient(**kwargs)  # type: ignore[attr-defined]
+    return AsyncOpenAI(
+        base_url=f"http://{settings.LM_STUDIO_HOST}:{settings.LM_STUDIO_PORT}/v1",
+        api_key=settings.LM_LINK_TOKEN or "lm-studio",
+        timeout=float(settings.LM_STUDIO_TIMEOUT_SECONDS),
+        max_retries=0,
+    )
 
 
 async def check_health() -> bool:
-    """Probe LM Studio. Non-blocking: returns False if unavailable."""
+    """Probe LM Studio via GET /v1/models. Non-blocking: returns False if unavailable."""
     if not settings.LM_STUDIO_ENABLED:
         _health.healthy = False
         return False
     try:
-        import lmstudio as lms  # noqa: PLC0415
-
-        client = _make_client(lms)
-        loaded = await asyncio.wait_for(
-            client.llm.list_loaded(),
-            timeout=float(settings.LM_STUDIO_TIMEOUT_SECONDS),
-        )
-        ok = bool(loaded)
+        client = _make_client()
+        models = await client.models.list()
+        ok = bool(models.data)
         _health.healthy = ok
         _health.last_error = None if ok else "no_model_loaded"
         return ok
-    except ImportError:
-        _health.healthy = False
-        _health.last_error = "lmstudio_sdk_not_installed"
-        log_structured("warning", "lmstudio_sdk_not_installed")
-        return False
     except Exception as exc:
         _health.healthy = False
         _health.last_error = str(exc)[:120]
@@ -139,27 +136,20 @@ async def call_lmstudio(
 
     t0 = time.monotonic()
     try:
-        import lmstudio as lms  # noqa: PLC0415
-
-        client = _make_client(lms)
-        result = await asyncio.wait_for(
-            client.llm.respond(
-                model_id,
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                config={"temperature": temperature, "maxTokens": max_tokens},
-            ),
-            timeout=float(settings.LM_STUDIO_TIMEOUT_SECONDS),
+        client = _make_client()
+        completion = await client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
-        text: str = getattr(result, "content", None) or ""
+        text: str = (completion.choices[0].message.content or "") if completion.choices else ""
     except LMStudioUnavailableError:
         raise
-    except ImportError:
-        _record_failure("lmstudio_sdk_not_installed")
-        raise LMStudioUnavailableError("lmstudio_sdk_not_installed") from None
-    except asyncio.TimeoutError:
+    except APITimeoutError:
         _record_failure("timeout")
         log_structured(
             "warning",
@@ -168,6 +158,10 @@ async def call_lmstudio(
             timeout_seconds=settings.LM_STUDIO_TIMEOUT_SECONDS,
         )
         raise LMStudioUnavailableError("lmstudio_timeout") from None
+    except APIConnectionError as exc:
+        _record_failure(str(exc))
+        log_structured("warning", "lmstudio_connection_failed", trace_id=trace_id, exc_info=True)
+        raise LMStudioUnavailableError(f"lmstudio_connection_failed: {exc}") from exc
     except Exception as exc:
         _record_failure(str(exc))
         log_structured("warning", "lmstudio_call_failed", trace_id=trace_id, exc_info=True)
