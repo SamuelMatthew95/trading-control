@@ -105,8 +105,15 @@ def test_classify_severity_explicit_overrides_grade(notification_agent):
     MagicMock(return_value=MagicMock(write_notification=AsyncMock())),
 )
 async def test_deduplication_skips_repeat(notification_agent, mock_bus):
-    """The same stream+type combination within the dedup window is forwarded only once."""
-    event = {"type": "order_filled", "side": "buy", "symbol": "BTC/USD", "qty": 1, "price": 100.0}
+    """The same stream+type+trace combination within the dedup window is forwarded only once."""
+    event = {
+        "type": "order_filled",
+        "side": "buy",
+        "symbol": "BTC/USD",
+        "qty": 1,
+        "price": 100.0,
+        "trace_id": "trace-dedup-test",  # same trace = same dedup key regardless of msg id
+    }
 
     await notification_agent.process("executions", "id-1", event)
     await notification_agent.process("executions", "id-2", event)
