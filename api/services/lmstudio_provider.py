@@ -59,7 +59,7 @@ def health_snapshot() -> dict:
         FieldName.LM_STUDIO_HEALTHY: _health.healthy,
         FieldName.LOCAL_FALLBACK_COUNT: _health.fallback_count,
         FieldName.LAST_LOCAL_ERROR: _health.last_error,
-        FieldName.LOCAL_MODEL: settings.LM_STUDIO_MODEL or None,
+        FieldName.LOCAL_MODEL: settings.LM_STUDIO_MODEL.strip() or None,
         FieldName.LOCAL_LATENCY_MS: round(_health.last_latency_ms)
         if _health.last_latency_ms
         else None,
@@ -129,7 +129,7 @@ async def call_lmstudio(
     if not settings.LM_STUDIO_ENABLED:
         raise LMStudioUnavailableError("lm_studio_disabled")
 
-    model_id = settings.LM_STUDIO_MODEL
+    model_id = settings.LM_STUDIO_MODEL.strip()
     if not model_id:
         _record_failure("lm_studio_model_not_configured")
         raise LMStudioUnavailableError("lm_studio_model_not_configured")
@@ -174,7 +174,7 @@ async def call_lmstudio(
         "lmstudio_call_succeeded",
         trace_id=trace_id,
         latency_ms=round(latency_ms),
-        model=settings.LM_STUDIO_MODEL,
+        model=model_id,
         provider=LM_STUDIO_PROVIDER,
     )
     return text, 0, 0.0
