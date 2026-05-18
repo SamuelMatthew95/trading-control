@@ -1180,6 +1180,14 @@ LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
 # LM Studio provider identifier — used in provider fields of inference responses
 LM_STUDIO_PROVIDER: Final[str] = "lmstudio"
 
+# LLM call parameters — uniform across all providers (cloud + local)
+# call_llm() — structured JSON trading decision; 0.0 = fully deterministic output
+LLM_MAX_TOKENS_TRADING: Final[int] = 300
+LLM_TEMPERATURE_TRADING: Final[float] = 0.0
+# call_llm_with_system() — free-text reasoning / reflection; slight variation is fine
+LLM_MAX_TOKENS_ANALYSIS: Final[int] = 800
+LLM_TEMPERATURE_ANALYSIS: Final[float] = 0.3
+
 # Symbol constants
 SYMBOL_BTC_USD: Final[str] = "BTC/USD"
 SYMBOL_ETH_USD: Final[str] = "ETH/USD"
