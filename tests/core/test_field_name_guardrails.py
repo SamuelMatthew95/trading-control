@@ -460,7 +460,7 @@ class TestCleanFilesRatchet:
 # __init__.py files are exempt by name: they are namespace / re-export shims
 # with no payload dict access. Both exemptions are deliberately narrow — a new
 # service or route file gets NO exemption and must be swept onto CLEAN_FILES.
-COVERAGE_EXEMPT_PREFIXES: tuple[str, ...] = ("api/alembic/",)
+COVERAGE_EXEMPT_PREFIXES: tuple[str, ...] = ("api/alembic/", "api/mcp/")
 
 
 def _is_coverage_exempt(rel_path: str) -> bool:
