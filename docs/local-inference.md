@@ -58,22 +58,33 @@ LM_LINK_ENABLED=false
 
 ### Option B — LM Link (home GPU → Render cloud)
 
-LM Link tunnels from your home GPU to the hosted backend without
-opening a port.  Get the relay host, relay port, and token from
-**LM Studio → LM Link panel**.
+LM Link uses **Tailscale** to create an encrypted peer-to-peer mesh between
+your home GPU machine and the Render backend — no open ports required.
+There is no relay host or bearer token from LM Studio; authentication is
+Tailscale identity-based.
+
+Setup steps:
+1. Install Tailscale on both the home GPU machine and the Render instance.
+2. Log in both devices to the same Tailscale account (`tailscale up`).
+3. Find the Tailscale IP or MagicDNS hostname of the GPU machine
+   (`tailscale ip` or the Tailscale admin panel).
+4. Set `LM_STUDIO_HOST` to that Tailscale IP/hostname and leave
+   `LM_STUDIO_PORT` at `1234` (LM Studio's default).
 
 ```
 LM_STUDIO_ENABLED=true
-LM_STUDIO_HOST=<relay host from LM Link panel>
-LM_STUDIO_PORT=<relay port from LM Link panel>
+LM_STUDIO_HOST=<Tailscale IP or hostname of your GPU machine>
+LM_STUDIO_PORT=1234
 LM_STUDIO_MODEL=<exact model id shown in LM Studio>
 LM_STUDIO_TIMEOUT_SECONDS=90
 LM_LINK_ENABLED=true
-LM_LINK_TOKEN=<token from LM Link panel>
-LM_LINK_DEVICE_NAME=my-gpu-rig      # optional — appears in logs only
+LM_LINK_DEVICE_NAME=my-gpu-rig      # optional — appears in startup logs only
 ```
 
-The token is passed to the SDK as `api_key` and is **never logged**.
+`LM_LINK_TOKEN` is only needed if you put a custom authenticating proxy
+(e.g. nginx + HTTP basic auth) in front of LM Studio.  LM Studio itself
+ignores HTTP `Authorization` headers — leave `LM_LINK_TOKEN` unset for
+a plain Tailscale setup.
 
 ### Cloud fallback (always required)
 
@@ -95,8 +106,8 @@ GEMINI_API_KEY=<your key>           # key for whichever provider you chose
 | `LM_STUDIO_PORT` | `1234` | When enabled | HTTP port |
 | `LM_STUDIO_MODEL` | _(empty)_ | **Yes, when enabled** | Must match exactly what LM Studio shows — blank causes immediate fallback |
 | `LM_STUDIO_TIMEOUT_SECONDS` | `90` | No | Per-call timeout before falling back to cloud |
-| `LM_LINK_ENABLED` | `false` | Only for remote GPU | Activates token-based auth for LM Link relay |
-| `LM_LINK_TOKEN` | _(empty)_ | When LM Link enabled | Bearer token from LM Link panel |
+| `LM_LINK_ENABLED` | `false` | Only for remote GPU | Signal that LM Studio is on a remote machine reachable via Tailscale (LM Link); used for log context only |
+| `LM_LINK_TOKEN` | _(empty)_ | No | Optional bearer token for a custom authenticating proxy in front of LM Studio; not required for plain Tailscale/LM Link |
 | `LM_LINK_DEVICE_NAME` | _(empty)_ | No | Human label; appears in startup logs |
 | `LLM_PROVIDER` | `gemini` | Yes | Cloud fallback provider |
 | `GEMINI_API_KEY` | _(empty)_ | When provider=gemini | |
