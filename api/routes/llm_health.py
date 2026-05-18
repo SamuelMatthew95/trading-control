@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from api.config import settings
-from api.constants import LLM_METRICS_WINDOW_SECONDS, FieldName
+from api.constants import LLM_METRICS_WINDOW_SECONDS, LM_STUDIO_PROVIDER, FieldName
 from api.services.llm_metrics import llm_metrics
 from api.services.lmstudio_provider import health_snapshot as lm_studio_health_snapshot
 from api.services.redis_store import get_redis_store
@@ -65,14 +65,20 @@ async def llm_health() -> dict[str, Any]:
     if redis_daily > snap_daily:
         snap[FieldName.DAILY_CALLS] = redis_daily
 
+    lm_snap = lm_studio_health_snapshot()
+    # active_provider reflects what is actually serving requests right now:
+    # "lmstudio" when local inference is healthy, otherwise the cloud provider.
+    active_provider = LM_STUDIO_PROVIDER if lm_snap.get(FieldName.LM_STUDIO_HEALTHY) else provider
+
     return {
         FieldName.STATUS: status,
         FieldName.PROVIDER: provider,
+        FieldName.ACTIVE_PROVIDER: active_provider,
         FieldName.MODEL: model_name,
         FieldName.MODEL_VAR: _attr if _attr else "unknown",
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         FieldName.REDIS_METRICS: redis_metrics,
         FieldName.LOCAL_INFERENCE_ENABLED: settings.LM_STUDIO_ENABLED,
-        **lm_studio_health_snapshot(),
+        **lm_snap,
         **snap,
     }
