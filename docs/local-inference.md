@@ -147,6 +147,39 @@ Check `/llm/health` after startup:
 
 ---
 
+## Call capacity and throughput
+
+### How many concurrent calls does the backend make?
+
+The **ReasoningAgent** is the only agent that calls the LLM. It runs as a Redis consumer-group consumer — it reads one message, processes it fully, then reads the next. This means **at most one local inference call is in flight at any moment**. LM Studio's single-threaded default inference model is a perfect match.
+
+### Expected throughput by model
+
+| Model | Size | Typical latency | Max calls/min |
+|---|---|---|---|
+| Llama-3-8B-Instruct Q4 | 7B | 0.5–3 s | 20–120 |
+| Mistral-7B-Instruct Q4 | 7B | 0.5–2 s | 30–120 |
+| Phi-3-mini-4k Q4 | 3.8B | 0.2–1 s | 60–300 |
+| Llama-3-13B Q4 | 13B | 2–8 s | 7–30 |
+| Qwen-2.5-14B Q4 | 14B | 3–10 s | 6–20 |
+| DeepSeek-R1-14B Q4 | 14B | 5–20 s | 3–12 |
+| Llama-3-70B Q4 | 70B | 15–60 s | 1–4 |
+
+> Values assume a mid-range consumer GPU (RTX 3090 / 4090). A weaker GPU or larger context will be slower.
+
+### What happens when LM Studio is too slow?
+
+If `call_lmstudio()` takes longer than `LM_STUDIO_TIMEOUT_SECONDS` (default 90 s), the openai client raises `APITimeoutError`. The router catches this, records it as a failure in the health state, and falls through to the configured cloud provider. The `/llm/health` endpoint shows `local_fallback_count` incrementing and `last_local_error: "timeout"`. No trade is missed — cloud takes over seamlessly.
+
+### Tuning recommendations
+
+- **Choose a model where single-call latency ≪ `LM_STUDIO_TIMEOUT_SECONDS`**. A 7B Q4 model at 2 s/call leaves 88 s of headroom — plenty.
+- **Raise `LM_STUDIO_TIMEOUT_SECONDS`** if you use a large model and are willing to wait (the ReasoningAgent loop blocks until the call returns or times out).
+- **`LM_STUDIO_TIMEOUT_SECONDS` does not need to match `LLM_TIMEOUT_SECONDS`**. The former is the local inference timeout; the latter applies only to cloud provider calls.
+- Use **LM Studio's Server settings → Threads** to allow parallelism if you ever run multiple backend workers. Default (1 thread) is correct for a single-worker Render deployment.
+
+---
+
 ## Common failure reasons
 
 | `last_local_error` | Fix |
