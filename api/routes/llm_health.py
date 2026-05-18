@@ -71,7 +71,7 @@ async def llm_health() -> dict[str, Any]:
     if not snap.get(FieldName.AVG_LATENCY_MS):
         redis_latency = redis_metrics.get(FieldName.LAST_LATENCY_MS) or 0
         if redis_latency:
-            snap[FieldName.AVG_LATENCY_MS] = int(redis_latency)
+            snap[FieldName.AVG_LATENCY_MS] = redis_latency
 
     # Surface last_success_at at the top level so the dashboard can show
     # "last call X ago" when the current window is empty (post-restart).
