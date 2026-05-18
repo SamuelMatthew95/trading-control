@@ -16,6 +16,9 @@ Covers:
  13. call_lmstudio raises when LM_STUDIO_MODEL is not configured.
  14. Whitespace-only LM_STUDIO_MODEL is treated as unconfigured (stripped before guard).
  15. health_snapshot returns None for whitespace-only model ID.
+ 16. check_health returns False with no_model_loaded when LM Studio has no model loaded.
+ 17. call_lmstudio with empty choices list returns empty string (degenerate but not a failure).
+ 18. call_llm_with_system falls back to cloud provider when LM Studio raises.
 """
 
 from __future__ import annotations
@@ -414,3 +417,80 @@ async def test_health_snapshot_strips_whitespace_model(monkeypatch):
     snap = health_snapshot()
 
     assert snap[FieldName.LOCAL_MODEL] is None
+
+
+# ---------------------------------------------------------------------------
+# 16. check_health returns False when LM Studio has no model loaded.
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_no_model_loaded(monkeypatch):
+    """check_health returns False and records no_model_loaded when models.data is empty."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+
+    mock = _mock_client(models=[])
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "no_model_loaded"
+
+
+# ---------------------------------------------------------------------------
+# 17. call_lmstudio with empty choices returns empty string (not a failure).
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_empty_choices_returns_empty_string(monkeypatch):
+    """Empty completion.choices is a degenerate but not a hard failure — returns '' and marks healthy."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client()
+    completion_no_choices = MagicMock()
+    completion_no_choices.choices = []
+    mock.chat.completions.create = AsyncMock(return_value=completion_no_choices)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == ""
+    assert tokens == 0
+    assert cost == 0.0
+    assert _health.healthy is True
+
+
+# ---------------------------------------------------------------------------
+# 18. call_llm_with_system falls back to cloud when LM Studio raises.
+# ---------------------------------------------------------------------------
+
+
+async def test_call_llm_with_system_falls_back_to_cloud_on_lmstudio_failure(monkeypatch):
+    """When call_lmstudio raises LMStudioUnavailableError, call_llm_with_system uses cloud."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
+
+    cloud_text = "Detailed market analysis from the cloud provider."
+
+    with patch(
+        "api.services.llm_router.call_lmstudio",
+        side_effect=LMStudioUnavailableError("timeout"),
+    ):
+        with patch(
+            "api.services.llm_router._get_provider_key",
+            return_value="fake-gemini-key",
+        ):
+            with patch(
+                "api.services.llm_router._call_provider_raw",
+                AsyncMock(return_value=(cloud_text, 80, 0.0)),
+            ):
+                from api.services.llm_router import call_llm_with_system
+
+                text, tokens, cost = await call_llm_with_system(
+                    _USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID
+                )
+
+    assert text == cloud_text
+    assert tokens == 80
+    assert cost == 0.0
