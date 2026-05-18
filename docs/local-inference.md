@@ -1,107 +1,113 @@
 # Local Inference — LM Studio + LM Link
 
-Run your own GPU model alongside the cloud provider. The trading-control
-backend tries the local model first on every `call_llm()` and
-`call_llm_with_system()` call; if it fails or is disabled it falls
-through to the cloud provider transparently.
+Run your own GPU model alongside the cloud provider.  Every `call_llm()`
+and `call_llm_with_system()` tries the local model first; if it fails
+(or is disabled) it falls through to the configured cloud provider
+transparently.  The app always boots — local inference unavailability is
+never fatal.
 
 ---
 
-## How it works
+## Architecture
 
 ```
 call_llm() / call_llm_with_system()
-         │
-         ▼  LM_STUDIO_ENABLED=true?
-    lmstudio_provider.call_lmstudio()
-         │ success → return result
-         │ LMStudioUnavailableError (any failure) → fall through
-         ▼
-    Cloud provider  (LLM_PROVIDER=gemini/groq/anthropic/openai)
+      │
+      ▼  LM_STUDIO_ENABLED=true?
+  lmstudio_provider.call_lmstudio()
+      │  success  →  return result
+      │  LMStudioUnavailableError  →  fall through silently
+      ▼
+  Cloud provider  (LLM_PROVIDER = gemini / groq / anthropic / openai)
 ```
 
-All LM Studio SDK interaction is isolated in
-`api/services/lmstudio_provider.py`. No other module touches the SDK.
+All SDK interaction lives in `api/services/lmstudio_provider.py`.
+No other file touches the lmstudio SDK directly.
 
 ---
 
-## Env vars (add these in Render → Environment → Environment Variables)
+## Call parameters (shared across all providers)
 
-### Required to enable local inference
+Defined in `api/constants.py` — change once, applies everywhere:
 
-| Variable | Example value | Notes |
+| Constant | Value | Used in |
 |---|---|---|
-| `LM_STUDIO_ENABLED` | `true` | Master switch — defaults to `false` |
-| `LM_STUDIO_HOST` | `127.0.0.1` | LM Studio server IP/hostname |
-| `LM_STUDIO_PORT` | `1234` | LM Studio HTTP port (default 1234) |
-| `LM_STUDIO_MODEL` | `lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF` | **Must match the model identifier shown in LM Studio** — leave blank and the call is rejected immediately |
-| `LM_STUDIO_TIMEOUT_SECONDS` | `20` | Per-call timeout before falling back to cloud |
-
-### Required only when using LM Link (remote GPU)
-
-LM Link lets LM Studio on your home machine accept connections from a
-hosted backend (e.g. Render) without opening a port. Enable these **in
-addition to** the vars above.
-
-| Variable | Example value | Notes |
-|---|---|---|
-| `LM_LINK_ENABLED` | `true` | Must be `true` for the token to be used |
-| `LM_LINK_TOKEN` | `lmlink_abc123…` | The token shown in LM Studio → LM Link panel |
-| `LM_LINK_DEVICE_NAME` | `home-rtx4090` | Human label for logs — optional |
-| `LM_STUDIO_HOST` | `relay.lmlink.io` | Replace with the LM Link relay host |
-| `LM_STUDIO_PORT` | `443` | Replace with the LM Link relay port |
-
-> The token is passed to the SDK as `api_key` and is **never logged**.
-
-### Cloud fallback (unchanged — already required)
-
-| Variable | Notes |
-|---|---|
-| `LLM_PROVIDER` | `gemini` / `groq` / `anthropic` / `openai` — used when local inference fails |
-| `GEMINI_API_KEY` / `GROQ_API_KEY` / … | API key for the chosen cloud provider |
+| `LLM_MAX_TOKENS_TRADING` | 300 | `call_llm()` — JSON trading decision |
+| `LLM_TEMPERATURE_TRADING` | 0.0 | `call_llm()` — deterministic JSON |
+| `LLM_MAX_TOKENS_ANALYSIS` | 800 | `call_llm_with_system()` — reasoning / reflection |
+| `LLM_TEMPERATURE_ANALYSIS` | 0.3 | `call_llm_with_system()` — free-text reasoning |
+| `LLM_TIMEOUT_SECONDS` | 90 | Cloud + local inference timeout (from `settings.LLM_TIMEOUT_SECONDS`) |
 
 ---
 
-## Quick-start: local LM Studio (same machine as backend)
+## Env vars — what to set in Render
 
-```bash
-# .env or Render env vars
+### Option A — Local LM Studio (same machine as backend)
+
+```
 LM_STUDIO_ENABLED=true
 LM_STUDIO_HOST=127.0.0.1
 LM_STUDIO_PORT=1234
-LM_STUDIO_MODEL=lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
-LM_STUDIO_TIMEOUT_SECONDS=20
-# LM Link not needed for local
+LM_STUDIO_MODEL=<exact model id shown in LM Studio>
+LM_STUDIO_TIMEOUT_SECONDS=90
 LM_LINK_ENABLED=false
 ```
 
-Make sure LM Studio is running with the server enabled and the model is
-loaded before starting the backend.
+### Option B — LM Link (home GPU → Render cloud)
 
----
+LM Link tunnels from your home GPU to the hosted backend without
+opening a port.  Get the relay host, relay port, and token from
+**LM Studio → LM Link panel**.
 
-## Quick-start: LM Link (home GPU → Render)
-
-1. Open LM Studio → LM Link panel → copy the relay host, port, and token.
-2. Load the model you want to serve.
-3. In Render, set:
-
-```bash
+```
 LM_STUDIO_ENABLED=true
 LM_STUDIO_HOST=<relay host from LM Link panel>
 LM_STUDIO_PORT=<relay port from LM Link panel>
-LM_STUDIO_MODEL=<exact model id>
-LM_STUDIO_TIMEOUT_SECONDS=30    # higher for remote latency
+LM_STUDIO_MODEL=<exact model id shown in LM Studio>
+LM_STUDIO_TIMEOUT_SECONDS=90
 LM_LINK_ENABLED=true
 LM_LINK_TOKEN=<token from LM Link panel>
-LM_LINK_DEVICE_NAME=my-gpu      # optional label
+LM_LINK_DEVICE_NAME=my-gpu-rig      # optional — appears in logs only
+```
+
+The token is passed to the SDK as `api_key` and is **never logged**.
+
+### Cloud fallback (always required)
+
+The cloud provider is used when local inference fails or is disabled.
+
+```
+LLM_PROVIDER=gemini                 # or groq / anthropic / openai
+GEMINI_API_KEY=<your key>           # key for whichever provider you chose
 ```
 
 ---
 
-## Health check
+## Full env var reference
 
-The `/llm/health` endpoint shows the local inference state:
+| Variable | Default | Required? | Notes |
+|---|---|---|---|
+| `LM_STUDIO_ENABLED` | `false` | Only for local inference | Master on/off switch |
+| `LM_STUDIO_HOST` | `127.0.0.1` | When enabled | IP or hostname of LM Studio server |
+| `LM_STUDIO_PORT` | `1234` | When enabled | HTTP port |
+| `LM_STUDIO_MODEL` | _(empty)_ | **Yes, when enabled** | Must match exactly what LM Studio shows — blank causes immediate fallback |
+| `LM_STUDIO_TIMEOUT_SECONDS` | `90` | No | Per-call timeout before falling back to cloud |
+| `LM_LINK_ENABLED` | `false` | Only for remote GPU | Activates token-based auth for LM Link relay |
+| `LM_LINK_TOKEN` | _(empty)_ | When LM Link enabled | Bearer token from LM Link panel |
+| `LM_LINK_DEVICE_NAME` | _(empty)_ | No | Human label; appears in startup logs |
+| `LLM_PROVIDER` | `gemini` | Yes | Cloud fallback provider |
+| `GEMINI_API_KEY` | _(empty)_ | When provider=gemini | |
+| `GROQ_API_KEY` | _(empty)_ | When provider=groq | |
+| `ANTHROPIC_API_KEY` | _(empty)_ | When provider=anthropic | |
+| `OPENAI_API_KEY` | _(empty)_ | When provider=openai | |
+| `LLM_TIMEOUT_SECONDS` | `90` | No | Shared timeout for cloud provider calls |
+| `LLM_MAX_RETRIES` | `2` | No | Retry attempts on transient cloud errors |
+
+---
+
+## Verifying it works
+
+Check `/llm/health` after startup:
 
 ```json
 {
@@ -115,12 +121,22 @@ The `/llm/health` endpoint shows the local inference state:
 }
 ```
 
-`lm_studio_healthy` goes `false` when the last probe or call failed;
-`local_fallback_count` increments on every failure (including malformed
-output); `last_local_error` holds the most recent failure reason.
+| Field | Meaning |
+|---|---|
+| `lm_studio_healthy` | `true` = last probe/call succeeded |
+| `local_fallback_count` | increments on every failure (including bad JSON output) |
+| `last_local_error` | most recent failure reason, e.g. `"timeout"`, `"lm_studio_model_not_configured"` |
 
 ---
 
-## Troubleshooting
+## Common failure reasons
 
-See `docs/troubleshooting/lm-studio.md` for known failure modes and fixes.
+| `last_local_error` | Fix |
+|---|---|
+| `lm_studio_model_not_configured` | Set `LM_STUDIO_MODEL` to the exact model id |
+| `no_model_loaded` | Load a model in LM Studio before starting the backend |
+| `timeout` | LM Studio server is too slow; increase `LM_STUDIO_TIMEOUT_SECONDS` or use a smaller model |
+| `lmstudio_sdk_not_installed` | Add `lmstudio>=1.0.0` to `requirements.txt` and redeploy |
+| `connection refused` | LM Studio server is not running or wrong host/port |
+
+See `docs/troubleshooting/lm-studio.md` for full symptom → fix entries.
