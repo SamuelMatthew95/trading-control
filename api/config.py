@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     LM_STUDIO_HOST: str = "127.0.0.1"
     LM_STUDIO_PORT: int = 1234
     LM_STUDIO_MODEL: str = ""
-    LM_STUDIO_TIMEOUT_SECONDS: int = 20
+    LM_STUDIO_TIMEOUT_SECONDS: int = 90
     LM_LINK_ENABLED: bool = Field(default=False)
     LM_LINK_DEVICE_NAME: str = ""
     LM_LINK_TOKEN: str = Field(default="")
