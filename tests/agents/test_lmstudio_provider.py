@@ -19,6 +19,9 @@ Covers:
  16. check_health returns False with no_model_loaded when LM Studio has no model loaded.
  17. call_lmstudio with empty choices list returns empty string (degenerate but not a failure).
  18. call_llm_with_system falls back to cloud provider when LM Studio raises.
+ 19. should_try_local returns True when healthy.
+ 20. should_try_local returns False immediately after a failure (within cooldown).
+ 21. should_try_local returns True again after the cooldown elapses.
 """
 
 from __future__ import annotations
@@ -30,11 +33,13 @@ import pytest
 from api.config import settings
 from api.constants import FieldName
 from api.services.lmstudio_provider import (
+    _RETRY_INTERVAL_S,
     LMStudioUnavailableError,
     _health,
     call_lmstudio,
     check_health,
     health_snapshot,
+    should_try_local,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -47,11 +52,13 @@ def _reset_lm_health():
     _health.last_error = None
     _health.fallback_count = 0
     _health.last_latency_ms = 0.0
+    _health.last_failure_at = 0.0
     yield
     _health.healthy = False
     _health.last_error = None
     _health.fallback_count = 0
     _health.last_latency_ms = 0.0
+    _health.last_failure_at = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -494,3 +501,33 @@ async def test_call_llm_with_system_falls_back_to_cloud_on_lmstudio_failure(monk
     assert text == cloud_text
     assert tokens == 80
     assert cost == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 19-21. should_try_local cooldown prevents hammering a dead LM Studio server.
+# ---------------------------------------------------------------------------
+
+
+def test_should_try_local_returns_true_when_healthy():
+    """Returns True immediately when health state is good."""
+    _health.healthy = True
+    assert should_try_local() is True
+
+
+def test_should_try_local_returns_false_within_cooldown():
+    """Returns False just after a failure, while within the retry interval."""
+    import time
+
+    _health.healthy = False
+    _health.last_failure_at = time.monotonic()  # failed right now
+    assert should_try_local() is False
+
+
+def test_should_try_local_returns_true_after_cooldown():
+    """Returns True once the retry interval has elapsed since the last failure."""
+    import time
+
+    _health.healthy = False
+    # Simulate last failure was (interval + 1) seconds ago
+    _health.last_failure_at = time.monotonic() - (_RETRY_INTERVAL_S + 1.0)
+    assert should_try_local() is True
