@@ -21,8 +21,11 @@ call_llm() / call_llm_with_system()
   Cloud provider  (LLM_PROVIDER = gemini / groq / anthropic / openai)
 ```
 
-All SDK interaction lives in `api/services/lmstudio_provider.py`.
-No other file touches the lmstudio SDK directly.
+All LM Studio interaction lives in `api/services/lmstudio_provider.py`.
+The provider uses `openai.AsyncOpenAI` pointed at LM Studio's
+OpenAI-compatible REST endpoint (`/v1`) — **not the OpenAI cloud service**.
+You can load any model LM Studio supports (Llama, Mistral, Phi, Qwen, etc.).
+No other file imports the openai client for local inference directly.
 
 ---
 
@@ -113,9 +116,11 @@ Check `/llm/health` after startup:
 {
   "status": "live",
   "provider": "gemini",
+  "active_provider": "lmstudio",
   "lm_studio_enabled": true,
   "lm_studio_healthy": true,
   "local_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF",
+  "local_latency_ms": 312,
   "local_fallback_count": 0,
   "last_local_error": null
 }
@@ -123,7 +128,9 @@ Check `/llm/health` after startup:
 
 | Field | Meaning |
 |---|---|
+| `active_provider` | `"lmstudio"` when local is healthy, cloud name otherwise — what is actually serving requests right now |
 | `lm_studio_healthy` | `true` = last probe/call succeeded |
+| `local_latency_ms` | round-trip ms for the last successful local call |
 | `local_fallback_count` | increments on every failure (including bad JSON output) |
 | `last_local_error` | most recent failure reason, e.g. `"timeout"`, `"lm_studio_model_not_configured"` |
 
@@ -136,7 +143,7 @@ Check `/llm/health` after startup:
 | `lm_studio_model_not_configured` | Set `LM_STUDIO_MODEL` to the exact model id |
 | `no_model_loaded` | Load a model in LM Studio before starting the backend |
 | `timeout` | LM Studio server is too slow; increase `LM_STUDIO_TIMEOUT_SECONDS` or use a smaller model |
-| `lmstudio_sdk_not_installed` | Add `lmstudio>=1.0.0` to `requirements.txt` and redeploy |
+| `lmstudio_connection_failed: ...` | LM Studio server is not running or wrong host/port |
 | `connection refused` | LM Studio server is not running or wrong host/port |
 
 See `docs/troubleshooting/lm-studio.md` for full symptom → fix entries.
