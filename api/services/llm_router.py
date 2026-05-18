@@ -11,7 +11,13 @@ from api.config import settings
 from api.constants import LM_STUDIO_PROVIDER, AgentAction, FieldName
 from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
-from api.services.lmstudio_provider import LMStudioUnavailableError, call_lmstudio
+from api.services.lmstudio_provider import (
+    LMStudioUnavailableError,
+    call_lmstudio,
+)
+from api.services.lmstudio_provider import (
+    _record_failure as _record_lm_failure,
+)
 from api.utils import get_nested
 
 _GEMINI_RPM = 15
@@ -477,11 +483,11 @@ async def call_llm_with_system(
     """
     if settings.LM_STUDIO_ENABLED:
         try:
+            t0 = _time.monotonic()
             result = await call_lmstudio(
                 prompt, system_prompt, trace_id, max_tokens=800, temperature=0.3
             )
-            latency_ms = 0.0  # latency already recorded inside call_lmstudio
-            llm_metrics.record_success(latency_ms=latency_ms)
+            llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
             return result
         except LMStudioUnavailableError as exc:
             log_structured(
@@ -533,13 +539,15 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     """
     if settings.LM_STUDIO_ENABLED:
         try:
+            t0 = _time.monotonic()
             raw_text, tokens, cost = await call_lmstudio(prompt, SYSTEM_PROMPT, trace_id)
+            latency_ms = (_time.monotonic() - t0) * 1000
             parsed = _parse_response(raw_text, trace_id, cost)
             if not parsed.get(FieldName.FALLBACK):
                 parsed[FieldName.PROVIDER] = LM_STUDIO_PROVIDER
-                latency_ms = 0.0  # latency already recorded inside call_lmstudio
                 llm_metrics.record_success(latency_ms=latency_ms)
                 return parsed, tokens, cost
+            _record_lm_failure("parse_returned_fallback")
             log_structured(
                 "info",
                 "lmstudio_parse_failed_falling_back",
