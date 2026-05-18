@@ -1,12 +1,12 @@
-# MCP Server (Production Guide)
+# MCP Server (How to Use)
 
-This service exposes a **read-only** MCP endpoint mounted under:
+This service exposes a **read-only** remote MCP endpoint at:
 
 - `https://trading-control.onrender.com/mcp`
 
-## What it exposes
+Use that exact URL in Claude Code / Claude MCP connector settings.
 
-Allowed tools:
+## What tools are available
 
 - `get_service_health`
 - `get_debug_state`
@@ -18,31 +18,31 @@ Allowed tools:
 - `get_health_summary`
 - `classify_health`
 
-These tools are telemetry only. They do **not** place trades, toggle kill switch, mutate proposals, or update env/config.
+These tools are telemetry-only. They do **not** place trades or mutate runtime config.
 
-## Authentication
+## Authentication (current behavior)
 
-Set this Render environment variable for production:
+Current app behavior is **standard unauthenticated MCP mount**:
 
-```text
-MCP_SHARED_TOKEN=<strong random token>
-```
+- `/mcp` is mounted directly to the FastMCP app.
+- No bearer token is required for MCP requests right now.
 
-Behavior:
+If token auth is re-enabled in code later, this document should be updated in the same PR.
 
-- If `MCP_SHARED_TOKEN` is set: all `/mcp` HTTP requests require
-  `Authorization: Bearer <token>`.
-- If `MCP_SHARED_TOKEN` is unset: endpoint remains read-only but unauthenticated.
+## Claude connector setup (normal)
 
-## Connector settings (Claude)
+Use these settings:
 
-- Remote MCP server URL: `https://trading-control.onrender.com/mcp`
-- OAuth fields: leave blank unless OAuth is explicitly implemented.
-- If connector UI cannot attach bearer headers, use an auth-capable integration path.
+- **Remote MCP server URL**: `https://trading-control.onrender.com/mcp`
+- **Auth/OAuth fields**: leave blank
 
-## Deployment checks
+Then test with a simple prompt, for example:
 
-After deploy, run:
+- `Use the trading-control MCP connector. List available tools.`
+
+## Quick checks
+
+### Endpoint checks
 
 ```bash
 curl -i https://trading-control.onrender.com/mcp
@@ -51,19 +51,12 @@ curl -i https://trading-control.onrender.com/api/dashboard/debug/state
 curl -i https://trading-control.onrender.com/api/dashboard/pnl
 ```
 
-If token is configured:
-
-```bash
-curl -i https://trading-control.onrender.com/mcp
-curl -i -H "Authorization: Bearer $MCP_SHARED_TOKEN" https://trading-control.onrender.com/mcp
-```
-
 Expected:
 
-- no token → `401`
-- valid token → not `404`, MCP-compatible response
+- `/mcp` returns an MCP-compatible response (and should not require auth in current config).
+- REST health/dashboard routes continue returning normal API responses.
 
-## Local checks
+### Local quality check for MCP module
 
 ```bash
 python -m compileall api
