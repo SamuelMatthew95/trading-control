@@ -53,6 +53,36 @@ async def _get_notifications(limit: int = 50) -> dict[str, object]:
         return _error_payload("unavailable", details=str(exc))
 
 
+def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
+    """Determine activity from actual debug payload fields."""
+    if bool(debug_state.get("has_data")):
+        return True
+
+    counts = debug_state.get("counts")
+    if isinstance(counts, dict):
+        for key in (
+            "decisions",
+            "notifications",
+            "open_positions",
+            "closed_trades",
+            "equity_points",
+        ):
+            value = counts.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                return True
+
+    for key in (
+        "latest_decision",
+        "latest_notification",
+        "latest_open_position",
+        "latest_closed_trade",
+    ):
+        if debug_state.get(key) is not None:
+            return True
+
+    return False
+
+
 class _TokenGuardApp:
     """ASGI wrapper for optional MCP bearer-token protection.
 
@@ -165,7 +195,7 @@ async def classify_health() -> dict[str, object]:
         }
 
     db_available = bool(is_db_available())
-    has_activity = bool(debug_state_raw.get("recent_events") or debug_state_raw.get("agent_status"))
+    has_activity = _debug_state_has_activity(debug_state_raw)
 
     if db_available and has_activity:
         classification = "healthy"
