@@ -26,7 +26,16 @@ interface CallRecord {
   latency_ms: number | null
 }
 
-interface LLMHealthData {
+interface LocalInferenceData {
+  lm_studio_enabled: boolean
+  lm_studio_healthy: boolean
+  local_model: string | null
+  local_fallback_count: number
+  last_local_error: string | null
+  local_latency_ms: number | null
+}
+
+interface LLMHealthData extends LocalInferenceData {
   last_error?: {
     kind: string | null
     message: string | null
@@ -34,7 +43,10 @@ interface LLMHealthData {
   }
 
   status: LLMStatus
+  /** Configured cloud fallback provider (gemini / groq / anthropic / openai) */
   provider: string
+  /** The provider actually serving requests: "lmstudio" when local is healthy, else provider */
+  active_provider: string
   model: string
   timestamp: string
   window_seconds: number
@@ -134,6 +146,62 @@ function successRateColor(pct: number): string {
   return 'font-semibold text-rose-600 dark:text-rose-500'
 }
 
+function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
+  if (!data.lm_studio_enabled) return null
+
+  const healthy = data.lm_studio_healthy
+  const dotColor = healthy ? 'bg-emerald-500' : 'bg-slate-400'
+  const labelColor = healthy
+    ? 'text-emerald-600 dark:text-emerald-500'
+    : 'text-slate-500 dark:text-slate-400'
+
+  return (
+    <div className="mb-3 rounded-lg border border-indigo-300/30 bg-indigo-500/5 px-3 py-2 text-xs">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className={LABEL}>Local GPU</span>
+        <span className="flex items-center gap-1.5">
+          <span className={`inline-block h-2 w-2 rounded-full ${dotColor}`} />
+          <span className={`text-xs font-semibold ${labelColor}`}>
+            {healthy ? 'Active' : 'Offline'}
+          </span>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        {data.local_model && (
+          <span className={`${MUTED} col-span-2 truncate`}>
+            Model: <span className="font-mono">{data.local_model}</span>
+          </span>
+        )}
+        {data.local_latency_ms != null && (
+          <span className={MUTED}>
+            Latency: <span className={VALUE}>{data.local_latency_ms}ms</span>
+          </span>
+        )}
+        <span className={MUTED}>
+          Fallbacks:{' '}
+          <span
+            className={
+              data.local_fallback_count > 0
+                ? 'font-semibold text-amber-600 dark:text-amber-400'
+                : VALUE
+            }
+          >
+            {data.local_fallback_count}
+          </span>
+        </span>
+        {data.last_local_error && (
+          <span className={`${MUTED} col-span-2`}>
+            Error:{' '}
+            <span className="font-mono text-rose-500 dark:text-rose-400">
+              {data.last_local_error}
+            </span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted: boolean }) {
   const color = gradeAdjusted
     ? delayMs >= 1000
@@ -212,7 +280,7 @@ export function LLMHealthPanel() {
           Model: <span className={VALUE}>{data.model}</span>
         </span>
         <span className={MUTED}>
-          Provider: <span className={VALUE}>{data.provider}</span>
+          Provider: <span className={VALUE}>{data.active_provider}</span>
         </span>
 
         <span className={MUTED}>
@@ -256,6 +324,8 @@ export function LLMHealthPanel() {
           Lifetime: <span className={VALUE}>{data.total_calls_lifetime}</span>
         </span>
       </div>
+
+      <LocalInferenceStrip data={data} />
 
       {data.last_error?.message && (
         <div className="mb-3 rounded-lg border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
