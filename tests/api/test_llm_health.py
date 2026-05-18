@@ -296,9 +296,7 @@ async def test_active_provider_is_lmstudio_when_healthy(client: AsyncClient, mon
 
 
 @pytest.mark.asyncio
-async def test_active_provider_falls_back_when_lmstudio_unhealthy(
-    client: AsyncClient, monkeypatch
-):
+async def test_active_provider_falls_back_when_lmstudio_unhealthy(client: AsyncClient, monkeypatch):
     """active_provider reverts to cloud when LM Studio is enabled but not healthy."""
     from api.config import settings as app_settings
     from api.services.lmstudio_provider import _health
