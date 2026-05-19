@@ -242,3 +242,27 @@ Both `call_llm` and `call_llm_with_system` are fixed.
 **Fix:** Added `_redact_url()` in `api/services/lmstudio_provider.py` which strips userinfo and query string via `urlunparse`, logging only scheme/host/port/path.
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_log_startup_config_redacts_url_credentials`
+
+---
+
+## Invalid LM_STUDIO_BASE_URL port crashes startup with ValueError (P1)
+
+**Symptom:** Setting `LM_STUDIO_BASE_URL=http://localhost:notaport/v1` causes an unhandled `ValueError` during startup or health probe, crashing the app rather than entering degraded mode.
+
+**Root cause:** `urllib.parse.urlparse` accepts invalid port strings without raising, but accessing `parsed.port` raises `ValueError`. `validate_lm_studio_config()` only caught `RuntimeError`, so the `ValueError` escaped past `check_health()`'s exception handler.
+
+**Fix:** Wrapped the `parsed.hostname` / `parsed.port` access in `validate_lm_studio_config()` with a `try/except ValueError` that re-raises as `RuntimeError`. `check_health()` already catches `RuntimeError` and returns `False` (degraded), so no further changes were needed.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_validate_config_invalid_port_raises_runtime_error`
+
+---
+
+## Stale available_models reported after check_health() failure (P2)
+
+**Symptom:** `GET /llm/health` returns a non-empty `available_models` list even when LM Studio is unhealthy (mismatch error, config error, or network failure), misleading fallback/debug decisions.
+
+**Root cause:** `_health.available_models` was only written on the successful `/v1/models` probe path. After one successful probe, any subsequent failure (mismatch detection, config validation error, network exception) left the stale model list in the health state.
+
+**Fix:** Added `_health.available_models = []` to all three failure return paths in `check_health()`: the remote-localhost mismatch branch, the `validate_lm_studio_config()` exception branch, and the final `except Exception` network-failure branch.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_check_health_clears_available_models_on_mismatch`
