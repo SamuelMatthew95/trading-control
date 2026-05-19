@@ -533,6 +533,41 @@ async def test_mem_vwap_plan_none_after_clamp_below_threshold(engine_mem, mock_b
     assert exec_calls[0].args[1][FieldName.VWAP_PLAN] is None
 
 
+async def test_mem_short_side_also_clamped(engine_mem, mock_bus, mock_broker):
+    """In-memory path: side='short' (sell-equivalent) is clamped to the open position qty."""
+    open_qty = 0.6
+    mock_broker.get_position.return_value = _long_position(qty=open_qty)
+    mock_broker.place_order.return_value = {
+        FieldName.BROKER_ORDER_ID: "broker-mem-short",
+        FieldName.FILL_PRICE: 51_000.0,
+        FieldName.STATUS: "filled",
+    }
+
+    await engine_mem.process(_make_decision(side="short", qty=12.0, trace_id="t-mem-short"))
+
+    mock_broker.place_order.assert_called_once()
+    call_args = mock_broker.place_order.call_args
+    actual_qty = call_args.args[2] if len(call_args.args) >= 3 else call_args.kwargs.get("qty")
+    assert actual_qty == pytest.approx(open_qty)
+
+
+async def test_rejection_publish_failure_does_not_propagate(engine_mem, mock_bus, mock_broker):
+    """A bus.publish failure during SELL rejection must not propagate — store is the record."""
+    from api.runtime_state import get_runtime_store
+
+    mock_broker.get_position.return_value = _flat_position()
+    mock_bus.publish = AsyncMock(side_effect=RuntimeError("bus down"))
+
+    # Should not raise even though publish fails
+    await engine_mem.process(_make_decision(side="sell", trace_id="t-pub-fail"))
+
+    mock_broker.place_order.assert_not_called()
+    store = get_runtime_store()
+    # Rejection still recorded in store despite publish failure
+    assert len(store.rejected_sells) == 1
+    assert store.rejected_sells[0][FieldName.TRACE_ID] == "t-pub-fail"
+
+
 # ---------------------------------------------------------------------------
 # 7. Dashboard P&L: InMemoryStore.paired_pnl_payload ignores rejected SELLs
 # ---------------------------------------------------------------------------
