@@ -37,8 +37,11 @@ from api.constants import (
     REDIS_KEY_ORDER_LOCK,
     REDIS_KEY_TRADING_PAUSED,
     REDIS_KEY_TRADING_PAUSED_REASON,
+    SOURCE_EXECUTION,
     STREAM_DECISIONS,
+    STREAM_SELL_REJECTED,
     FieldName,
+    OrderSide,
     OrderStatus,
 )
 from api.database import AsyncSessionFactory
@@ -209,7 +212,34 @@ class ExecutionEngine(BaseStreamConsumer):
                         symbol=symbol,
                         trace_id=trace_id,
                     )
+                    await self.bus.publish(
+                        STREAM_SELL_REJECTED,
+                        {
+                            FieldName.TYPE: "sell_rejected",
+                            FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: side,
+                            FieldName.QTY: qty,
+                            FieldName.TRACE_ID: trace_id,
+                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                            FieldName.SOURCE: SOURCE_EXECUTION,
+                        },
+                    )
                     return
+
+                # Clamp oversell: never sell more than the open position holds.
+                if side == OrderSide.SELL:
+                    prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+                    if prior_qty > 0 and qty > prior_qty:
+                        log_structured(
+                            "warning",
+                            "execution_sell_qty_clamped_to_available",
+                            symbol=symbol,
+                            requested_qty=qty,
+                            available_qty=prior_qty,
+                            trace_id=trace_id,
+                        )
+                        qty = prior_qty
 
                 order_id = await insert_pending_order(
                     session,
@@ -586,7 +616,41 @@ class ExecutionEngine(BaseStreamConsumer):
                     symbol=symbol,
                     trace_id=trace_id,
                 )
+                store = get_runtime_store()
+                store.reject_sell_no_position(
+                    symbol=symbol,
+                    trace_id=trace_id,
+                    event_id=order_id,
+                    reason="NO_OPEN_POSITION",
+                )
+                await self.bus.publish(
+                    STREAM_SELL_REJECTED,
+                    {
+                        FieldName.TYPE: "sell_rejected",
+                        FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
+                        FieldName.SYMBOL: symbol,
+                        FieldName.SIDE: side,
+                        FieldName.QTY: qty,
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.SOURCE: SOURCE_EXECUTION,
+                    },
+                )
                 return
+
+            # Clamp oversell: never sell more than the open position holds.
+            if side == OrderSide.SELL:
+                prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+                if prior_qty > 0 and qty > prior_qty:
+                    log_structured(
+                        "warning",
+                        "execution_sell_qty_clamped_to_available",
+                        symbol=symbol,
+                        requested_qty=qty,
+                        available_qty=prior_qty,
+                        trace_id=trace_id,
+                    )
+                    qty = prior_qty
 
             broker_result = await self.broker.place_order(symbol, side, qty, price)
             fill_price = float(broker_result[FieldName.FILL_PRICE])
