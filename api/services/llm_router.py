@@ -615,6 +615,11 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
                 llm_metrics.record_success(latency_ms=latency_ms)
                 return parsed, tokens, cost
             _record_lm_failure("parse_returned_fallback")
+            if lm_primary and not settings.LLM_FALLBACK_ENABLED:
+                err = parsed.get(FieldName.ERROR, "malformed response")
+                msg = f"lmstudio_parse_failed: {err}"
+                llm_metrics.record_error(message=msg, kind="lmstudio_parse_failed")
+                raise RuntimeError(msg)
             log_structured(
                 "info",
                 "lmstudio_parse_failed_falling_back",
