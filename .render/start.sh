@@ -11,9 +11,14 @@
 #   --outbound-http-proxy-listen HTTP CONNECT proxy (used by httpx via LM_STUDIO_PROXY_URL)
 #
 # TAILSCALE_AUTHKEY must be set in Render env vars (use a reusable/ephemeral key).
+# Tailscale startup is skipped when TAILSCALE_AUTHKEY is absent or empty so that
+# deployments without LM Studio/Tailscale still start normally.
 set -euo pipefail
 
-if [[ -f .render/bin/tailscaled ]]; then
+# Use ${VAR:-} (default-empty) so set -u doesn't abort when the key is unset.
+_ts_authkey="${TAILSCALE_AUTHKEY:-}"
+
+if [[ -f .render/bin/tailscaled && -n "${_ts_authkey}" ]]; then
     .render/bin/tailscaled \
         --tun=userspace-networking \
         --socks5-server=localhost:1055 \
@@ -25,12 +30,12 @@ if [[ -f .render/bin/tailscaled ]]; then
     sleep 5
 
     .render/bin/tailscale up \
-        --authkey="${TAILSCALE_AUTHKEY}" \
+        --authkey="${_ts_authkey}" \
         --hostname="${RENDER_SERVICE_NAME:-trading-control}"
 
     echo "Tailscale connected. Starting app."
 else
-    echo "Tailscale binaries not found — skipping Tailscale startup."
+    echo "Tailscale binaries not found or TAILSCALE_AUTHKEY not set — skipping Tailscale startup."
 fi
 
 exec gunicorn api.main:app \
