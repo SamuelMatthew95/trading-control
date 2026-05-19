@@ -178,6 +178,30 @@ LM_STUDIO_MODEL=<exact model name from LM Studio>
 
 ---
 
+## check_health reports healthy when LM_STUDIO_MODEL is blank
+
+**Symptom:** `/llm/health` reports `lm_studio_healthy: true` and `active_provider: lmstudio`, but every inference call immediately fails with `lm_studio_model_not_configured`. With `LLM_FALLBACK_ENABLED=false` this causes a total inference outage while the dashboard shows everything as healthy.
+
+**Root cause:** `check_health()` ran the model-presence check only when `configured` was non-empty (`if configured and configured not in model_ids`). When `LM_STUDIO_MODEL` was blank the condition was short-circuited, leaving `_health.healthy = True` even though no model was configured for inference.
+
+**Fix:** The condition was split in `api/services/lmstudio_provider.py::check_health()`: an explicit `if not configured` guard now sets `_health.last_error = "lm_studio_model_not_configured"` and returns False before the model-presence check runs.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_check_health_blank_model_returns_false_and_unhealthy`
+
+---
+
+## active_provider shows lmstudio when cloud fallback is actually serving
+
+**Symptom:** `/llm/health` returns `active_provider: lmstudio` even though LM Studio is unhealthy and `LLM_FALLBACK_ENABLED=true` is routing all calls to a cloud provider (e.g. Groq). The dashboard therefore shows "Local GPU: Active" while a cloud provider is silently handling requests.
+
+**Root cause:** `api/routes/llm_health.py` computed `active_provider` as `LM_STUDIO_PROVIDER if lm_snap.lm_studio_healthy else provider`. When `LLM_PROVIDER=lmstudio` and LM Studio is unhealthy, `provider` evaluates to `"lmstudio"`, not the actual cloud fallback that `call_llm()` selects via `_find_cloud_fallback()`.
+
+**Fix:** When LM Studio is unhealthy and `provider == "lmstudio"` with `LLM_FALLBACK_ENABLED=true`, the endpoint now calls `_find_cloud_fallback()` to determine the actual serving provider and exposes that as `active_provider`.
+
+**Regression test:** `tests/api/test_llm_health.py::test_active_provider_is_cloud_fallback_when_lmstudio_primary_is_down`
+
+---
+
 ## Startup LM Studio probe skipped when LLM_PROVIDER=lmstudio + LM_STUDIO_ENABLED=False
 
 **Symptom:** With `LLM_PROVIDER=lmstudio` and `LM_STUDIO_ENABLED=False` the startup health probe was silently skipped, leaving a misconfigured primary LM Studio provider undetected at boot.
