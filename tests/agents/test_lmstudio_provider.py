@@ -51,6 +51,7 @@ from api.services.lmstudio_provider import (
     check_health,
     get_lm_studio_base_url,
     health_snapshot,
+    is_remote_localhost_mismatch,
     should_try_local,
     validate_lm_studio_config,
 )
@@ -739,3 +740,161 @@ async def test_call_lmstudio_logs_request_context(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "reasoning_llm_request" in out
     assert "100.112.224.78" in out
+
+
+# ---------------------------------------------------------------------------
+# 32-37. Remote localhost mismatch detection and LLM_PROVIDER=lmstudio mode.
+# ---------------------------------------------------------------------------
+
+
+def test_is_remote_localhost_mismatch_true_when_render_and_localhost(monkeypatch):
+    """Returns True when RENDER_EXTERNAL_URL is set and host is localhost."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is True
+
+
+def test_is_remote_localhost_mismatch_true_for_127_0_0_1(monkeypatch):
+    """Returns True when RENDER_EXTERNAL_URL is set and host is 127.0.0.1."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is True
+
+
+def test_is_remote_localhost_mismatch_false_when_no_render_url(monkeypatch):
+    """Returns False when RENDER_EXTERNAL_URL is not set (local dev)."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is False
+
+
+def test_is_remote_localhost_mismatch_false_for_tailscale_ip(monkeypatch):
+    """Returns False when host is a non-localhost Tailscale IP."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is False
+
+
+def test_is_remote_localhost_mismatch_reads_base_url_host(monkeypatch):
+    """When LM_STUDIO_BASE_URL is set, extracts host from URL for mismatch check."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")  # should be overridden
+    assert is_remote_localhost_mismatch() is True
+
+
+async def test_check_health_returns_false_with_mismatch_error(monkeypatch):
+    """check_health returns False with a clear error when remote + localhost mismatch."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error is not None
+    assert "Remote backend" in (_health.last_error or "")
+    assert "localhost" in (_health.last_error or "")
+
+
+async def test_health_snapshot_includes_mismatch_field(monkeypatch):
+    """health_snapshot always includes remote_localhost_mismatch field."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    snap = health_snapshot()
+
+    assert FieldName.REMOTE_LOCALHOST_MISMATCH in snap
+    assert snap[FieldName.REMOTE_LOCALHOST_MISMATCH] is True
+    assert snap[FieldName.REACHABLE] is False
+    assert snap[FieldName.BASE_URL_HOST] == "localhost"
+
+
+async def test_check_health_stores_available_models(monkeypatch):
+    """check_health stores the list of loaded model IDs from /v1/models."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    model_a = MagicMock()
+    model_a.id = "test-model"
+    model_b = MagicMock()
+    model_b.id = "other-model"
+    mock = _mock_client(models=[model_a, model_b])
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is True
+    assert _health.available_models == ["test-model", "other-model"]
+    snap = health_snapshot()
+    assert snap[FieldName.AVAILABLE_MODELS] == ["test-model", "other-model"]
+
+
+async def test_check_health_configured_model_not_in_loaded_models(monkeypatch):
+    """check_health returns False when configured model is not in the loaded models list."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "my-specific-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    loaded = MagicMock()
+    loaded.id = "other-model"
+    mock = _mock_client(models=[loaded])
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert "not found" in (_health.last_error or "").lower()
+    assert "other-model" in (_health.last_error or "")
+
+
+async def test_llm_provider_lmstudio_enables_lm_studio(monkeypatch):
+    """LLM_PROVIDER=lmstudio makes LM Studio effectively enabled without LM_STUDIO_ENABLED."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)  # not explicitly enabled
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    mock = _mock_client(content=_VALID_JSON)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == _VALID_JSON
+    assert _health.healthy is True
+
+
+def test_get_lm_studio_base_url_uses_base_url_when_set(monkeypatch):
+    """get_lm_studio_base_url uses LM_STUDIO_BASE_URL when set."""
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "10.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 9999)
+    assert get_lm_studio_base_url() == "http://localhost:1234/v1"
+
+
+def test_get_lm_studio_base_url_appends_v1_if_missing(monkeypatch):
+    """get_lm_studio_base_url appends /v1 when LM_STUDIO_BASE_URL lacks it."""
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://192.168.1.10:1234")
+    assert get_lm_studio_base_url() == "http://192.168.1.10:1234/v1"
+
+
+def test_get_lm_studio_base_url_no_double_v1(monkeypatch):
+    """get_lm_studio_base_url does not double the /v1 suffix."""
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://192.168.1.10:1234/v1")
+    assert get_lm_studio_base_url() == "http://192.168.1.10:1234/v1"
