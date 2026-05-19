@@ -531,3 +531,34 @@ async def test_call_llm_lmstudio_primary_fallback_to_cloud_when_enabled(monkeypa
             result, _, _ = await call_llm("test prompt", "trace-id-003")
 
     assert result["action"] == "hold"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_parse_failure_no_fallback_raises(monkeypatch):
+    """When LLM_PROVIDER=lmstudio, LLM_FALLBACK_ENABLED=false, and _parse_response returns
+    fallback=True (malformed/non-JSON LM Studio response), call_llm must raise rather than
+    silently routing to a cloud provider."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", False)
+
+    from api.services.llm_router import call_llm
+
+    cloud_called = []
+
+    async def _fake_cloud(*a, **kw):  # pragma: no cover
+        cloud_called.append(True)
+        return ({}, 0, 0.0)
+
+    # call_lmstudio returns malformed (non-JSON) text; _parse_response sets fallback=True
+    with patch(
+        "api.services.llm_router.call_lmstudio",
+        return_value=("not valid json {{", 5, 0.001),
+    ):
+        with patch("api.services.llm_router._PROVIDERS", {"groq": _fake_cloud}):
+            with pytest.raises(RuntimeError, match="lmstudio_parse_failed"):
+                await call_llm("test prompt", "trace-parse-001")
+
+    assert not cloud_called, "cloud provider must not be called when fallback is disabled"
