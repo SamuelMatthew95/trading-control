@@ -526,9 +526,9 @@ class InMemoryStore:
         return {
             FieldName.CLOSED_TRADES: closed_trades,
             FieldName.OPEN_POSITIONS: open_positions,
-            "summary": {
+            FieldName.SUMMARY: {
                 FieldName.REALIZED_PNL: round(realized_pnl, 8),
-                "unrealized_pnl": round(unrealized_pnl, 8),
+                FieldName.UNREALIZED_PNL: round(unrealized_pnl, 8),
                 FieldName.TOTAL_PNL: round(realized_pnl + unrealized_pnl, 8),
                 FieldName.CLOSED_TRADES: total_trades,
                 FieldName.WINNING_TRADES: winning_trades,
