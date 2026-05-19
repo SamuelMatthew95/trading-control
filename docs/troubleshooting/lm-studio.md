@@ -230,3 +230,15 @@ Both `call_llm` and `call_llm_with_system` are fixed.
 **Fix:** The startup condition was changed from `if settings.LM_STUDIO_ENABLED:` to `if _is_lmstudio_effectively_enabled():`, which returns `True` when either `LM_STUDIO_ENABLED=True` or `LLM_PROVIDER=lmstudio`.
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_is_lmstudio_effectively_enabled_true_when_primary`
+
+---
+
+## LM_STUDIO_BASE_URL credentials logged in startup config
+
+**Symptom:** Structured logs from the startup `lmstudio_config` event include userinfo (`user:pass@`) and/or query tokens from `LM_STUDIO_BASE_URL` despite the docstring saying "Never logs secrets."
+
+**Root cause:** `log_startup_config()` passed `get_lm_studio_base_url()` raw to `log_structured`, exposing credentials in authenticated-tunnel or proxy URLs.
+
+**Fix:** Added `_redact_url()` in `api/services/lmstudio_provider.py` which strips userinfo and query string via `urlunparse`, logging only scheme/host/port/path.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_log_startup_config_redacts_url_credentials`
