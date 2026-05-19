@@ -686,3 +686,35 @@ async def test_call_llm_lmstudio_primary_cooldown_no_fallback_raises(monkeypatch
                 await call_llm("test prompt", "trace-cooldown-002")
 
     assert call_lmstudio_called, "LM Studio must still be called when fallback is disabled"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_primary_no_cloud_key_bypasses_cooldown(monkeypatch):
+    """LM Studio is tried during cooldown when fallback=true but no cloud API key is set.
+
+    Regression: when LLM_FALLBACK_ENABLED=true but no cloud key is configured,
+    the cooldown guard suppressed LM Studio retries then immediately raised
+    lmstudio_unavailable_no_fallback.  The bypass condition now checks whether a
+    real cloud provider is available, not just whether fallback is enabled.
+    """
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import LMStudioUnavailableError
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", True)
+
+    call_lmstudio_called = []
+
+    async def _failing_lmstudio(*a, **kw):
+        call_lmstudio_called.append(True)
+        raise LMStudioUnavailableError("still down")
+
+    from api.services.llm_router import call_llm
+
+    with patch("api.services.llm_router.should_try_local", return_value=False):
+        with patch("api.services.llm_router._find_cloud_fallback", return_value=None):
+            with patch("api.services.llm_router.call_lmstudio", side_effect=_failing_lmstudio):
+                with pytest.raises(RuntimeError, match="lmstudio_unavailable"):
+                    await call_llm("test prompt", "trace-nocloud-001")
+
+    assert call_lmstudio_called, "LM Studio must be called when no cloud fallback is available"
