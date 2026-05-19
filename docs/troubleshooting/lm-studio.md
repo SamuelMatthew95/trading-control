@@ -202,13 +202,17 @@ LM_STUDIO_MODEL=<exact model name from LM Studio>
 
 ---
 
-## LM Studio cooldown bypassed when LLM_PROVIDER=lmstudio (P1)
+## LM Studio cooldown bypassed when LLM_PROVIDER=lmstudio (P1 + P2 refinement)
 
 **Symptom:** After LM Studio becomes unavailable, every subsequent call blocks for `LM_STUDIO_TIMEOUT_SECONDS` before routing to the cloud fallback (with `LLM_FALLBACK_ENABLED=true`). The 60-second cooldown intended by `should_try_local()` is never respected.
 
-**Root cause:** `use_lmstudio` in `call_llm` and `call_llm_with_system` was computed as `lm_primary OR (LM_STUDIO_ENABLED AND should_try_local())`. The `OR` short-circuited whenever `LLM_PROVIDER=lmstudio`, so `should_try_local()` was never evaluated when LM Studio was the primary provider. With `LLM_FALLBACK_ENABLED=false`, there was also no guard to raise immediately when in cooldown — the code fell through to the cloud-provider path and raised a misleading `lmstudio_unavailable_no_fallback` error.
+**Root cause:** `use_lmstudio` was computed as `lm_primary OR (LM_STUDIO_ENABLED AND should_try_local())`. The `OR` short-circuited whenever `LLM_PROVIDER=lmstudio`, so `should_try_local()` was never evaluated when LM Studio was the primary provider.
 
-**Fix:** Changed to `(lm_primary OR LM_STUDIO_ENABLED) AND should_try_local()` so the cooldown is always honoured. Added an explicit guard that raises `lmstudio_unavailable` immediately when `lm_primary=True`, cooldown is active, and `LLM_FALLBACK_ENABLED=false`. Both `call_llm` and `call_llm_with_system` are fixed.
+**Fix:** `use_lmstudio` is now `(lm_primary AND NOT LLM_FALLBACK_ENABLED) OR ((lm_primary OR LM_STUDIO_ENABLED) AND should_try_local())`. This has two effects:
+- With `LLM_FALLBACK_ENABLED=true`: cooldown is honoured — during the 60-second window requests route directly to the cloud fallback without touching LM Studio.
+- With `LLM_FALLBACK_ENABLED=false`: cooldown is **bypassed** — there is no cloud to route to, so suppressing retries just extends the outage. LM Studio is always tried; the caller sees the real failure (connection refused / unavailable) rather than a synthetic "cooldown" error.
+
+Both `call_llm` and `call_llm_with_system` are fixed.
 
 **Regression tests:**
 - `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_respects_cooldown_fallback_enabled`
