@@ -516,7 +516,11 @@ async def call_llm_with_system(
     for parsing the response.
     """
     lm_primary = _is_lmstudio_primary()
-    use_lmstudio = (lm_primary or settings.LM_STUDIO_ENABLED) and should_try_local()
+    # When primary + no-fallback, bypass cooldown: there is no cloud to route to anyway,
+    # so suppressing retries during the 60-second window just extends the outage.
+    use_lmstudio = (lm_primary and not settings.LLM_FALLBACK_ENABLED) or (
+        (lm_primary or settings.LM_STUDIO_ENABLED) and should_try_local()
+    )
 
     if use_lmstudio:
         try:
@@ -541,12 +545,6 @@ async def call_llm_with_system(
                 reason=str(exc),
                 trace_id=trace_id,
             )
-
-    # When lmstudio is primary but in cooldown with fallback disabled, raise immediately.
-    if not use_lmstudio and lm_primary and not settings.LLM_FALLBACK_ENABLED:
-        msg = "lmstudio_unavailable: in local-inference cooldown and LLM_FALLBACK_ENABLED=false"
-        llm_metrics.record_error(message=msg, kind="lmstudio_unavailable")
-        raise RuntimeError(msg)
 
     # Determine cloud provider — when lmstudio is primary, find a configured fallback.
     if lm_primary:
@@ -608,7 +606,11 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
       GROQ_API_KEY=gsk_...
     """
     lm_primary = _is_lmstudio_primary()
-    use_lmstudio = (lm_primary or settings.LM_STUDIO_ENABLED) and should_try_local()
+    # When primary + no-fallback, bypass cooldown: there is no cloud to route to anyway,
+    # so suppressing retries during the 60-second window just extends the outage.
+    use_lmstudio = (lm_primary and not settings.LLM_FALLBACK_ENABLED) or (
+        (lm_primary or settings.LM_STUDIO_ENABLED) and should_try_local()
+    )
 
     if use_lmstudio:
         try:
@@ -643,12 +645,6 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
                 reason=str(exc),
                 trace_id=trace_id,
             )
-
-    # When lmstudio is primary but in cooldown with fallback disabled, raise immediately.
-    if not use_lmstudio and lm_primary and not settings.LLM_FALLBACK_ENABLED:
-        msg = "lmstudio_unavailable: in local-inference cooldown and LLM_FALLBACK_ENABLED=false"
-        llm_metrics.record_error(message=msg, kind="lmstudio_unavailable")
-        raise RuntimeError(msg)
 
     # Determine cloud provider — when lmstudio is primary, find a configured fallback.
     if lm_primary:
