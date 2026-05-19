@@ -11,9 +11,9 @@ services:
       pip install -r requirements.txt &&
       mkdir -p .render/bin &&
       TSVER=1.78.1 &&
-      curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TSVER}_linux_amd64.tgz"
-      | tar -xzf - --strip-components=1 -C .render/bin tailscale_${TSVER}_linux_amd64/tailscale
-        tailscale_${TSVER}_linux_amd64/tailscaled
+      curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TSVER}_amd64.tgz"
+      | tar -xzf - --strip-components=1 -C .render/bin tailscale_${TSVER}_amd64/tailscale
+        tailscale_${TSVER}_amd64/tailscaled
     # .render/start.sh: starts tailscaled, runs tailscale up, then launches gunicorn.
     # Set TAILSCALE_AUTHKEY, LM_STUDIO_HOST, LM_STUDIO_PORT, LM_STUDIO_PROXY_URL
     # in Render env vars.  If TAILSCALE_AUTHKEY is absent the script skips Tailscale.
