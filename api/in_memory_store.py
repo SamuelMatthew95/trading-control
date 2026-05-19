@@ -63,6 +63,7 @@ class InMemoryStore:
     closed_trades: list[dict[str, Any]] = field(default_factory=list)
     equity_curve: list[dict[str, Any]] = field(default_factory=list)
     applied_decision_keys: set[str] = field(default_factory=set)
+    rejected_sells: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
@@ -454,6 +455,42 @@ class InMemoryStore:
         action = payload.get(FieldName.ACTION) or ""
         price = payload.get(FieldName.PRICE) or ""
         return f"derived:{timestamp}:{symbol}:{action}:{price}"
+
+    def has_open_position(self, symbol: str) -> bool:
+        """Return True if there is an open LONG position for *symbol* with qty > 0."""
+        pos = self.positions.get(symbol)
+        if pos is None:
+            return False
+        side = str(pos.get(FieldName.SIDE, "")).lower()
+        qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
+        return side == "long" and qty > 0
+
+    def get_open_position(self, symbol: str) -> dict[str, Any] | None:
+        """Return the open position dict for *symbol*, or None if flat/absent."""
+        if not self.has_open_position(symbol):
+            return None
+        return dict(self.positions[symbol])
+
+    def reject_sell_no_position(
+        self,
+        symbol: str,
+        trace_id: str,
+        event_id: str,
+        reason: str = "NO_OPEN_POSITION",
+    ) -> dict[str, Any]:
+        """Record a rejected SELL attempt and return the rejection record."""
+        entry = {
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: "sell",
+            FieldName.REJECTION_REASON: reason,
+            FieldName.TRACE_ID: trace_id,
+            FieldName.ID: event_id,
+            FieldName.TIMESTAMP: time.time(),
+        }
+        self.rejected_sells.append(entry)
+        if len(self.rejected_sells) > 500:
+            self.rejected_sells = self.rejected_sells[-500:]
+        return entry
 
     def open_positions(self) -> list[dict[str, Any]]:
         """Return normalized in-memory open positions (long/short with non-zero qty)."""
