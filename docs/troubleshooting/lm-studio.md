@@ -117,3 +117,49 @@ TAILSCALE_AUTHKEY=tskey-auth-...
 **Fix:** `api/routes/llm_health.py` now falls back to `redis_metrics.last_latency_ms` for `avg_latency_ms` when the ring buffer has no recent successes. It also surfaces `last_success_at` at the top level of the response. `LLMHealthPanel.tsx` shows "No calls in window — last: Xh ago" when `total_in_window === 0` and `last_success_at` is available.
 
 **Regression test:** `tests/api/test_llm_health.py::test_llm_health_avg_latency_fallback_from_redis`
+
+---
+
+## Dashboard shows "Provider: gemini / LLM Health: Down / Local GPU: Offline" when LM Studio is configured
+
+**Symptom:** Dashboard reports `provider: gemini`, `model: gemini_2.5-flash-lite`, `last error: gemini_model_not_found`, and `Local GPU: Offline / Connection error` even though LM Studio is the intended provider.
+
+**Root cause (three compounding issues):**
+1. `LLM_PROVIDER` defaulted to `"gemini"` — no explicit mechanism to select LM Studio as the primary provider. `LM_STUDIO_ENABLED=true` only made LM Studio a first-try option, still falling back to Gemini.
+2. A remote backend (Render) cannot reach `localhost:1234` on the developer's laptop, but the error surfaced as a vague "Connection error" with no guidance.
+3. When `LLM_PROVIDER=lmstudio` was set, the router would fall through to the cloud-provider dispatch and raise `unknown_provider: 'lmstudio'` — a confusing internal error.
+
+**Fix:**
+- Set `LLM_PROVIDER=lmstudio` to make LM Studio the explicit primary provider. This automatically enables LM Studio without needing `LM_STUDIO_ENABLED=true`, and removes the requirement for any cloud API key.
+- `lmstudio_provider.check_health()` now detects the remote+localhost mismatch (`RENDER_EXTERNAL_URL` set + `LM_STUDIO_HOST=localhost`) and returns a clear error: *"Remote backend cannot reach local LM Studio at localhost. Use a public tunnel, Tailscale, or run backend locally."*
+- `/llm/health` response includes `remote_localhost_mismatch: true/false` and `base_url_host` so the dashboard can surface a targeted warning instead of "Connection error".
+- `LLM_FALLBACK_ENABLED=false` (recommended with `LLM_PROVIDER=lmstudio`) prevents silent fallback to Gemini when LM Studio is unavailable.
+- When `LLM_PROVIDER=lmstudio` and LM Studio fails with fallback disabled, the error is `lmstudio_unavailable: <reason>` — not a Gemini error.
+- `check_health()` validates that the configured `LM_STUDIO_MODEL` is present in the models LM Studio has loaded, and lists available models in the health response if there is a mismatch.
+- `LM_STUDIO_BASE_URL` env var added as a convenient alternative to `LM_STUDIO_HOST` + `LM_STUDIO_PORT`.
+
+**Required env vars (Render, LM Studio via Tailscale):**
+```
+LLM_PROVIDER=lmstudio
+LLM_FALLBACK_ENABLED=false
+LM_STUDIO_HOST=<tailscale-ip-of-mac>   # e.g. 100.112.224.78 — NOT localhost
+LM_STUDIO_PORT=1234
+LM_STUDIO_MODEL=<exact model name from LM Studio>
+LM_STUDIO_PROXY_URL=http://127.0.0.1:1055
+TAILSCALE_AUTHKEY=tskey-auth-...
+```
+
+**Required env vars (local backend + local LM Studio):**
+```
+LLM_PROVIDER=lmstudio
+LLM_FALLBACK_ENABLED=false
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LM_STUDIO_MODEL=<exact model name from LM Studio>
+```
+
+**Regression tests:**
+- `tests/agents/test_lmstudio_provider.py::test_is_remote_localhost_mismatch_true_when_render_and_localhost`
+- `tests/agents/test_lmstudio_provider.py::test_check_health_returns_false_with_mismatch_error`
+- `tests/agents/test_lmstudio_provider.py::test_llm_provider_lmstudio_enables_lm_studio`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_no_fallback_raises`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_does_not_call_gemini_without_key`
