@@ -60,6 +60,10 @@ class Settings(BaseSettings):
 
     # LLM provider routing
     LLM_PROVIDER: str = "gemini"
+    # When True (default), fall back to a cloud provider if LM Studio is
+    # unavailable. Set False to make LM Studio failures hard errors so the
+    # system never silently routes to a cloud provider.
+    LLM_FALLBACK_ENABLED: bool = Field(default=True)
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GEMINI_API_KEY: str | None = Field(default=None)
@@ -76,6 +80,10 @@ class Settings(BaseSettings):
 
     # LM Studio / LM Link — local GPU inference (optional, non-blocking)
     LM_STUDIO_ENABLED: bool = Field(default=False)
+    # Full base URL override — when set, takes precedence over HOST+PORT.
+    # Example: LM_STUDIO_BASE_URL=http://localhost:1234/v1
+    # Leave empty to use LM_STUDIO_HOST + LM_STUDIO_PORT instead.
+    LM_STUDIO_BASE_URL: str = Field(default="")
     LM_STUDIO_HOST: str = "127.0.0.1"
     LM_STUDIO_PORT: int = 1234
     LM_STUDIO_MODEL: str = ""
