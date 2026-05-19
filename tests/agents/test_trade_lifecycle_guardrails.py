@@ -396,6 +396,28 @@ async def test_db_vwap_plan_recomputed_after_clamp(engine_db, mock_bus, mock_bro
     assert exec_calls[0].args[1][FieldName.VWAP_PLAN] is None
 
 
+async def test_db_short_side_also_clamped(engine_db, mock_bus, mock_broker):
+    """side='short' (sell-equivalent) is subject to the same oversell clamp as side='sell'."""
+    open_qty = 0.4
+    mock_broker.get_position.return_value = _long_position(qty=open_qty)
+    mock_broker.place_order.return_value = {
+        FieldName.BROKER_ORDER_ID: "broker-short-clamp",
+        FieldName.FILL_PRICE: 51_000.0,
+        FieldName.STATUS: "filled",
+    }
+
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine_db.process(_make_decision(side="short", qty=10.0))
+
+    mock_broker.place_order.assert_called_once()
+    call_args = mock_broker.place_order.call_args
+    actual_qty = call_args.args[2] if len(call_args.args) >= 3 else call_args.kwargs.get("qty")
+    assert actual_qty == pytest.approx(open_qty)
+
+
 # ---------------------------------------------------------------------------
 # 6. In-memory mode: SELL with no BUY is rejected and recorded
 # ---------------------------------------------------------------------------

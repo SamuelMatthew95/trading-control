@@ -43,6 +43,7 @@ from api.constants import (
     FieldName,
     OrderSide,
     OrderStatus,
+    PositionSide,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -250,7 +251,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     return
 
                 # Clamp oversell: never sell more than the open position holds.
-                if side == OrderSide.SELL:
+                if side in (OrderSide.SELL, PositionSide.SHORT):
                     prior_qty = float(prior_position.get(FieldName.QTY) or 0)
                     if prior_qty > 0 and qty > prior_qty:
                         log_structured(
@@ -664,7 +665,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 return
 
             # Clamp oversell: never sell more than the open position holds.
-            if side == OrderSide.SELL:
+            if side in (OrderSide.SELL, PositionSide.SHORT):
                 prior_qty = float(prior_position.get(FieldName.QTY) or 0)
                 if prior_qty > 0 and qty > prior_qty:
                     log_structured(
