@@ -11,6 +11,38 @@ Health state is module-level, updated by check_health() at startup and
 by every call.  The startup probe is non-blocking — a False result means
 the app continues in degraded (cloud-only) mode.
 
+## Provider selection
+
+Set LLM_PROVIDER=lmstudio to make LM Studio the primary provider.
+This is the recommended approach and removes the need to also set
+LM_STUDIO_ENABLED=true.
+
+When LM_PROVIDER=lmstudio:
+- LM Studio is always tried first (no cloud API key required).
+- If LM Studio is unavailable and LLM_FALLBACK_ENABLED=false (recommended),
+  the call raises immediately with a clear error.
+- If LLM_FALLBACK_ENABLED=true, the router tries the first cloud provider
+  that has an API key configured.
+
+## Remote deployment with local LM Studio
+
+A remote backend (e.g. on Render) cannot reach LM Studio running on
+localhost of a developer machine. When the backend detects this
+configuration (RENDER_EXTERNAL_URL is set and LM_STUDIO_HOST is
+localhost/127.0.0.1), check_health() returns False with a clear error:
+  "Remote backend cannot reach local LM Studio at localhost. Use a
+   public tunnel, Tailscale, or run backend locally."
+
+The /llm/health endpoint exposes remote_localhost_mismatch: true so the
+dashboard can surface a helpful message instead of a vague "Connection error."
+
+To make a remote backend reach LM Studio, use one of:
+- Run the backend locally alongside LM Studio.
+- Expose LM Studio through a secure tunnel (ngrok, Cloudflare Tunnel).
+- Connect both machines through Tailscale and set
+  LM_STUDIO_HOST=<tailscale-ip-of-mac>.
+- Deploy the model somewhere the backend can reach it.
+
 ## Tailscale userspace-networking note
 
 When Tailscale runs with --tun=userspace-networking there is no kernel TUN
@@ -35,7 +67,7 @@ traffic through the SOCKS5 listener with plain HTTP, producing the
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 import httpx
@@ -54,7 +86,7 @@ from api.observability import log_structured
 class LMStudioUnavailableError(RuntimeError):
     """LM Studio is unreachable, no model is loaded, or inference failed.
 
-    The router catches this and falls back to the cloud provider.
+    The router catches this and falls back to the configured cloud provider.
     """
 
 
@@ -65,6 +97,8 @@ class _LocalHealthState:
     fallback_count: int = 0
     last_latency_ms: float = 0.0
     last_failure_at: float = 0.0
+    remote_localhost_mismatch: bool = False
+    available_models: list[str] = field(default_factory=list)
 
 
 _health = _LocalHealthState()
@@ -74,6 +108,8 @@ _RETRY_INTERVAL_S: float = 60.0
 
 # Host:port combos that are proxy endpoints, not valid LM Studio destinations.
 _BLOCKED_HOST_PORT: frozenset[str] = frozenset({"127.0.0.1:1055", "localhost:1055", "0.0.0.0:1055"})
+
+_LOCALHOST_NAMES: frozenset[str] = frozenset({"localhost", "127.0.0.1"})
 
 
 def is_local_healthy() -> bool:
@@ -94,17 +130,63 @@ def should_try_local() -> bool:
     return (time.monotonic() - _health.last_failure_at) >= _RETRY_INTERVAL_S
 
 
+def _get_lm_studio_configured_host() -> str:
+    """Extract the effective LM Studio host for mismatch detection."""
+    base_url = getattr(settings, "LM_STUDIO_BASE_URL", "").strip()
+    if base_url:
+        parsed = urlparse(base_url)
+        return (parsed.hostname or "").lower()
+    return settings.LM_STUDIO_HOST.strip().lower()
+
+
+def is_remote_localhost_mismatch() -> bool:
+    """True when backend is remote (Render) but LM Studio points at localhost.
+
+    A remote backend (e.g. deployed on Render) cannot reach LM Studio running
+    on the developer's laptop via localhost/127.0.0.1.  When this is detected,
+    the health check returns a clear diagnostic instead of a vague connection
+    error.
+    """
+    is_remote = bool(settings.RENDER_EXTERNAL_URL)
+    host = _get_lm_studio_configured_host()
+    return is_remote and host in _LOCALHOST_NAMES
+
+
+def _is_lmstudio_primary() -> bool:
+    """True when LLM_PROVIDER=lmstudio, making LM Studio the primary provider."""
+    return settings.LLM_PROVIDER.lower().strip() == LM_STUDIO_PROVIDER
+
+
+def _is_lmstudio_effectively_enabled() -> bool:
+    """True when LM Studio should be active — either explicitly enabled or set as primary."""
+    return settings.LM_STUDIO_ENABLED or _is_lmstudio_primary()
+
+
 def health_snapshot() -> dict:
     """Snapshot for the /llm/health endpoint."""
+    mismatch = is_remote_localhost_mismatch()
+    is_enabled = _is_lmstudio_effectively_enabled()
+
+    last_error = _health.last_error
+    if mismatch and is_enabled and not last_error:
+        last_error = (
+            "Remote backend cannot reach local LM Studio at localhost. "
+            "Use a public tunnel, Tailscale, or run backend locally."
+        )
+
     return {
-        FieldName.LM_STUDIO_ENABLED: settings.LM_STUDIO_ENABLED,
+        FieldName.LM_STUDIO_ENABLED: is_enabled,
         FieldName.LM_STUDIO_HEALTHY: _health.healthy,
         FieldName.LOCAL_FALLBACK_COUNT: _health.fallback_count,
-        FieldName.LAST_LOCAL_ERROR: _health.last_error,
+        FieldName.LAST_LOCAL_ERROR: last_error,
         FieldName.LOCAL_MODEL: settings.LM_STUDIO_MODEL.strip() or None,
         FieldName.LOCAL_LATENCY_MS: round(_health.last_latency_ms)
         if _health.last_latency_ms
         else None,
+        FieldName.REACHABLE: _health.healthy,
+        FieldName.REMOTE_LOCALHOST_MISMATCH: mismatch,
+        FieldName.BASE_URL_HOST: _get_lm_studio_configured_host(),
+        FieldName.AVAILABLE_MODELS: _health.available_models or None,
     }
 
 
@@ -128,7 +210,16 @@ def validate_lm_studio_config() -> None:
 
 
 def get_lm_studio_base_url() -> str:
-    """Return the canonical LM Studio base URL, always ending in /v1."""
+    """Return the canonical LM Studio base URL, always ending in /v1.
+
+    When LM_STUDIO_BASE_URL is set it takes precedence over LM_STUDIO_HOST
+    and LM_STUDIO_PORT.  The /v1 suffix is appended if not already present.
+    """
+    base_url = getattr(settings, "LM_STUDIO_BASE_URL", "").strip()
+    if base_url:
+        if not base_url.endswith("/v1"):
+            base_url = base_url.rstrip("/") + "/v1"
+        return base_url
     host = settings.LM_STUDIO_HOST.strip()
     port = settings.LM_STUDIO_PORT
     return f"http://{host}:{port}/v1"
@@ -154,15 +245,16 @@ def log_startup_config() -> None:
         "info",
         "lmstudio_config",
         provider=LM_STUDIO_PROVIDER,
-        base_url_host=settings.LM_STUDIO_HOST,
-        base_url_port=settings.LM_STUDIO_PORT,
-        base_url_path="/v1",
+        base_url=get_lm_studio_base_url(),
+        base_url_host=_get_lm_studio_configured_host(),
         proxy_enabled=proxy_enabled,
         proxy_scheme=proxy_scheme,
         proxy_host=proxy_host,
         proxy_port=proxy_port,
         lm_link_enabled=settings.LM_LINK_ENABLED,
         model=settings.LM_STUDIO_MODEL.strip() or None,
+        is_primary=_is_lmstudio_primary(),
+        remote_localhost_mismatch=is_remote_localhost_mismatch(),
     )
 
 
@@ -174,7 +266,7 @@ def _record_success(latency_ms: float) -> None:
 
 def _record_failure(error: str) -> None:
     _health.healthy = False
-    _health.last_error = error[:120]
+    _health.last_error = error[:200]
     _health.fallback_count += 1
     _health.last_failure_at = time.monotonic()
 
@@ -211,26 +303,57 @@ def _make_client() -> AsyncOpenAI:
 
 async def check_health() -> bool:
     """Probe LM Studio via GET /v1/models. Non-blocking: returns False if unavailable."""
-    if not settings.LM_STUDIO_ENABLED:
+    if not _is_lmstudio_effectively_enabled():
         _health.healthy = False
         return False
+
+    # Detect remote-backend + localhost mismatch before attempting any network call.
+    if is_remote_localhost_mismatch():
+        _health.healthy = False
+        _health.remote_localhost_mismatch = True
+        mismatch_msg = (
+            "Remote backend cannot reach local LM Studio at localhost. "
+            "Use a public tunnel, Tailscale, or run backend locally."
+        )
+        _health.last_error = mismatch_msg
+        log_structured(
+            "warning",
+            "lmstudio_remote_localhost_mismatch",
+            host=_get_lm_studio_configured_host(),
+            render_url=settings.RENDER_EXTERNAL_URL,
+        )
+        return False
+
     try:
         validate_lm_studio_config()
     except RuntimeError as exc:
         _health.healthy = False
-        _health.last_error = str(exc)[:120]
+        _health.last_error = str(exc)[:200]
         log_structured("error", "lmstudio_config_invalid", exc_info=True)
         return False
     try:
         client = _make_client()
         models = await client.models.list()
-        ok = bool(models.data)
+        model_ids = [m.id for m in (models.data or [])]
+        _health.available_models = model_ids
+        ok = bool(model_ids)
         _health.healthy = ok
-        _health.last_error = None if ok else "no_model_loaded"
+        if ok:
+            _health.last_error = None
+            configured = settings.LM_STUDIO_MODEL.strip()
+            if configured and configured not in model_ids:
+                _health.last_error = (
+                    f"Configured model '{configured}' not found in LM Studio. "
+                    f"Loaded models: {', '.join(model_ids)}"
+                )
+                _health.healthy = False
+                return False
+        else:
+            _health.last_error = "no_model_loaded"
         return ok
     except Exception as exc:
         _health.healthy = False
-        _health.last_error = str(exc)[:120]
+        _health.last_error = str(exc)[:200]
         log_structured("warning", "lmstudio_health_probe_failed", exc_info=True)
         return False
 
@@ -247,7 +370,7 @@ async def call_lmstudio(
     Returns (raw_text, token_count, cost_usd).
     Raises LMStudioUnavailableError on any failure so the router can fall back.
     """
-    if not settings.LM_STUDIO_ENABLED:
+    if not _is_lmstudio_effectively_enabled():
         raise LMStudioUnavailableError("lm_studio_disabled")
 
     model_id = settings.LM_STUDIO_MODEL.strip()
@@ -261,8 +384,7 @@ async def call_lmstudio(
         "info",
         "reasoning_llm_request",
         provider=LM_STUDIO_PROVIDER,
-        base_url_host=settings.LM_STUDIO_HOST,
-        base_url_port=settings.LM_STUDIO_PORT,
+        base_url_host=_get_lm_studio_configured_host(),
         proxy_enabled=proxy_enabled,
         timeout_seconds=settings.LM_STUDIO_TIMEOUT_SECONDS,
         trace_id=trace_id,
@@ -289,8 +411,7 @@ async def call_lmstudio(
             "warning",
             "reasoning_llm_timeout",
             provider=LM_STUDIO_PROVIDER,
-            base_url_host=settings.LM_STUDIO_HOST,
-            base_url_port=settings.LM_STUDIO_PORT,
+            base_url_host=_get_lm_studio_configured_host(),
             proxy_enabled=proxy_enabled,
             timeout_seconds=settings.LM_STUDIO_TIMEOUT_SECONDS,
             exc_class="APITimeoutError",
@@ -298,27 +419,32 @@ async def call_lmstudio(
         )
         raise LMStudioUnavailableError("lmstudio_timeout") from None
     except APIConnectionError as exc:
-        _record_failure(str(exc))
+        err_msg = str(exc)
+        if is_remote_localhost_mismatch():
+            err_msg = (
+                "Remote backend cannot reach local LM Studio at localhost. "
+                "Use a public tunnel, Tailscale, or run backend locally."
+            )
+        _record_failure(err_msg)
         log_structured(
             "warning",
             "reasoning_llm_connection_failed",
             provider=LM_STUDIO_PROVIDER,
-            base_url_host=settings.LM_STUDIO_HOST,
-            base_url_port=settings.LM_STUDIO_PORT,
+            base_url_host=_get_lm_studio_configured_host(),
             proxy_enabled=proxy_enabled,
+            remote_localhost_mismatch=is_remote_localhost_mismatch(),
             exc_class="APIConnectionError",
             trace_id=trace_id,
             exc_info=True,
         )
-        raise LMStudioUnavailableError(f"lmstudio_connection_failed: {exc}") from exc
+        raise LMStudioUnavailableError(f"lmstudio_connection_failed: {err_msg}") from exc
     except Exception as exc:
         _record_failure(str(exc))
         log_structured(
             "warning",
             "reasoning_llm_failed",
             provider=LM_STUDIO_PROVIDER,
-            base_url_host=settings.LM_STUDIO_HOST,
-            base_url_port=settings.LM_STUDIO_PORT,
+            base_url_host=_get_lm_studio_configured_host(),
             proxy_enabled=proxy_enabled,
             exc_class=type(exc).__name__,
             trace_id=trace_id,
