@@ -10,7 +10,9 @@ from fastapi import APIRouter
 from api.config import settings
 from api.constants import LLM_METRICS_WINDOW_SECONDS, LM_STUDIO_PROVIDER, FieldName
 from api.services.llm_metrics import llm_metrics
-from api.services.lmstudio_provider import health_snapshot as lm_studio_health_snapshot
+from api.services.lmstudio_provider import (
+    health_snapshot as lm_studio_health_snapshot,
+)
 from api.services.redis_store import get_redis_store
 
 router = APIRouter(tags=["llm"])
@@ -33,11 +35,12 @@ async def llm_health() -> dict[str, Any]:
     status = _llm_status(snap[FieldName.SUCCESS_RATE_PCT], snap[FieldName.TOTAL_IN_WINDOW])
 
     provider = getattr(settings, "LLM_PROVIDER", "unknown").lower()
-    _model_setting = {
+    _model_setting: dict[str, tuple[str, str]] = {
         FieldName.GEMINI: ("GEMINI_MODEL", settings.GEMINI_MODEL),
-        FieldName.GROQ: ("GROQ_MODEL", "unknown"),
-        FieldName.ANTHROPIC: ("ANTHROPIC_MODEL", "unknown"),
-        FieldName.OPENAI: ("OPENAI_MODEL", "unknown"),
+        FieldName.GROQ: ("GROQ_MODEL", settings.GROQ_MODEL),
+        FieldName.ANTHROPIC: ("ANTHROPIC_MODEL", getattr(settings, "ANTHROPIC_MODEL", "unknown")),
+        FieldName.OPENAI: ("OPENAI_MODEL", getattr(settings, "OPENAI_MODEL", "unknown")),
+        LM_STUDIO_PROVIDER: ("LM_STUDIO_MODEL", settings.LM_STUDIO_MODEL or "not configured"),
     }
     _attr, _default = _model_setting.get(provider, ("", "unknown"))
     model_name: str = getattr(settings, _attr, _default) if _attr else "unknown"
@@ -91,7 +94,8 @@ async def llm_health() -> dict[str, Any]:
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         FieldName.LAST_SUCCESS_AT: last_success_at,
         FieldName.REDIS_METRICS: redis_metrics,
-        FieldName.LOCAL_INFERENCE_ENABLED: settings.LM_STUDIO_ENABLED,
+        FieldName.LOCAL_INFERENCE_ENABLED: lm_snap.get(FieldName.LM_STUDIO_ENABLED, False),
+        FieldName.LLM_FALLBACK_ENABLED: settings.LLM_FALLBACK_ENABLED,
         **lm_snap,
         **snap,
     }
