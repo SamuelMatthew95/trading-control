@@ -214,8 +214,16 @@ def validate_lm_studio_config() -> None:
     base_url_override = getattr(settings, "LM_STUDIO_BASE_URL", "").strip()
     if base_url_override:
         parsed = urlparse(base_url_override)
-        base_host = (parsed.hostname or "").lower()
-        base_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            base_host = (parsed.hostname or "").lower()
+            base_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError as exc:
+            # urlparse accepts invalid port strings like "notaport" without raising,
+            # but accessing .port raises ValueError — surface it as a RuntimeError so
+            # check_health() can catch it and return a controlled degraded response.
+            raise RuntimeError(
+                f"Invalid LM_STUDIO_BASE_URL: cannot parse host/port — {exc}"
+            ) from exc
         base_host_port = f"{base_host}:{base_port}"
         if base_host_port in _BLOCKED_HOST_PORT:
             raise RuntimeError(
@@ -338,6 +346,7 @@ async def check_health() -> bool:
     # Detect remote-backend + localhost mismatch before attempting any network call.
     if is_remote_localhost_mismatch():
         _health.healthy = False
+        _health.available_models = []
         _health.remote_localhost_mismatch = True
         mismatch_msg = (
             "Remote backend cannot reach local LM Studio at localhost. "
@@ -356,6 +365,7 @@ async def check_health() -> bool:
         validate_lm_studio_config()
     except RuntimeError as exc:
         _health.healthy = False
+        _health.available_models = []
         _health.last_error = str(exc)[:200]
         log_structured("error", "lmstudio_config_invalid", exc_info=True)
         return False
@@ -385,6 +395,7 @@ async def check_health() -> bool:
         return ok
     except Exception as exc:
         _health.healthy = False
+        _health.available_models = []
         _health.last_error = str(exc)[:200]
         log_structured("warning", "lmstudio_health_probe_failed", exc_info=True)
         return False
