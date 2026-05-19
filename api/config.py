@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     LM_STUDIO_PORT: int = 1234
     LM_STUDIO_MODEL: str = ""
     LM_STUDIO_TIMEOUT_SECONDS: int = 90
+    # When Tailscale runs in userspace-networking mode (--outbound-http-proxy-listen),
+    # set this to the HTTP CONNECT proxy URL so httpx can reach the Tailscale peer.
+    # Example: LM_STUDIO_PROXY_URL=http://127.0.0.1:1055
+    # Leave empty when LM Studio is local (same machine) or when Tailscale uses
+    # kernel networking (TUN device).  Never set this to the LM Studio base URL.
+    LM_STUDIO_PROXY_URL: str = Field(default="")
     LM_LINK_ENABLED: bool = Field(default=False)
     LM_LINK_DEVICE_NAME: str = ""
     LM_LINK_TOKEN: str = Field(default="")
