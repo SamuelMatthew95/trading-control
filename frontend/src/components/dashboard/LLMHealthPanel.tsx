@@ -33,6 +33,11 @@ interface LocalInferenceData {
   local_fallback_count: number
   last_local_error: string | null
   local_latency_ms: number | null
+  reachable: boolean
+  remote_localhost_mismatch: boolean
+  base_url_host: string | null
+  available_models: string[] | null
+  llm_fallback_enabled: boolean
 }
 
 interface LLMHealthData extends LocalInferenceData {
@@ -161,7 +166,7 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
   return (
     <div className="mb-3 rounded-lg border border-indigo-300/30 bg-indigo-500/5 px-3 py-2 text-xs">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className={LABEL}>Local GPU</span>
+        <span className={LABEL}>Local GPU / LM Studio</span>
         <span className="flex items-center gap-1.5">
           <span className={`inline-block h-2 w-2 rounded-full ${dotColor}`} />
           <span className={`text-xs font-semibold ${labelColor}`}>
@@ -169,10 +174,31 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
           </span>
         </span>
       </div>
+
+      {/* Remote-to-localhost mismatch warning */}
+      {data.remote_localhost_mismatch && (
+        <div className="mb-2 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-amber-700 dark:text-amber-400">
+          <span className="font-semibold">Remote backend cannot reach localhost.</span>
+          <span className="ml-1">
+            Use Tailscale, a public tunnel, or run the backend locally.
+          </span>
+          {data.base_url_host && (
+            <span className={`${MUTED} ml-1`}>
+              (host: <span className="font-mono">{data.base_url_host}</span>)
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         {data.local_model && (
           <span className={`${MUTED} col-span-2 truncate`}>
             Model: <span className="font-mono">{data.local_model}</span>
+          </span>
+        )}
+        {data.base_url_host && !data.remote_localhost_mismatch && (
+          <span className={`${MUTED} col-span-2`}>
+            Host: <span className="font-mono">{data.base_url_host}</span>
           </span>
         )}
         {data.local_latency_ms != null && (
@@ -192,12 +218,22 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
             {data.local_fallback_count}
           </span>
         </span>
-        {data.last_local_error && (
+        {!data.llm_fallback_enabled && (
+          <span className={`${MUTED} col-span-2`}>
+            Fallback: <span className="font-mono text-slate-500 dark:text-slate-400">disabled</span>
+          </span>
+        )}
+        {data.last_local_error && !data.remote_localhost_mismatch && (
           <span className={`${MUTED} col-span-2`}>
             Error:{' '}
             <span className="font-mono text-rose-500 dark:text-rose-400">
               {data.last_local_error}
             </span>
+          </span>
+        )}
+        {data.available_models && data.available_models.length > 0 && (
+          <span className={`${MUTED} col-span-2 truncate`}>
+            Loaded: <span className="font-mono">{data.available_models.join(', ')}</span>
           </span>
         )}
       </div>
