@@ -10,12 +10,33 @@ LMStudioUnavailableError and fall back to the configured cloud provider.
 Health state is module-level, updated by check_health() at startup and
 by every call.  The startup probe is non-blocking — a False result means
 the app continues in degraded (cloud-only) mode.
+
+## Tailscale userspace-networking note
+
+When Tailscale runs with --tun=userspace-networking there is no kernel TUN
+device, so direct TCP to Tailscale IPs (e.g. 100.112.224.78) does NOT work.
+All traffic to Tailscale peers must go through the proxy that tailscaled
+exposes.  The recommended approach:
+
+  1. Start tailscaled with --outbound-http-proxy-listen=localhost:1055
+     (and optionally --socks5-server=localhost:1055 for other clients).
+  2. Set LM_STUDIO_PROXY_URL=http://127.0.0.1:1055 so _make_client() passes
+     it as an explicit HTTP CONNECT proxy to httpx.
+  3. Set LM_STUDIO_HOST=<tailscale-ip-of-mac> (e.g. 100.112.224.78) and
+     LM_STUDIO_PORT=1234.
+
+trust_env=False is ALWAYS applied to the httpx client regardless of
+LM_STUDIO_PROXY_URL — this prevents httpx from silently picking up
+ALL_PROXY / HTTP_PROXY / HTTPS_PROXY environment variables that could route
+traffic through the SOCKS5 listener with plain HTTP, producing the
+"incompatible SOCKS version" error.
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
@@ -51,6 +72,9 @@ _health = _LocalHealthState()
 # After a failure, skip LM Studio for this many seconds before retrying.
 _RETRY_INTERVAL_S: float = 60.0
 
+# Host:port combos that are proxy endpoints, not valid LM Studio destinations.
+_BLOCKED_HOST_PORT: frozenset[str] = frozenset({"127.0.0.1:1055", "localhost:1055", "0.0.0.0:1055"})
+
 
 def is_local_healthy() -> bool:
     """Return True if the last health probe or call succeeded."""
@@ -84,6 +108,64 @@ def health_snapshot() -> dict:
     }
 
 
+def validate_lm_studio_config() -> None:
+    """Raise RuntimeError if LM Studio host:port points at a proxy endpoint.
+
+    localhost:1055 is the Tailscale SOCKS5/HTTP proxy — it must never be used
+    as the LM Studio destination.  LM_STUDIO_HOST should be the Tailscale IP
+    of the machine running LM Studio (e.g. 100.112.224.78).
+    """
+    host_port = f"{settings.LM_STUDIO_HOST.strip()}:{settings.LM_STUDIO_PORT}"
+    if host_port in _BLOCKED_HOST_PORT:
+        raise RuntimeError(
+            f"Invalid LM_STUDIO_HOST:LM_STUDIO_PORT ({host_port}): "
+            "proxy endpoint was used as LM Studio destination. "
+            "Set LM_STUDIO_HOST=<tailscale-ip-of-mac> (e.g. 100.112.224.78) "
+            "and LM_STUDIO_PORT=1234.  "
+            "To route through Tailscale userspace networking set "
+            "LM_STUDIO_PROXY_URL=http://127.0.0.1:1055 instead."
+        )
+
+
+def get_lm_studio_base_url() -> str:
+    """Return the canonical LM Studio base URL, always ending in /v1."""
+    host = settings.LM_STUDIO_HOST.strip()
+    port = settings.LM_STUDIO_PORT
+    return f"http://{host}:{port}/v1"
+
+
+def log_startup_config() -> None:
+    """Log sanitized LM Studio config for startup diagnostics.
+
+    Safe to call before or after check_health().  Never logs secrets.
+    """
+    proxy_raw = settings.LM_STUDIO_PROXY_URL.strip()
+    proxy_enabled = bool(proxy_raw)
+    proxy_scheme: str | None = None
+    proxy_host: str | None = None
+    proxy_port: int | None = None
+    if proxy_raw:
+        parsed = urlparse(proxy_raw)
+        proxy_scheme = parsed.scheme or None
+        proxy_host = parsed.hostname or None
+        proxy_port = parsed.port or None
+
+    log_structured(
+        "info",
+        "lmstudio_config",
+        provider=LM_STUDIO_PROVIDER,
+        base_url_host=settings.LM_STUDIO_HOST,
+        base_url_port=settings.LM_STUDIO_PORT,
+        base_url_path="/v1",
+        proxy_enabled=proxy_enabled,
+        proxy_scheme=proxy_scheme,
+        proxy_host=proxy_host,
+        proxy_port=proxy_port,
+        lm_link_enabled=settings.LM_LINK_ENABLED,
+        model=settings.LM_STUDIO_MODEL.strip() or None,
+    )
+
+
 def _record_success(latency_ms: float) -> None:
     _health.healthy = True
     _health.last_error = None
@@ -100,21 +182,26 @@ def _record_failure(error: str) -> None:
 def _make_client() -> AsyncOpenAI:
     """Create an AsyncOpenAI client pointed at LM Studio's OpenAI-compatible endpoint.
 
-    LM Studio exposes /v1 at http://host:port/v1.
-    api_key is set to LM_LINK_TOKEN when provided (optional proxy auth in
-    front of LM Studio); the local LM Studio server accepts any non-empty string.
-    LM Link itself is Tailscale-based — set LM_STUDIO_HOST to the Tailscale
-    hostname/IP of your GPU machine and LM Link handles the network layer.
+    trust_env=False is always applied so httpx never inherits ALL_PROXY,
+    HTTP_PROXY, or HTTPS_PROXY from the environment — those system proxy vars
+    could silently route LM Studio HTTP traffic through the Tailscale SOCKS5
+    listener, producing "incompatible SOCKS version" errors.
 
-    When LM_LINK_ENABLED, we pass trust_env=False to the underlying httpx client
-    so it ignores ALL_PROXY / HTTP_PROXY env vars set by Tailscale.  Routing to
-    the Tailscale peer happens at the OS network layer; sending the HTTP stream
-    through the SOCKS5 proxy a second time produces "incompatible SOCKS version"
-    and "peerapi: unknown peer" errors in the Tailscale daemon.
+    When LM_STUDIO_PROXY_URL is set (e.g. http://127.0.0.1:1055), it is passed
+    as an explicit HTTP CONNECT proxy transport.  This is the correct way to
+    reach a Tailscale peer when tailscaled runs in userspace-networking mode
+    with --outbound-http-proxy-listen.
+
+    api_key is set to LM_LINK_TOKEN when provided (optional proxy auth);
+    the local LM Studio server accepts any non-empty string.
     """
-    http_client = httpx.AsyncClient(trust_env=False) if settings.LM_LINK_ENABLED else None
+    proxy_url: str | None = settings.LM_STUDIO_PROXY_URL.strip() or None
+    http_client = httpx.AsyncClient(
+        proxy=proxy_url,
+        trust_env=False,
+    )
     return AsyncOpenAI(
-        base_url=f"http://{settings.LM_STUDIO_HOST}:{settings.LM_STUDIO_PORT}/v1",
+        base_url=get_lm_studio_base_url(),
         api_key=settings.LM_LINK_TOKEN or "lm-studio",
         timeout=float(settings.LM_STUDIO_TIMEOUT_SECONDS),
         max_retries=0,
@@ -126,6 +213,13 @@ async def check_health() -> bool:
     """Probe LM Studio via GET /v1/models. Non-blocking: returns False if unavailable."""
     if not settings.LM_STUDIO_ENABLED:
         _health.healthy = False
+        return False
+    try:
+        validate_lm_studio_config()
+    except RuntimeError as exc:
+        _health.healthy = False
+        _health.last_error = str(exc)[:120]
+        log_structured("error", "lmstudio_config_invalid", exc_info=True)
         return False
     try:
         client = _make_client()
@@ -161,6 +255,19 @@ async def call_lmstudio(
         _record_failure("lm_studio_model_not_configured")
         raise LMStudioUnavailableError("lm_studio_model_not_configured")
 
+    proxy_raw = settings.LM_STUDIO_PROXY_URL.strip()
+    proxy_enabled = bool(proxy_raw)
+    log_structured(
+        "info",
+        "reasoning_llm_request",
+        provider=LM_STUDIO_PROVIDER,
+        base_url_host=settings.LM_STUDIO_HOST,
+        base_url_port=settings.LM_STUDIO_PORT,
+        proxy_enabled=proxy_enabled,
+        timeout_seconds=settings.LM_STUDIO_TIMEOUT_SECONDS,
+        trace_id=trace_id,
+    )
+
     t0 = time.monotonic()
     try:
         client = _make_client()
@@ -180,18 +287,43 @@ async def call_lmstudio(
         _record_failure("timeout")
         log_structured(
             "warning",
-            "lmstudio_timeout",
-            trace_id=trace_id,
+            "reasoning_llm_timeout",
+            provider=LM_STUDIO_PROVIDER,
+            base_url_host=settings.LM_STUDIO_HOST,
+            base_url_port=settings.LM_STUDIO_PORT,
+            proxy_enabled=proxy_enabled,
             timeout_seconds=settings.LM_STUDIO_TIMEOUT_SECONDS,
+            exc_class="APITimeoutError",
+            trace_id=trace_id,
         )
         raise LMStudioUnavailableError("lmstudio_timeout") from None
     except APIConnectionError as exc:
         _record_failure(str(exc))
-        log_structured("warning", "lmstudio_connection_failed", trace_id=trace_id, exc_info=True)
+        log_structured(
+            "warning",
+            "reasoning_llm_connection_failed",
+            provider=LM_STUDIO_PROVIDER,
+            base_url_host=settings.LM_STUDIO_HOST,
+            base_url_port=settings.LM_STUDIO_PORT,
+            proxy_enabled=proxy_enabled,
+            exc_class="APIConnectionError",
+            trace_id=trace_id,
+            exc_info=True,
+        )
         raise LMStudioUnavailableError(f"lmstudio_connection_failed: {exc}") from exc
     except Exception as exc:
         _record_failure(str(exc))
-        log_structured("warning", "lmstudio_call_failed", trace_id=trace_id, exc_info=True)
+        log_structured(
+            "warning",
+            "reasoning_llm_failed",
+            provider=LM_STUDIO_PROVIDER,
+            base_url_host=settings.LM_STUDIO_HOST,
+            base_url_port=settings.LM_STUDIO_PORT,
+            proxy_enabled=proxy_enabled,
+            exc_class=type(exc).__name__,
+            trace_id=trace_id,
+            exc_info=True,
+        )
         raise LMStudioUnavailableError(f"lmstudio_inference_failed: {exc}") from exc
 
     latency_ms = (time.monotonic() - t0) * 1000
