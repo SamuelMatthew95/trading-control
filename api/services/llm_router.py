@@ -516,9 +516,12 @@ async def call_llm_with_system(
     for parsing the response.
     """
     lm_primary = _is_lmstudio_primary()
-    # When primary + no-fallback, bypass cooldown: there is no cloud to route to anyway,
-    # so suppressing retries during the 60-second window just extends the outage.
-    use_lmstudio = (lm_primary and not settings.LLM_FALLBACK_ENABLED) or (
+    # Bypass cooldown when there is no usable cloud path: fallback disabled, or enabled
+    # but no cloud API key configured.  The cooldown only makes sense when there is a
+    # live cloud alternative to route to — without one, suppressing local retries just
+    # extends the outage.
+    _cloud_available = settings.LLM_FALLBACK_ENABLED and bool(_find_cloud_fallback())
+    use_lmstudio = (lm_primary and not _cloud_available) or (
         (lm_primary or settings.LM_STUDIO_ENABLED) and should_try_local()
     )
 
@@ -606,9 +609,12 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
       GROQ_API_KEY=gsk_...
     """
     lm_primary = _is_lmstudio_primary()
-    # When primary + no-fallback, bypass cooldown: there is no cloud to route to anyway,
-    # so suppressing retries during the 60-second window just extends the outage.
-    use_lmstudio = (lm_primary and not settings.LLM_FALLBACK_ENABLED) or (
+    # Bypass cooldown when there is no usable cloud path: fallback disabled, or enabled
+    # but no cloud API key configured.  The cooldown only makes sense when there is a
+    # live cloud alternative to route to — without one, suppressing local retries just
+    # extends the outage.
+    _cloud_available = settings.LLM_FALLBACK_ENABLED and bool(_find_cloud_fallback())
+    use_lmstudio = (lm_primary and not _cloud_available) or (
         (lm_primary or settings.LM_STUDIO_ENABLED) and should_try_local()
     )
 
