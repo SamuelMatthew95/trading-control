@@ -609,3 +609,64 @@ async def test_call_llm_parse_failure_no_fallback_raises(monkeypatch):
                 await call_llm("test prompt", "trace-parse-001")
 
     assert not cloud_called, "cloud provider must not be called when fallback is disabled"
+
+
+# ---------------------------------------------------------------------------
+# Cooldown behaviour: should_try_local() honoured when LLM_PROVIDER=lmstudio
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_primary_respects_cooldown_fallback_enabled(monkeypatch):
+    """When LLM_PROVIDER=lmstudio and should_try_local() is False, go to cloud directly.
+
+    Regression: use_lmstudio was computed as `lm_primary OR ...`, bypassing the
+    60-second cooldown whenever LLM_PROVIDER=lmstudio. This caused every call to
+    block for LM_STUDIO_TIMEOUT_SECONDS before cloud fallback when LM Studio was down.
+    """
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import LMStudioUnavailableError
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", True)
+
+    cloud_result = (
+        {"action": "hold", "confidence": 0.5, "fallback": False, "trace_id": "t"},
+        10,
+        0.0,
+    )
+    call_lmstudio_called = []
+
+    async def _fake_call_lmstudio(*a, **kw):  # pragma: no cover
+        call_lmstudio_called.append(True)
+        raise LMStudioUnavailableError("should not be called")
+
+    from api.services.llm_router import call_llm
+
+    with patch("api.services.llm_router.should_try_local", return_value=False):
+        with patch("api.services.llm_router.call_lmstudio", side_effect=_fake_call_lmstudio):
+            with patch(
+                "api.services.llm_router._PROVIDERS",
+                {"groq": AsyncMock(return_value=cloud_result)},
+            ):
+                with patch("api.services.llm_router._get_provider_key", return_value="fake-key"):
+                    with patch("api.services.llm_router._find_cloud_fallback", return_value="groq"):
+                        result, _, _ = await call_llm("test prompt", "trace-cooldown-001")
+
+    assert not call_lmstudio_called, "LM Studio must not be called during cooldown"
+    assert result["action"] == "hold"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_primary_cooldown_no_fallback_raises(monkeypatch):
+    """When LLM_PROVIDER=lmstudio, cooldown active, and fallback disabled, raise immediately."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
+
+    from api.services.llm_router import call_llm
+
+    with patch("api.services.llm_router.should_try_local", return_value=False):
+        with pytest.raises(RuntimeError, match="lmstudio_unavailable"):
+            await call_llm("test prompt", "trace-cooldown-002")
