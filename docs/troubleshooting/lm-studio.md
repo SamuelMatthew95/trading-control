@@ -208,15 +208,16 @@ LM_STUDIO_MODEL=<exact model name from LM Studio>
 
 **Root cause:** `use_lmstudio` was computed as `lm_primary OR (LM_STUDIO_ENABLED AND should_try_local())`. The `OR` short-circuited whenever `LLM_PROVIDER=lmstudio`, so `should_try_local()` was never evaluated when LM Studio was the primary provider.
 
-**Fix:** `use_lmstudio` is now `(lm_primary AND NOT LLM_FALLBACK_ENABLED) OR ((lm_primary OR LM_STUDIO_ENABLED) AND should_try_local())`. This has two effects:
-- With `LLM_FALLBACK_ENABLED=true`: cooldown is honoured — during the 60-second window requests route directly to the cloud fallback without touching LM Studio.
-- With `LLM_FALLBACK_ENABLED=false`: cooldown is **bypassed** — there is no cloud to route to, so suppressing retries just extends the outage. LM Studio is always tried; the caller sees the real failure (connection refused / unavailable) rather than a synthetic "cooldown" error.
+**Fix:** `use_lmstudio` is now computed as `(lm_primary AND NOT _cloud_available) OR ((lm_primary OR LM_STUDIO_ENABLED) AND should_try_local())`, where `_cloud_available = LLM_FALLBACK_ENABLED AND bool(_find_cloud_fallback())`. This means:
+- A live cloud path exists (fallback enabled + cloud API key configured): cooldown is honoured — during the 60-second window requests route directly to cloud without touching LM Studio.
+- No usable cloud path (fallback disabled OR no cloud API key): cooldown is **bypassed** — suppressing retries just extends the outage with no benefit. LM Studio is always tried; the caller sees the real failure rather than a synthetic "cooldown" error.
 
 Both `call_llm` and `call_llm_with_system` are fixed.
 
 **Regression tests:**
 - `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_respects_cooldown_fallback_enabled`
 - `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_cooldown_no_fallback_raises`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_no_cloud_key_bypasses_cooldown`
 
 ---
 
