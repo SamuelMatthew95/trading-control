@@ -215,10 +215,10 @@ def get_lm_studio_base_url() -> str:
     When LM_STUDIO_BASE_URL is set it takes precedence over LM_STUDIO_HOST
     and LM_STUDIO_PORT.  The /v1 suffix is appended if not already present.
     """
-    base_url = getattr(settings, "LM_STUDIO_BASE_URL", "").strip()
+    base_url = getattr(settings, "LM_STUDIO_BASE_URL", "").strip().rstrip("/")
     if base_url:
         if not base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/") + "/v1"
+            base_url = base_url + "/v1"
         return base_url
     host = settings.LM_STUDIO_HOST.strip()
     port = settings.LM_STUDIO_PORT
