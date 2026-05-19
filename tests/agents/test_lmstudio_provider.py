@@ -992,3 +992,32 @@ def test_is_lmstudio_effectively_enabled_false_when_both_off(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
     monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
     assert _is_lmstudio_effectively_enabled() is False
+
+
+# ---------------------------------------------------------------------------
+# Regression: check_health marks unhealthy when LM_STUDIO_MODEL is blank (P2 fix).
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_blank_model_returns_false_and_unhealthy(monkeypatch):
+    """check_health returns False and marks unhealthy when LM_STUDIO_MODEL is blank.
+
+    Regression: when models are loaded but LM_STUDIO_MODEL='', _health.healthy was
+    left True because the configured-model check was gated on `if configured`.
+    call_lmstudio() would then immediately raise lm_studio_model_not_configured,
+    creating a misleading healthy/active dashboard state — especially dangerous
+    with LLM_FALLBACK_ENABLED=false.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    mock = _mock_client()  # returns one loaded model in models.data
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "lm_studio_model_not_configured"
