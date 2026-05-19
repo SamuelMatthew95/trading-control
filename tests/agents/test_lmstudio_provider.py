@@ -1021,3 +1021,35 @@ async def test_check_health_blank_model_returns_false_and_unhealthy(monkeypatch)
     assert ok is False
     assert _health.healthy is False
     assert _health.last_error == "lm_studio_model_not_configured"
+
+
+# ---------------------------------------------------------------------------
+# URL sanitization in log_startup_config
+# ---------------------------------------------------------------------------
+
+
+def test_log_startup_config_redacts_url_credentials(monkeypatch, capsys):
+    """log_startup_config must not emit userinfo or query tokens from LM_STUDIO_BASE_URL.
+
+    Regression: base_url was logged as-is; authenticated tunnel URLs
+    (e.g. https://user:token@host/v1?key=abc) would leak credentials into
+    structured logs despite the "Never logs secrets" contract.
+    """
+    from api.services.lmstudio_provider import log_startup_config
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(
+        settings,
+        "LM_STUDIO_BASE_URL",
+        "http://secretuser:secretpass@tunnel.example.com:8080/v1?token=abc123",
+    )
+    monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "")
+
+    log_startup_config()
+
+    out = capsys.readouterr().out
+    assert "secretuser" not in out
+    assert "secretpass" not in out
+    assert "abc123" not in out
+    assert "tunnel.example.com" in out
