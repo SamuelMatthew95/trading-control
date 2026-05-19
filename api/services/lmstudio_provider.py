@@ -355,7 +355,11 @@ async def check_health() -> bool:
         if ok:
             _health.last_error = None
             configured = settings.LM_STUDIO_MODEL.strip()
-            if configured and configured not in model_ids:
+            if not configured:
+                _health.last_error = "lm_studio_model_not_configured"
+                _health.healthy = False
+                return False
+            if configured not in model_ids:
                 _health.last_error = (
                     f"Configured model '{configured}' not found in LM Studio. "
                     f"Loaded models: {', '.join(model_ids)}"
