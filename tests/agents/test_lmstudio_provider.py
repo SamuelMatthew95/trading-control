@@ -1053,3 +1053,101 @@ def test_log_startup_config_redacts_url_credentials(monkeypatch, capsys):
     assert "secretpass" not in out
     assert "abc123" not in out
     assert "tunnel.example.com" in out
+
+
+# ---------------------------------------------------------------------------
+# P1: validate_lm_studio_config — invalid port raises RuntimeError (not ValueError)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_config_invalid_port_raises_runtime_error(monkeypatch):
+    """LM_STUDIO_BASE_URL with a non-integer port must raise RuntimeError, not ValueError.
+
+    Regression: urllib.parse.urlparse accepts invalid port strings silently, but
+    accessing parsed.port raises ValueError.  validate_lm_studio_config() only
+    raised RuntimeError for blocked hosts; an invalid port escaped as ValueError
+    which check_health() did not catch, crashing startup.
+    """
+    from api.services.lmstudio_provider import validate_lm_studio_config
+
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:notaport/v1")
+    with pytest.raises(RuntimeError, match="Invalid LM_STUDIO_BASE_URL"):
+        validate_lm_studio_config()
+
+
+def test_check_health_invalid_port_returns_false_not_crash(monkeypatch):
+    """check_health() must return False (degraded) for an invalid port, not raise."""
+    import pytest_asyncio  # noqa: F401 — ensure async test infra
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:badport/v1")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "")
+
+    from api.services import lmstudio_provider as _mod
+
+    _mod._health.healthy = False
+
+    import asyncio
+
+    result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
+    assert result is False
+    assert _mod._health.healthy is False
+    assert _mod._health.last_error is not None
+
+
+# ---------------------------------------------------------------------------
+# P2: available_models cleared on check_health() failure paths
+# ---------------------------------------------------------------------------
+
+
+def test_check_health_clears_available_models_on_mismatch(monkeypatch):
+    """Stale available_models must be cleared when a mismatch failure is detected.
+
+    Regression: a prior successful probe set _health.available_models; a subsequent
+    remote-localhost mismatch left those models in the snapshot, misrepresenting
+    current LM Studio state.
+    """
+    from api.services import lmstudio_provider as _mod
+
+    # Seed stale models from a prior successful probe
+    _mod._health.available_models = ["llama-3-8b", "mistral-7b"]
+    _mod._health.healthy = True
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    # Simulate remote deployment where mismatch is detected
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    import asyncio
+
+    result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
+    assert result is False
+    assert _mod._health.available_models == [], "stale models must be cleared on mismatch"
+
+
+def test_check_health_clears_available_models_on_network_failure(monkeypatch):
+    """Stale available_models must be cleared when the /v1/models probe fails with a network error."""
+    from api.services import lmstudio_provider as _mod
+
+    _mod._health.available_models = ["old-model"]
+    _mod._health.healthy = True
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+
+    async def _failing_list(self):
+        raise ConnectionRefusedError("connection refused")
+
+    import asyncio
+
+    from openai.resources.models import AsyncModels
+
+    monkeypatch.setattr(AsyncModels, "list", _failing_list)
+
+    result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
+    assert result is False
+    assert _mod._health.available_models == [], "stale models must be cleared on network failure"
