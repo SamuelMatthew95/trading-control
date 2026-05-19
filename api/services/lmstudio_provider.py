@@ -196,17 +196,31 @@ def validate_lm_studio_config() -> None:
     localhost:1055 is the Tailscale SOCKS5/HTTP proxy — it must never be used
     as the LM Studio destination.  LM_STUDIO_HOST should be the Tailscale IP
     of the machine running LM Studio (e.g. 100.112.224.78).
+
+    Checks both the legacy LM_STUDIO_HOST:LM_STUDIO_PORT config and the
+    LM_STUDIO_BASE_URL override so the guard cannot be bypassed by setting
+    only the URL override.
     """
+    blocked_msg = (
+        "proxy endpoint was used as LM Studio destination. "
+        "Set LM_STUDIO_HOST=<tailscale-ip-of-mac> (e.g. 100.112.224.78) "
+        "and LM_STUDIO_PORT=1234.  "
+        "To route through Tailscale userspace networking set "
+        "LM_STUDIO_PROXY_URL=http://127.0.0.1:1055 instead."
+    )
     host_port = f"{settings.LM_STUDIO_HOST.strip()}:{settings.LM_STUDIO_PORT}"
     if host_port in _BLOCKED_HOST_PORT:
-        raise RuntimeError(
-            f"Invalid LM_STUDIO_HOST:LM_STUDIO_PORT ({host_port}): "
-            "proxy endpoint was used as LM Studio destination. "
-            "Set LM_STUDIO_HOST=<tailscale-ip-of-mac> (e.g. 100.112.224.78) "
-            "and LM_STUDIO_PORT=1234.  "
-            "To route through Tailscale userspace networking set "
-            "LM_STUDIO_PROXY_URL=http://127.0.0.1:1055 instead."
-        )
+        raise RuntimeError(f"Invalid LM_STUDIO_HOST:LM_STUDIO_PORT ({host_port}): {blocked_msg}")
+    base_url_override = getattr(settings, "LM_STUDIO_BASE_URL", "").strip()
+    if base_url_override:
+        parsed = urlparse(base_url_override)
+        base_host = (parsed.hostname or "").lower()
+        base_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        base_host_port = f"{base_host}:{base_port}"
+        if base_host_port in _BLOCKED_HOST_PORT:
+            raise RuntimeError(
+                f"Invalid LM_STUDIO_BASE_URL host:port ({base_host_port}): {blocked_msg}"
+            )
 
 
 def get_lm_studio_base_url() -> str:
