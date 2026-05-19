@@ -534,6 +534,53 @@ async def test_call_llm_lmstudio_primary_fallback_to_cloud_when_enabled(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_active_provider_is_cloud_fallback_when_lmstudio_primary_is_down(
+    client: AsyncClient, monkeypatch
+):
+    """active_provider is the cloud fallback when LLM_PROVIDER=lmstudio is unhealthy.
+
+    Regression: with LLM_PROVIDER=lmstudio, LM Studio unhealthy, and
+    LLM_FALLBACK_ENABLED=true, call_llm() routes to a cloud provider via
+    _find_cloud_fallback(). The endpoint was computing active_provider as the
+    configured provider ("lmstudio") instead of the actual serving provider.
+    """
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", True)
+
+    with patch("api.routes.llm_health._find_cloud_fallback", return_value="groq"):
+        with patch("api.routes.llm_health.get_redis_store", return_value=None):
+            r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["provider"] == "lmstudio"
+    assert data["lm_studio_healthy"] is False
+    assert data["active_provider"] == "groq", (
+        "active_provider must be the cloud fallback, not 'lmstudio'"
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_provider_stays_lmstudio_when_fallback_disabled(
+    client: AsyncClient, monkeypatch
+):
+    """active_provider stays lmstudio when fallback is off (no cloud routing)."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
+
+    with patch("api.routes.llm_health.get_redis_store", return_value=None):
+        r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["active_provider"] == "lmstudio"
+
+
+@pytest.mark.asyncio
 async def test_call_llm_parse_failure_no_fallback_raises(monkeypatch):
     """When LLM_PROVIDER=lmstudio, LLM_FALLBACK_ENABLED=false, and _parse_response returns
     fallback=True (malformed/non-JSON LM Studio response), call_llm must raise rather than
