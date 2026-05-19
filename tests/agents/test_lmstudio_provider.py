@@ -32,6 +32,9 @@ Covers:
  29. check_health returns False and logs error when config is invalid.
  30. _make_client uses no proxy when LM_STUDIO_PROXY_URL is empty.
  31. call_lmstudio logs base_url_host and proxy_enabled before the call.
+ 32-37. Remote localhost mismatch detection and LLM_PROVIDER=lmstudio mode.
+ 38-41. validate_lm_studio_config also blocks LM_STUDIO_BASE_URL proxy endpoints (P2 regression).
+ 42-44. _is_lmstudio_effectively_enabled covers LLM_PROVIDER=lmstudio without flag (P2 regression).
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ from api.services.lmstudio_provider import (
     _RETRY_INTERVAL_S,
     LMStudioUnavailableError,
     _health,
+    _is_lmstudio_effectively_enabled,
     _make_client,
     call_lmstudio,
     check_health,
@@ -912,3 +916,79 @@ def test_get_lm_studio_base_url_strips_trailing_slash(monkeypatch):
 
     monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/")
     assert get_lm_studio_base_url() == "http://localhost:1234/v1"
+
+
+# ---------------------------------------------------------------------------
+# Regression: validate_lm_studio_config must also block LM_STUDIO_BASE_URL
+# pointing at the Tailscale proxy endpoint (P2 fix).
+# ---------------------------------------------------------------------------
+
+
+def test_validate_config_rejects_base_url_with_proxy_host_port(monkeypatch):
+    """LM_STUDIO_BASE_URL=http://127.0.0.1:1055/v1 must be blocked by the guard.
+
+    Regression: validate_lm_studio_config previously only checked
+    LM_STUDIO_HOST:LM_STUDIO_PORT, so setting LM_STUDIO_BASE_URL bypassed
+    the proxy-endpoint guard entirely.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")  # valid host
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)  # valid port
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://127.0.0.1:1055/v1")
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+def test_validate_config_rejects_base_url_localhost_port_1055(monkeypatch):
+    """LM_STUDIO_BASE_URL=http://localhost:1055 is blocked even with valid host:port."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1055")
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+def test_validate_config_accepts_valid_base_url(monkeypatch):
+    """LM_STUDIO_BASE_URL with a valid Tailscale IP passes validation."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://100.112.224.78:1234/v1")
+    validate_lm_studio_config()  # must not raise
+
+
+def test_validate_config_ignores_empty_base_url(monkeypatch):
+    """validate_lm_studio_config skips LM_STUDIO_BASE_URL check when it is empty."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    validate_lm_studio_config()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Regression: _is_lmstudio_effectively_enabled returns True for LLM_PROVIDER=lmstudio
+# even when LM_STUDIO_ENABLED=False (startup probe gate fix — P2).
+# ---------------------------------------------------------------------------
+
+
+def test_is_lmstudio_effectively_enabled_true_when_primary(monkeypatch):
+    """LLM_PROVIDER=lmstudio must make effectively_enabled return True.
+
+    Regression: api/main.py startup probe was gated on settings.LM_STUDIO_ENABLED
+    only, so LLM_PROVIDER=lmstudio + LM_STUDIO_ENABLED=False skipped the probe.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "lmstudio")
+    assert _is_lmstudio_effectively_enabled() is True
+
+
+def test_is_lmstudio_effectively_enabled_true_when_flag_set(monkeypatch):
+    """LM_STUDIO_ENABLED=True makes effectively_enabled return True."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
+    assert _is_lmstudio_effectively_enabled() is True
+
+
+def test_is_lmstudio_effectively_enabled_false_when_both_off(monkeypatch):
+    """Neither LM_STUDIO_ENABLED nor LLM_PROVIDER=lmstudio → returns False."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
+    assert _is_lmstudio_effectively_enabled() is False
