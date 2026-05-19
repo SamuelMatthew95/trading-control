@@ -898,3 +898,17 @@ def test_get_lm_studio_base_url_no_double_v1(monkeypatch):
     """get_lm_studio_base_url does not double the /v1 suffix."""
     monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://192.168.1.10:1234/v1")
     assert get_lm_studio_base_url() == "http://192.168.1.10:1234/v1"
+
+
+def test_get_lm_studio_base_url_strips_trailing_slash(monkeypatch):
+    """get_lm_studio_base_url handles LM_STUDIO_BASE_URL with a trailing slash.
+
+    Regression: 'http://localhost:1234/v1/' previously produced
+    'http://localhost:1234/v1/v1' because the /v1 check ran before the
+    rstrip('/').
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/v1/")
+    assert get_lm_studio_base_url() == "http://localhost:1234/v1"
+
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/")
+    assert get_lm_studio_base_url() == "http://localhost:1234/v1"
