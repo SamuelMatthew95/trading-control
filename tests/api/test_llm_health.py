@@ -13,6 +13,8 @@ and must never touch the DB session factory.  These tests verify:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -386,3 +388,146 @@ async def test_llm_health_avg_latency_not_overridden_when_ring_buffer_active(
     assert r.status_code == 200
     data = r.json()
     assert data["avg_latency_ms"] == 500, "ring-buffer latency must not be overridden by Redis"
+
+
+# ---------------------------------------------------------------------------
+# LLM_PROVIDER=lmstudio routing behaviour
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_llm_health_shows_lmstudio_model_when_provider_is_lmstudio(
+    client: AsyncClient, monkeypatch
+):
+    """When LLM_PROVIDER=lmstudio, model field shows LM_STUDIO_MODEL."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LM_STUDIO_MODEL", "my-local-model-7b")
+
+    with patch("api.routes.llm_health.get_redis_store", return_value=None):
+        r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["model"] == "my-local-model-7b"
+    assert data["provider"] == "lmstudio"
+
+
+@pytest.mark.asyncio
+async def test_llm_health_includes_remote_localhost_mismatch_field(
+    client: AsyncClient, monkeypatch
+):
+    """health endpoint always includes remote_localhost_mismatch field."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(app_settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(app_settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(app_settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    with patch("api.routes.llm_health.get_redis_store", return_value=None):
+        r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert "remote_localhost_mismatch" in data
+    assert data["remote_localhost_mismatch"] is True
+
+
+@pytest.mark.asyncio
+async def test_llm_health_includes_llm_fallback_enabled_field(client: AsyncClient, monkeypatch):
+    """health endpoint exposes llm_fallback_enabled so the dashboard can show it."""
+    from api.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
+
+    with patch("api.routes.llm_health.get_redis_store", return_value=None):
+        r = await client.get("/llm/health")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert "llm_fallback_enabled" in data
+    assert data["llm_fallback_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_primary_no_fallback_raises(monkeypatch):
+    """When LLM_PROVIDER=lmstudio and LLM_FALLBACK_ENABLED=false, failure raises immediately."""
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import LMStudioUnavailableError
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", False)
+
+    from api.services.llm_router import call_llm
+
+    with patch(
+        "api.services.llm_router.call_lmstudio",
+        side_effect=LMStudioUnavailableError("connection refused"),
+    ):
+        with pytest.raises(RuntimeError, match="lmstudio_unavailable"):
+            await call_llm("test prompt", "trace-id-001")
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_primary_does_not_call_gemini_without_key(monkeypatch):
+    """When LLM_PROVIDER=lmstudio, Gemini is not called even if it's set as LLM_PROVIDER fallback."""
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import LMStudioUnavailableError
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(app_settings, "GEMINI_API_KEY", None)
+
+    gemini_called = []
+
+    from api.services.llm_router import call_llm
+
+    async def _fake_gemini(*a, **kw):  # pragma: no cover
+        gemini_called.append(True)
+        return ({}, 0, 0.0)
+
+    with patch(
+        "api.services.llm_router.call_lmstudio",
+        side_effect=LMStudioUnavailableError("offline"),
+    ):
+        with patch("api.services.llm_router._PROVIDERS", {"gemini": _fake_gemini}):
+            with pytest.raises(RuntimeError, match="lmstudio_unavailable"):
+                await call_llm("test prompt", "trace-id-002")
+
+    assert not gemini_called, "Gemini must not be called when LLM_FALLBACK_ENABLED=false"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_primary_fallback_to_cloud_when_enabled(monkeypatch):
+    """When LLM_PROVIDER=lmstudio and LLM_FALLBACK_ENABLED=true, falls back to first cloud with key."""
+    from api.config import settings as app_settings
+    from api.services.lmstudio_provider import LMStudioUnavailableError
+
+    monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(app_settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(app_settings, "GROQ_API_KEY", "gsk_fake_key")
+
+    cloud_result = (
+        {"action": "hold", "confidence": 0.5, "fallback": False, "trace_id": "t"},
+        10,
+        0.0,
+    )
+
+    from api.services.llm_router import call_llm
+
+    with patch(
+        "api.services.llm_router.call_lmstudio",
+        side_effect=LMStudioUnavailableError("offline"),
+    ):
+        with patch(
+            "api.services.llm_router._PROVIDERS",
+            {"groq": AsyncMock(return_value=cloud_result)},
+        ):
+            result, _, _ = await call_llm("test prompt", "trace-id-003")
+
+    assert result["action"] == "hold"
