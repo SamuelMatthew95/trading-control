@@ -659,14 +659,30 @@ async def test_call_llm_lmstudio_primary_respects_cooldown_fallback_enabled(monk
 
 @pytest.mark.asyncio
 async def test_call_llm_lmstudio_primary_cooldown_no_fallback_raises(monkeypatch):
-    """When LLM_PROVIDER=lmstudio, cooldown active, and fallback disabled, raise immediately."""
+    """When LLM_PROVIDER=lmstudio and fallback disabled, LM Studio is called even in cooldown.
+
+    The 60-second cooldown optimisation exists to route to a cloud fallback quickly.
+    When LLM_FALLBACK_ENABLED=False there is no cloud to route to, so the cooldown
+    would just extend the outage.  The correct behaviour is to try LM Studio anyway
+    and surface the real error (unavailable / parse-failed).
+    """
     from api.config import settings as app_settings
+    from api.services.lmstudio_provider import LMStudioUnavailableError
 
     monkeypatch.setattr(app_settings, "LLM_PROVIDER", "lmstudio")
     monkeypatch.setattr(app_settings, "LLM_FALLBACK_ENABLED", False)
 
+    call_lmstudio_called = []
+
+    async def _failing_lmstudio(*a, **kw):
+        call_lmstudio_called.append(True)
+        raise LMStudioUnavailableError("connection refused")
+
     from api.services.llm_router import call_llm
 
     with patch("api.services.llm_router.should_try_local", return_value=False):
-        with pytest.raises(RuntimeError, match="lmstudio_unavailable"):
-            await call_llm("test prompt", "trace-cooldown-002")
+        with patch("api.services.llm_router.call_lmstudio", side_effect=_failing_lmstudio):
+            with pytest.raises(RuntimeError, match="lmstudio_unavailable"):
+                await call_llm("test prompt", "trace-cooldown-002")
+
+    assert call_lmstudio_called, "LM Studio must still be called when fallback is disabled"
