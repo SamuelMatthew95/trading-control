@@ -69,12 +69,14 @@ def _long_position(qty: float = 1.0, entry_price: float = 50_000.0) -> dict:
 
 
 class _MockAsyncSession:
-    def __init__(self, existing_row=None):
+    def __init__(self, existing_row=None, first_row=("rejected-order-uuid-001",)):
         self._existing_row = existing_row
         self._result = MagicMock()
         self._result.scalar_one.return_value = "order-uuid-123"
         self._result.scalar.return_value = "order-uuid-123"
         self._result.mappings.return_value.first.return_value = existing_row
+        # Used by insert_rejected_order_once / insert_pending_order RETURNING id
+        self._result.first.return_value = first_row
 
     async def execute(self, *args, **kwargs):
         return self._result
@@ -90,14 +92,15 @@ class _MockAsyncSession:
 
 
 class _MockSessionFactory:
-    def __init__(self, existing_row=None):
+    def __init__(self, existing_row=None, first_row=("rejected-order-uuid-001",)):
         self._existing_row = existing_row
+        self._first_row = first_row
 
     def __call__(self):
         return self
 
     async def __aenter__(self):
-        return _MockAsyncSession(existing_row=self._existing_row)
+        return _MockAsyncSession(existing_row=self._existing_row, first_row=self._first_row)
 
     async def __aexit__(self, *args):
         pass
@@ -187,7 +190,7 @@ async def test_db_sell_rejected_when_no_open_position(engine_db, mock_bus, mock_
 
 
 async def test_db_sell_rejected_event_payload(engine_db, mock_bus, mock_broker):
-    """Rejection event payload carries required fields."""
+    """Rejection event payload carries required fields including durable order_id."""
     mock_broker.get_position.return_value = _flat_position()
 
     with patch(
@@ -205,6 +208,29 @@ async def test_db_sell_rejected_event_payload(engine_db, mock_bus, mock_broker):
     assert payload[FieldName.SYMBOL] == "ETH/USD"
     assert payload[FieldName.SIDE] == "sell"
     assert payload[FieldName.TRACE_ID] == "t-99"
+    # Durable identifiers — added for at-least-once idempotency
+    assert FieldName.ORDER_ID in payload
+    assert FieldName.IDEMPOTENCY_KEY in payload
+
+
+async def test_db_duplicate_rejected_sell_is_no_op(engine_db, mock_bus, mock_broker):
+    """Replayed SELL rejection (same idempotency_key) must not publish a second event.
+
+    Simulates the at-least-once redelivery case: the first invocation persisted
+    a REJECTED order row; on replay the early dedup check finds it and returns
+    without publishing another sell_rejected event.
+    """
+    existing = {"id": "rejected-order-1", "status": "rejected", "idempotency_key": "k"}
+    mock_broker.get_position.return_value = _flat_position()
+
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(existing_row=existing),
+    ):
+        await engine_db.process(_make_decision(side="sell"))
+
+    mock_broker.place_order.assert_not_called()
+    mock_bus.publish.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +371,31 @@ async def test_db_sell_qty_clamped_when_oversell(engine_db, mock_bus, mock_broke
     assert actual_qty == pytest.approx(open_qty)
 
 
+async def test_db_vwap_plan_recomputed_after_clamp(engine_db, mock_bus, mock_broker):
+    """After oversell clamping the VWAP plan reflects the clamped qty, not the requested qty.
+
+    LARGE_ORDER_THRESHOLD is 10.0: request qty=15.0 (above threshold) clamped to
+    open_qty=3.0 (below threshold) must produce vwap_plan=None in the executions payload.
+    """
+    open_qty = 3.0
+    mock_broker.get_position.return_value = _long_position(qty=open_qty)
+    mock_broker.place_order.return_value = {
+        FieldName.BROKER_ORDER_ID: "broker-vwap-db",
+        FieldName.FILL_PRICE: 51_000.0,
+        FieldName.STATUS: "filled",
+    }
+
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine_db.process(_make_decision(side="sell", qty=15.0))
+
+    exec_calls = [c for c in mock_bus.publish.call_args_list if c.args[0] == "executions"]
+    assert len(exec_calls) == 1
+    assert exec_calls[0].args[1][FieldName.VWAP_PLAN] is None
+
+
 # ---------------------------------------------------------------------------
 # 6. In-memory mode: SELL with no BUY is rejected and recorded
 # ---------------------------------------------------------------------------
@@ -437,6 +488,27 @@ async def test_mem_sell_qty_clamped_when_oversell(engine_mem, mock_bus, mock_bro
     call_args = mock_broker.place_order.call_args
     actual_qty = call_args.args[2] if len(call_args.args) >= 3 else call_args.kwargs.get("qty")
     assert actual_qty == pytest.approx(open_qty)
+
+
+async def test_mem_vwap_plan_none_after_clamp_below_threshold(engine_mem, mock_bus, mock_broker):
+    """In-memory path: VWAP plan is None when clamped qty falls below LARGE_ORDER_THRESHOLD.
+
+    LARGE_ORDER_THRESHOLD is 10.0: request qty=20.0 (above threshold) clamped to
+    open_qty=2.0 (below threshold) must produce vwap_plan=None in executions payload.
+    """
+    open_qty = 2.0
+    mock_broker.get_position.return_value = _long_position(qty=open_qty)
+    mock_broker.place_order.return_value = {
+        FieldName.BROKER_ORDER_ID: "broker-mem-vwap",
+        FieldName.FILL_PRICE: 51_000.0,
+        FieldName.STATUS: "filled",
+    }
+
+    await engine_mem.process(_make_decision(side="sell", qty=20.0, trace_id="t-vwap-mem"))
+
+    exec_calls = [c for c in mock_bus.publish.call_args_list if c.args[0] == "executions"]
+    assert len(exec_calls) == 1
+    assert exec_calls[0].args[1][FieldName.VWAP_PLAN] is None
 
 
 # ---------------------------------------------------------------------------
