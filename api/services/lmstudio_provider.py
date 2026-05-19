@@ -68,7 +68,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
@@ -239,6 +239,20 @@ def get_lm_studio_base_url() -> str:
     return f"http://{host}:{port}/v1"
 
 
+def _redact_url(url: str) -> str:
+    """Strip userinfo and query from a URL so credentials are not logged."""
+    if not url:
+        return url
+    try:
+        p = urlparse(url)
+        netloc = p.hostname or ""
+        if p.port:
+            netloc = f"{netloc}:{p.port}"
+        return urlunparse((p.scheme, netloc, p.path, "", "", ""))
+    except Exception:
+        return "<url_parse_error>"
+
+
 def log_startup_config() -> None:
     """Log sanitized LM Studio config for startup diagnostics.
 
@@ -259,7 +273,7 @@ def log_startup_config() -> None:
         "info",
         "lmstudio_config",
         provider=LM_STUDIO_PROVIDER,
-        base_url=get_lm_studio_base_url(),
+        base_url=_redact_url(get_lm_studio_base_url()),
         base_url_host=_get_lm_studio_configured_host(),
         proxy_enabled=proxy_enabled,
         proxy_scheme=proxy_scheme,
