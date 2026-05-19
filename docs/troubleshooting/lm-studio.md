@@ -163,3 +163,27 @@ LM_STUDIO_MODEL=<exact model name from LM Studio>
 - `tests/agents/test_lmstudio_provider.py::test_llm_provider_lmstudio_enables_lm_studio`
 - `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_no_fallback_raises`
 - `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_does_not_call_gemini_without_key`
+
+---
+
+## validate_lm_studio_config bypass via LM_STUDIO_BASE_URL
+
+**Symptom:** Setting `LM_STUDIO_BASE_URL=http://127.0.0.1:1055/v1` with valid `LM_STUDIO_HOST`/`LM_STUDIO_PORT` allowed the Tailscale proxy endpoint to be used as the LM Studio destination without raising an error.
+
+**Root cause:** `validate_lm_studio_config()` only checked the `LM_STUDIO_HOST:LM_STUDIO_PORT` combination; the `LM_STUDIO_BASE_URL` override was not inspected, so the proxy-endpoint guard could be bypassed by setting only the URL.
+
+**Fix:** `api/services/lmstudio_provider.py::validate_lm_studio_config()` now also parses `LM_STUDIO_BASE_URL` (when set) and raises `RuntimeError` if its extracted host:port matches any entry in `_BLOCKED_HOST_PORT`.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_validate_config_rejects_base_url_with_proxy_host_port`
+
+---
+
+## Startup LM Studio probe skipped when LLM_PROVIDER=lmstudio + LM_STUDIO_ENABLED=False
+
+**Symptom:** With `LLM_PROVIDER=lmstudio` and `LM_STUDIO_ENABLED=False` the startup health probe was silently skipped, leaving a misconfigured primary LM Studio provider undetected at boot.
+
+**Root cause:** `api/main.py` lifespan gated the LM Studio startup probe on `settings.LM_STUDIO_ENABLED` only. `LLM_PROVIDER=lmstudio` implicitly enables LM Studio as the primary provider, so the probe should fire even when the explicit flag is off.
+
+**Fix:** The startup condition was changed from `if settings.LM_STUDIO_ENABLED:` to `if _is_lmstudio_effectively_enabled():`, which returns `True` when either `LM_STUDIO_ENABLED=True` or `LLM_PROVIDER=lmstudio`.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_is_lmstudio_effectively_enabled_true_when_primary`
