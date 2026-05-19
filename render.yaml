@@ -4,8 +4,20 @@ services:
     name: trading-control
     env: python
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    # Downloads Tailscale binaries into .render/bin/ so the start script can
+    # launch tailscaled for LM Studio over Tailscale.  The binaries are only
+    # ~20 MB and are cached between deploys by Render's build cache.
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      mkdir -p .render/bin &&
+      TSVER=1.78.1 &&
+      curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TSVER}_amd64.tgz"
+      | tar -xzf - --strip-components=1 -C .render/bin tailscale_${TSVER}_amd64/tailscale
+        tailscale_${TSVER}_amd64/tailscaled
+    # .render/start.sh: starts tailscaled, runs tailscale up, then launches gunicorn.
+    # Set TAILSCALE_AUTHKEY, LM_STUDIO_HOST, LM_STUDIO_PORT, LM_STUDIO_PROXY_URL
+    # in Render env vars.  If TAILSCALE_AUTHKEY is absent the script skips Tailscale.
+    startCommand: bash .render/start.sh
     healthCheckPath: /health
     autoDeploy: true
     dependsOn:

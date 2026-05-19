@@ -84,6 +84,30 @@
 
 ---
 
+## `socks5: client connection failed: incompatible SOCKS version` on Render + Tailscale userspace mode
+
+**Symptom:** Render logs show `socks5: client connection failed: incompatible SOCKS version` and the reasoning agent times out with `reasoning_llm_timeout`. LM Studio calls never reach `100.112.224.78:1234`.
+
+**Root cause:** Tailscale running with `--tun=userspace-networking` creates no kernel TUN device. Traffic to Tailscale peers (e.g. `100.112.224.78`) cannot reach them via direct TCP — it must be routed through the proxy that `tailscaled` exposes. Previously, `_make_client()` set `trust_env=False` and made no direct proxy configuration, so httpx attempted a direct TCP connection that failed silently or ended up hitting `localhost:1055` (the SOCKS5 listener) with plain HTTP — which SOCKS5 rejects with "incompatible SOCKS version".
+
+**Fix:**
+1. Added `LM_STUDIO_PROXY_URL` setting (e.g. `http://127.0.0.1:1055`) that configures an explicit HTTP CONNECT proxy on the httpx client via `httpx.AsyncClient(proxy=proxy_url, trust_env=False)`.
+2. `tailscaled` is now started with `--outbound-http-proxy-listen=localhost:1055` in `.render/start.sh` so it serves as an HTTP CONNECT proxy in addition to SOCKS5.
+3. `validate_lm_studio_config()` added — fails fast at startup if `LM_STUDIO_HOST:LM_STUDIO_PORT` resolves to `localhost:1055`, `127.0.0.1:1055`, or `0.0.0.0:1055` (the proxy endpoint, not LM Studio).
+4. `trust_env=False` is now always applied (not conditional on `LM_LINK_ENABLED`), preventing httpx from ever inheriting `ALL_PROXY`/`HTTP_PROXY` from the environment.
+
+**Required env vars (Render):**
+```
+LM_STUDIO_HOST=100.112.224.78      # Mac Tailscale IP — NOT 127.0.0.1
+LM_STUDIO_PORT=1234
+LM_STUDIO_PROXY_URL=http://127.0.0.1:1055
+TAILSCALE_AUTHKEY=tskey-auth-...
+```
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_validate_config_rejects_127_0_0_1_port_1055`
+
+---
+
 ## LLM Health panel shows "0/0 last 5m" and "--" latency after backend restart
 
 **Symptom:** Dashboard LLM Health card shows "Success Rate: 0% (0/0 last 5m)", "Avg Latency: --", and status "Unknown" even though Redis shows dozens of lifetime/daily calls.
