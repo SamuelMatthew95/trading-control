@@ -22,6 +22,7 @@ from api.observability import log_structured
 from api.services.llm_metrics import llm_metrics
 from api.services.lmstudio_provider import (
     LMStudioUnavailableError,
+    _is_lmstudio_primary,
     call_lmstudio,
     should_try_local,
 )
@@ -322,6 +323,23 @@ _PROVIDERS = {
 _LOCAL_PROVIDERS: frozenset[str] = frozenset({LM_STUDIO_PROVIDER})
 
 
+def _find_cloud_fallback() -> str | None:
+    """Return the first cloud provider that has an API key configured.
+
+    Used when LLM_PROVIDER=lmstudio and LLM_FALLBACK_ENABLED=true.
+    """
+    candidates = [
+        ("groq", settings.GROQ_API_KEY or ""),
+        ("gemini", getattr(settings, "GEMINI_API_KEY", "") or ""),
+        ("anthropic", getattr(settings, "ANTHROPIC_API_KEY", "") or ""),
+        ("openai", getattr(settings, "OPENAI_API_KEY", "") or ""),
+    ]
+    for p, key in candidates:
+        if key.strip():
+            return p
+    return None
+
+
 async def _call_provider_raw(
     provider: str, prompt: str, system_prompt: str, trace_id: str
 ) -> tuple[str, int, float]:
@@ -485,13 +503,22 @@ async def call_llm_with_system(
 ) -> tuple[str, int, float]:
     """Call the configured LLM provider with a custom system prompt.
 
-    When LM_STUDIO_ENABLED is true, LM Studio is attempted first.  On any
-    local failure the call falls through to the cloud provider transparently.
+    When LLM_PROVIDER=lmstudio or LM_STUDIO_ENABLED=true, LM Studio is
+    attempted first.  Fallback behaviour depends on LLM_FALLBACK_ENABLED:
+      - LLM_PROVIDER=lmstudio + LLM_FALLBACK_ENABLED=false (recommended):
+        failures raise immediately; Gemini is never called.
+      - LLM_PROVIDER=lmstudio + LLM_FALLBACK_ENABLED=true:
+        falls back to the first cloud provider with an API key configured.
+      - LM_STUDIO_ENABLED=true with a cloud LLM_PROVIDER:
+        falls back to the configured cloud provider (legacy behaviour).
 
     Returns (raw_text, tokens_used, cost_usd). The caller is responsible
     for parsing the response.
     """
-    if settings.LM_STUDIO_ENABLED and should_try_local():
+    lm_primary = _is_lmstudio_primary()
+    use_lmstudio = lm_primary or (settings.LM_STUDIO_ENABLED and should_try_local())
+
+    if use_lmstudio:
         try:
             t0 = _time.monotonic()
             result = await call_lmstudio(
@@ -504,6 +531,10 @@ async def call_llm_with_system(
             llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
             return result
         except LMStudioUnavailableError as exc:
+            if lm_primary and not settings.LLM_FALLBACK_ENABLED:
+                msg = f"lmstudio_unavailable: {exc}"
+                llm_metrics.record_error(message=msg, kind="lmstudio_unavailable")
+                raise RuntimeError(msg) from exc
             log_structured(
                 "info",
                 "lmstudio_unavailable_falling_back",
@@ -511,7 +542,20 @@ async def call_llm_with_system(
                 trace_id=trace_id,
             )
 
-    provider = settings.LLM_PROVIDER.lower().strip()
+    # Determine cloud provider — when lmstudio is primary, find a configured fallback.
+    if lm_primary:
+        provider = _find_cloud_fallback()
+        if not provider:
+            msg = (
+                "lmstudio_unavailable_no_fallback: LM Studio failed and "
+                "LLM_FALLBACK_ENABLED=true but no cloud API key is configured. "
+                "Set GROQ_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
+            )
+            llm_metrics.record_error(message=msg, kind="config")
+            raise RuntimeError(msg)
+    else:
+        provider = settings.LLM_PROVIDER.lower().strip()
+
     api_key = _get_provider_key(provider)
     if not api_key and provider not in _LOCAL_PROVIDERS:
         msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
@@ -544,14 +588,23 @@ async def call_llm_with_system(
 async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
     """Call configured LLM provider and return a parsed trading decision.
 
-    When LM_STUDIO_ENABLED is true, LM Studio is attempted first.  On any
-    local failure the call falls through to the cloud provider transparently.
+    When LLM_PROVIDER=lmstudio or LM_STUDIO_ENABLED=true, LM Studio is
+    attempted first.  Fallback behaviour depends on LLM_FALLBACK_ENABLED:
+      - LLM_PROVIDER=lmstudio + LLM_FALLBACK_ENABLED=false (recommended):
+        failures raise immediately; Gemini is never called.
+      - LLM_PROVIDER=lmstudio + LLM_FALLBACK_ENABLED=true:
+        falls back to the first cloud provider with an API key configured.
+      - LM_STUDIO_ENABLED=true with a cloud LLM_PROVIDER:
+        falls back to the configured cloud provider (legacy behaviour).
 
     To switch the cloud provider set two env vars:
       LLM_PROVIDER=groq
       GROQ_API_KEY=gsk_...
     """
-    if settings.LM_STUDIO_ENABLED and should_try_local():
+    lm_primary = _is_lmstudio_primary()
+    use_lmstudio = lm_primary or (settings.LM_STUDIO_ENABLED and should_try_local())
+
+    if use_lmstudio:
         try:
             t0 = _time.monotonic()
             raw_text, tokens, cost = await call_lmstudio(prompt, SYSTEM_PROMPT, trace_id)
@@ -569,6 +622,10 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
                 trace_id=trace_id,
             )
         except LMStudioUnavailableError as exc:
+            if lm_primary and not settings.LLM_FALLBACK_ENABLED:
+                msg = f"lmstudio_unavailable: {exc}"
+                llm_metrics.record_error(message=msg, kind="lmstudio_unavailable")
+                raise RuntimeError(msg) from exc
             log_structured(
                 "info",
                 "lmstudio_unavailable_falling_back",
@@ -576,7 +633,20 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
                 trace_id=trace_id,
             )
 
-    provider = settings.LLM_PROVIDER.lower().strip()
+    # Determine cloud provider — when lmstudio is primary, find a configured fallback.
+    if lm_primary:
+        provider = _find_cloud_fallback()
+        if not provider:
+            msg = (
+                "lmstudio_unavailable_no_fallback: LM Studio failed and "
+                "LLM_FALLBACK_ENABLED=true but no cloud API key is configured. "
+                "Set GROQ_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
+            )
+            llm_metrics.record_error(message=msg, kind="config")
+            raise RuntimeError(msg)
+    else:
+        provider = settings.LLM_PROVIDER.lower().strip()
+
     if provider not in _PROVIDERS:
         raise RuntimeError(f"unknown_provider: '{provider}' - supported: {list(_PROVIDERS.keys())}")
     api_key = _get_provider_key(provider)
