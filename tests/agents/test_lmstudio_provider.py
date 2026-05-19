@@ -22,7 +22,16 @@ Covers:
  19. should_try_local returns True when healthy.
  20. should_try_local returns False immediately after a failure (within cooldown).
  21. should_try_local returns True again after the cooldown elapses.
- 22. _make_client passes trust_env=False when LM_LINK_ENABLED to avoid SOCKS5 proxy errors.
+ 22. _make_client always uses trust_env=False regardless of LM_LINK_ENABLED.
+ 23. validate_lm_studio_config raises when host:port is 127.0.0.1:1055 (proxy endpoint).
+ 24. validate_lm_studio_config raises when host:port is localhost:1055 (proxy endpoint).
+ 25. validate_lm_studio_config raises when host:port is 0.0.0.0:1055 (proxy endpoint).
+ 26. validate_lm_studio_config passes for a valid Tailscale IP and port 1234.
+ 27. get_lm_studio_base_url returns http://host:port/v1.
+ 28. _make_client uses LM_STUDIO_PROXY_URL as explicit proxy (not as base_url).
+ 29. check_health returns False and logs error when config is invalid.
+ 30. _make_client uses no proxy when LM_STUDIO_PROXY_URL is empty.
+ 31. call_lmstudio logs base_url_host and proxy_enabled before the call.
 """
 
 from __future__ import annotations
@@ -37,10 +46,13 @@ from api.services.lmstudio_provider import (
     _RETRY_INTERVAL_S,
     LMStudioUnavailableError,
     _health,
+    _make_client,
     call_lmstudio,
     check_health,
+    get_lm_studio_base_url,
     health_snapshot,
     should_try_local,
+    validate_lm_studio_config,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -532,3 +544,198 @@ def test_should_try_local_returns_true_after_cooldown():
     # Simulate last failure was (interval + 1) seconds ago
     _health.last_failure_at = time.monotonic() - (_RETRY_INTERVAL_S + 1.0)
     assert should_try_local() is True
+
+
+# ---------------------------------------------------------------------------
+# 22. _make_client always uses trust_env=False regardless of LM_LINK_ENABLED.
+# ---------------------------------------------------------------------------
+
+
+def test_make_client_always_uses_trust_env_false(monkeypatch):
+    """trust_env=False must be set on the httpx client regardless of LM_LINK_ENABLED.
+
+    Prevents httpx from silently picking up ALL_PROXY/HTTP_PROXY/HTTPS_PROXY env
+    vars that could route LM Studio HTTP to the Tailscale SOCKS5 listener.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "")
+
+    captured: list = []
+
+    def capturing_client(*args, **kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    with patch("api.services.lmstudio_provider.httpx.AsyncClient", side_effect=capturing_client):
+        with patch("api.services.lmstudio_provider.AsyncOpenAI", return_value=MagicMock()):
+            for lm_link_val in (True, False):
+                monkeypatch.setattr(settings, "LM_LINK_ENABLED", lm_link_val)
+                captured.clear()
+                _make_client()
+                assert captured[0].get("trust_env") is False, (
+                    f"trust_env must be False when LM_LINK_ENABLED={lm_link_val}"
+                )
+
+
+# ---------------------------------------------------------------------------
+# 23-25. validate_lm_studio_config rejects proxy endpoints as destination.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_config_rejects_127_0_0_1_port_1055(monkeypatch):
+    """127.0.0.1:1055 is the Tailscale proxy — must not be used as LM Studio host."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1055)
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+def test_validate_config_rejects_localhost_port_1055(monkeypatch):
+    """localhost:1055 is the Tailscale proxy — must not be used as LM Studio host."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1055)
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+def test_validate_config_rejects_0_0_0_0_port_1055(monkeypatch):
+    """0.0.0.0:1055 is a proxy-like binding — must not be used as LM Studio host."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "0.0.0.0")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1055)
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+# ---------------------------------------------------------------------------
+# 26. validate_lm_studio_config accepts a valid Tailscale IP.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_config_accepts_tailscale_ip(monkeypatch):
+    """A Tailscale IP with port 1234 is a valid LM Studio destination."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    validate_lm_studio_config()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# 27. get_lm_studio_base_url always returns http://host:port/v1.
+# ---------------------------------------------------------------------------
+
+
+def test_get_lm_studio_base_url(monkeypatch):
+    """Base URL is always http://host:port/v1."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    assert get_lm_studio_base_url() == "http://100.112.224.78:1234/v1"
+
+
+def test_get_lm_studio_base_url_strips_host_whitespace(monkeypatch):
+    """Leading/trailing whitespace in LM_STUDIO_HOST is stripped."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "  100.112.224.78  ")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    assert get_lm_studio_base_url() == "http://100.112.224.78:1234/v1"
+
+
+# ---------------------------------------------------------------------------
+# 28. _make_client passes proxy URL as proxy transport, not as base_url.
+# ---------------------------------------------------------------------------
+
+
+def test_make_client_proxy_url_not_used_as_base_url(monkeypatch):
+    """LM_STUDIO_PROXY_URL must be the proxy transport, never the base_url."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "http://127.0.0.1:1055")
+
+    captured_httpx: list = []
+    captured_openai: list = []
+
+    real_httpx_async_client = __import__("httpx").AsyncClient
+
+    def capturing_httpx(*args, **kwargs):
+        captured_httpx.append(kwargs)
+        return real_httpx_async_client(*args, **kwargs)
+
+    with patch("api.services.lmstudio_provider.httpx.AsyncClient", side_effect=capturing_httpx):
+        with patch("api.services.lmstudio_provider.AsyncOpenAI") as mock_openai:
+            mock_openai.return_value = MagicMock()
+            captured_openai.clear()
+            mock_openai.side_effect = lambda **kw: captured_openai.append(kw) or MagicMock()
+            _make_client()
+
+    # httpx got the proxy URL
+    assert captured_httpx[0].get("proxy") == "http://127.0.0.1:1055"
+    # AsyncOpenAI base_url is the LM Studio URL, not the proxy
+    assert captured_openai[0]["base_url"] == "http://100.112.224.78:1234/v1"
+    assert "1055" not in captured_openai[0]["base_url"]
+
+
+# ---------------------------------------------------------------------------
+# 29. check_health returns False and records error for invalid config.
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_invalid_config_returns_false(monkeypatch):
+    """check_health must return False (not raise) when LM Studio config is invalid."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1055)
+
+    ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error is not None
+    assert "proxy" in (_health.last_error or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# 30. _make_client sets proxy=None when LM_STUDIO_PROXY_URL is empty.
+# ---------------------------------------------------------------------------
+
+
+def test_make_client_no_proxy_when_url_empty(monkeypatch):
+    """proxy=None when LM_STUDIO_PROXY_URL is empty — no proxy is applied."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "")
+
+    captured: list = []
+
+    def capturing_client(*args, **kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    with patch("api.services.lmstudio_provider.httpx.AsyncClient", side_effect=capturing_client):
+        with patch("api.services.lmstudio_provider.AsyncOpenAI", return_value=MagicMock()):
+            _make_client()
+
+    assert captured[0].get("proxy") is None
+
+
+# ---------------------------------------------------------------------------
+# 31. call_lmstudio logs base_url_host and proxy_enabled before the call.
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_logs_request_context(monkeypatch, capsys):
+    """call_lmstudio must log base_url_host and proxy_enabled before the API call.
+
+    log_structured() writes to stdout (structlog) — use capsys, not caplog.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "http://127.0.0.1:1055")
+
+    mock = _mock_client(content="ok")
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    out = capsys.readouterr().out
+    assert "reasoning_llm_request" in out
+    assert "100.112.224.78" in out
