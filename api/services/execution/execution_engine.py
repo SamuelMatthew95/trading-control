@@ -233,21 +233,36 @@ class ExecutionEngine(BaseStreamConsumer):
                             trace_id=trace_id,
                         )
                         return
-                    await self.bus.publish(
-                        STREAM_SELL_REJECTED,
-                        {
-                            FieldName.TYPE: "sell_rejected",
-                            FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
-                            FieldName.SYMBOL: symbol,
-                            FieldName.SIDE: side,
-                            FieldName.QTY: qty,
-                            FieldName.ORDER_ID: rejection_order_id,
-                            FieldName.IDEMPOTENCY_KEY: idempotency_key,
-                            FieldName.TRACE_ID: trace_id,
-                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                            FieldName.SOURCE: SOURCE_EXECUTION,
-                        },
-                    )
+                    # Publish after commit so the rejection is durable before any
+                    # downstream consumer sees the event.  Wrap in its own try so a
+                    # transient bus failure never reaches the outer except/rollback
+                    # handler — the rejection row is already committed and the early
+                    # dedup SELECT will suppress any redelivery.
+                    try:
+                        await self.bus.publish(
+                            STREAM_SELL_REJECTED,
+                            {
+                                FieldName.TYPE: "sell_rejected",
+                                FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
+                                FieldName.SYMBOL: symbol,
+                                FieldName.SIDE: side,
+                                FieldName.QTY: qty,
+                                FieldName.ORDER_ID: rejection_order_id,
+                                FieldName.IDEMPOTENCY_KEY: idempotency_key,
+                                FieldName.TRACE_ID: trace_id,
+                                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                                FieldName.SOURCE: SOURCE_EXECUTION,
+                            },
+                        )
+                    except Exception:
+                        log_structured(
+                            "warning",
+                            "sell_rejected_event_publish_failed",
+                            symbol=symbol,
+                            idempotency_key=idempotency_key,
+                            trace_id=trace_id,
+                            exc_info=True,
+                        )
                     return
 
                 # Clamp oversell: never sell more than the open position holds.
@@ -649,19 +664,35 @@ class ExecutionEngine(BaseStreamConsumer):
                     event_id=order_id,
                     reason="NO_OPEN_POSITION",
                 )
-                await self.bus.publish(
-                    STREAM_SELL_REJECTED,
-                    {
-                        FieldName.TYPE: "sell_rejected",
-                        FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
-                        FieldName.SYMBOL: symbol,
-                        FieldName.SIDE: side,
-                        FieldName.QTY: qty,
-                        FieldName.TRACE_ID: trace_id,
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-                        FieldName.SOURCE: SOURCE_EXECUTION,
-                    },
-                )
+                # Store is updated first so the rejection is locally recorded
+                # even if the publish below fails.  A transient bus failure does
+                # not warrant propagating the exception — the dedup key is already
+                # set so any redelivery is a silent no-op.
+                try:
+                    await self.bus.publish(
+                        STREAM_SELL_REJECTED,
+                        {
+                            FieldName.TYPE: "sell_rejected",
+                            FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: side,
+                            FieldName.QTY: qty,
+                            FieldName.ORDER_ID: order_id,
+                            FieldName.IDEMPOTENCY_KEY: idempotency_key,
+                            FieldName.TRACE_ID: trace_id,
+                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                            FieldName.SOURCE: SOURCE_EXECUTION,
+                        },
+                    )
+                except Exception:
+                    log_structured(
+                        "warning",
+                        "sell_rejected_event_publish_failed_memory",
+                        symbol=symbol,
+                        idempotency_key=idempotency_key,
+                        trace_id=trace_id,
+                        exc_info=True,
+                    )
                 return
 
             # Clamp oversell: never sell more than the open position holds.
@@ -839,7 +870,7 @@ class ExecutionEngine(BaseStreamConsumer):
         store.equity_curve.append(
             {
                 FieldName.TIMESTAMP: filled_at.isoformat(),
-                "value": paired[FieldName.TOTAL_PNL],
+                FieldName.VALUE: paired[FieldName.TOTAL_PNL],
                 FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
                 FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
                 FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],
