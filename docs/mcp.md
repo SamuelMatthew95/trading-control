@@ -44,6 +44,19 @@ All new telemetry tools return a structured envelope:
 
 When a datasource is unavailable, `degraded` is `true` and `reason` is included.
 
+### Stability contract (to avoid future MCP breakage)
+
+When adding or changing MCP read tools, keep these rules:
+
+1. **Always return the envelope** (`ok`, `degraded`, `source`, `generated_at`, `data`) even in fallback mode.
+2. **Never return legacy top-level `status` shapes** for telemetry reads.
+3. **Do not probe DB first in memory mode** — if `is_db_available()` is false, return `source: "in_memory"` directly.
+4. **Mark degraded explicitly** with a machine-readable `reason` when sanitizing or falling back.
+5. **Sanitize malformed numerics** to `null`/`None` (not exceptions), and include degradation reason when sanitization was required.
+6. **Do not expose secrets**; config/health tools must keep token/key fields redacted.
+
+These are enforced by MCP/API tests and are required for operator dashboards and agent tooling compatibility.
+
 ### Parameters
 
 - `get_agent_grades(limit=20, agent_name=null, since=null)`
