@@ -442,7 +442,7 @@ def get_config_data() -> dict[str, Any]:
             "alpaca_base_url": _safe_url(settings.ALPACA_BASE_URL),
         },
         "secrets": {
-            "mcp_shared_token": _redact_config_value(settings.MCP_SHARED_TOKEN),
+            "mcp_shared_token": "***redacted***",
             "openai_api_key": _redact_config_value(settings.OPENAI_API_KEY),
             "anthropic_api_key": _redact_config_value(settings.ANTHROPIC_API_KEY),
             "gemini_api_key": _redact_config_value(settings.GEMINI_API_KEY),
