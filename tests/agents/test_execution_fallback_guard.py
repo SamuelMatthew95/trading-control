@@ -82,6 +82,25 @@ async def test_fallback_not_allowed_blocks_before_broker_io(_engine, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_fallback_detected_from_primary_edge_with_reasoning_source(_engine, monkeypatch):
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "ALLOW_FALLBACK_TRADES", False)
+    _engine.broker = _Broker(0.0, should_raise=True)
+    data = {
+        FieldName.SYMBOL: "BTC/USD",
+        FieldName.ACTION: "buy",
+        FieldName.QTY: 0.1,
+        FieldName.PRICE: 100,
+        FieldName.SOURCE: "reasoning_agent",
+        FieldName.PRIMARY_EDGE: "fallback:skip_reasoning",
+        FieldName.TRACE_ID: "t3b",
+    }
+    parsed = await _engine._parse_and_validate(data)
+    assert parsed is None
+
+
+@pytest.mark.asyncio
 async def test_fallback_buy_reduces_short_not_blocked(_engine, monkeypatch):
     from api.config import settings
 

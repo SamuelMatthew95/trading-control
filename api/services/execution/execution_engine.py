@@ -863,11 +863,14 @@ class ExecutionEngine(BaseStreamConsumer):
             return False
         reason = str(payload.get(FieldName.REASON) or "").lower()
         source = str(payload.get(FieldName.SOURCE) or "").lower()
+        primary_edge = str(payload.get(FieldName.PRIMARY_EDGE) or "").lower()
         llm_succeeded = payload.get(FieldName.LLM_SUCCEEDED)
         is_fallback = (
             llm_succeeded is False
             or "fallback" in reason
             or source == "fallback"
+            or primary_edge.startswith("fallback:")
+            or primary_edge == "fallback"
             or bool(payload.get(FieldName.FALLBACK_REASON))
         )
         if not is_fallback:
