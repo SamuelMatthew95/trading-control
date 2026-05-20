@@ -125,9 +125,10 @@ def test_build_decision_notification_fallback_buy_suppressed() -> None:
         is_fallback=True,
         reason="fallback_detected",
     )
-    assert notif["title"] == "Fallback BUY suppressed — BTC/USD"
+    assert notif["title"] == "Fallback BUY decision — BTC/USD"
     assert notif["severity"] == "warning"
     assert notif["type"] == "fallback_trade_blocked"
+    assert notif["notification_type"] == "decision_degraded"
     assert notif["original_action"] == AgentAction.BUY
     assert notif["action"] == AgentAction.HOLD
     assert notif["llm_succeeded"] is False

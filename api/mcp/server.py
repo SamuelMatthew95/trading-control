@@ -53,6 +53,20 @@ def _error_payload(reason: str, *, source: str = "in_process") -> dict[str, obje
     return _envelope(ok=False, degraded=True, source=source, reason=reason, data={})
 
 
+def _wrap_payload(payload: object, *, default_source: str = "in_process") -> dict[str, object]:
+    if (
+        isinstance(payload, dict)
+        and "ok" in payload
+        and "degraded" in payload
+        and "data" in payload
+    ):
+        return payload
+    if not isinstance(payload, dict):
+        return _envelope(ok=True, degraded=False, source=default_source, data={})
+    source = str(payload.get("source") or default_source)
+    return _envelope(ok=True, degraded=False, source=source, data=payload)
+
+
 async def _safe_call(func: Callable[[], Awaitable[object]]) -> object:
     try:
         return await func()
@@ -145,21 +159,13 @@ async def get_service_health() -> dict[str, object]:
 @mcp.tool
 async def get_debug_state() -> dict[str, object]:
     data = await _safe_call(get_debug_state_payload)
-    if isinstance(data, dict) and "ok" in data and "data" in data:
-        return data
-    return _envelope(
-        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
-    )
+    return _wrap_payload(data, default_source="in_process")
 
 
 @mcp.tool
 async def get_pnl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
-    if isinstance(data, dict) and "ok" in data and "data" in data:
-        return data
-    return _envelope(
-        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
-    )
+    return _wrap_payload(data, default_source="in_process")
 
 
 @mcp.tool
@@ -168,21 +174,13 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
         return await get_trade_feed_payload(limit=limit, session_id=session_id)
 
     data = await _safe_call(_call)
-    if isinstance(data, dict) and "ok" in data and "data" in data:
-        return data
-    return _envelope(
-        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
-    )
+    return _wrap_payload(data, default_source="in_process")
 
 
 @mcp.tool
 async def get_performance_trends() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
-    if isinstance(data, dict) and "ok" in data and "data" in data:
-        return data
-    return _envelope(
-        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
-    )
+    return _wrap_payload(data, default_source="in_process")
 
 
 @mcp.tool
@@ -206,10 +204,15 @@ async def get_health_summary() -> dict[str, object]:
     trade_feed = await _safe_call(_feed)
     decisions = await _get_decisions(limit=20)
     notifications = await _get_notifications(limit=20)
+    degraded = any(
+        isinstance(child, dict) and child.get("ok") is False
+        for child in (debug_state, pnl, trade_feed, decisions, notifications)
+    )
     return _envelope(
-        ok=True,
-        degraded=False,
+        ok=not degraded,
+        degraded=degraded,
         source="mixed",
+        reason="component_unavailable" if degraded else None,
         data={
             "service": {"db_available": is_db_available(), "persistence_mode": runtime_mode()},
             "debug_state": debug_state,

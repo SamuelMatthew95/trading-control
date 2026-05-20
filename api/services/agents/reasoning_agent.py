@@ -389,10 +389,10 @@ class ReasoningAgent(BaseStreamConsumer):
         if is_fallback:
             return {
                 FieldName.TYPE: "fallback_trade_blocked",
-                "title": f"Fallback {action.upper()} suppressed — {symbol}",
-                "body": f"Fallback decision blocked for {symbol}: {reason or 'fallback_detected'}",
+                "title": f"Fallback {action.upper()} decision — {symbol}",
+                "body": f"Degraded fallback decision for {symbol}: {reason or 'fallback_detected'}",
                 "severity": "warning",
-                "notification_type": "fallback_trade_blocked",
+                "notification_type": "decision_degraded",
                 "original_action": action,
                 FieldName.SYMBOL: symbol,
                 FieldName.ACTION: AgentAction.HOLD,
