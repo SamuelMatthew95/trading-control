@@ -135,3 +135,31 @@ def test_build_decision_notification_fallback_buy_suppressed() -> None:
 
 def test_actionable_set_matches_agent_action_constants() -> None:
     assert ReasoningAgent._ACTIONABLE_ACTIONS == frozenset({AgentAction.BUY, AgentAction.SELL})
+
+
+def test_is_fallback_decision_detects_primary_edge_fallback_even_when_flag_false() -> None:
+    payload = {
+        FieldName.LLM_SUCCEEDED: True,
+        FieldName.REASONING_SUMMARY: "fallback:skip_reasoning",
+    }
+    assert (
+        ReasoningAgent._is_fallback_decision(is_fallback=False, payload=payload, summary={}) is True
+    )
+
+
+def test_is_fallback_decision_detects_summary_source_fallback() -> None:
+    payload = {FieldName.LLM_SUCCEEDED: True, FieldName.REASONING_SUMMARY: "momentum"}
+    summary = {"source": "fallback"}
+    assert (
+        ReasoningAgent._is_fallback_decision(is_fallback=False, payload=payload, summary=summary)
+        is True
+    )
+
+
+def test_is_fallback_decision_keeps_real_signal_non_fallback() -> None:
+    payload = {FieldName.LLM_SUCCEEDED: True, FieldName.REASONING_SUMMARY: "breakout_momentum"}
+    summary = {"source": "reasoning", "reason": "normal_flow"}
+    assert (
+        ReasoningAgent._is_fallback_decision(is_fallback=False, payload=payload, summary=summary)
+        is False
+    )

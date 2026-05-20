@@ -331,6 +331,24 @@ class ReasoningAgent(BaseStreamConsumer):
     _ACTIONABLE_ACTIONS: frozenset[str] = frozenset({AgentAction.BUY, AgentAction.SELL})
 
     @staticmethod
+    def _is_fallback_decision(
+        *,
+        is_fallback: bool,
+        payload: dict[str, Any],
+        summary: dict[str, Any],
+    ) -> bool:
+        if is_fallback:
+            return True
+        llm_succeeded = payload.get(FieldName.LLM_SUCCEEDED)
+        if llm_succeeded is False:
+            return True
+
+        reasoning_summary = str(payload.get(FieldName.REASONING_SUMMARY) or "").lower()
+        reason = str(summary.get(FieldName.FALLBACK_REASON) or summary.get("reason") or "").lower()
+        source = str(summary.get("source") or "").lower()
+        return "fallback" in reasoning_summary or "fallback" in reason or source == "fallback"
+
+    @staticmethod
     def _build_decision_payload(
         *,
         data: dict[str, Any],
@@ -423,12 +441,17 @@ class ReasoningAgent(BaseStreamConsumer):
         # notification separately, but this guarantees something appears on
         # the dashboard even before the order executes.
         if action in self._ACTIONABLE_ACTIONS:
+            decision_is_fallback = self._is_fallback_decision(
+                is_fallback=is_fallback,
+                payload=payload,
+                summary=summary,
+            )
             notification = self._build_decision_notification(
                 action=action,
                 symbol=str(payload[FieldName.SYMBOL]),
                 price=payload[FieldName.PRICE],
                 trace_id=trace_id,
-                is_fallback=is_fallback,
+                is_fallback=decision_is_fallback,
                 reason=str(
                     summary.get(FieldName.FALLBACK_REASON)
                     or summary.get(FieldName.PRIMARY_EDGE)

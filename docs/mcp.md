@@ -68,6 +68,9 @@ When adding or changing MCP read tools, keep these rules:
 
 These are enforced by MCP/API tests and are required for operator dashboards and agent tooling compatibility.
 
+Note on historical notifications: fallback BUY/SELL suppression applies to newly emitted notifications.
+Previously persisted Redis notification rows are not rewritten retroactively.
+
 ### Parameters
 
 - `get_agent_grades(limit=20, agent_name=null, since=null)`
