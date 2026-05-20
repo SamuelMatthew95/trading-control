@@ -149,10 +149,13 @@ async def _db_heartbeat_rows(now_ts: int) -> list[dict[str, Any]]:
     for name in ALL_AGENT_NAMES:
         m = latest_by_name.get(name, {})
         last_seen_val = m.get("last_seen")
-        try:
-            last_seen = int(last_seen_val or 0)
-        except (TypeError, ValueError):
-            last_seen = 0
+        if hasattr(last_seen_val, "timestamp"):
+            last_seen = int(last_seen_val.timestamp())
+        else:
+            try:
+                last_seen = int(last_seen_val or 0)
+            except (TypeError, ValueError):
+                last_seen = 0
         age_seconds = max(0, now_ts - last_seen) if last_seen else None
         status = (
             "missing"
