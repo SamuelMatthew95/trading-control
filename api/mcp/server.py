@@ -5,6 +5,15 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
+from api.mcp.read_tools import (
+    get_agent_grades_data,
+    get_agent_heartbeats_data,
+    get_config_data,
+    get_llm_health_data,
+    get_market_data_data,
+    get_positions_data,
+    get_stream_lag_data,
+)
 from api.runtime_state import is_db_available, runtime_mode
 from api.services.dashboard.control import get_debug_state_payload
 from api.services.dashboard.pnl import get_pnl_payload
@@ -176,6 +185,43 @@ async def classify_health() -> dict[str, object]:
         classification = "unknown"
 
     return {"status": "ok", "classification": classification, "db_available": db_available}
+
+
+@mcp.tool
+async def get_agent_heartbeats() -> dict[str, object]:
+    return await get_agent_heartbeats_data()
+
+
+@mcp.tool
+async def get_llm_health() -> dict[str, object]:
+    return await get_llm_health_data()
+
+
+@mcp.tool
+async def get_agent_grades(
+    limit: int = 20, agent_name: str | None = None, since: str | None = None
+) -> dict[str, object]:
+    return await get_agent_grades_data(limit=limit, agent_name=agent_name, since=since)
+
+
+@mcp.tool
+async def get_stream_lag() -> dict[str, object]:
+    return await get_stream_lag_data()
+
+
+@mcp.tool
+async def get_market_data(symbol: str | None = None, limit: int = 20) -> dict[str, object]:
+    return await get_market_data_data(symbol=symbol, limit=limit)
+
+
+@mcp.tool
+async def get_positions() -> dict[str, object]:
+    return await get_positions_data()
+
+
+@mcp.tool
+def get_config() -> dict[str, object]:
+    return get_config_data()
 
 
 @asynccontextmanager

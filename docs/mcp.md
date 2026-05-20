@@ -17,6 +17,13 @@ Use that exact URL in Claude Code / Claude MCP connector settings.
 - `get_notifications`
 - `get_health_summary`
 - `classify_health`
+- `get_agent_heartbeats`
+- `get_llm_health`
+- `get_agent_grades`
+- `get_stream_lag`
+- `get_market_data`
+- `get_positions`
+- `get_config`
 
 These tools are telemetry-only. They do **not** place trades or mutate runtime config.
 

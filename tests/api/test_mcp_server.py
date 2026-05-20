@@ -71,3 +71,35 @@ def test_debug_state_has_activity_false_when_empty() -> None:
         "latest_closed_trade": None,
     }
     assert _debug_state_has_activity(payload) is False
+
+
+def test_get_config_redacts_secrets() -> None:
+    from api.mcp.read_tools import get_config_data
+
+    payload = get_config_data()
+
+    assert payload["ok"] is True
+    assert payload["data"]["secrets"]["mcp_shared_token"] == "***redacted***"
+
+
+async def test_get_stream_lag_degraded_when_redis_unavailable(monkeypatch) -> None:
+    from api.mcp.read_tools import get_stream_lag_data
+
+    async def _boom():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr("api.mcp.read_tools.get_redis", _boom)
+    payload = await get_stream_lag_data()
+    assert payload["degraded"] is True
+    assert payload["reason"] == "redis_unavailable"
+
+
+async def test_get_agent_grades_caps_limit(monkeypatch) -> None:
+    from api.mcp.read_tools import get_agent_grades_data
+
+    async def _fake(limit: int):
+        return {"grades": [], "total": 0, "source": "in_memory", "limit_seen": limit}
+
+    monkeypatch.setattr("api.mcp.read_tools.get_grade_history_payload", _fake)
+    payload = await get_agent_grades_data(limit=999)
+    assert payload["degraded"] is True
