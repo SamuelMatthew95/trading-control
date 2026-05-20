@@ -344,8 +344,10 @@ class ReasoningAgent(BaseStreamConsumer):
             return True
 
         reasoning_summary = str(payload.get(FieldName.REASONING_SUMMARY) or "").lower()
-        reason = str(summary.get(FieldName.FALLBACK_REASON) or summary.get("reason") or "").lower()
-        source = str(summary.get("source") or "").lower()
+        reason = str(
+            summary.get(FieldName.FALLBACK_REASON) or summary.get(FieldName.REASON) or ""
+        ).lower()
+        source = str(summary.get(FieldName.SOURCE) or "").lower()
         return "fallback" in reasoning_summary or "fallback" in reason or source == "fallback"
 
     @staticmethod

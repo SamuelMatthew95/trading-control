@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from api.main import app
 from api.mcp.server import (
+    _classify_health_tool,
     _debug_state_has_activity,
+    _get_debug_state_tool,
     _get_decisions,
+    _get_health_summary_tool,
     _get_notifications,
-    classify_health,
-    get_debug_state,
-    get_health_summary,
-    get_performance_trends,
-    get_pnl,
-    get_service_health,
-    get_trade_feed,
+    _get_performance_trends_tool,
+    _get_pnl_tool,
+    _get_service_health_tool,
+    _get_trade_feed_tool,
 )
 
 
@@ -63,13 +63,13 @@ async def test_mcp_tools_standard_envelope(monkeypatch) -> None:
     )
 
     for payload in [
-        await get_service_health(),
-        await get_debug_state(),
-        await get_pnl(),
-        await get_trade_feed(),
-        await get_performance_trends(),
-        await get_health_summary(),
-        await classify_health(),
+        await _get_service_health_tool(),
+        await _get_debug_state_tool(),
+        await _get_pnl_tool(),
+        await _get_trade_feed_tool(),
+        await _get_performance_trends_tool(),
+        await _get_health_summary_tool(),
+        await _classify_health_tool(),
     ]:
         assert payload.get("ok") is not None
         assert payload.get("degraded") is not None

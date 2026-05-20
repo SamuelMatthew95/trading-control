@@ -156,16 +156,25 @@ async def get_service_health() -> dict[str, object]:
     )
 
 
+_get_service_health_tool = get_service_health
+
+
 @mcp.tool
 async def get_debug_state() -> dict[str, object]:
     data = await _safe_call(get_debug_state_payload)
     return _wrap_payload(data, default_source="in_process")
 
 
+_get_debug_state_tool = get_debug_state
+
+
 @mcp.tool
 async def get_pnl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
     return _wrap_payload(data, default_source="in_process")
+
+
+_get_pnl_tool = get_pnl
 
 
 @mcp.tool
@@ -177,10 +186,16 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
     return _wrap_payload(data, default_source="in_process")
 
 
+_get_trade_feed_tool = get_trade_feed
+
+
 @mcp.tool
 async def get_performance_trends() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
     return _wrap_payload(data, default_source="in_process")
+
+
+_get_performance_trends_tool = get_performance_trends
 
 
 @mcp.tool
@@ -224,6 +239,9 @@ async def get_health_summary() -> dict[str, object]:
     )
 
 
+_get_health_summary_tool = get_health_summary
+
+
 @mcp.tool
 async def classify_health() -> dict[str, object]:
     debug_state_raw = await _safe_call(get_debug_state_payload)
@@ -263,6 +281,9 @@ async def classify_health() -> dict[str, object]:
         source="in_process",
         data={"classification": classification, "db_available": db_available},
     )
+
+
+_classify_health_tool = classify_health
 
 
 @mcp.tool
