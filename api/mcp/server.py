@@ -146,8 +146,7 @@ def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
     return False
 
 
-@mcp.tool
-async def get_service_health() -> dict[str, object]:
+async def _get_service_health_impl() -> dict[str, object]:
     return _envelope(
         ok=True,
         degraded=False,
@@ -156,29 +155,41 @@ async def get_service_health() -> dict[str, object]:
     )
 
 
-_get_service_health_tool = get_service_health
-
-
 @mcp.tool
-async def get_debug_state() -> dict[str, object]:
+async def get_service_health() -> dict[str, object]:
+    return await _get_service_health_impl()
+
+
+_get_service_health_tool = _get_service_health_impl
+
+
+async def _get_debug_state_impl() -> dict[str, object]:
     data = await _safe_call(get_debug_state_payload)
     return _wrap_payload(data, default_source="in_process")
 
 
-_get_debug_state_tool = get_debug_state
-
-
 @mcp.tool
-async def get_pnl() -> dict[str, object]:
+async def get_debug_state() -> dict[str, object]:
+    return await _get_debug_state_impl()
+
+
+_get_debug_state_tool = _get_debug_state_impl
+
+
+async def _get_pnl_impl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
     return _wrap_payload(data, default_source="in_process")
 
 
-_get_pnl_tool = get_pnl
-
-
 @mcp.tool
-async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, object]:
+async def get_pnl() -> dict[str, object]:
+    return await _get_pnl_impl()
+
+
+_get_pnl_tool = _get_pnl_impl
+
+
+async def _get_trade_feed_impl(limit: int = 50, session_id: str | None = None) -> dict[str, object]:
     async def _call() -> dict[str, object]:
         return await get_trade_feed_payload(limit=limit, session_id=session_id)
 
@@ -186,16 +197,25 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
     return _wrap_payload(data, default_source="in_process")
 
 
-_get_trade_feed_tool = get_trade_feed
-
-
 @mcp.tool
-async def get_performance_trends() -> dict[str, object]:
+async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict[str, object]:
+    return await _get_trade_feed_impl(limit=limit, session_id=session_id)
+
+
+_get_trade_feed_tool = _get_trade_feed_impl
+
+
+async def _get_performance_trends_impl() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
     return _wrap_payload(data, default_source="in_process")
 
 
-_get_performance_trends_tool = get_performance_trends
+@mcp.tool
+async def get_performance_trends() -> dict[str, object]:
+    return await _get_performance_trends_impl()
+
+
+_get_performance_trends_tool = _get_performance_trends_impl
 
 
 @mcp.tool
@@ -208,8 +228,7 @@ async def get_notifications(limit: int = 50) -> dict[str, object]:
     return await _get_notifications(limit=limit)
 
 
-@mcp.tool
-async def get_health_summary() -> dict[str, object]:
+async def _get_health_summary_impl() -> dict[str, object]:
     debug_state = await _safe_call(get_debug_state_payload)
     pnl = await _safe_call(get_pnl_payload)
 
@@ -239,11 +258,15 @@ async def get_health_summary() -> dict[str, object]:
     )
 
 
-_get_health_summary_tool = get_health_summary
-
-
 @mcp.tool
-async def classify_health() -> dict[str, object]:
+async def get_health_summary() -> dict[str, object]:
+    return await _get_health_summary_impl()
+
+
+_get_health_summary_tool = _get_health_summary_impl
+
+
+async def _classify_health_impl() -> dict[str, object]:
     debug_state_raw = await _safe_call(get_debug_state_payload)
     if not isinstance(debug_state_raw, dict) or (
         "ok" in debug_state_raw and not debug_state_raw.get("ok")
@@ -283,7 +306,12 @@ async def classify_health() -> dict[str, object]:
     )
 
 
-_classify_health_tool = classify_health
+@mcp.tool
+async def classify_health() -> dict[str, object]:
+    return await _classify_health_impl()
+
+
+_classify_health_tool = _classify_health_impl
 
 
 @mcp.tool
