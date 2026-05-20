@@ -114,7 +114,7 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
         FieldName.SESSION_ID: raw.get(FieldName.SESSION_ID),
     }
     if sanitized_fields:
-        normalized["degraded_reason"] = "invalid_numeric_fields_sanitized"
+        normalized[FieldName.DEGRADED_REASON] = "invalid_numeric_fields_sanitized"
         normalized["sanitized_fields"] = sorted(set(sanitized_fields))
     return normalized
 

@@ -524,11 +524,17 @@ class InMemoryStore:
             qty_raw = self._safe_float(row.get(FieldName.QTY)) or 0.0
             qty = abs(qty_raw)
             side = str(row.get(FieldName.SIDE) or "").lower()
+            existing_unrealized = self._safe_float(row.get(FieldName.UNREALIZED_PNL))
             avg_cost = self._safe_float(
                 row.get(FieldName.AVG_COST, row.get(FieldName.AVG_ENTRY_PRICE))
             )
             last_price = self._safe_float(row.get(FieldName.LAST_PRICE, row.get(FieldName.PRICE)))
             if avg_cost is None or last_price is None or qty <= 0:
+                if existing_unrealized is not None:
+                    row[FieldName.UNREALIZED_PNL] = round(existing_unrealized, 8)
+                    unrealized_pnl += existing_unrealized
+                    open_positions.append(row)
+                    continue
                 row[FieldName.UNREALIZED_PNL] = None
                 row["pnl_stale"] = True
                 open_positions.append(row)
