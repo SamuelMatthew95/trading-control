@@ -131,7 +131,7 @@ async def _db_heartbeat_rows(now_ts: int) -> list[dict[str, Any]]:
         result = await session.execute(
             text(
                 """
-                SELECT agent_name, status, last_seen, last_heartbeat, metadata
+                SELECT agent_name, status, last_seen, last_event, event_count, updated_at
                 FROM agent_heartbeats
                 ORDER BY last_seen DESC
                 LIMIT 500
@@ -165,10 +165,17 @@ async def _db_heartbeat_rows(now_ts: int) -> list[dict[str, Any]]:
             {
                 "agent_name": name,
                 "status": status,
-                "last_heartbeat": m.get("last_heartbeat"),
+                "last_heartbeat": (
+                    m.get("updated_at").isoformat()
+                    if hasattr(m.get("updated_at"), "isoformat")
+                    else m.get("updated_at")
+                ),
                 "age_seconds": age_seconds,
                 "source": "db",
-                "metadata": m.get("metadata") if isinstance(m.get("metadata"), dict) else {},
+                "metadata": {
+                    "last_event": m.get("last_event"),
+                    "event_count": m.get("event_count"),
+                },
             }
         )
     return rows
