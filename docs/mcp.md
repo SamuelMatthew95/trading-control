@@ -17,8 +17,45 @@ Use that exact URL in Claude Code / Claude MCP connector settings.
 - `get_notifications`
 - `get_health_summary`
 - `classify_health`
+- `get_agent_heartbeats`
+- `get_llm_health`
+- `get_agent_grades`
+- `get_stream_lag`
+- `get_market_data`
+- `get_positions`
+- `get_config`
 
 These tools are telemetry-only. They do **not** place trades or mutate runtime config.
+
+
+## Tool parameters and response contract
+
+All new telemetry tools return a structured envelope:
+
+```json
+{
+  "ok": true,
+  "degraded": false,
+  "source": "redis|db|in_memory|mixed|settings|in_process",
+  "generated_at": "ISO-8601",
+  "data": {}
+}
+```
+
+When a datasource is unavailable, `degraded` is `true` and `reason` is included.
+
+### Parameters
+
+- `get_agent_grades(limit=20, agent_name=null, since=null)`
+  - `limit` max `100`
+  - `since` must be ISO-8601 when provided
+- `get_market_data(symbol=null, limit=20)`
+  - `limit` max `100`
+
+### Notes
+
+- `get_agent_heartbeats` uses Redis first, then DB heartbeat fallback, then in-memory fallback.
+- `get_config` is redacted and never returns raw credentials/tokens.
 
 ## Authentication (current behavior)
 
