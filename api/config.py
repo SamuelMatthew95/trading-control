@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str | None = Field(default=None)
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
     LLM_FALLBACK_MODE: str = "skip_reasoning"
+    ALLOW_FALLBACK_TRADES: bool = False
+    MAX_FALLBACK_ORDER_QTY: float = 0.01
+    MAX_SYMBOL_EXPOSURE: float = 1.0
+    MAX_OPEN_POSITION_QTY: float = 1.0
     BROKER_MODE: str = "paper"
     LLM_TIMEOUT_SECONDS: int = 90
     LLM_MAX_RETRIES: int = 2
