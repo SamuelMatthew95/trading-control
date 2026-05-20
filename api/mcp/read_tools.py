@@ -388,7 +388,7 @@ async def get_market_data_data(*, symbol: str | None = None, limit: int = 20) ->
 async def get_positions_data() -> dict[str, Any]:
     if not is_db_available():
         return _wrap(
-            {"positions": list(get_runtime_store().positions.values())},
+            {"positions": get_runtime_store().open_positions()},
             source="in_memory",
             degraded=True,
             reason="db_unavailable",
@@ -411,7 +411,7 @@ async def get_positions_data() -> dict[str, Any]:
         return _wrap({"positions": positions}, source="db")
     except Exception:
         return _wrap(
-            {"positions": list(get_runtime_store().positions.values())},
+            {"positions": get_runtime_store().open_positions()},
             source="mixed",
             degraded=True,
             reason="positions_db_query_failed",

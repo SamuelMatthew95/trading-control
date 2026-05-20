@@ -7,6 +7,7 @@ from api.mcp.read_tools import (
     get_agent_grades_data,
     get_config_data,
     get_market_data_data,
+    get_positions_data,
     get_stream_lag_data,
 )
 
@@ -130,3 +131,18 @@ async def test_get_market_data_reports_total_count(monkeypatch) -> None:
     payload = await get_market_data_data(limit=1)
     assert payload["data"]["total"] == 2
     assert len(payload["data"]["ticks"]) == 1
+
+
+async def test_get_positions_memory_fallback_filters_non_open(monkeypatch) -> None:
+    from api.runtime_state import get_runtime_store
+
+    monkeypatch.setattr("api.mcp.read_tools.is_db_available", lambda: False)
+    store = get_runtime_store()
+    store.positions.clear()
+    store.positions["BTC/USD"] = {"symbol": "BTC/USD", "side": "long", "qty": 1.0}
+    store.positions["ETH/USD"] = {"symbol": "ETH/USD", "side": "flat", "qty": 0.0}
+
+    payload = await get_positions_data()
+    assert payload["degraded"] is True
+    assert len(payload["data"]["positions"]) == 1
+    assert payload["data"]["positions"][0]["symbol"] == "BTC/USD"
