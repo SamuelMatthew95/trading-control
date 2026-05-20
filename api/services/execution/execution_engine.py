@@ -851,7 +851,60 @@ class ExecutionEngine(BaseStreamConsumer):
             heartbeat_status = ":".join(error.split(":")[:2])
             await self._write_idle_heartbeat(symbol_hint, heartbeat_status)
             return None
+        if await self._enforce_fallback_trade_guard(parsed, data):
+            return None
         return parsed
+
+    async def _enforce_fallback_trade_guard(
+        self, parsed: _ParsedDecision, payload: dict[str, Any]
+    ) -> bool:
+        side = str(parsed.side or "").lower()
+        if side not in {OrderSide.BUY, OrderSide.SELL}:
+            return False
+        reason = str(payload.get(FieldName.REASON) or "").lower()
+        source = str(payload.get(FieldName.SOURCE) or "").lower()
+        llm_succeeded = payload.get(FieldName.LLM_SUCCEEDED)
+        is_fallback = (
+            llm_succeeded is False
+            or "fallback" in reason
+            or source == "fallback"
+            or bool(payload.get(FieldName.FALLBACK_REASON))
+        )
+        if not is_fallback:
+            return False
+
+        trace_id = str(parsed.trace_id or "")
+        symbol = str(parsed.symbol or "")
+        current_qty = float((await self.broker.get_position(symbol)).get(FieldName.QTY) or 0.0)
+        max_allowed = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)
+
+        if not settings.ALLOW_FALLBACK_TRADES:
+            blocked = True
+        elif parsed.qty > settings.MAX_FALLBACK_ORDER_QTY:
+            blocked = True
+        elif side == OrderSide.BUY and current_qty >= max_allowed:
+            blocked = True
+        elif side == OrderSide.BUY and (current_qty + parsed.qty) > max_allowed:
+            blocked = True
+        elif side == OrderSide.SELL and current_qty <= 0:
+            blocked = True
+        else:
+            blocked = False
+        if blocked:
+            log_structured(
+                "warning",
+                "fallback_trade_blocked",
+                reason="fallback_trade_blocked",
+                symbol=symbol,
+                action=side,
+                qty=parsed.qty,
+                current_position_qty=current_qty,
+                max_allowed_qty=max_allowed,
+                trace_id=trace_id,
+            )
+            await self._write_idle_heartbeat(symbol, "blocked:fallback_trade", trace_id)
+            return True
+        return False
 
     @staticmethod
     def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:

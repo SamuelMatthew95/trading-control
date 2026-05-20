@@ -506,7 +506,7 @@ class InMemoryStore:
     def paired_pnl_payload(self) -> dict[str, Any]:
         """Compute paired PnL payload shape used by REST/WS in-memory fallbacks."""
         closed_trades = list(self.orders[-100:])
-        open_positions = self.open_positions()
+        open_positions: list[dict[str, Any]] = []
 
         realized_pnl = sum(
             self._safe_float(order.get(FieldName.PNL)) or 0.0 for order in closed_trades
@@ -518,10 +518,28 @@ class InMemoryStore:
             1 for order in closed_trades if (self._safe_float(order.get(FieldName.PNL)) or 0.0) < 0
         )
         total_trades = winning_trades + losing_trades
-        unrealized_pnl = sum(
-            self._safe_float(position.get(FieldName.UNREALIZED_PNL)) or 0.0
-            for position in open_positions
-        )
+        unrealized_pnl = 0.0
+        for position in self.open_positions():
+            row = dict(position)
+            qty_raw = self._safe_float(row.get(FieldName.QTY)) or 0.0
+            qty = abs(qty_raw)
+            side = str(row.get(FieldName.SIDE) or "").lower()
+            avg_cost = self._safe_float(
+                row.get(FieldName.AVG_COST, row.get(FieldName.AVG_ENTRY_PRICE))
+            )
+            last_price = self._safe_float(row.get(FieldName.LAST_PRICE, row.get(FieldName.PRICE)))
+            if avg_cost is None or last_price is None or qty <= 0:
+                row[FieldName.UNREALIZED_PNL] = None
+                row["pnl_stale"] = True
+                open_positions.append(row)
+                continue
+            if side == "short":
+                position_unrealized = (avg_cost - last_price) * qty
+            else:
+                position_unrealized = (last_price - avg_cost) * qty
+            row[FieldName.UNREALIZED_PNL] = round(position_unrealized, 8)
+            unrealized_pnl += position_unrealized
+            open_positions.append(row)
 
         return {
             FieldName.CLOSED_TRADES: closed_trades,

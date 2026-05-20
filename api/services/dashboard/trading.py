@@ -17,6 +17,21 @@ from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 
 
+def _safe_numeric(value: Any) -> float | None:
+    """Parse numeric-like values without raising on malformed payloads."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw or raw.lower() in {"null", "none"}:
+            return None
+        value = raw
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _performance_trends_empty_payload(
     *, source: str | None = None, error: str | None = None
 ) -> dict[str, Any]:
@@ -68,28 +83,28 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
             return value
         return str(value)
 
-    return {
+    sanitized_fields: list[str] = []
+
+    def _pick_num(name: str) -> float | None:
+        parsed = _safe_numeric(raw.get(name))
+        if raw.get(name) is not None and parsed is None:
+            sanitized_fields.append(name)
+        return parsed
+
+    normalized = {
         FieldName.ID: str(trade_id),
         "symbol": str(symbol),
         "side": str(side),
-        "qty": float(raw[FieldName.QTY]) if raw.get(FieldName.QTY) is not None else None,
-        "entry_price": float(raw[FieldName.ENTRY_PRICE])
-        if raw.get(FieldName.ENTRY_PRICE) is not None
-        else None,
-        "exit_price": float(raw[FieldName.EXIT_PRICE])
-        if raw.get(FieldName.EXIT_PRICE) is not None
-        else None,
-        "pnl": float(raw[FieldName.PNL]) if raw.get(FieldName.PNL) is not None else None,
-        "pnl_percent": float(raw[FieldName.PNL_PERCENT])
-        if raw.get(FieldName.PNL_PERCENT) is not None
-        else None,
+        "qty": _pick_num(FieldName.QTY),
+        "entry_price": _pick_num(FieldName.ENTRY_PRICE),
+        "exit_price": _pick_num(FieldName.EXIT_PRICE),
+        "pnl": _pick_num(FieldName.PNL),
+        "pnl_percent": _pick_num(FieldName.PNL_PERCENT),
         "order_id": str(raw[FieldName.ORDER_ID]) if raw.get(FieldName.ORDER_ID) else None,
         FieldName.EXECUTION_TRACE_ID: raw.get(FieldName.EXECUTION_TRACE_ID),
         FieldName.SIGNAL_TRACE_ID: raw.get(FieldName.SIGNAL_TRACE_ID),
         "grade": raw.get(FieldName.GRADE),
-        "grade_score": float(raw[FieldName.GRADE_SCORE])
-        if raw.get(FieldName.GRADE_SCORE) is not None
-        else None,
+        "grade_score": _pick_num(FieldName.GRADE_SCORE),
         FieldName.GRADE_LABEL: raw.get(FieldName.GRADE_LABEL),
         "status": raw.get(FieldName.STATUS) or "filled",
         "filled_at": _as_iso(raw.get(FieldName.FILLED_AT)),
@@ -98,6 +113,10 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
         "created_at": _as_iso(raw.get(FieldName.CREATED_AT)),
         FieldName.SESSION_ID: raw.get(FieldName.SESSION_ID),
     }
+    if sanitized_fields:
+        normalized["degraded_reason"] = "invalid_numeric_fields_sanitized"
+        normalized["sanitized_fields"] = sorted(set(sanitized_fields))
+    return normalized
 
 
 def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> dict[str, Any]:
@@ -123,22 +142,22 @@ def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> 
 
 
 def _fmt_db_trade_row(row: Any) -> dict[str, Any]:
-    pnl = float(row[6]) if row[6] is not None else None
-    pnl_pct = float(row[7]) if row[7] is not None else None
+    pnl = _safe_numeric(row[6])
+    pnl_pct = _safe_numeric(row[7])
     return {
         FieldName.ID: str(row[0]),
         "symbol": row[1],
         "side": row[2],
-        "qty": float(row[3]) if row[3] is not None else None,
-        "entry_price": float(row[4]) if row[4] is not None else None,
-        "exit_price": float(row[5]) if row[5] is not None else None,
+        "qty": _safe_numeric(row[3]),
+        "entry_price": _safe_numeric(row[4]),
+        "exit_price": _safe_numeric(row[5]),
         "pnl": round(pnl, 2) if pnl is not None else None,
         "pnl_percent": round(pnl_pct, 4) if pnl_pct is not None else None,
         "order_id": str(row[8]) if row[8] else None,
         FieldName.EXECUTION_TRACE_ID: row[9],
         FieldName.SIGNAL_TRACE_ID: row[10],
         "grade": row[11],
-        "grade_score": float(row[12]) if row[12] is not None else None,
+        "grade_score": _safe_numeric(row[12]),
         FieldName.GRADE_LABEL: row[13],
         "status": row[14],
         "filled_at": row[15].isoformat() if row[15] else None,

@@ -35,3 +35,34 @@ the local `tradeFeed` array instead.
 
 **Regression test:** `frontend/src/test/components/TradeFeed.test.tsx` — verify
 win rate shows computed value when summary has zero trades.
+
+## In-memory positions show `unrealized_pnl: 0.0` for active shorts
+
+**Symptom:** In memory-fallback mode, open short positions could appear with
+`unrealized_pnl: 0.0` (or stale) even when `last_price` and `avg_cost` clearly
+imply non-zero P&L.
+
+**Root cause:** Quantity sign conventions were mixed across memory paths.
+Some writers persisted short qty as negative while the in-memory paired-PnL
+calculator expected strictly positive qty and treated `qty <= 0` as invalid.
+That incorrectly marked valid short rows as stale and excluded their unrealized
+P&L from summary totals.
+
+**Fix:** `api/in_memory_store.py` now normalizes open-position magnitude with
+`abs(qty)` before applying side-aware formulas:
+
+- long: `(last_price - avg_cost) * qty`
+- short: `(avg_cost - last_price) * qty`
+
+Rows are marked stale only when price/cost inputs are missing or malformed, not
+because short qty is negative.
+
+**Regression tests:**
+
+- `tests/core/test_in_memory_unrealized_pnl.py::test_unrealized_pnl_long_and_short_and_missing_price`
+- `tests/core/test_in_memory_unrealized_pnl.py::test_unrealized_pnl_short_with_negative_qty_uses_absolute_position_size`
+
+**Prevention guidance:** Keep unrealized-PnL math centralized in
+`InMemoryStore.paired_pnl_payload()` and avoid re-implementing qty-sign logic in
+routes/services. Any new writer that mutates memory positions must preserve
+`side` and `qty` consistently and include a memory-mode regression test.
