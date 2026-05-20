@@ -875,22 +875,39 @@ class ExecutionEngine(BaseStreamConsumer):
 
         trace_id = str(parsed.trace_id or "")
         symbol = str(parsed.symbol or "")
-        current_qty = float((await self.broker.get_position(symbol)).get(FieldName.QTY) or 0.0)
         max_allowed = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)
 
         if not settings.ALLOW_FALLBACK_TRADES:
-            blocked = True
-        elif parsed.qty > settings.MAX_FALLBACK_ORDER_QTY:
-            blocked = True
-        elif side == OrderSide.BUY and current_qty >= max_allowed:
-            blocked = True
-        elif side == OrderSide.BUY and (current_qty + parsed.qty) > max_allowed:
-            blocked = True
-        elif side == OrderSide.SELL and current_qty <= 0:
+            current_signed_qty = 0.0
             blocked = True
         else:
-            blocked = False
+            current_position = await self.broker.get_position(symbol)
+            current_signed_qty = self._signed_position_qty(current_position)
+
+            if parsed.qty > settings.MAX_FALLBACK_ORDER_QTY:
+                blocked = True
+            else:
+                signed_after = (
+                    current_signed_qty + parsed.qty
+                    if side == OrderSide.BUY
+                    else current_signed_qty - parsed.qty
+                )
+                # Reduce-only is always allowed once fallback trading is enabled.
+                reduces_abs_exposure = abs(signed_after) <= abs(current_signed_qty)
+                if reduces_abs_exposure:
+                    blocked = False
+                # Position-flip/over-close from one side through flat to the other side.
+                elif current_signed_qty < 0 < signed_after or current_signed_qty > 0 > signed_after:
+                    blocked = True
+                # Enforce capped absolute exposure for position-increasing fallback trades.
+                elif abs(signed_after) > max_allowed:
+                    blocked = True
+                else:
+                    blocked = False
         if blocked:
+            current_qty_for_log = abs(current_signed_qty)
+            if current_signed_qty < 0:
+                current_qty_for_log = -current_qty_for_log
             log_structured(
                 "warning",
                 "fallback_trade_blocked",
@@ -898,13 +915,29 @@ class ExecutionEngine(BaseStreamConsumer):
                 symbol=symbol,
                 action=side,
                 qty=parsed.qty,
-                current_position_qty=current_qty,
+                current_position_qty=current_qty_for_log,
                 max_allowed_qty=max_allowed,
                 trace_id=trace_id,
             )
             await self._write_idle_heartbeat(symbol, "blocked:fallback_trade", trace_id)
             return True
         return False
+
+    @staticmethod
+    def _signed_position_qty(position: dict[str, Any] | None) -> float:
+        if not isinstance(position, dict):
+            return 0.0
+        qty = position.get(FieldName.QTY, position.get(FieldName.QUANTITY))
+        try:
+            qty_value = float(qty or 0.0)
+        except (TypeError, ValueError):
+            qty_value = 0.0
+        side = str(position.get(FieldName.SIDE) or "").strip().lower()
+        if side in {"short", "sell", "sold"}:
+            return -abs(qty_value)
+        if side in {"long", "buy", "bought"}:
+            return abs(qty_value)
+        return qty_value
 
     @staticmethod
     def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:
