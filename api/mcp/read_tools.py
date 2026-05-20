@@ -12,7 +12,28 @@ from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
-    STREAMS,
+    STREAM_AGENT_GRADES,
+    STREAM_AGENT_LOGS,
+    STREAM_DECISIONS,
+    STREAM_DLQ,
+    STREAM_EXECUTIONS,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_GITHUB_PRS,
+    STREAM_GRADED_DECISIONS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_MARKET_EVENTS,
+    STREAM_MARKET_TICKS,
+    STREAM_NOTIFICATIONS,
+    STREAM_ORDERS,
+    STREAM_PROPOSALS,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_RISK_ALERTS,
+    STREAM_SELL_REJECTED,
+    STREAM_SIGNALS,
+    STREAM_SYSTEM_METRICS,
+    STREAM_TRADE_COMPLETED,
+    STREAM_TRADE_LIFECYCLE,
+    STREAM_TRADE_PERFORMANCE,
 )
 from api.database import AsyncSessionFactory
 from api.redis_client import get_redis
@@ -20,6 +41,31 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.learning import get_grade_history_payload
 from api.services.dashboard.system import get_prices_payload
 from api.services.llm_metrics import llm_metrics
+
+MCP_STREAMS: tuple[str, ...] = (
+    STREAM_MARKET_TICKS,
+    STREAM_MARKET_EVENTS,
+    STREAM_SIGNALS,
+    STREAM_DECISIONS,
+    STREAM_GRADED_DECISIONS,
+    STREAM_ORDERS,
+    STREAM_EXECUTIONS,
+    STREAM_TRADE_COMPLETED,
+    STREAM_TRADE_PERFORMANCE,
+    STREAM_RISK_ALERTS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_SYSTEM_METRICS,
+    STREAM_AGENT_LOGS,
+    STREAM_AGENT_GRADES,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_PROPOSALS,
+    STREAM_NOTIFICATIONS,
+    STREAM_GITHUB_PRS,
+    STREAM_TRADE_LIFECYCLE,
+    STREAM_DLQ,
+    STREAM_SELL_REJECTED,
+)
 
 
 def _now() -> datetime:
@@ -241,7 +287,7 @@ async def get_stream_lag_data() -> dict[str, Any]:
     try:
         redis_client = await get_redis()
         data: list[dict[str, Any]] = []
-        for stream_name in STREAMS:
+        for stream_name in MCP_STREAMS:
             try:
                 stream_info = await redis_client.xinfo_stream(stream_name)
                 groups = await redis_client.xinfo_groups(stream_name)
