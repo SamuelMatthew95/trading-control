@@ -112,3 +112,21 @@ async def test_get_agent_grades_since_excludes_unparseable_when_since_set(monkey
     monkeypatch.setattr("api.mcp.read_tools.get_grade_history_payload", _fake)
     payload = await get_agent_grades_data(since=(now - timedelta(hours=1)).isoformat())
     assert payload["data"]["total"] == 1
+
+
+async def test_get_market_data_reports_total_count(monkeypatch) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+
+    async def _fake_prices():
+        return {
+            "source": "redis_cache",
+            "prices": {
+                "BTC/USD": {"price": 1, "timestamp": now},
+                "ETH/USD": {"price": 2, "timestamp": now},
+            },
+        }
+
+    monkeypatch.setattr("api.mcp.read_tools.get_prices_payload", _fake_prices)
+    payload = await get_market_data_data(limit=1)
+    assert payload["data"]["total"] == 2
+    assert len(payload["data"]["ticks"]) == 1
