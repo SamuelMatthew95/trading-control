@@ -56,8 +56,8 @@ def _error_payload(reason: str, *, source: str = "in_process") -> dict[str, obje
 async def _safe_call(func: Callable[[], Awaitable[object]]) -> object:
     try:
         return await func()
-    except Exception as exc:  # noqa: BLE001
-        return _error_payload(f"unavailable:{exc}")
+    except Exception:  # noqa: BLE001
+        return _error_payload("mcp_tool_unavailable")
 
 
 async def _get_decisions(limit: int = 50, action: str | None = None) -> dict[str, object]:
@@ -77,8 +77,8 @@ async def _get_decisions(limit: int = 50, action: str | None = None) -> dict[str
             source="redis",
             data={"items": await store.list_decisions(limit=limit, action=action)},
         )
-    except Exception as exc:  # noqa: BLE001
-        return _error_payload(f"unavailable:{exc}", source="redis")
+    except Exception:  # noqa: BLE001
+        return _error_payload("redis_unavailable", source="redis")
 
 
 async def _get_notifications(limit: int = 50) -> dict[str, object]:
@@ -98,8 +98,8 @@ async def _get_notifications(limit: int = 50) -> dict[str, object]:
             source="redis",
             data={"items": await store.list_notifications(limit=limit)},
         )
-    except Exception as exc:  # noqa: BLE001
-        return _error_payload(f"unavailable:{exc}", source="redis")
+    except Exception:  # noqa: BLE001
+        return _error_payload("redis_unavailable", source="redis")
 
 
 def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
@@ -236,7 +236,12 @@ async def classify_health() -> dict[str, object]:
         )
 
     db_available = bool(is_db_available())
-    has_activity = _debug_state_has_activity(debug_state_raw)
+    debug_state = (
+        debug_state_raw.get("data")
+        if isinstance(debug_state_raw.get("data"), dict)
+        else debug_state_raw
+    )
+    has_activity = _debug_state_has_activity(debug_state)
 
     if db_available and has_activity:
         classification = "healthy"

@@ -44,6 +44,17 @@ All new telemetry tools return a structured envelope:
 
 When a datasource is unavailable, `degraded` is `true` and `reason` is included.
 
+```json
+{
+  "ok": false,
+  "degraded": true,
+  "source": "redis|db|in_memory|mixed|settings|in_process",
+  "generated_at": "ISO-8601",
+  "reason": "machine_readable_reason",
+  "data": {}
+}
+```
+
 ### Stability contract (to avoid future MCP breakage)
 
 When adding or changing MCP read tools, keep these rules:
