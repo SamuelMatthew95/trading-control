@@ -361,11 +361,27 @@ class ReasoningAgent(BaseStreamConsumer):
         symbol: str,
         price: Any,
         trace_id: str,
+        is_fallback: bool,
+        reason: str = "",
     ) -> dict[str, Any]:
         """Pure builder for the user-facing buy/sell notification payload."""
         price_str = ""
         if isinstance(price, (int, float)) and price:
             price_str = f" at ${float(price):,.2f}"
+        if is_fallback:
+            return {
+                FieldName.TYPE: "fallback_trade_blocked",
+                "title": f"Fallback {action.upper()} suppressed — {symbol}",
+                "body": f"Fallback decision blocked for {symbol}: {reason or 'fallback_detected'}",
+                "severity": "warning",
+                "notification_type": "fallback_trade_blocked",
+                "original_action": action,
+                FieldName.SYMBOL: symbol,
+                FieldName.ACTION: AgentAction.HOLD,
+                FieldName.TRACE_ID: trace_id,
+                "reason": reason or "fallback_detected",
+                FieldName.LLM_SUCCEEDED: False,
+            }
         return {
             FieldName.TYPE: "trade_signal",
             "title": f"{action.upper()} signal — {symbol}",
@@ -374,6 +390,7 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.SYMBOL: symbol,
             FieldName.ACTION: action,
             FieldName.TRACE_ID: trace_id,
+            FieldName.LLM_SUCCEEDED: True,
         }
 
     async def _record_decision_to_redis(
@@ -411,6 +428,12 @@ class ReasoningAgent(BaseStreamConsumer):
                 symbol=str(payload[FieldName.SYMBOL]),
                 price=payload[FieldName.PRICE],
                 trace_id=trace_id,
+                is_fallback=is_fallback,
+                reason=str(
+                    summary.get(FieldName.FALLBACK_REASON)
+                    or summary.get(FieldName.PRIMARY_EDGE)
+                    or ""
+                ),
             )
             persisted = await store.push_notification(notification)
             if not is_db_available():

@@ -70,6 +70,7 @@ def test_build_decision_notification_includes_formatted_price() -> None:
         symbol="BTC/USD",
         price=67450.5,
         trace_id="t-5",
+        is_fallback=False,
     )
     assert notif[FieldName.TYPE] == "trade_signal"
     assert notif["title"] == "BUY signal — BTC/USD"
@@ -86,6 +87,7 @@ def test_build_decision_notification_omits_price_when_absent() -> None:
         symbol="ETH/USD",
         price=None,
         trace_id="t-6",
+        is_fallback=False,
     )
     assert " at $" not in notif["body"]
     assert notif["body"] == "Reasoning agent decided to sell ETH/USD"
@@ -98,6 +100,7 @@ def test_build_decision_notification_omits_price_when_zero() -> None:
         symbol="BTC/USD",
         price=0,
         trace_id="t-7",
+        is_fallback=False,
     )
     assert " at $" not in notif["body"]
 
@@ -108,8 +111,26 @@ def test_build_decision_notification_omits_price_when_non_numeric() -> None:
         symbol="BTC/USD",
         price="not-a-number",  # surfaced from a malformed upstream payload
         trace_id="t-8",
+        is_fallback=False,
     )
     assert " at $" not in notif["body"]
+
+
+def test_build_decision_notification_fallback_buy_suppressed() -> None:
+    notif = ReasoningAgent._build_decision_notification(
+        action=AgentAction.BUY,
+        symbol="BTC/USD",
+        price=67450.5,
+        trace_id="t-9",
+        is_fallback=True,
+        reason="fallback_detected",
+    )
+    assert notif["title"] == "Fallback BUY suppressed — BTC/USD"
+    assert notif["severity"] == "warning"
+    assert notif["type"] == "fallback_trade_blocked"
+    assert notif["original_action"] == AgentAction.BUY
+    assert notif["action"] == AgentAction.HOLD
+    assert notif["llm_succeeded"] is False
 
 
 def test_actionable_set_matches_agent_action_constants() -> None:

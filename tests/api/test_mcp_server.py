@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from api.main import app
-from api.mcp.server import _debug_state_has_activity, _get_decisions, _get_notifications
+from api.mcp.server import (
+    _debug_state_has_activity,
+    _get_decisions,
+    _get_notifications,
+    classify_health,
+    get_debug_state,
+    get_health_summary,
+    get_performance_trends,
+    get_pnl,
+    get_service_health,
+    get_trade_feed,
+)
 
 
 def test_mcp_mount_exists_on_main_app() -> None:
@@ -16,9 +27,10 @@ async def test_decisions_unavailable_payload_when_store_missing(monkeypatch) -> 
 
     payload = await _get_decisions(limit=10)
 
-    assert payload["status"] == "unavailable"
+    assert payload["ok"] is False
     assert payload["reason"] == "redis_store_not_ready"
-    assert payload["items"] is None
+    assert payload["data"]["items"] == []
+    assert "status" not in payload
 
 
 async def test_notifications_unavailable_payload_when_store_missing(monkeypatch) -> None:
@@ -27,9 +39,44 @@ async def test_notifications_unavailable_payload_when_store_missing(monkeypatch)
 
     payload = await _get_notifications(limit=10)
 
-    assert payload["status"] == "unavailable"
+    assert payload["ok"] is False
     assert payload["reason"] == "redis_store_not_ready"
-    assert payload["items"] is None
+    assert payload["data"]["items"] == []
+    assert "status" not in payload
+
+
+async def test_mcp_tools_standard_envelope(monkeypatch) -> None:
+    async def _ok_payload():
+        return {
+            "ok": True,
+            "degraded": False,
+            "source": "in_memory",
+            "generated_at": "x",
+            "data": {},
+        }
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _ok_payload)
+    monkeypatch.setattr("api.mcp.server.get_pnl_payload", _ok_payload)
+    monkeypatch.setattr("api.mcp.server.get_performance_trends_payload", _ok_payload)
+    monkeypatch.setattr(
+        "api.mcp.server.get_trade_feed_payload", lambda limit, session_id: _ok_payload()
+    )
+
+    for payload in [
+        await get_service_health(),
+        await get_debug_state(),
+        await get_pnl(),
+        await get_trade_feed(),
+        await get_performance_trends(),
+        await get_health_summary(),
+        await classify_health(),
+    ]:
+        assert payload.get("ok") is not None
+        assert payload.get("degraded") is not None
+        assert payload.get("source") is not None
+        assert payload.get("generated_at") is not None
+        assert isinstance(payload.get("data"), dict)
+        assert "status" not in payload
 
 
 def test_settings_exposes_mcp_shared_token_field() -> None:

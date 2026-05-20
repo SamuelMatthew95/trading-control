@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from fastmcp import FastMCP
 
@@ -24,38 +25,81 @@ mcp = FastMCP("trading-control", instructions="Read-only trading-control telemet
 _base_mcp_app = mcp.http_app(path="/")
 
 
-def _error_payload(message: str, *, details: str | None = None) -> dict[str, object]:
-    payload: dict[str, object] = {"status": "error", "error": message}
-    if details:
-        payload["details"] = details
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _envelope(
+    *,
+    ok: bool,
+    degraded: bool,
+    source: str,
+    data: dict[str, object],
+    reason: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "ok": ok,
+        "degraded": degraded,
+        "source": source,
+        "generated_at": _now_iso(),
+        "data": data,
+    }
+    if reason:
+        payload["reason"] = reason
     return payload
+
+
+def _error_payload(reason: str, *, source: str = "in_process") -> dict[str, object]:
+    return _envelope(ok=False, degraded=True, source=source, reason=reason, data={})
 
 
 async def _safe_call(func: Callable[[], Awaitable[object]]) -> object:
     try:
         return await func()
     except Exception as exc:  # noqa: BLE001
-        return _error_payload("unavailable", details=str(exc))
+        return _error_payload(f"unavailable:{exc}")
 
 
 async def _get_decisions(limit: int = 50, action: str | None = None) -> dict[str, object]:
     try:
         store = get_redis_store()
         if store is None:
-            return {"status": "unavailable", "reason": "redis_store_not_ready", "items": None}
-        return {"status": "ok", "items": await store.list_decisions(limit=limit, action=action)}
+            return _envelope(
+                ok=False,
+                degraded=True,
+                source="redis",
+                reason="redis_store_not_ready",
+                data={"items": []},
+            )
+        return _envelope(
+            ok=True,
+            degraded=False,
+            source="redis",
+            data={"items": await store.list_decisions(limit=limit, action=action)},
+        )
     except Exception as exc:  # noqa: BLE001
-        return _error_payload("unavailable", details=str(exc))
+        return _error_payload(f"unavailable:{exc}", source="redis")
 
 
 async def _get_notifications(limit: int = 50) -> dict[str, object]:
     try:
         store = get_redis_store()
         if store is None:
-            return {"status": "unavailable", "reason": "redis_store_not_ready", "items": None}
-        return {"status": "ok", "items": await store.list_notifications(limit=limit)}
+            return _envelope(
+                ok=False,
+                degraded=True,
+                source="redis",
+                reason="redis_store_not_ready",
+                data={"items": []},
+            )
+        return _envelope(
+            ok=True,
+            degraded=False,
+            source="redis",
+            data={"items": await store.list_notifications(limit=limit)},
+        )
     except Exception as exc:  # noqa: BLE001
-        return _error_payload("unavailable", details=str(exc))
+        return _error_payload(f"unavailable:{exc}", source="redis")
 
 
 def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
@@ -90,23 +134,32 @@ def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
 
 @mcp.tool
 async def get_service_health() -> dict[str, object]:
-    return {
-        "status": "ok",
-        "db_available": is_db_available(),
-        "persistence_mode": runtime_mode(),
-    }
+    return _envelope(
+        ok=True,
+        degraded=False,
+        source="settings",
+        data={"db_available": is_db_available(), "persistence_mode": runtime_mode()},
+    )
 
 
 @mcp.tool
 async def get_debug_state() -> dict[str, object]:
     data = await _safe_call(get_debug_state_payload)
-    return data if isinstance(data, dict) else {"status": "ok", "data": data}
+    if isinstance(data, dict) and "ok" in data and "data" in data:
+        return data
+    return _envelope(
+        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
+    )
 
 
 @mcp.tool
 async def get_pnl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
-    return data if isinstance(data, dict) else {"status": "ok", "data": data}
+    if isinstance(data, dict) and "ok" in data and "data" in data:
+        return data
+    return _envelope(
+        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
+    )
 
 
 @mcp.tool
@@ -115,13 +168,21 @@ async def get_trade_feed(limit: int = 50, session_id: str | None = None) -> dict
         return await get_trade_feed_payload(limit=limit, session_id=session_id)
 
     data = await _safe_call(_call)
-    return data if isinstance(data, dict) else {"status": "ok", "data": data}
+    if isinstance(data, dict) and "ok" in data and "data" in data:
+        return data
+    return _envelope(
+        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
+    )
 
 
 @mcp.tool
 async def get_performance_trends() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
-    return data if isinstance(data, dict) else {"status": "ok", "data": data}
+    if isinstance(data, dict) and "ok" in data and "data" in data:
+        return data
+    return _envelope(
+        ok=True, degraded=False, source="in_memory", data=data if isinstance(data, dict) else {}
+    )
 
 
 @mcp.tool
@@ -145,30 +206,34 @@ async def get_health_summary() -> dict[str, object]:
     trade_feed = await _safe_call(_feed)
     decisions = await _get_decisions(limit=20)
     notifications = await _get_notifications(limit=20)
-    return {
-        "status": "ok",
-        "service": {
-            "db_available": is_db_available(),
-            "persistence_mode": runtime_mode(),
+    return _envelope(
+        ok=True,
+        degraded=False,
+        source="mixed",
+        data={
+            "service": {"db_available": is_db_available(), "persistence_mode": runtime_mode()},
+            "debug_state": debug_state,
+            "pnl": pnl,
+            "trade_feed": trade_feed,
+            "decisions": decisions,
+            "notifications": notifications,
         },
-        "debug_state": debug_state,
-        "pnl": pnl,
-        "trade_feed": trade_feed,
-        "decisions": decisions,
-        "notifications": notifications,
-    }
+    )
 
 
 @mcp.tool
 async def classify_health() -> dict[str, object]:
     debug_state_raw = await _safe_call(get_debug_state_payload)
-    if not isinstance(debug_state_raw, dict) or debug_state_raw.get("status") == "error":
-        return {
-            "status": "ok",
-            "classification": "unknown",
-            "db_available": bool(is_db_available()),
-            "reason": "debug_state_unavailable",
-        }
+    if not isinstance(debug_state_raw, dict) or (
+        "ok" in debug_state_raw and not debug_state_raw.get("ok")
+    ):
+        return _envelope(
+            ok=False,
+            degraded=True,
+            source="in_process",
+            reason="debug_state_unavailable",
+            data={"classification": "unknown", "db_available": bool(is_db_available())},
+        )
 
     db_available = bool(is_db_available())
     has_activity = _debug_state_has_activity(debug_state_raw)
@@ -184,7 +249,12 @@ async def classify_health() -> dict[str, object]:
     else:
         classification = "unknown"
 
-    return {"status": "ok", "classification": classification, "db_available": db_available}
+    return _envelope(
+        ok=True,
+        degraded=False,
+        source="in_process",
+        data={"classification": classification, "db_available": db_available},
+    )
 
 
 @mcp.tool
