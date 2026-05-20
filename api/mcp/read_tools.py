@@ -237,7 +237,7 @@ async def get_agent_heartbeats_data() -> dict[str, Any]:
         rows = [_build_row(name, store.get_agent(name) or {}, "memory") for name in ALL_AGENT_NAMES]
         return _wrap(
             {"agents": rows, "stale_threshold_seconds": AGENT_STALE_THRESHOLD_SECONDS},
-            source="memory",
+            source="in_memory",
             degraded=True,
             reason="redis_unavailable",
         )
@@ -344,7 +344,7 @@ async def get_stream_lag_data() -> dict[str, Any]:
                 )
         return _wrap({"streams": data}, source="redis")
     except Exception:
-        return _wrap({"streams": []}, source="memory", degraded=True, reason="redis_unavailable")
+        return _wrap({"streams": []}, source="in_memory", degraded=True, reason="redis_unavailable")
 
 
 async def get_market_data_data(*, symbol: str | None = None, limit: int = 20) -> dict[str, Any]:
