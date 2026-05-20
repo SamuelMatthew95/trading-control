@@ -24,6 +24,23 @@
 
 ---
 
+## Naked SELL — fake negative P&L on dashboard
+
+**Symptom:** Dashboard shows negative realized P&L from SELL orders that have no matching earlier BUY. Trade feed contains closed-trade rows without corresponding open-position entries.
+
+**Root cause:** The execution engine's `reject_unmatched_sell()` guard stopped an invalid SELL from reaching the broker, but it only logged a warning and returned silently — no rejection event was published and nothing was recorded in the runtime store. Downstream consumers (dashboard P&L, trade feed) had no signal that the SELL was blocked, so any cached state from a previous run could produce phantom negative numbers.
+
+**Fix:** After `reject_unmatched_sell()` returns `True`, the engine now:
+1. Publishes a `SELL_REJECTED_NO_OPEN_POSITION` event to `STREAM_SELL_REJECTED` so consumers know the order was blocked.
+2. Records the rejection in `InMemoryStore.rejected_sells` (memory-mode path) so the dashboard never counts it as a closed trade.
+3. Clamps oversell quantity to the available open position qty instead of creating a naked short position.
+
+Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_position(symbol)`, `get_open_position(symbol)`, `reject_sell_no_position(...)`.
+
+**Regression test:** `tests/agents/test_trade_lifecycle_guardrails.py` (full file)
+
+---
+
 ## Decisions backlog — high count, zero executions
 
 **Symptom:** Dashboard shows hundreds of decisions with zero corresponding trade executions.

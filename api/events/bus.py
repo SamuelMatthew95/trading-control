@@ -28,6 +28,7 @@ from api.constants import (
     STREAM_PROPOSALS,
     STREAM_REFLECTION_OUTPUTS,
     STREAM_RISK_ALERTS,
+    STREAM_SELL_REJECTED,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
     STREAM_TRADE_COMPLETED,
@@ -60,6 +61,7 @@ STREAMS = (
     STREAM_GITHUB_PRS,
     STREAM_TRADE_LIFECYCLE,
     STREAM_DLQ,
+    STREAM_SELL_REJECTED,
 )
 DEFAULT_GROUP = "workers"
 # Separate group for the broadcast pipeline so it reads independently

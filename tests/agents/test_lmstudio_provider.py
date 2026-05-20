@@ -720,10 +720,12 @@ def test_make_client_no_proxy_when_url_empty(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_call_lmstudio_logs_request_context(monkeypatch, capsys):
+async def test_call_lmstudio_logs_request_context(monkeypatch, capsys, caplog):
     """call_lmstudio must log base_url_host and proxy_enabled before the API call.
 
-    log_structured() writes to stdout (structlog) — use capsys, not caplog.
+    log_structured() normally writes to stdout via structlog, but when running
+    in a full test suite the pytest log-capture handler may intercept the output
+    instead. Check both channels so the assertion is order-independent.
     """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
@@ -736,6 +738,6 @@ async def test_call_lmstudio_logs_request_context(monkeypatch, capsys):
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    out = capsys.readouterr().out
-    assert "reasoning_llm_request" in out
-    assert "100.112.224.78" in out
+    combined = capsys.readouterr().out + caplog.text
+    assert "reasoning_llm_request" in combined
+    assert "100.112.224.78" in combined

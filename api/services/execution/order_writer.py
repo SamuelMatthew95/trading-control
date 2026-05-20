@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from api.constants import SOURCE_EXECUTION, FieldName, OrderSide, PositionSide
+from api.constants import SOURCE_EXECUTION, FieldName, OrderSide, OrderStatus, PositionSide
 from api.schema_version import DB_SCHEMA_VERSION
 
 
@@ -51,6 +51,55 @@ async def insert_pending_order(
         },
     )
     return str(result.scalar_one())
+
+
+async def insert_rejected_order_once(
+    session,
+    *,
+    idempotency_key: str,
+    strategy_id: str,
+    symbol: str,
+    side: str,
+    qty: float,
+    price: float,
+) -> tuple[str, bool]:
+    """Insert a REJECTED order row keyed by idempotency_key; return (order_id, created).
+
+    ON CONFLICT DO NOTHING ensures concurrent replays cannot double-insert.
+    Returns created=False when the row already existed so the caller skips
+    re-publishing the sell_rejected event.
+    """
+    result = await session.execute(
+        text(
+            "INSERT INTO orders "
+            "(strategy_id, symbol, side, qty, quantity, price, status, "
+            " idempotency_key, broker_order_id, source, schema_version) "
+            "VALUES (:strategy_id, :symbol, :side, :qty, :qty, :price, :status, "
+            "        :idempotency_key, NULL, :source, :schema_version) "
+            "ON CONFLICT (idempotency_key) DO NOTHING "
+            "RETURNING id"
+        ),
+        {
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "price": price,
+            "idempotency_key": idempotency_key,
+            "status": OrderStatus.REJECTED,
+            "source": SOURCE_EXECUTION,
+            "schema_version": DB_SCHEMA_VERSION,
+        },
+    )
+    row = result.first()
+    if row is None:
+        existing = await session.execute(
+            text("SELECT id FROM orders WHERE idempotency_key = :key"),
+            {"key": idempotency_key},
+        )
+        order_id = str(existing.scalar_one())
+        return order_id, False
+    return str(row[0]), True
 
 
 async def update_order_fill(

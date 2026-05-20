@@ -711,6 +711,7 @@ class FieldName(StrEnum):
     REGIME = "regime"
     REGIME_CONTEXT = "regime_context"
     REGIME_EDGE = "regime_edge"
+    REJECTION_REASON = "rejection_reason"
     REPLAYED = "replayed"
     REQUEST_ID = "request_id"
     REQUIRES_APPROVAL = "requires_approval"
@@ -1095,6 +1096,7 @@ STREAM_NOTIFICATIONS: Final[str] = "notifications"
 STREAM_GITHUB_PRS: Final[str] = "github_prs"
 STREAM_TRADE_LIFECYCLE: Final[str] = "trade_lifecycle"
 STREAM_DLQ: Final[str] = "dlq"
+STREAM_SELL_REJECTED: Final[str] = "sell_rejected"
 
 # The four streams shown on the dashboard pipeline view
 PIPELINE_STREAMS: Final[tuple[str, ...]] = (

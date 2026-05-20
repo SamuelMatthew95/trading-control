@@ -81,7 +81,7 @@ Trading Control is designed to keep algorithmic execution **adaptive** without s
 
 ---
 
-## Quick start
+## Quick Start
 
 ### 1) Prerequisites
 
@@ -99,7 +99,7 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3) Configure
+### 3) Configuration
 
 ```bash
 cp .env.example .env
