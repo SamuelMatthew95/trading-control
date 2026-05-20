@@ -34,7 +34,7 @@ async def test_get_stream_lag_degraded_when_redis_down(monkeypatch) -> None:
     monkeypatch.setattr("api.mcp.read_tools.get_redis", _boom)
     payload = await get_stream_lag_data()
     assert payload["degraded"] is True
-    assert payload["source"] == "memory"
+    assert payload["source"] == "in_memory"
 
 
 async def test_get_agent_grades_filters_since(monkeypatch) -> None:
