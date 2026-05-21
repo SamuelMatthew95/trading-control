@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     LM_STUDIO_HOST: str = "127.0.0.1"
     LM_STUDIO_PORT: int = 1234
     LM_STUDIO_MODEL: str = ""
-    LM_STUDIO_TIMEOUT_SECONDS: int = 90
+    LM_STUDIO_TIMEOUT_SECONDS: int = 180
     # When Tailscale runs in userspace-networking mode (--outbound-http-proxy-listen),
     # set this to the HTTP CONNECT proxy URL so httpx can reach the Tailscale peer.
     # Example: LM_STUDIO_PROXY_URL=http://127.0.0.1:1055
