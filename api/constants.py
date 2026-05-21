@@ -1223,6 +1223,9 @@ LLM_TEMPERATURE_TRADING: Final[float] = 0.0
 # call_llm_with_system() — free-text reasoning / reflection; slight variation is fine
 LLM_MAX_TOKENS_ANALYSIS: Final[int] = 800
 LLM_TEMPERATURE_ANALYSIS: Final[float] = 0.3
+# LM Studio decision calls — higher ceiling because local inference includes reasoning fields
+# and thinking-mode models (e.g. Qwen3.5) need room even with thinking disabled
+LLM_MAX_TOKENS_LMSTUDIO: Final[int] = 1500
 
 # Symbol constants
 SYMBOL_BTC_USD: Final[str] = "BTC/USD"
