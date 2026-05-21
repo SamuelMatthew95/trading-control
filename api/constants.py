@@ -715,6 +715,7 @@ class FieldName(StrEnum):
     REGIME = "regime"
     REGIME_CONTEXT = "regime_context"
     REGIME_EDGE = "regime_edge"
+    REJECTION_REASON = "rejection_reason"
     REMOTE_LOCALHOST_MISMATCH = "remote_localhost_mismatch"
     REPLAYED = "replayed"
     REQUEST_ID = "request_id"
@@ -1100,6 +1101,7 @@ STREAM_NOTIFICATIONS: Final[str] = "notifications"
 STREAM_GITHUB_PRS: Final[str] = "github_prs"
 STREAM_TRADE_LIFECYCLE: Final[str] = "trade_lifecycle"
 STREAM_DLQ: Final[str] = "dlq"
+STREAM_SELL_REJECTED: Final[str] = "sell_rejected"
 
 # The four streams shown on the dashboard pipeline view
 PIPELINE_STREAMS: Final[tuple[str, ...]] = (
@@ -1107,6 +1109,33 @@ PIPELINE_STREAMS: Final[tuple[str, ...]] = (
     STREAM_SIGNALS,
     STREAM_DECISIONS,
     STREAM_GRADED_DECISIONS,
+)
+
+
+# Canonical list of all runtime streams for diagnostics/telemetry readers.
+STREAMS: Final[tuple[str, ...]] = (
+    STREAM_MARKET_TICKS,
+    STREAM_MARKET_EVENTS,
+    STREAM_SIGNALS,
+    STREAM_DECISIONS,
+    STREAM_GRADED_DECISIONS,
+    STREAM_ORDERS,
+    STREAM_EXECUTIONS,
+    STREAM_TRADE_COMPLETED,
+    STREAM_TRADE_PERFORMANCE,
+    STREAM_RISK_ALERTS,
+    STREAM_LEARNING_EVENTS,
+    STREAM_SYSTEM_METRICS,
+    STREAM_AGENT_LOGS,
+    STREAM_AGENT_GRADES,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_PROPOSALS,
+    STREAM_NOTIFICATIONS,
+    STREAM_GITHUB_PRS,
+    STREAM_TRADE_LIFECYCLE,
+    STREAM_DLQ,
+    STREAM_SELL_REJECTED,
 )
 
 # Default values

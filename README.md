@@ -11,93 +11,85 @@
 <h1 align="center">Trading Control</h1>
 
 <p align="center">
-  An event-driven algorithmic trading platform with a multi-agent AI pipeline,<br/>
-  real-time Redis Streams, and a live operator dashboard.
+  Event-driven trading orchestration with a multi-agent AI pipeline, realtime stream processing,<br/>
+  and an operator-first dashboard built for safe, observable automation.
 </p>
 
 <p align="center">
-  <a href="https://trading-control-khaki.vercel.app/dashboard">Live Dashboard</a>
+  <a href="https://trading-control-khaki.vercel.app/dashboard">🚀 Live Dashboard</a>
   &nbsp;·&nbsp;
-  <a href="https://matthew.docs.buildwithfern.com/">API Docs</a>
+  <a href="https://matthew.docs.buildwithfern.com/">📚 Fern Docs</a>
   &nbsp;·&nbsp;
-  <a href="https://matthew.docs.buildwithfern.com/docs/system-design/architecture">Architecture</a>
+  <a href="https://matthew.docs.buildwithfern.com/docs/system-design/architecture">🏗️ Architecture</a>
   &nbsp;·&nbsp;
-  <a href="https://matthew.docs.buildwithfern.com/api-reference/api-reference/">API Reference</a>
+  <a href="https://matthew.docs.buildwithfern.com/api-reference/api-reference/">🧩 API Reference</a>
 </p>
 
 ---
 
-## Overview
+## Why this project exists
 
-**Trading Control** is a production-grade, event-driven trading orchestration platform built on a pipeline of specialized AI agents communicating exclusively through Redis Streams.
+Trading Control is designed to keep algorithmic execution **adaptive** without sacrificing **determinism**:
+
+- AI agents can reason, reflect, and propose improvements.
+- Infrastructure enforces idempotency, traceability, and safe persistence routes.
+- Operators retain realtime observability and manual override capability.
+
+## Platform snapshot
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| Backend | FastAPI (Python 3.10+) | Control APIs, telemetry, agent orchestration |
-| Frontend | Next.js 14 (TypeScript) | Live operator dashboard |
-| Database | PostgreSQL 15+ with pgvector | Persistent state, vector memory, audit trail |
-| Streams | Redis 5.0+ | Event bus, agent communication, pub/sub |
-| Market Data | Alpaca API (paper mode) | Live price ticks and order execution |
+| Backend | FastAPI (Python 3.10+) | APIs, orchestration, event ingestion |
+| Frontend | Next.js 14 (TypeScript) | Operator dashboard and control plane |
+| Database | PostgreSQL 15+ + pgvector | Durable state, audit history, vector memory |
+| Event Bus | Redis Streams | Agent-to-agent communication and fanout |
+| Broker | Alpaca (paper trading) | Market data and execution simulation |
 
 ---
 
-## Agent Pipeline
+## Agent pipeline
 
 <p align="center">
   <img src="docs/img/agent-pipeline.svg" alt="Agent Pipeline" width="860"/>
 </p>
 
-| Agent | Listens To | Publishes To | Purpose |
+| Agent | Input Stream(s) | Output Stream | Responsibility |
 |---|---|---|---|
-| SignalGenerator | `market_ticks` | `signals` | Converts ticks to typed signals |
-| ReasoningAgent | `signals` | `decisions` | LLM-based trade decisions |
-| GradeAgent | `executions`, `trade_performance` | `agent_grades` | Scores performance |
-| ICUpdater | `trade_performance` | `ic_weights` | Reweights alpha factors |
-| ReflectionAgent | `trade_performance`, `agent_grades` | `reflection_outputs` | Finds patterns |
-| StrategyProposer | `reflection_outputs` | `proposals` | Creates concrete proposals |
-| NotificationAgent | All streams | `notifications` | Routes alerts by severity |
+| SignalGenerator | `market_ticks` | `signals` | Normalize ticks into typed market signals |
+| ReasoningAgent | `signals` | `decisions` | Produce candidate actions with LLM reasoning |
+| GradeAgent | `executions`, `trade_performance` | `agent_grades` | Score quality and execution outcomes |
+| ICUpdater | `trade_performance` | `ic_weights` | Reweight alpha factors from realized performance |
+| ReflectionAgent | `trade_performance`, `agent_grades` | `reflection_outputs` | Extract patterns and failure modes |
+| StrategyProposer | `reflection_outputs` | `proposals` | Convert insights into operator-ready proposals |
+| NotificationAgent | all key streams | `notifications` | Route alerts by severity and audience |
 
 ---
 
-## Agentic AI learnings applied
-
-Inspired by common agentic design patterns (reflection, planning, tool use, and multi-agent coordination), this codebase applies the following in production:
-
-- **Reflection loop**: `ReflectionAgent` runs evaluator/optimizer-style refinement when first-pass hypotheses are too weak.
-- **Planning before action**: `StrategyProposer` ranks high-confidence hypotheses by expected impact before proposal generation.
-- **Tool use with safe fallbacks**: agents rely on typed services (DB, Redis streams, LLM client) and degrade safely when external calls fail.
-- **Supervised autonomy**: `AgentSupervisor` provides self-healing restarts with rate-limits to prevent crash/restart thrashing.
-
-This keeps autonomy high while retaining operational guardrails for a trading environment.
-
----
-
-## Architecture
+## Core guarantees
 
 <p align="center">
   <img src="docs/img/architecture.svg" alt="System Architecture" width="860"/>
 </p>
 
-Core guarantees:
-
-| Guarantee | Mechanism |
+| Guarantee | How it is enforced |
 |---|---|
-| **Determinism** | All writes go through `SafeWriter` — same input, same output |
-| **Idempotency** | `idempotency_key` prevents duplicate orders and events |
-| **Traceability** | `trace_id` spans every event → agent run → log → vector memory |
-| **Replayability** | Full system state rebuildable from the `events` table |
+| Deterministic writes | `SafeWriter` is the canonical write path |
+| Idempotent behavior | Keys prevent duplicate event/order side effects |
+| End-to-end traceability | `trace_id` propagates across events, runs, logs, and memory |
+| Memory-first resilience | Runtime fallback serves in-memory state when DB is unavailable |
+| Replayability | Event history can rebuild operational state |
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+### 1) Prerequisites
 
 - Python 3.10+
-- PostgreSQL 15+ with the pgvector extension
+- PostgreSQL 15+ with `pgvector`
 - Redis 5.0+
 
-### Installation
+### 2) Install
 
 ```bash
 git clone https://github.com/SamuelMatthew95/trading-control.git
@@ -107,15 +99,13 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` is the single source for runtime + CI/test tooling so local and CI environments stay aligned.
-
-### Configuration
+### 3) Configuration
 
 ```bash
 cp .env.example .env
 ```
 
-Minimum required variables:
+Minimum required settings:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/trading_control
@@ -125,7 +115,7 @@ ALPACA_API_KEY=your_alpaca_api_key
 ALPACA_SECRET_KEY=your_alpaca_secret_key
 ```
 
-### Run
+### 4) Run services
 
 ```bash
 # Backend API
@@ -137,99 +127,49 @@ cd frontend && npm install && npm run dev
 
 ---
 
-## Testing
+## Validation commands (must pass before commit)
 
 ```bash
-# Full test suite
-pytest tests/ -v --tb=short
-
-# With coverage
-pytest tests/ -v --tb=short --cov=api
-
-# Specific categories
-pytest tests/core/ -v    # Core unit tests
-pytest tests/api/ -v     # API endpoint tests
-```
-
-All 117 tests pass. Zero failures required before any merge.
-
----
-
-## CI/CD
-
-Every push runs:
-
-```bash
-ruff check . --fix                        # Lint
-ruff format --check .                     # Format
-ruff check . --select=E9,F63,F7,F82      # Critical errors
-pytest tests/ -v --tb=short              # Full test suite
-```
-
-Frontend: ESLint + TypeScript check + production build.
-
----
-
-## Repository Layout
-
-```
-trading-control/
-├── api/                        # FastAPI app and all backend logic
-│   ├── main.py                 # App wiring, middleware, router registration
-│   ├── config.py               # Pydantic settings — all env vars live here
-│   ├── database.py             # Async engine, session, health checks
-│   ├── observability.py        # log_structured() — the only logging function
-│   ├── events/
-│   │   └── bus.py              # Redis Streams EventBus
-│   ├── routes/                 # 13 HTTP route modules
-│   ├── services/
-│   │   └── agents/
-│   │       ├── pipeline_agents.py   # GradeAgent, ICUpdater, Reflection, etc.
-│   │       └── reasoning_agent.py   # LLM-powered ReasoningAgent
-│   └── core/
-│       └── writer/
-│           └── safe_writer.py  # The only authorized write path
-├── frontend/                   # Next.js 14 operator dashboard
-├── docs/                       # Architecture, deployment, contributing
-├── tests/                      # Unit, API, agent, and integration tests
-│   ├── core/                   # Core unit tests + FakeAsyncSession
-│   └── api/                    # Per-router endpoint tests
-├── requirements.txt            # All runtime + dev/test dependencies
-├── ruff.toml                   # Linting config (line-length 100, py310)
-├── pytest.ini                  # Pytest configuration
-├── render.yaml                 # Render deployment config
-└── CHANGELOG.md                # Full change history
+ruff check . --fix
+ruff format .
+ruff format --check .
+pytest tests/core tests/api -v --tb=short
+pytest tests/integration -v --tb=short
 ```
 
 ---
 
-## Deployment
+## Docs map
 
-| Service | Platform | URL |
-|---|---|---|
-| Backend API | Render | Auto-deploys on push to `main` |
-| Frontend | Vercel | https://trading-control-khaki.vercel.app/dashboard |
-| Database | Render PostgreSQL | Managed, pgvector enabled |
-| Redis | Render Redis | Managed |
-
-See [docs/deployment-guide.md](docs/deployment-guide.md) for the full checklist and all required environment variables.
-
----
-
-## Documentation
+For comprehensive usage and operational detail, prefer the hosted Fern documentation first, then deep-dive files in `/docs`.
 
 | Resource | Link |
 |---|---|
-| Architecture | [docs/architecture.md](docs/architecture.md) |
-| Troubleshooting | [docs/troubleshooting/](docs/troubleshooting/README.md) |
-| Development Guide | [docs/development-guide.md](docs/development-guide.md) |
-| Deployment Guide | [docs/deployment-guide.md](docs/deployment-guide.md) |
-| Agent Guide | [docs/AGENTS.md](docs/AGENTS.md) |
-| Testing Guide | [docs/testing.md](docs/testing.md) |
-| Contributing | [docs/contributing.md](docs/contributing.md) |
-| API Reference | [matthew.docs.buildwithfern.com](https://matthew.docs.buildwithfern.com/api-reference/api-reference/) |
+| 🌐 Fern docs home | https://matthew.docs.buildwithfern.com/ |
+| 🧩 API reference | https://matthew.docs.buildwithfern.com/api-reference/api-reference/ |
+| 🏗️ Architecture deep dive | [docs/architecture.md](docs/architecture.md) |
+| 🧪 Testing standards | [docs/testing.md](docs/testing.md) |
+| 🛠️ Development workflow | [docs/development-guide.md](docs/development-guide.md) |
+| 🚢 Deployment checklist | [docs/deployment-guide.md](docs/deployment-guide.md) |
+| 🧯 Troubleshooting playbook | [docs/troubleshooting/README.md](docs/troubleshooting/README.md) |
+| 🤖 Agent implementation guide | [docs/AGENTS.md](docs/AGENTS.md) |
+| 🔌 MCP integration notes | [docs/mcp.md](docs/mcp.md) |
 
 ---
+
+## Repository layout
+
+```text
+trading-control/
+├── api/                        # FastAPI app and backend services
+├── frontend/                   # Next.js operator dashboard
+├── docs/                       # Architecture, guides, and troubleshooting
+├── tests/                      # Unit, API, and integration suites
+├── requirements.txt            # Runtime + test dependencies
+├── ruff.toml                   # Lint and formatting config
+├── pytest.ini                  # Pytest defaults
+└── render.yaml                 # Render deployment config
+```
 
 ## License
 

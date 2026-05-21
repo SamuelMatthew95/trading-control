@@ -37,9 +37,13 @@ from api.constants import (
     REDIS_KEY_ORDER_LOCK,
     REDIS_KEY_TRADING_PAUSED,
     REDIS_KEY_TRADING_PAUSED_REASON,
+    SOURCE_EXECUTION,
     STREAM_DECISIONS,
+    STREAM_SELL_REJECTED,
     FieldName,
+    OrderSide,
     OrderStatus,
+    PositionSide,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -63,6 +67,7 @@ from api.services.execution.fill_publisher import FillContext, publish_fill_even
 from api.services.execution.order_writer import (
     insert_audit_log,
     insert_pending_order,
+    insert_rejected_order_once,
     update_order_fill,
     upsert_position_db,
 )
@@ -197,7 +202,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 raise RuntimeError(f"Order lock already held for {symbol}")
 
             order_id: str | None = None
-            vwap_plan = self._build_vwap_plan(qty)
+            vwap_plan: list[float] | None = None
             # Snapshot position AFTER acquiring the lock so concurrent orders
             # for the same symbol cannot race on a stale position read.
             prior_position = await self.broker.get_position(symbol)
@@ -209,8 +214,74 @@ class ExecutionEngine(BaseStreamConsumer):
                         symbol=symbol,
                         trace_id=trace_id,
                     )
+                    rejection_order_id, created = await insert_rejected_order_once(
+                        session,
+                        idempotency_key=idempotency_key,
+                        strategy_id=strategy_id,
+                        symbol=symbol,
+                        side=side,
+                        qty=qty,
+                        price=price,
+                    )
+                    await session.commit()
+                    if not created:
+                        log_structured(
+                            "info",
+                            "duplicate_sell_rejection_skipped",
+                            symbol=symbol,
+                            idempotency_key=idempotency_key,
+                            trace_id=trace_id,
+                        )
+                        return
+                    # Publish after commit so the rejection is durable before any
+                    # downstream consumer sees the event.  Wrap in its own try so a
+                    # transient bus failure never reaches the outer except/rollback
+                    # handler — the rejection row is already committed and the early
+                    # dedup SELECT will suppress any redelivery.
+                    try:
+                        await self.bus.publish(
+                            STREAM_SELL_REJECTED,
+                            {
+                                FieldName.TYPE: "sell_rejected",
+                                FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
+                                FieldName.SYMBOL: symbol,
+                                FieldName.SIDE: side,
+                                FieldName.QTY: qty,
+                                FieldName.ORDER_ID: rejection_order_id,
+                                FieldName.IDEMPOTENCY_KEY: idempotency_key,
+                                FieldName.TRACE_ID: trace_id,
+                                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                                FieldName.SOURCE: SOURCE_EXECUTION,
+                            },
+                        )
+                    except Exception:
+                        log_structured(
+                            "warning",
+                            "sell_rejected_event_publish_failed",
+                            symbol=symbol,
+                            idempotency_key=idempotency_key,
+                            trace_id=trace_id,
+                            exc_info=True,
+                        )
                     return
 
+                # Clamp oversell: never sell more than the open position holds.
+                if side in (OrderSide.SELL, PositionSide.SHORT):
+                    prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+                    if prior_qty > 0 and qty > prior_qty:
+                        log_structured(
+                            "warning",
+                            "execution_sell_qty_clamped_to_available",
+                            symbol=symbol,
+                            requested_qty=qty,
+                            available_qty=prior_qty,
+                            trace_id=trace_id,
+                        )
+                        qty = prior_qty
+
+                # Compute VWAP plan after oversell clamping so the slicing plan
+                # reflects the actual executed quantity, not the requested qty.
+                vwap_plan = self._build_vwap_plan(qty)
                 order_id = await insert_pending_order(
                     session,
                     strategy_id=strategy_id,
@@ -568,7 +639,7 @@ class ExecutionEngine(BaseStreamConsumer):
             return
 
         order_id = str(uuid.uuid4())
-        vwap_plan = self._build_vwap_plan(qty)
+        vwap_plan: list[float] | None = None
         lock_key = REDIS_KEY_ORDER_LOCK.format(symbol=symbol)
         lock_value = str(uuid.uuid4())
 
@@ -586,8 +657,61 @@ class ExecutionEngine(BaseStreamConsumer):
                     symbol=symbol,
                     trace_id=trace_id,
                 )
+                store = get_runtime_store()
+                store.reject_sell_no_position(
+                    symbol=symbol,
+                    trace_id=trace_id,
+                    event_id=order_id,
+                    reason="NO_OPEN_POSITION",
+                )
+                # Store is updated first so the rejection is locally recorded
+                # even if the publish below fails.  A transient bus failure does
+                # not warrant propagating the exception — the dedup key is already
+                # set so any redelivery is a silent no-op.
+                try:
+                    await self.bus.publish(
+                        STREAM_SELL_REJECTED,
+                        {
+                            FieldName.TYPE: "sell_rejected",
+                            FieldName.REJECTION_REASON: "NO_OPEN_POSITION",
+                            FieldName.SYMBOL: symbol,
+                            FieldName.SIDE: side,
+                            FieldName.QTY: qty,
+                            FieldName.ORDER_ID: order_id,
+                            FieldName.IDEMPOTENCY_KEY: idempotency_key,
+                            FieldName.TRACE_ID: trace_id,
+                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                            FieldName.SOURCE: SOURCE_EXECUTION,
+                        },
+                    )
+                except Exception:
+                    log_structured(
+                        "warning",
+                        "sell_rejected_event_publish_failed_memory",
+                        symbol=symbol,
+                        idempotency_key=idempotency_key,
+                        trace_id=trace_id,
+                        exc_info=True,
+                    )
                 return
 
+            # Clamp oversell: never sell more than the open position holds.
+            if side in (OrderSide.SELL, PositionSide.SHORT):
+                prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+                if prior_qty > 0 and qty > prior_qty:
+                    log_structured(
+                        "warning",
+                        "execution_sell_qty_clamped_to_available",
+                        symbol=symbol,
+                        requested_qty=qty,
+                        available_qty=prior_qty,
+                        trace_id=trace_id,
+                    )
+                    qty = prior_qty
+
+            # Compute VWAP plan after oversell clamping so the slicing plan
+            # reflects the actual executed quantity, not the requested qty.
+            vwap_plan = self._build_vwap_plan(qty)
             broker_result = await self.broker.place_order(symbol, side, qty, price)
             fill_price = float(broker_result[FieldName.FILL_PRICE])
             filled_at = datetime.now(timezone.utc)
@@ -727,7 +851,96 @@ class ExecutionEngine(BaseStreamConsumer):
             heartbeat_status = ":".join(error.split(":")[:2])
             await self._write_idle_heartbeat(symbol_hint, heartbeat_status)
             return None
+        if await self._enforce_fallback_trade_guard(parsed, data):
+            return None
         return parsed
+
+    async def _enforce_fallback_trade_guard(
+        self, parsed: _ParsedDecision, payload: dict[str, Any]
+    ) -> bool:
+        side = str(parsed.side or "").lower()
+        if side not in {OrderSide.BUY, OrderSide.SELL}:
+            return False
+        reason = str(payload.get(FieldName.REASON) or "").lower()
+        source = str(payload.get(FieldName.SOURCE) or "").lower()
+        primary_edge = str(payload.get(FieldName.PRIMARY_EDGE) or "").lower()
+        llm_succeeded = payload.get(FieldName.LLM_SUCCEEDED)
+        is_fallback = (
+            llm_succeeded is False
+            or "fallback" in reason
+            or source == "fallback"
+            or primary_edge.startswith("fallback:")
+            or primary_edge == "fallback"
+            or bool(payload.get(FieldName.FALLBACK_REASON))
+        )
+        if not is_fallback:
+            return False
+
+        trace_id = str(parsed.trace_id or "")
+        symbol = str(parsed.symbol or "")
+        max_allowed = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)
+
+        if not settings.ALLOW_FALLBACK_TRADES:
+            current_signed_qty = 0.0
+            blocked = True
+        else:
+            current_position = await self.broker.get_position(symbol)
+            current_signed_qty = self._signed_position_qty(current_position)
+
+            if parsed.qty > settings.MAX_FALLBACK_ORDER_QTY:
+                blocked = True
+            else:
+                signed_after = (
+                    current_signed_qty + parsed.qty
+                    if side == OrderSide.BUY
+                    else current_signed_qty - parsed.qty
+                )
+                # Reduce-only is always allowed once fallback trading is enabled.
+                reduces_abs_exposure = abs(signed_after) <= abs(current_signed_qty)
+                if reduces_abs_exposure:
+                    blocked = False
+                # Position-flip/over-close from one side through flat to the other side.
+                elif current_signed_qty < 0 < signed_after or current_signed_qty > 0 > signed_after:
+                    blocked = True
+                # Enforce capped absolute exposure for position-increasing fallback trades.
+                elif abs(signed_after) > max_allowed:
+                    blocked = True
+                else:
+                    blocked = False
+        if blocked:
+            current_qty_for_log = abs(current_signed_qty)
+            if current_signed_qty < 0:
+                current_qty_for_log = -current_qty_for_log
+            log_structured(
+                "warning",
+                "fallback_trade_blocked",
+                reason="fallback_trade_blocked",
+                symbol=symbol,
+                action=side,
+                qty=parsed.qty,
+                current_position_qty=current_qty_for_log,
+                max_allowed_qty=max_allowed,
+                trace_id=trace_id,
+            )
+            await self._write_idle_heartbeat(symbol, "blocked:fallback_trade", trace_id)
+            return True
+        return False
+
+    @staticmethod
+    def _signed_position_qty(position: dict[str, Any] | None) -> float:
+        if not isinstance(position, dict):
+            return 0.0
+        qty = position.get(FieldName.QTY, position.get(FieldName.QUANTITY))
+        try:
+            qty_value = float(qty or 0.0)
+        except (TypeError, ValueError):
+            qty_value = 0.0
+        side = str(position.get(FieldName.SIDE) or "").strip().lower()
+        if side in {"short", "sell", "sold"}:
+            return -abs(qty_value)
+        if side in {"long", "buy", "bought"}:
+            return abs(qty_value)
+        return qty_value
 
     @staticmethod
     def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:
@@ -746,7 +959,7 @@ class ExecutionEngine(BaseStreamConsumer):
         store.equity_curve.append(
             {
                 FieldName.TIMESTAMP: filled_at.isoformat(),
-                "value": paired[FieldName.TOTAL_PNL],
+                FieldName.VALUE: paired[FieldName.TOTAL_PNL],
                 FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
                 FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
                 FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],

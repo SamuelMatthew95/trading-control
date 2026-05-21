@@ -63,6 +63,7 @@ class InMemoryStore:
     closed_trades: list[dict[str, Any]] = field(default_factory=list)
     equity_curve: list[dict[str, Any]] = field(default_factory=list)
     applied_decision_keys: set[str] = field(default_factory=set)
+    rejected_sells: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
     def _safe_float(value: Any) -> float | None:
@@ -455,6 +456,42 @@ class InMemoryStore:
         price = payload.get(FieldName.PRICE) or ""
         return f"derived:{timestamp}:{symbol}:{action}:{price}"
 
+    def has_open_position(self, symbol: str) -> bool:
+        """Return True if there is an open LONG position for *symbol* with qty > 0."""
+        pos = self.positions.get(symbol)
+        if pos is None:
+            return False
+        side = str(pos.get(FieldName.SIDE, "")).lower()
+        qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
+        return side == "long" and qty > 0
+
+    def get_open_position(self, symbol: str) -> dict[str, Any] | None:
+        """Return the open position dict for *symbol*, or None if flat/absent."""
+        if not self.has_open_position(symbol):
+            return None
+        return dict(self.positions[symbol])
+
+    def reject_sell_no_position(
+        self,
+        symbol: str,
+        trace_id: str,
+        event_id: str,
+        reason: str = "NO_OPEN_POSITION",
+    ) -> dict[str, Any]:
+        """Record a rejected SELL attempt and return the rejection record."""
+        entry = {
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: "sell",
+            FieldName.REJECTION_REASON: reason,
+            FieldName.TRACE_ID: trace_id,
+            FieldName.ID: event_id,
+            FieldName.TIMESTAMP: time.time(),
+        }
+        self.rejected_sells.append(entry)
+        if len(self.rejected_sells) > 500:
+            self.rejected_sells = self.rejected_sells[-500:]
+        return entry
+
     def open_positions(self) -> list[dict[str, Any]]:
         """Return normalized in-memory open positions (long/short with non-zero qty)."""
         rows: list[dict[str, Any]] = []
@@ -469,7 +506,7 @@ class InMemoryStore:
     def paired_pnl_payload(self) -> dict[str, Any]:
         """Compute paired PnL payload shape used by REST/WS in-memory fallbacks."""
         closed_trades = list(self.orders[-100:])
-        open_positions = self.open_positions()
+        open_positions: list[dict[str, Any]] = []
 
         realized_pnl = sum(
             self._safe_float(order.get(FieldName.PNL)) or 0.0 for order in closed_trades
@@ -481,17 +518,41 @@ class InMemoryStore:
             1 for order in closed_trades if (self._safe_float(order.get(FieldName.PNL)) or 0.0) < 0
         )
         total_trades = winning_trades + losing_trades
-        unrealized_pnl = sum(
-            self._safe_float(position.get(FieldName.UNREALIZED_PNL)) or 0.0
-            for position in open_positions
-        )
+        unrealized_pnl = 0.0
+        for position in self.open_positions():
+            row = dict(position)
+            qty_raw = self._safe_float(row.get(FieldName.QTY)) or 0.0
+            qty = abs(qty_raw)
+            side = str(row.get(FieldName.SIDE) or "").lower()
+            existing_unrealized = self._safe_float(row.get(FieldName.UNREALIZED_PNL))
+            avg_cost = self._safe_float(
+                row.get(FieldName.AVG_COST, row.get(FieldName.AVG_ENTRY_PRICE))
+            )
+            last_price = self._safe_float(row.get(FieldName.LAST_PRICE, row.get(FieldName.PRICE)))
+            if avg_cost is None or last_price is None or qty <= 0:
+                if existing_unrealized is not None:
+                    row[FieldName.UNREALIZED_PNL] = round(existing_unrealized, 8)
+                    unrealized_pnl += existing_unrealized
+                    open_positions.append(row)
+                    continue
+                row[FieldName.UNREALIZED_PNL] = None
+                row["pnl_stale"] = True
+                open_positions.append(row)
+                continue
+            if side == "short":
+                position_unrealized = (avg_cost - last_price) * qty
+            else:
+                position_unrealized = (last_price - avg_cost) * qty
+            row[FieldName.UNREALIZED_PNL] = round(position_unrealized, 8)
+            unrealized_pnl += position_unrealized
+            open_positions.append(row)
 
         return {
             FieldName.CLOSED_TRADES: closed_trades,
             FieldName.OPEN_POSITIONS: open_positions,
-            "summary": {
+            FieldName.SUMMARY: {
                 FieldName.REALIZED_PNL: round(realized_pnl, 8),
-                "unrealized_pnl": round(unrealized_pnl, 8),
+                FieldName.UNREALIZED_PNL: round(unrealized_pnl, 8),
                 FieldName.TOTAL_PNL: round(realized_pnl + unrealized_pnl, 8),
                 FieldName.CLOSED_TRADES: total_trades,
                 FieldName.WINNING_TRADES: winning_trades,

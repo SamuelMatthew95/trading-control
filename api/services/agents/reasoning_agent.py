@@ -331,6 +331,26 @@ class ReasoningAgent(BaseStreamConsumer):
     _ACTIONABLE_ACTIONS: frozenset[str] = frozenset({AgentAction.BUY, AgentAction.SELL})
 
     @staticmethod
+    def _is_fallback_decision(
+        *,
+        is_fallback: bool,
+        payload: dict[str, Any],
+        summary: dict[str, Any],
+    ) -> bool:
+        if is_fallback:
+            return True
+        llm_succeeded = payload.get(FieldName.LLM_SUCCEEDED)
+        if llm_succeeded is False:
+            return True
+
+        reasoning_summary = str(payload.get(FieldName.REASONING_SUMMARY) or "").lower()
+        reason = str(
+            summary.get(FieldName.FALLBACK_REASON) or summary.get(FieldName.REASON) or ""
+        ).lower()
+        source = str(summary.get(FieldName.SOURCE) or "").lower()
+        return "fallback" in reasoning_summary or "fallback" in reason or source == "fallback"
+
+    @staticmethod
     def _build_decision_payload(
         *,
         data: dict[str, Any],
@@ -361,11 +381,27 @@ class ReasoningAgent(BaseStreamConsumer):
         symbol: str,
         price: Any,
         trace_id: str,
+        is_fallback: bool,
+        reason: str = "",
     ) -> dict[str, Any]:
         """Pure builder for the user-facing buy/sell notification payload."""
         price_str = ""
         if isinstance(price, (int, float)) and price:
             price_str = f" at ${float(price):,.2f}"
+        if is_fallback:
+            return {
+                FieldName.TYPE: "fallback_trade_blocked",
+                "title": f"Fallback {action.upper()} decision — {symbol}",
+                "body": f"Degraded fallback decision for {symbol}: {reason or 'fallback_detected'}",
+                "severity": "warning",
+                "notification_type": "decision_degraded",
+                "original_action": action,
+                FieldName.SYMBOL: symbol,
+                FieldName.ACTION: AgentAction.HOLD,
+                FieldName.TRACE_ID: trace_id,
+                "reason": reason or "fallback_detected",
+                FieldName.LLM_SUCCEEDED: False,
+            }
         return {
             FieldName.TYPE: "trade_signal",
             "title": f"{action.upper()} signal — {symbol}",
@@ -374,6 +410,7 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.SYMBOL: symbol,
             FieldName.ACTION: action,
             FieldName.TRACE_ID: trace_id,
+            FieldName.LLM_SUCCEEDED: True,
         }
 
     async def _record_decision_to_redis(
@@ -406,11 +443,22 @@ class ReasoningAgent(BaseStreamConsumer):
         # notification separately, but this guarantees something appears on
         # the dashboard even before the order executes.
         if action in self._ACTIONABLE_ACTIONS:
+            decision_is_fallback = self._is_fallback_decision(
+                is_fallback=is_fallback,
+                payload=payload,
+                summary=summary,
+            )
             notification = self._build_decision_notification(
                 action=action,
                 symbol=str(payload[FieldName.SYMBOL]),
                 price=payload[FieldName.PRICE],
                 trace_id=trace_id,
+                is_fallback=decision_is_fallback,
+                reason=str(
+                    summary.get(FieldName.FALLBACK_REASON)
+                    or summary.get(FieldName.PRIMARY_EDGE)
+                    or ""
+                ),
             )
             persisted = await store.push_notification(notification)
             if not is_db_available():
