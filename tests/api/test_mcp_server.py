@@ -45,6 +45,79 @@ async def test_notifications_unavailable_payload_when_store_missing(monkeypatch)
     assert "status" not in payload
 
 
+async def test_notifications_normalize_historical_fallback_from_decisions(monkeypatch) -> None:
+    store = None
+
+    class _Store:
+        async def list_decisions(self, limit: int, action: str | None = None):
+            nonlocal store
+            store = self
+            self.last_limit = limit
+            return [
+                {
+                    "trace_id": "t-1",
+                    "action": "buy",
+                    "symbol": "BTC/USD",
+                    "reason": "fallback:skip_reasoning",
+                    "llm_succeeded": False,
+                }
+            ]
+
+        async def list_notifications(self, limit: int):
+            return [
+                {
+                    "trace_id": "t-1",
+                    "type": "trade_signal",
+                    "title": "BUY signal — BTC/USD",
+                    "severity": "info",
+                    "action": "buy",
+                }
+            ]
+
+    monkeypatch.setattr("api.mcp.server.get_redis_store", lambda: _Store())
+    payload = await _get_notifications(limit=10)
+    item = payload["data"]["items"][0]
+    assert item["type"] == "fallback_trade_blocked"
+    assert item["notification_type"] == "decision_degraded"
+    assert item["action"] == "hold"
+    assert item["llm_succeeded"] is False
+    assert getattr(store, "last_limit", None) == 10000
+
+
+async def test_debug_state_normalizes_latest_notification_from_fallback_decision(
+    monkeypatch,
+) -> None:
+    class _Store:
+        async def list_decisions(self, limit: int, action: str | None = None):
+            return [
+                {
+                    "trace_id": "t-1",
+                    "action": "sell",
+                    "symbol": "BTC/USD",
+                    "reasoning_summary": "fallback due to LLM outage",
+                    "llm_succeeded": False,
+                }
+            ]
+
+    async def _debug_payload():
+        return {
+            "latest_notification": {
+                "trace_id": "t-1",
+                "type": "trade_signal",
+                "title": "SELL signal — BTC/USD",
+                "severity": "info",
+            }
+        }
+
+    monkeypatch.setattr("api.mcp.server.get_redis_store", lambda: _Store())
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _debug_payload)
+    payload = await _get_debug_state_tool()
+    latest = payload["data"]["latest_notification"]
+    assert latest["type"] == "fallback_trade_blocked"
+    assert latest["severity"] == "warning"
+    assert latest["action"] == "hold"
+
+
 async def test_mcp_tools_standard_envelope(monkeypatch) -> None:
     async def _ok_payload():
         return {
@@ -107,6 +180,14 @@ async def test_health_summary_marks_degraded_for_raw_db_fallback(monkeypatch) ->
     assert payload["ok"] is False
     assert payload["degraded"] is True
     assert payload["reason"] == "component_unavailable"
+
+
+async def test_service_health_degraded_when_db_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr("api.mcp.server.is_db_available", lambda: False)
+    payload = await _get_service_health_tool()
+    assert payload["ok"] is True
+    assert payload["degraded"] is True
+    assert payload["reason"] == "db_unavailable"
 
 
 def test_settings_exposes_mcp_shared_token_field() -> None:
@@ -180,3 +261,16 @@ async def test_get_agent_grades_caps_limit(monkeypatch) -> None:
     monkeypatch.setattr("api.mcp.read_tools.get_grade_history_payload", _fake)
     payload = await get_agent_grades_data(limit=999)
     assert payload["degraded"] is True
+
+
+async def test_classify_health_degraded_when_db_unavailable(monkeypatch) -> None:
+    async def _debug_payload():
+        return {"has_data": True, "counts": {"decisions": 1}}
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _debug_payload)
+    monkeypatch.setattr("api.mcp.server.is_db_available", lambda: False)
+    payload = await _classify_health_tool()
+    assert payload["ok"] is True
+    assert payload["degraded"] is True
+    assert payload["reason"] == "db_unavailable"
+    assert payload["data"]["classification"] == "expected_memory_mode_noise"
