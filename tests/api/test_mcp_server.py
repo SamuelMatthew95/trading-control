@@ -46,8 +46,13 @@ async def test_notifications_unavailable_payload_when_store_missing(monkeypatch)
 
 
 async def test_notifications_normalize_historical_fallback_from_decisions(monkeypatch) -> None:
+    store = None
+
     class _Store:
         async def list_decisions(self, limit: int, action: str | None = None):
+            nonlocal store
+            store = self
+            self.last_limit = limit
             return [
                 {
                     "trace_id": "t-1",
@@ -76,6 +81,7 @@ async def test_notifications_normalize_historical_fallback_from_decisions(monkey
     assert item["notification_type"] == "decision_degraded"
     assert item["action"] == "hold"
     assert item["llm_succeeded"] is False
+    assert getattr(store, "last_limit", None) == 10000
 
 
 async def test_debug_state_normalizes_latest_notification_from_fallback_decision(

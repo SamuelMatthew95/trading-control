@@ -11,12 +11,12 @@ call_tool() {
   payload="$(jq -nc --arg name "$name" --argjson args "$args" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:$name,arguments:$args}}')"
 
   if [[ -n "$TOKEN" ]]; then
-    curl -sS "$BASE_URL" \
+    curl -sS --fail-with-body "$BASE_URL" \
       -H "content-type: application/json" \
       -H "x-mcp-shared-token: $TOKEN" \
       --data-binary "$payload"
   else
-    curl -sS "$BASE_URL" \
+    curl -sS --fail-with-body "$BASE_URL" \
       -H "content-type: application/json" \
       --data-binary "$payload"
   fi

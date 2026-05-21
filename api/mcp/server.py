@@ -140,10 +140,13 @@ async def _get_notifications(limit: int = 50) -> dict[str, object]:
                 reason="redis_store_not_ready",
                 data={"items": []},
             )
-        decisions_payload = await _get_decisions(limit=max(limit, 100))
-        decision_map = _build_decision_map(decisions_payload)
-
         notifications = await store.list_notifications(limit=limit)
+        trace_ids = {
+            str(entry.get("trace_id") or "").strip()
+            for entry in notifications
+            if isinstance(entry, dict) and str(entry.get("trace_id") or "").strip()
+        }
+        decision_map = await _build_decision_map_for_trace_ids(trace_ids)
         normalized = _normalize_notifications_with_decisions(notifications, decision_map)
 
         return _envelope(
@@ -197,6 +200,14 @@ def _build_decision_map(decisions_payload: dict[str, object]) -> dict[str, dict[
             if trace_id:
                 decision_map[trace_id] = item
     return decision_map
+
+
+async def _build_decision_map_for_trace_ids(trace_ids: set[str]) -> dict[str, dict[str, object]]:
+    if not trace_ids:
+        return {}
+    decisions_payload = await _get_decisions(limit=10000)
+    decision_map = _build_decision_map(decisions_payload)
+    return {trace_id: decision_map[trace_id] for trace_id in trace_ids if trace_id in decision_map}
 
 
 def _normalize_notification(
@@ -276,8 +287,8 @@ async def _get_debug_state_impl() -> dict[str, object]:
     latest_notification = data_payload.get("latest_notification")
     if not isinstance(latest_notification, dict):
         return wrapped
-    decisions_payload = await _get_decisions(limit=100)
-    decision_map = _build_decision_map(decisions_payload)
+    trace_id = str(latest_notification.get("trace_id") or "").strip()
+    decision_map = await _build_decision_map_for_trace_ids({trace_id} if trace_id else set())
     data_payload["latest_notification"] = _normalize_notification(latest_notification, decision_map)
     return wrapped
 
