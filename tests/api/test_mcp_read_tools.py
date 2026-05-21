@@ -6,6 +6,7 @@ from api.mcp.read_tools import (
     _safe_limit,
     get_agent_grades_data,
     get_config_data,
+    get_llm_health_data,
     get_market_data_data,
     get_positions_data,
     get_stream_lag_data,
@@ -146,3 +147,21 @@ async def test_get_positions_memory_fallback_filters_non_open(monkeypatch) -> No
     assert payload["degraded"] is True
     assert len(payload["data"]["positions"]) == 1
     assert payload["data"]["positions"][0]["symbol"] == "BTC/USD"
+
+
+async def test_get_llm_health_degraded_on_full_error_rate(monkeypatch) -> None:
+    class _Metrics:
+        @staticmethod
+        def snapshot():
+            return {
+                "success_rate_pct": 0.0,
+                "rate_limited_count": 1,
+                "effective_delay_ms": 200,
+                "last_error": {"at": "2026-05-21T00:00:00+00:00"},
+                "last_success_at": None,
+            }
+
+    monkeypatch.setattr("api.mcp.read_tools.llm_metrics", _Metrics())
+    payload = await get_llm_health_data()
+    assert payload["degraded"] is True
+    assert payload["reason"] == "llm_provider_unhealthy"

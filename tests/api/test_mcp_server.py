@@ -80,6 +80,7 @@ async def test_notifications_normalize_historical_fallback_from_decisions(monkey
     assert item["type"] == "fallback_trade_blocked"
     assert item["notification_type"] == "decision_degraded"
     assert item["action"] == "hold"
+    assert item["original_action"] == "buy"
     assert item["llm_succeeded"] is False
     assert getattr(store, "last_limit", None) == 10000
 
@@ -116,6 +117,47 @@ async def test_debug_state_normalizes_latest_notification_from_fallback_decision
     assert latest["type"] == "fallback_trade_blocked"
     assert latest["severity"] == "warning"
     assert latest["action"] == "hold"
+
+
+async def test_debug_state_normalization_is_read_only(monkeypatch) -> None:
+    class _Store:
+        async def list_decisions(self, limit: int, action: str | None = None):
+            return [
+                {
+                    "trace_id": "t-1",
+                    "action": "sell",
+                    "symbol": "AAPL",
+                    "reason": "fallback:skip_reasoning",
+                    "llm_succeeded": False,
+                }
+            ]
+
+    latest_notification = {
+        "id": "n-1",
+        "trace_id": "t-1",
+        "type": "trade_signal",
+        "title": "SELL signal — AAPL",
+        "severity": "info",
+        "action": "sell",
+        "read": False,
+        "timestamp": "2026-05-21T00:00:00+00:00",
+        "symbol": "AAPL",
+    }
+
+    async def _debug_payload():
+        return {"latest_notification": latest_notification}
+
+    monkeypatch.setattr("api.mcp.server.get_redis_store", lambda: _Store())
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _debug_payload)
+    payload = await _get_debug_state_tool()
+    normalized = payload["data"]["latest_notification"]
+    assert normalized["type"] == "fallback_trade_blocked"
+    assert normalized["notification_type"] == "decision_degraded"
+    assert normalized["original_action"] == "sell"
+    assert normalized["action"] == "hold"
+    assert normalized["severity"] == "warning"
+    assert latest_notification["type"] == "trade_signal"
+    assert latest_notification["action"] == "sell"
 
 
 async def test_mcp_tools_standard_envelope(monkeypatch) -> None:
@@ -274,3 +316,61 @@ async def test_classify_health_degraded_when_db_unavailable(monkeypatch) -> None
     assert payload["degraded"] is True
     assert payload["reason"] == "db_unavailable"
     assert payload["data"]["classification"] == "expected_memory_mode_noise"
+
+
+async def test_health_summary_reports_fallback_hold_decision_mode(monkeypatch) -> None:
+    class _Store:
+        async def list_decisions(self, limit: int, action: str | None = None):
+            return [
+                {
+                    "trace_id": "t-1",
+                    "action": "hold",
+                    "reasoning_summary": "fallback:skip_reasoning",
+                    "llm_succeeded": False,
+                }
+            ]
+
+        async def list_notifications(self, limit: int):
+            return []
+
+    monkeypatch.setattr("api.mcp.server.get_redis_store", lambda: _Store())
+    payload = await _get_health_summary_tool()
+    assert payload["data"]["decision_mode"] == "fallback_hold"
+    assert payload["data"]["llm_succeeded_recently"] is False
+    assert payload["data"]["reasoning_status"] == "degraded"
+
+
+async def test_classify_health_keeps_ok_true_for_fallback_hold_signal(monkeypatch) -> None:
+    class _Store:
+        async def list_decisions(self, limit: int, action: str | None = None):
+            return [
+                {
+                    "trace_id": "t-1",
+                    "action": "hold",
+                    "reasoning_summary": "fallback:skip_reasoning",
+                    "llm_succeeded": False,
+                }
+            ]
+
+        async def list_notifications(self, limit: int):
+            return []
+
+    async def _debug_payload():
+        return {"has_data": True, "counts": {"decisions": 1}}
+
+    monkeypatch.setattr("api.mcp.server.get_redis_store", lambda: _Store())
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _debug_payload)
+    monkeypatch.setattr("api.mcp.server.is_db_available", lambda: True)
+    payload = await _classify_health_tool()
+    assert payload["ok"] is True
+    assert payload["degraded"] is True
+    assert payload["reason"] == "decision_reasoning_degraded"
+
+
+async def test_trade_feed_wrapper_adds_empty_reason_when_count_zero(monkeypatch) -> None:
+    async def _trade_feed_payload(limit: int, session_id: str | None):
+        return {"trades": [], "count": 0, "source": "in_memory"}
+
+    monkeypatch.setattr("api.mcp.server.get_trade_feed_payload", _trade_feed_payload)
+    payload = await _get_trade_feed_tool()
+    assert payload["data"]["empty_reason"] == "no_trade_lifecycle_events"

@@ -256,6 +256,27 @@ def _normalize_notifications_with_decisions(
     return normalized
 
 
+def _recent_decision_mode(decisions_payload: dict[str, object]) -> dict[str, object]:
+    items = decisions_payload.get("data", {}).get("items", [])
+    if not isinstance(items, list) or not items:
+        return {}
+    fallback_items = [
+        i
+        for i in items
+        if isinstance(i, dict)
+        and str(i.get("action") or "").lower() == "hold"
+        and i.get("llm_succeeded") is False
+        and "fallback" in str(i.get("reasoning_summary") or i.get("reason") or "").lower()
+    ]
+    if len(fallback_items) != len(items):
+        return {}
+    return {
+        "decision_mode": "fallback_hold",
+        "llm_succeeded_recently": False,
+        "reasoning_status": "degraded",
+    }
+
+
 async def _get_service_health_impl() -> dict[str, object]:
     db_available = bool(is_db_available())
     return _envelope(
@@ -303,7 +324,12 @@ _get_debug_state_tool = _get_debug_state_impl
 
 async def _get_pnl_impl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
-    return _wrap_payload(data, default_source="in_process")
+    wrapped = _wrap_payload(data, default_source="in_process")
+    payload = wrapped.get("data")
+    if isinstance(payload, dict):
+        if float(payload.get("total_pnl") or 0.0) == 0.0 and not payload.get("pnl"):
+            payload.setdefault("empty_reason", "no_executed_trades")
+    return wrapped
 
 
 @mcp.tool
@@ -319,7 +345,12 @@ async def _get_trade_feed_impl(limit: int = 50, session_id: str | None = None) -
         return await get_trade_feed_payload(limit=limit, session_id=session_id)
 
     data = await _safe_call(_call)
-    return _wrap_payload(data, default_source="in_process")
+    wrapped = _wrap_payload(data, default_source="in_process")
+    payload = wrapped.get("data")
+    if isinstance(payload, dict):
+        if int(payload.get("count") or 0) == 0:
+            payload.setdefault("empty_reason", "no_trade_lifecycle_events")
+    return wrapped
 
 
 @mcp.tool
@@ -332,7 +363,13 @@ _get_trade_feed_tool = _get_trade_feed_impl
 
 async def _get_performance_trends_impl() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
-    return _wrap_payload(data, default_source="in_process")
+    wrapped = _wrap_payload(data, default_source="in_process")
+    payload = wrapped.get("data")
+    if isinstance(payload, dict):
+        summary = payload.get("summary") or {}
+        if isinstance(summary, dict) and int(summary.get("total_trades") or 0) == 0:
+            payload.setdefault("empty_reason", "no_trade_lifecycle_events")
+    return wrapped
 
 
 @mcp.tool
@@ -365,6 +402,7 @@ async def _get_health_summary_impl() -> dict[str, object]:
     trade_feed = _wrap_payload(await _safe_call(_feed), default_source="in_process")
     decisions = await _get_decisions(limit=20)
     notifications = await _get_notifications(limit=20)
+    decision_mode = _recent_decision_mode(decisions)
     degraded = any(
         isinstance(child, dict) and child.get("ok") is False
         for child in (debug_state, pnl, trade_feed, decisions, notifications)
@@ -381,6 +419,7 @@ async def _get_health_summary_impl() -> dict[str, object]:
             "trade_feed": trade_feed,
             "decisions": decisions,
             "notifications": notifications,
+            **decision_mode,
         },
     )
 
@@ -425,13 +464,16 @@ async def _classify_health_impl() -> dict[str, object]:
     else:
         classification = "unknown"
 
-    degraded = not db_available
+    decision_mode = _recent_decision_mode(await _get_decisions(limit=20))
+    degraded = (not db_available) or bool(decision_mode)
     return _envelope(
         ok=True,
         degraded=degraded,
         source="in_process",
-        reason="db_unavailable" if degraded else None,
-        data={"classification": classification, "db_available": db_available},
+        reason="db_unavailable"
+        if not db_available
+        else ("decision_reasoning_degraded" if decision_mode else None),
+        data={"classification": classification, "db_available": db_available, **decision_mode},
     )
 
 
