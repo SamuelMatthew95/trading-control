@@ -32,6 +32,9 @@ Covers:
  29. check_health returns False and logs error when config is invalid.
  30. _make_client uses no proxy when LM_STUDIO_PROXY_URL is empty.
  31. call_lmstudio logs base_url_host and proxy_enabled before the call.
+ 32-37. Remote localhost mismatch detection and LLM_PROVIDER=lmstudio mode.
+ 38-41. validate_lm_studio_config also blocks LM_STUDIO_BASE_URL proxy endpoints (P2 regression).
+ 42-44. _is_lmstudio_effectively_enabled covers LLM_PROVIDER=lmstudio without flag (P2 regression).
 """
 
 from __future__ import annotations
@@ -46,11 +49,13 @@ from api.services.lmstudio_provider import (
     _RETRY_INTERVAL_S,
     LMStudioUnavailableError,
     _health,
+    _is_lmstudio_effectively_enabled,
     _make_client,
     call_lmstudio,
     check_health,
     get_lm_studio_base_url,
     health_snapshot,
+    is_remote_localhost_mismatch,
     should_try_local,
     validate_lm_studio_config,
 )
@@ -720,13 +725,8 @@ def test_make_client_no_proxy_when_url_empty(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_call_lmstudio_logs_request_context(monkeypatch, capsys, caplog):
-    """call_lmstudio must log base_url_host and proxy_enabled before the API call.
-
-    log_structured() normally writes to stdout via structlog, but when running
-    in a full test suite the pytest log-capture handler may intercept the output
-    instead. Check both channels so the assertion is order-independent.
-    """
+async def test_call_lmstudio_logs_request_context(monkeypatch):
+    """call_lmstudio must log base_url_host and proxy_enabled before the API call."""
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
     monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
@@ -734,10 +734,443 @@ async def test_call_lmstudio_logs_request_context(monkeypatch, capsys, caplog):
     monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "http://127.0.0.1:1055")
 
     mock = _mock_client(content="ok")
+    log_calls: list[tuple] = []
+
+    def _capture_log(level, event, **kwargs):
+        log_calls.append((level, event, kwargs))
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with patch("api.services.lmstudio_provider.log_structured", side_effect=_capture_log):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    combined = capsys.readouterr().out + caplog.text
-    assert "reasoning_llm_request" in combined
-    assert "100.112.224.78" in combined
+    events = [e for _, e, _ in log_calls]
+    assert "reasoning_llm_request" in events
+    host_logged = any(kw.get("base_url_host") == "100.112.224.78" for _, _, kw in log_calls)
+    assert host_logged, f"base_url_host not in log calls: {log_calls}"
+
+
+# ---------------------------------------------------------------------------
+# 32-37. Remote localhost mismatch detection and LLM_PROVIDER=lmstudio mode.
+# ---------------------------------------------------------------------------
+
+
+def test_is_remote_localhost_mismatch_true_when_render_and_localhost(monkeypatch):
+    """Returns True when RENDER_EXTERNAL_URL is set and host is localhost."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is True
+
+
+def test_is_remote_localhost_mismatch_true_for_127_0_0_1(monkeypatch):
+    """Returns True when RENDER_EXTERNAL_URL is set and host is 127.0.0.1."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is True
+
+
+def test_is_remote_localhost_mismatch_false_when_no_render_url(monkeypatch):
+    """Returns False when RENDER_EXTERNAL_URL is not set (local dev)."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is False
+
+
+def test_is_remote_localhost_mismatch_false_for_tailscale_ip(monkeypatch):
+    """Returns False when host is a non-localhost Tailscale IP."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    assert is_remote_localhost_mismatch() is False
+
+
+def test_is_remote_localhost_mismatch_reads_base_url_host(monkeypatch):
+    """When LM_STUDIO_BASE_URL is set, extracts host from URL for mismatch check."""
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")  # should be overridden
+    assert is_remote_localhost_mismatch() is True
+
+
+async def test_check_health_returns_false_with_mismatch_error(monkeypatch):
+    """check_health returns False with a clear error when remote + localhost mismatch."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error is not None
+    assert "Remote backend" in (_health.last_error or "")
+    assert "localhost" in (_health.last_error or "")
+
+
+async def test_health_snapshot_includes_mismatch_field(monkeypatch):
+    """health_snapshot always includes remote_localhost_mismatch field."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    snap = health_snapshot()
+
+    assert FieldName.REMOTE_LOCALHOST_MISMATCH in snap
+    assert snap[FieldName.REMOTE_LOCALHOST_MISMATCH] is True
+    assert snap[FieldName.REACHABLE] is False
+    assert snap[FieldName.BASE_URL_HOST] == "localhost"
+
+
+async def test_check_health_stores_available_models(monkeypatch):
+    """check_health stores the list of loaded model IDs from /v1/models."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    model_a = MagicMock()
+    model_a.id = "test-model"
+    model_b = MagicMock()
+    model_b.id = "other-model"
+    mock = _mock_client(models=[model_a, model_b])
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is True
+    assert _health.available_models == ["test-model", "other-model"]
+    snap = health_snapshot()
+    assert snap[FieldName.AVAILABLE_MODELS] == ["test-model", "other-model"]
+
+
+async def test_check_health_configured_model_not_in_loaded_models(monkeypatch):
+    """check_health returns False when configured model is not in the loaded models list."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "my-specific-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    loaded = MagicMock()
+    loaded.id = "other-model"
+    mock = _mock_client(models=[loaded])
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert "not found" in (_health.last_error or "").lower()
+    assert "other-model" in (_health.last_error or "")
+
+
+async def test_llm_provider_lmstudio_enables_lm_studio(monkeypatch):
+    """LLM_PROVIDER=lmstudio makes LM Studio effectively enabled without LM_STUDIO_ENABLED."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)  # not explicitly enabled
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "lmstudio")
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    mock = _mock_client(content=_VALID_JSON)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == _VALID_JSON
+    assert _health.healthy is True
+
+
+def test_get_lm_studio_base_url_uses_base_url_when_set(monkeypatch):
+    """get_lm_studio_base_url uses LM_STUDIO_BASE_URL when set."""
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "10.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 9999)
+    assert get_lm_studio_base_url() == "http://localhost:1234/v1"
+
+
+def test_get_lm_studio_base_url_appends_v1_if_missing(monkeypatch):
+    """get_lm_studio_base_url appends /v1 when LM_STUDIO_BASE_URL lacks it."""
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://192.168.1.10:1234")
+    assert get_lm_studio_base_url() == "http://192.168.1.10:1234/v1"
+
+
+def test_get_lm_studio_base_url_no_double_v1(monkeypatch):
+    """get_lm_studio_base_url does not double the /v1 suffix."""
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://192.168.1.10:1234/v1")
+    assert get_lm_studio_base_url() == "http://192.168.1.10:1234/v1"
+
+
+def test_get_lm_studio_base_url_strips_trailing_slash(monkeypatch):
+    """get_lm_studio_base_url handles LM_STUDIO_BASE_URL with a trailing slash.
+
+    Regression: 'http://localhost:1234/v1/' previously produced
+    'http://localhost:1234/v1/v1' because the /v1 check ran before the
+    rstrip('/').
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/v1/")
+    assert get_lm_studio_base_url() == "http://localhost:1234/v1"
+
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1234/")
+    assert get_lm_studio_base_url() == "http://localhost:1234/v1"
+
+
+def test_get_lm_studio_base_url_with_query_string(monkeypatch):
+    """get_lm_studio_base_url appends /v1 to the path, not after a query string.
+
+    Regression: raw-string append previously produced 'http://host/path?q=abc/v1'
+    when the URL had a query component.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://host:1234?token=abc")
+    assert get_lm_studio_base_url() == "http://host:1234/v1"
+
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://host:1234/base?token=abc")
+    assert get_lm_studio_base_url() == "http://host:1234/base/v1"
+
+
+# ---------------------------------------------------------------------------
+# Regression: validate_lm_studio_config must also block LM_STUDIO_BASE_URL
+# pointing at the Tailscale proxy endpoint (P2 fix).
+# ---------------------------------------------------------------------------
+
+
+def test_validate_config_rejects_base_url_with_proxy_host_port(monkeypatch):
+    """LM_STUDIO_BASE_URL=http://127.0.0.1:1055/v1 must be blocked by the guard.
+
+    Regression: validate_lm_studio_config previously only checked
+    LM_STUDIO_HOST:LM_STUDIO_PORT, so setting LM_STUDIO_BASE_URL bypassed
+    the proxy-endpoint guard entirely.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")  # valid host
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)  # valid port
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://127.0.0.1:1055/v1")
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+def test_validate_config_rejects_base_url_localhost_port_1055(monkeypatch):
+    """LM_STUDIO_BASE_URL=http://localhost:1055 is blocked even with valid host:port."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:1055")
+    with pytest.raises(RuntimeError, match="proxy endpoint was used as LM Studio destination"):
+        validate_lm_studio_config()
+
+
+def test_validate_config_accepts_valid_base_url(monkeypatch):
+    """LM_STUDIO_BASE_URL with a valid Tailscale IP passes validation."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://100.112.224.78:1234/v1")
+    validate_lm_studio_config()  # must not raise
+
+
+def test_validate_config_ignores_empty_base_url(monkeypatch):
+    """validate_lm_studio_config skips LM_STUDIO_BASE_URL check when it is empty."""
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
+    monkeypatch.setattr(settings, "LM_STUDIO_PORT", 1234)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    validate_lm_studio_config()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Regression: _is_lmstudio_effectively_enabled returns True for LLM_PROVIDER=lmstudio
+# even when LM_STUDIO_ENABLED=False (startup probe gate fix — P2).
+# ---------------------------------------------------------------------------
+
+
+def test_is_lmstudio_effectively_enabled_true_when_primary(monkeypatch):
+    """LLM_PROVIDER=lmstudio must make effectively_enabled return True.
+
+    Regression: api/main.py startup probe was gated on settings.LM_STUDIO_ENABLED
+    only, so LLM_PROVIDER=lmstudio + LM_STUDIO_ENABLED=False skipped the probe.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "lmstudio")
+    assert _is_lmstudio_effectively_enabled() is True
+
+
+def test_is_lmstudio_effectively_enabled_true_when_flag_set(monkeypatch):
+    """LM_STUDIO_ENABLED=True makes effectively_enabled return True."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
+    assert _is_lmstudio_effectively_enabled() is True
+
+
+def test_is_lmstudio_effectively_enabled_false_when_both_off(monkeypatch):
+    """Neither LM_STUDIO_ENABLED nor LLM_PROVIDER=lmstudio → returns False."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
+    assert _is_lmstudio_effectively_enabled() is False
+
+
+# ---------------------------------------------------------------------------
+# Regression: check_health marks unhealthy when LM_STUDIO_MODEL is blank (P2 fix).
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_blank_model_returns_false_and_unhealthy(monkeypatch):
+    """check_health returns False and marks unhealthy when LM_STUDIO_MODEL is blank.
+
+    Regression: when models are loaded but LM_STUDIO_MODEL='', _health.healthy was
+    left True because the configured-model check was gated on `if configured`.
+    call_lmstudio() would then immediately raise lm_studio_model_not_configured,
+    creating a misleading healthy/active dashboard state — especially dangerous
+    with LLM_FALLBACK_ENABLED=false.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", None)
+
+    mock = _mock_client()  # returns one loaded model in models.data
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "lm_studio_model_not_configured"
+
+
+# ---------------------------------------------------------------------------
+# URL sanitization in log_startup_config
+# ---------------------------------------------------------------------------
+
+
+def test_log_startup_config_redacts_url_credentials(monkeypatch):
+    """log_startup_config must not emit userinfo or query tokens from LM_STUDIO_BASE_URL.
+
+    Regression: base_url was logged as-is; authenticated tunnel URLs
+    (e.g. https://user:token@host/v1?key=abc) would leak credentials into
+    structured logs despite the "Never logs secrets" contract.
+    """
+    from api.services.lmstudio_provider import log_startup_config
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(
+        settings,
+        "LM_STUDIO_BASE_URL",
+        "http://secretuser:secretpass@tunnel.example.com:8080/v1?token=abc123",
+    )
+    monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "")
+
+    log_calls: list[tuple] = []
+
+    def _capture_log(level, event, **kwargs):
+        log_calls.append((level, event, kwargs))
+
+    with patch("api.services.lmstudio_provider.log_structured", side_effect=_capture_log):
+        log_startup_config()
+
+    # Flatten all logged values to a single string for easy assertion
+    logged_text = str(log_calls)
+    assert "secretuser" not in logged_text
+    assert "secretpass" not in logged_text
+    assert "abc123" not in logged_text
+    assert "tunnel.example.com" in logged_text
+
+
+# ---------------------------------------------------------------------------
+# P1: validate_lm_studio_config — invalid port raises RuntimeError (not ValueError)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_config_invalid_port_raises_runtime_error(monkeypatch):
+    """LM_STUDIO_BASE_URL with a non-integer port must raise RuntimeError, not ValueError.
+
+    Regression: urllib.parse.urlparse accepts invalid port strings silently, but
+    accessing parsed.port raises ValueError.  validate_lm_studio_config() only
+    raised RuntimeError for blocked hosts; an invalid port escaped as ValueError
+    which check_health() did not catch, crashing startup.
+    """
+    from api.services.lmstudio_provider import validate_lm_studio_config
+
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:notaport/v1")
+    with pytest.raises(RuntimeError, match="Invalid LM_STUDIO_BASE_URL"):
+        validate_lm_studio_config()
+
+
+def test_check_health_invalid_port_returns_false_not_crash(monkeypatch):
+    """check_health() must return False (degraded) for an invalid port, not raise."""
+    import pytest_asyncio  # noqa: F401 — ensure async test infra
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "http://localhost:badport/v1")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "")
+
+    from api.services import lmstudio_provider as _mod
+
+    _mod._health.healthy = False
+
+    import asyncio
+
+    result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
+    assert result is False
+    assert _mod._health.healthy is False
+    assert _mod._health.last_error is not None
+
+
+# ---------------------------------------------------------------------------
+# P2: available_models cleared on check_health() failure paths
+# ---------------------------------------------------------------------------
+
+
+def test_check_health_clears_available_models_on_mismatch(monkeypatch):
+    """Stale available_models must be cleared when a mismatch failure is detected.
+
+    Regression: a prior successful probe set _health.available_models; a subsequent
+    remote-localhost mismatch left those models in the snapshot, misrepresenting
+    current LM Studio state.
+    """
+    from api.services import lmstudio_provider as _mod
+
+    # Seed stale models from a prior successful probe
+    _mod._health.available_models = ["llama-3-8b", "mistral-7b"]
+    _mod._health.healthy = True
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    # Simulate remote deployment where mismatch is detected
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "https://my-app.onrender.com")
+
+    import asyncio
+
+    result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
+    assert result is False
+    assert _mod._health.available_models == [], "stale models must be cleared on mismatch"
+
+
+def test_check_health_clears_available_models_on_network_failure(monkeypatch):
+    """Stale available_models must be cleared when the /v1/models probe fails with a network error."""
+    from api.services import lmstudio_provider as _mod
+
+    _mod._health.available_models = ["old-model"]
+    _mod._health.healthy = True
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_BASE_URL", "")
+    monkeypatch.setattr(settings, "RENDER_EXTERNAL_URL", "")
+    monkeypatch.setattr(settings, "LM_STUDIO_HOST", "localhost")
+
+    async def _failing_list(self):
+        raise ConnectionRefusedError("connection refused")
+
+    import asyncio
+
+    from openai.resources.models import AsyncModels
+
+    monkeypatch.setattr(AsyncModels, "list", _failing_list)
+
+    result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
+    assert result is False
+    assert _mod._health.available_models == [], "stale models must be cleared on network failure"

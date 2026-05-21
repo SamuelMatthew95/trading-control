@@ -10,7 +10,10 @@ from fastapi import APIRouter
 from api.config import settings
 from api.constants import LLM_METRICS_WINDOW_SECONDS, LM_STUDIO_PROVIDER, FieldName
 from api.services.llm_metrics import llm_metrics
-from api.services.lmstudio_provider import health_snapshot as lm_studio_health_snapshot
+from api.services.llm_router import _find_cloud_fallback
+from api.services.lmstudio_provider import (
+    health_snapshot as lm_studio_health_snapshot,
+)
 from api.services.redis_store import get_redis_store
 
 router = APIRouter(tags=["llm"])
@@ -33,11 +36,12 @@ async def llm_health() -> dict[str, Any]:
     status = _llm_status(snap[FieldName.SUCCESS_RATE_PCT], snap[FieldName.TOTAL_IN_WINDOW])
 
     provider = getattr(settings, "LLM_PROVIDER", "unknown").lower()
-    _model_setting = {
+    _model_setting: dict[str, tuple[str, str]] = {
         FieldName.GEMINI: ("GEMINI_MODEL", settings.GEMINI_MODEL),
-        FieldName.GROQ: ("GROQ_MODEL", "unknown"),
-        FieldName.ANTHROPIC: ("ANTHROPIC_MODEL", "unknown"),
-        FieldName.OPENAI: ("OPENAI_MODEL", "unknown"),
+        FieldName.GROQ: ("GROQ_MODEL", settings.GROQ_MODEL),
+        FieldName.ANTHROPIC: ("ANTHROPIC_MODEL", getattr(settings, "ANTHROPIC_MODEL", "unknown")),
+        FieldName.OPENAI: ("OPENAI_MODEL", getattr(settings, "OPENAI_MODEL", "unknown")),
+        LM_STUDIO_PROVIDER: ("LM_STUDIO_MODEL", settings.LM_STUDIO_MODEL or "not configured"),
     }
     _attr, _default = _model_setting.get(provider, ("", "unknown"))
     model_name: str = getattr(settings, _attr, _default) if _attr else "unknown"
@@ -78,9 +82,17 @@ async def llm_health() -> dict[str, Any]:
     last_success_at: str | None = redis_metrics.get(FieldName.LAST_SUCCESS_AT)
 
     lm_snap = lm_studio_health_snapshot()
-    # active_provider reflects what is actually serving requests right now:
-    # "lmstudio" when local inference is healthy, otherwise the cloud provider.
-    active_provider = LM_STUDIO_PROVIDER if lm_snap.get(FieldName.LM_STUDIO_HEALTHY) else provider
+    # active_provider reflects what is actually serving requests right now.
+    # When LM Studio is healthy it is always the active provider.
+    # When LM Studio is configured as primary but is down with fallback enabled,
+    # call_llm() routes to a cloud provider — surface that here so the dashboard
+    # does not incorrectly claim LM Studio is serving.
+    if lm_snap.get(FieldName.LM_STUDIO_HEALTHY):
+        active_provider = LM_STUDIO_PROVIDER
+    elif provider == LM_STUDIO_PROVIDER and settings.LLM_FALLBACK_ENABLED:
+        active_provider = _find_cloud_fallback() or provider
+    else:
+        active_provider = provider
 
     return {
         FieldName.STATUS: status,
@@ -91,7 +103,8 @@ async def llm_health() -> dict[str, Any]:
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         FieldName.LAST_SUCCESS_AT: last_success_at,
         FieldName.REDIS_METRICS: redis_metrics,
-        FieldName.LOCAL_INFERENCE_ENABLED: settings.LM_STUDIO_ENABLED,
+        FieldName.LOCAL_INFERENCE_ENABLED: lm_snap.get(FieldName.LM_STUDIO_ENABLED, False),
+        FieldName.LLM_FALLBACK_ENABLED: settings.LLM_FALLBACK_ENABLED,
         **lm_snap,
         **snap,
     }

@@ -117,3 +117,164 @@ TAILSCALE_AUTHKEY=tskey-auth-...
 **Fix:** `api/routes/llm_health.py` now falls back to `redis_metrics.last_latency_ms` for `avg_latency_ms` when the ring buffer has no recent successes. It also surfaces `last_success_at` at the top level of the response. `LLMHealthPanel.tsx` shows "No calls in window — last: Xh ago" when `total_in_window === 0` and `last_success_at` is available.
 
 **Regression test:** `tests/api/test_llm_health.py::test_llm_health_avg_latency_fallback_from_redis`
+
+---
+
+## Dashboard shows "Provider: gemini / LLM Health: Down / Local GPU: Offline" when LM Studio is configured
+
+**Symptom:** Dashboard reports `provider: gemini`, `model: gemini_2.5-flash-lite`, `last error: gemini_model_not_found`, and `Local GPU: Offline / Connection error` even though LM Studio is the intended provider.
+
+**Root cause (three compounding issues):**
+1. `LLM_PROVIDER` defaulted to `"gemini"` — no explicit mechanism to select LM Studio as the primary provider. `LM_STUDIO_ENABLED=true` only made LM Studio a first-try option, still falling back to Gemini.
+2. A remote backend (Render) cannot reach `localhost:1234` on the developer's laptop, but the error surfaced as a vague "Connection error" with no guidance.
+3. When `LLM_PROVIDER=lmstudio` was set, the router would fall through to the cloud-provider dispatch and raise `unknown_provider: 'lmstudio'` — a confusing internal error.
+
+**Fix:**
+- Set `LLM_PROVIDER=lmstudio` to make LM Studio the explicit primary provider. This automatically enables LM Studio without needing `LM_STUDIO_ENABLED=true`, and removes the requirement for any cloud API key.
+- `lmstudio_provider.check_health()` now detects the remote+localhost mismatch (`RENDER_EXTERNAL_URL` set + `LM_STUDIO_HOST=localhost`) and returns a clear error: *"Remote backend cannot reach local LM Studio at localhost. Use a public tunnel, Tailscale, or run backend locally."*
+- `/llm/health` response includes `remote_localhost_mismatch: true/false` and `base_url_host` so the dashboard can surface a targeted warning instead of "Connection error".
+- `LLM_FALLBACK_ENABLED=false` (recommended with `LLM_PROVIDER=lmstudio`) prevents silent fallback to Gemini when LM Studio is unavailable.
+- When `LLM_PROVIDER=lmstudio` and LM Studio fails with fallback disabled, the error is `lmstudio_unavailable: <reason>` — not a Gemini error.
+- `check_health()` validates that the configured `LM_STUDIO_MODEL` is present in the models LM Studio has loaded, and lists available models in the health response if there is a mismatch.
+- `LM_STUDIO_BASE_URL` env var added as a convenient alternative to `LM_STUDIO_HOST` + `LM_STUDIO_PORT`.
+
+**Required env vars (Render, LM Studio via Tailscale):**
+```
+LLM_PROVIDER=lmstudio
+LLM_FALLBACK_ENABLED=false
+LM_STUDIO_HOST=<tailscale-ip-of-mac>   # e.g. 100.112.224.78 — NOT localhost
+LM_STUDIO_PORT=1234
+LM_STUDIO_MODEL=<exact model name from LM Studio>
+LM_STUDIO_PROXY_URL=http://127.0.0.1:1055
+TAILSCALE_AUTHKEY=tskey-auth-...
+```
+
+**Required env vars (local backend + local LM Studio):**
+```
+LLM_PROVIDER=lmstudio
+LLM_FALLBACK_ENABLED=false
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LM_STUDIO_MODEL=<exact model name from LM Studio>
+```
+
+**Regression tests:**
+- `tests/agents/test_lmstudio_provider.py::test_is_remote_localhost_mismatch_true_when_render_and_localhost`
+- `tests/agents/test_lmstudio_provider.py::test_check_health_returns_false_with_mismatch_error`
+- `tests/agents/test_lmstudio_provider.py::test_llm_provider_lmstudio_enables_lm_studio`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_no_fallback_raises`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_does_not_call_gemini_without_key`
+
+---
+
+## validate_lm_studio_config bypass via LM_STUDIO_BASE_URL
+
+**Symptom:** Setting `LM_STUDIO_BASE_URL=http://127.0.0.1:1055/v1` with valid `LM_STUDIO_HOST`/`LM_STUDIO_PORT` allowed the Tailscale proxy endpoint to be used as the LM Studio destination without raising an error.
+
+**Root cause:** `validate_lm_studio_config()` only checked the `LM_STUDIO_HOST:LM_STUDIO_PORT` combination; the `LM_STUDIO_BASE_URL` override was not inspected, so the proxy-endpoint guard could be bypassed by setting only the URL.
+
+**Fix:** `api/services/lmstudio_provider.py::validate_lm_studio_config()` now also parses `LM_STUDIO_BASE_URL` (when set) and raises `RuntimeError` if its extracted host:port matches any entry in `_BLOCKED_HOST_PORT`.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_validate_config_rejects_base_url_with_proxy_host_port`
+
+---
+
+## check_health reports healthy when LM_STUDIO_MODEL is blank
+
+**Symptom:** `/llm/health` reports `lm_studio_healthy: true` and `active_provider: lmstudio`, but every inference call immediately fails with `lm_studio_model_not_configured`. With `LLM_FALLBACK_ENABLED=false` this causes a total inference outage while the dashboard shows everything as healthy.
+
+**Root cause:** `check_health()` ran the model-presence check only when `configured` was non-empty (`if configured and configured not in model_ids`). When `LM_STUDIO_MODEL` was blank the condition was short-circuited, leaving `_health.healthy = True` even though no model was configured for inference.
+
+**Fix:** The condition was split in `api/services/lmstudio_provider.py::check_health()`: an explicit `if not configured` guard now sets `_health.last_error = "lm_studio_model_not_configured"` and returns False before the model-presence check runs.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_check_health_blank_model_returns_false_and_unhealthy`
+
+---
+
+## active_provider shows lmstudio when cloud fallback is actually serving
+
+**Symptom:** `/llm/health` returns `active_provider: lmstudio` even though LM Studio is unhealthy and `LLM_FALLBACK_ENABLED=true` is routing all calls to a cloud provider (e.g. Groq). The dashboard therefore shows "Local GPU: Active" while a cloud provider is silently handling requests.
+
+**Root cause:** `api/routes/llm_health.py` computed `active_provider` as `LM_STUDIO_PROVIDER if lm_snap.lm_studio_healthy else provider`. When `LLM_PROVIDER=lmstudio` and LM Studio is unhealthy, `provider` evaluates to `"lmstudio"`, not the actual cloud fallback that `call_llm()` selects via `_find_cloud_fallback()`.
+
+**Fix:** When LM Studio is unhealthy and `provider == "lmstudio"` with `LLM_FALLBACK_ENABLED=true`, the endpoint now calls `_find_cloud_fallback()` to determine the actual serving provider and exposes that as `active_provider`.
+
+**Regression test:** `tests/api/test_llm_health.py::test_active_provider_is_cloud_fallback_when_lmstudio_primary_is_down`
+
+---
+
+## LM Studio cooldown bypassed when LLM_PROVIDER=lmstudio (P1 + P2 refinement)
+
+**Symptom:** After LM Studio becomes unavailable, every subsequent call blocks for `LM_STUDIO_TIMEOUT_SECONDS` before routing to the cloud fallback (with `LLM_FALLBACK_ENABLED=true`). The 60-second cooldown intended by `should_try_local()` is never respected.
+
+**Root cause:** `use_lmstudio` was computed as `lm_primary OR (LM_STUDIO_ENABLED AND should_try_local())`. The `OR` short-circuited whenever `LLM_PROVIDER=lmstudio`, so `should_try_local()` was never evaluated when LM Studio was the primary provider.
+
+**Fix:** `use_lmstudio` is now computed as `(lm_primary AND NOT _cloud_available) OR ((lm_primary OR LM_STUDIO_ENABLED) AND should_try_local())`, where `_cloud_available = LLM_FALLBACK_ENABLED AND bool(_find_cloud_fallback())`. This means:
+- A live cloud path exists (fallback enabled + cloud API key configured): cooldown is honoured — during the 60-second window requests route directly to cloud without touching LM Studio.
+- No usable cloud path (fallback disabled OR no cloud API key): cooldown is **bypassed** — suppressing retries just extends the outage with no benefit. LM Studio is always tried; the caller sees the real failure rather than a synthetic "cooldown" error.
+
+Both `call_llm` and `call_llm_with_system` are fixed.
+
+**Regression tests:**
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_respects_cooldown_fallback_enabled`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_cooldown_no_fallback_raises`
+- `tests/api/test_llm_health.py::test_call_llm_lmstudio_primary_no_cloud_key_bypasses_cooldown`
+
+---
+
+## Startup LM Studio probe skipped when LLM_PROVIDER=lmstudio + LM_STUDIO_ENABLED=False
+
+**Symptom:** With `LLM_PROVIDER=lmstudio` and `LM_STUDIO_ENABLED=False` the startup health probe was silently skipped, leaving a misconfigured primary LM Studio provider undetected at boot.
+
+**Root cause:** `api/main.py` lifespan gated the LM Studio startup probe on `settings.LM_STUDIO_ENABLED` only. `LLM_PROVIDER=lmstudio` implicitly enables LM Studio as the primary provider, so the probe should fire even when the explicit flag is off.
+
+**Fix:** The startup condition was changed from `if settings.LM_STUDIO_ENABLED:` to `if _is_lmstudio_effectively_enabled():`, which returns `True` when either `LM_STUDIO_ENABLED=True` or `LLM_PROVIDER=lmstudio`.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_is_lmstudio_effectively_enabled_true_when_primary`
+
+---
+
+## LM_STUDIO_BASE_URL credentials logged in startup config
+
+**Symptom:** Structured logs from the startup `lmstudio_config` event include userinfo (`user:pass@`) and/or query tokens from `LM_STUDIO_BASE_URL` despite the docstring saying "Never logs secrets."
+
+**Root cause:** `log_startup_config()` passed `get_lm_studio_base_url()` raw to `log_structured`, exposing credentials in authenticated-tunnel or proxy URLs.
+
+**Fix:** Added `_redact_url()` in `api/services/lmstudio_provider.py` which strips userinfo and query string via `urlunparse`, logging only scheme/host/port/path.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_log_startup_config_redacts_url_credentials`
+
+---
+
+## Invalid LM_STUDIO_BASE_URL port crashes startup with ValueError (P1)
+
+**Symptom:** Setting `LM_STUDIO_BASE_URL=http://localhost:notaport/v1` causes an unhandled `ValueError` during startup or health probe, crashing the app rather than entering degraded mode.
+
+**Root cause:** `urllib.parse.urlparse` accepts invalid port strings without raising, but accessing `parsed.port` raises `ValueError`. `validate_lm_studio_config()` only caught `RuntimeError`, so the `ValueError` escaped past `check_health()`'s exception handler.
+
+**Fix:** Wrapped the `parsed.hostname` / `parsed.port` access in `validate_lm_studio_config()` with a `try/except ValueError` that re-raises as `RuntimeError`. `check_health()` already catches `RuntimeError` and returns `False` (degraded), so no further changes were needed.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_validate_config_invalid_port_raises_runtime_error`
+
+---
+
+## Stale available_models reported after check_health() failure (P2)
+
+**Symptom:** `GET /llm/health` returns a non-empty `available_models` list even when LM Studio is unhealthy (mismatch error, config error, or network failure), misleading fallback/debug decisions.
+
+**Root cause:** `_health.available_models` was only written on the successful `/v1/models` probe path. After one successful probe, any subsequent failure (mismatch detection, config validation error, network exception) left the stale model list in the health state.
+
+**Fix:** Added `_health.available_models = []` to all three failure return paths in `check_health()`: the remote-localhost mismatch branch, the `validate_lm_studio_config()` exception branch, and the final `except Exception` network-failure branch.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_check_health_clears_available_models_on_mismatch`
+
+---
+
+## get_lm_studio_base_url corrupts URLs with query/fragment components (P2)
+
+**Symptom:** Setting `LM_STUDIO_BASE_URL=http://host:1234/path?token=abc` causes both health probes and inference calls to target `http://host:1234/path?token=abc/v1` — an invalid endpoint — even though the original URL was correct.
+
+**Root cause:** `get_lm_studio_base_url()` appended `/v1` to the raw string after `rstrip("/")`. When the URL contained a query string, the path check `not base_url.endswith("/v1")` evaluated against the query tail (`"abc"`), so `/v1` was appended after the query rather than after the path.
+
+**Fix:** Use `urlparse` to decompose the URL, append `/v1` to `parsed.path` only, then recompose with `urlunparse` (dropping query and fragment, which have no meaning for an API base URL).
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_get_lm_studio_base_url_with_query_string`

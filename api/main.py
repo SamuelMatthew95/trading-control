@@ -59,6 +59,9 @@ from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
 from api.services.lmstudio_provider import (
+    _is_lmstudio_effectively_enabled,
+)
+from api.services.lmstudio_provider import (
     check_health as lm_studio_check_health,
 )
 from api.services.lmstudio_provider import (
@@ -195,7 +198,7 @@ async def lifespan(app: FastAPI):
         # Non-blocking: failure here does NOT stop startup.
         # Bounded to 10 s so a black-holed Tailscale peer can't hold up startup
         # for the full LM_STUDIO_TIMEOUT_SECONDS (default 90 s).
-        if settings.LM_STUDIO_ENABLED:
+        if _is_lmstudio_effectively_enabled():
             lm_studio_log_startup_config()
             try:
                 _lm_ok = await asyncio.wait_for(lm_studio_check_health(), timeout=10.0)
