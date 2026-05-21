@@ -13,15 +13,32 @@ def test_run_all_mcp_tools_emits_single_valid_json_per_request(tmp_path: Path) -
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "payload=''\n"
+        "headers_file=''\n"
+        "body_file=''\n"
         "while [[ $# -gt 0 ]]; do\n"
         '  if [[ "$1" == \'--data-binary\' ]]; then payload="$2"; shift 2; continue; fi\n'
+        '  if [[ "$1" == \'-D\' ]]; then headers_file="$2"; shift 2; continue; fi\n'
+        '  if [[ "$1" == \'-o\' ]]; then body_file="$2"; shift 2; continue; fi\n'
         "  shift\n"
         "done\n"
         'jq -e . >/dev/null <<<"$payload"\n'
-        "count=$(jq -s 'length' <<<\"$payload\")\n"
-        "[[ \"$count\" == '1' ]]\n"
-        'echo "$payload" >> "$CALLS_FILE"\n'
-        'echo \'{"jsonrpc":"2.0","id":2,"result":{}}\'\n'
+        # For the initialize request, write session header + body to files
+        'if [[ -n "$headers_file" ]]; then\n'
+        '  printf "HTTP/1.1 200 OK\\r\\nmcp-session-id: test-session-123\\r\\n\\r\\n" > "$headers_file"\n'
+        "fi\n"
+        'body=\'{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{}}}\'\n'
+        'if [[ -n "$body_file" ]]; then\n'
+        '  echo "$body" > "$body_file"\n'
+        "else\n"
+        # Only record payload and echo for tool calls (not initialize)
+        "  method=$(jq -r '.method // empty' <<<\"$payload\")\n"
+        '  if [[ "$method" == "tools/call" ]]; then\n'
+        "    count=$(jq -s 'length' <<<\"$payload\")\n"
+        "    [[ \"$count\" == '1' ]]\n"
+        '    echo "$payload" >> "$CALLS_FILE"\n'
+        "  fi\n"
+        '  echo \'{"jsonrpc":"2.0","id":2,"result":{}}\'\n'
+        "fi\n"
     )
     curl_stub.chmod(0o755)
 
@@ -32,7 +49,7 @@ def test_run_all_mcp_tools_emits_single_valid_json_per_request(tmp_path: Path) -
 
     result = subprocess.run(
         ["bash", "scripts/run_all_mcp_tools.sh"],
-        cwd="/workspace/trading-control",
+        cwd=str(Path(__file__).parent.parent),
         env=env,
         capture_output=True,
         text=True,
@@ -73,7 +90,7 @@ def test_run_all_mcp_tools_emits_single_valid_json_per_request(tmp_path: Path) -
 def test_run_all_mcp_tools_dry_run_payloads_valid() -> None:
     result = subprocess.run(
         ["bash", "scripts/run_all_mcp_tools.sh", "--dry-run-payloads"],
-        cwd="/workspace/trading-control",
+        cwd=str(Path(__file__).parent.parent),
         capture_output=True,
         text=True,
         check=False,

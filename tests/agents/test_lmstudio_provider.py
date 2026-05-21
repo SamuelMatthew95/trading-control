@@ -725,13 +725,8 @@ def test_make_client_no_proxy_when_url_empty(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_call_lmstudio_logs_request_context(monkeypatch, capsys, caplog):
-    """call_lmstudio must log base_url_host and proxy_enabled before the API call.
-
-    log_structured() normally writes to stdout via structlog, but when running
-    in a full test suite the pytest log-capture handler may intercept the output
-    instead. Check both channels so the assertion is order-independent.
-    """
+async def test_call_lmstudio_logs_request_context(monkeypatch):
+    """call_lmstudio must log base_url_host and proxy_enabled before the API call."""
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
     monkeypatch.setattr(settings, "LM_STUDIO_HOST", "100.112.224.78")
@@ -739,13 +734,19 @@ async def test_call_lmstudio_logs_request_context(monkeypatch, capsys, caplog):
     monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "http://127.0.0.1:1055")
 
     mock = _mock_client(content="ok")
+    log_calls: list[tuple] = []
+
+    def _capture_log(level, event, **kwargs):
+        log_calls.append((level, event, kwargs))
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with patch("api.services.lmstudio_provider.log_structured", side_effect=_capture_log):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    combined = capsys.readouterr().out + caplog.text
-    assert "reasoning_llm_request" in combined
-    assert "100.112.224.78" in combined
+    events = [e for _, e, _ in log_calls]
+    assert "reasoning_llm_request" in events
+    host_logged = any(kw.get("base_url_host") == "100.112.224.78" for _, _, kw in log_calls)
+    assert host_logged, f"base_url_host not in log calls: {log_calls}"
 
 
 # ---------------------------------------------------------------------------
@@ -1043,7 +1044,7 @@ async def test_check_health_blank_model_returns_false_and_unhealthy(monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-def test_log_startup_config_redacts_url_credentials(monkeypatch, capsys):
+def test_log_startup_config_redacts_url_credentials(monkeypatch):
     """log_startup_config must not emit userinfo or query tokens from LM_STUDIO_BASE_URL.
 
     Regression: base_url was logged as-is; authenticated tunnel URLs
@@ -1061,13 +1062,20 @@ def test_log_startup_config_redacts_url_credentials(monkeypatch, capsys):
     )
     monkeypatch.setattr(settings, "LM_STUDIO_PROXY_URL", "")
 
-    log_startup_config()
+    log_calls: list[tuple] = []
 
-    out = capsys.readouterr().out
-    assert "secretuser" not in out
-    assert "secretpass" not in out
-    assert "abc123" not in out
-    assert "tunnel.example.com" in out
+    def _capture_log(level, event, **kwargs):
+        log_calls.append((level, event, kwargs))
+
+    with patch("api.services.lmstudio_provider.log_structured", side_effect=_capture_log):
+        log_startup_config()
+
+    # Flatten all logged values to a single string for easy assertion
+    logged_text = str(log_calls)
+    assert "secretuser" not in logged_text
+    assert "secretpass" not in logged_text
+    assert "abc123" not in logged_text
+    assert "tunnel.example.com" in logged_text
 
 
 # ---------------------------------------------------------------------------
