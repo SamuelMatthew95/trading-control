@@ -407,28 +407,18 @@ async def check_health() -> bool:
 
 
 def _extract_json_from_text(text: str) -> str:
-    """Scan text for the first valid top-level JSON object and return it.
-
-    Used as a fallback when a thinking-mode model (e.g. Qwen3.5) puts all
-    output in reasoning_content and leaves content empty.  Brace-matches
-    rather than regex so nested objects are handled correctly.
-    """
-    depth = 0
-    start = -1
-    for i, ch in enumerate(text):
-        if ch == "{":
-            if depth == 0:
-                start = i
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0 and start != -1:
-                candidate = text[start : i + 1]
-                try:
-                    json.loads(candidate)
-                    return candidate
-                except json.JSONDecodeError:
-                    start = -1
+    """Return the first valid JSON object found in text, or empty string."""
+    decoder = json.JSONDecoder()
+    pos = 0
+    while pos < len(text):
+        start = text.find("{", pos)
+        if start == -1:
+            break
+        try:
+            _, end = decoder.raw_decode(text, start)
+            return text[start:end]
+        except json.JSONDecodeError:
+            pos = start + 1
     return ""
 
 

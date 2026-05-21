@@ -1291,6 +1291,33 @@ def test_extract_json_from_text_handles_nested_objects():
     assert _json.loads(result) == {"outer": {"inner": 1}, "x": 2}
 
 
+def test_extract_json_from_text_stray_brace_before_json():
+    """Stray } before the JSON object must not prevent extraction.
+
+    Regression: the old depth counter went negative on a lone }, so the
+    next { did not set start and the candidate was never captured.
+    """
+    from api.services.lmstudio_provider import _extract_json_from_text
+
+    text = 'thinking } then decided: {"action": "buy"} end'
+    assert _extract_json_from_text(text) == '{"action": "buy"}'
+
+
+def test_extract_json_from_text_brace_inside_string():
+    """} inside a quoted value must not confuse the extractor.
+
+    Regression: the old depth counter decremented on every } including those
+    inside string literals, producing wrong depth and a missed object.
+    """
+    from api.services.lmstudio_provider import _extract_json_from_text
+
+    text = 'prefix {"note": "contains } brace", "action": "hold"} suffix'
+    import json as _json
+
+    result = _extract_json_from_text(text)
+    assert _json.loads(result) == {"note": "contains } brace", "action": "hold"}
+
+
 async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
     """call_lmstudio default max_tokens must be LLM_MAX_TOKENS_LMSTUDIO (1500).
 
