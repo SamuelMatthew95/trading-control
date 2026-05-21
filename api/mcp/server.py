@@ -23,6 +23,7 @@ from api.services.redis_store import get_redis_store
 
 mcp = FastMCP("trading-control", instructions="Read-only trading-control telemetry MCP server")
 _base_mcp_app = mcp.http_app(path="/")
+_CANONICAL_SOURCES = frozenset({"redis", "db", "in_memory", "mixed", "settings", "in_process"})
 
 
 def _now_iso() -> str:
@@ -53,6 +54,27 @@ def _error_payload(reason: str, *, source: str = "in_process") -> dict[str, obje
     return _envelope(ok=False, degraded=True, source=source, reason=reason, data={})
 
 
+def _normalize_source(source: object, *, default_source: str) -> tuple[str, str | None]:
+    value = str(source or "").strip()
+    if value in _CANONICAL_SOURCES:
+        return value, None
+    normalized = {
+        "redis_hydrated": "in_memory",
+        "db_error": "in_memory",
+    }.get(value, default_source)
+    reason = f"source_normalized:{value}" if value else None
+    return normalized, reason
+
+
+def _payload_degraded(payload: dict[str, object]) -> tuple[bool, str | None]:
+    source_value = str(payload.get("source") or "").strip()
+    if source_value in {"db_error", "redis_hydrated"}:
+        return True, "component_degraded"
+    if payload.get("empty_reason") == "db_degraded":
+        return True, "component_degraded"
+    return False, None
+
+
 def _wrap_payload(payload: object, *, default_source: str = "in_process") -> dict[str, object]:
     if (
         isinstance(payload, dict)
@@ -63,8 +85,20 @@ def _wrap_payload(payload: object, *, default_source: str = "in_process") -> dic
         return payload
     if not isinstance(payload, dict):
         return _envelope(ok=True, degraded=False, source=default_source, data={})
-    source = str(payload.get("source") or default_source)
-    return _envelope(ok=True, degraded=False, source=source, data=payload)
+    source, normalization_reason = _normalize_source(
+        payload.get("source"), default_source=default_source
+    )
+    degraded, degraded_reason = _payload_degraded(payload)
+    data = dict(payload)
+    if normalization_reason:
+        data["upstream_source"] = str(payload.get("source") or "")
+    return _envelope(
+        ok=not degraded,
+        degraded=degraded,
+        source=source,
+        reason=degraded_reason or normalization_reason,
+        data=data,
+    )
 
 
 async def _safe_call(func: Callable[[], Awaitable[object]]) -> object:
@@ -229,13 +263,15 @@ async def get_notifications(limit: int = 50) -> dict[str, object]:
 
 
 async def _get_health_summary_impl() -> dict[str, object]:
-    debug_state = await _safe_call(get_debug_state_payload)
-    pnl = await _safe_call(get_pnl_payload)
+    debug_state = _wrap_payload(
+        await _safe_call(get_debug_state_payload), default_source="in_process"
+    )
+    pnl = _wrap_payload(await _safe_call(get_pnl_payload), default_source="in_process")
 
     async def _feed() -> dict[str, object]:
         return await get_trade_feed_payload(limit=20, session_id=None)
 
-    trade_feed = await _safe_call(_feed)
+    trade_feed = _wrap_payload(await _safe_call(_feed), default_source="in_process")
     decisions = await _get_decisions(limit=20)
     notifications = await _get_notifications(limit=20)
     degraded = any(

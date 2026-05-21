@@ -79,6 +79,36 @@ async def test_mcp_tools_standard_envelope(monkeypatch) -> None:
         assert "status" not in payload
 
 
+async def test_wrap_payload_normalizes_non_canonical_source(monkeypatch) -> None:
+    async def _raw_payload():
+        return {"source": "redis_hydrated", "counts": {}}
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _raw_payload)
+    payload = await _get_debug_state_tool()
+    assert payload["source"] == "in_memory"
+    assert payload["data"]["upstream_source"] == "redis_hydrated"
+
+
+async def test_health_summary_marks_degraded_for_raw_db_fallback(monkeypatch) -> None:
+    async def _debug_payload():
+        return {"source": "in_memory", "counts": {}}
+
+    async def _pnl_payload():
+        return {"source": "db", "pnl": []}
+
+    async def _trade_feed_payload(limit: int, session_id: str | None):
+        return {"source": "db_error", "empty_reason": "db_degraded", "trades": []}
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _debug_payload)
+    monkeypatch.setattr("api.mcp.server.get_pnl_payload", _pnl_payload)
+    monkeypatch.setattr("api.mcp.server.get_trade_feed_payload", _trade_feed_payload)
+
+    payload = await _get_health_summary_tool()
+    assert payload["ok"] is False
+    assert payload["degraded"] is True
+    assert payload["reason"] == "component_unavailable"
+
+
 def test_settings_exposes_mcp_shared_token_field() -> None:
     """Config keeps MCP_SHARED_TOKEN field for optional future auth wiring."""
     from api.config import settings
