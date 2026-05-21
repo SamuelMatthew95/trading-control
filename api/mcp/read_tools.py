@@ -323,6 +323,7 @@ async def get_stream_lag_data() -> dict[str, Any]:
                 continue
 
             if not groups:
+                missing_required_consumers = stream_name in STREAMS_REQUIRING_ACTIVE_CONSUMERS
                 data.append(
                     {
                         "stream": stream_name,
@@ -333,8 +334,12 @@ async def get_stream_lag_data() -> dict[str, Any]:
                         "lag": None,
                         "consumers": 0,
                         "last_delivered_id": None,
-                        "health": "ok",
-                        "reason": "no_consumer_group",
+                        "health": "warning" if missing_required_consumers else "ok",
+                        "reason": (
+                            "no_active_consumers"
+                            if missing_required_consumers
+                            else "no_consumer_group"
+                        ),
                     }
                 )
                 continue
