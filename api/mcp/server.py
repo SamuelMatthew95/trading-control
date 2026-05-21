@@ -140,11 +140,17 @@ async def _get_notifications(limit: int = 50) -> dict[str, object]:
                 reason="redis_store_not_ready",
                 data={"items": []},
             )
+        decisions_payload = await _get_decisions(limit=max(limit, 100))
+        decision_map = _build_decision_map(decisions_payload)
+
+        notifications = await store.list_notifications(limit=limit)
+        normalized = _normalize_notifications_with_decisions(notifications, decision_map)
+
         return _envelope(
             ok=True,
             degraded=False,
             source="redis",
-            data={"items": await store.list_notifications(limit=limit)},
+            data={"items": normalized},
         )
     except Exception:  # noqa: BLE001
         return _error_payload("redis_unavailable", source="redis")
@@ -180,12 +186,73 @@ def _debug_state_has_activity(debug_state: dict[str, object]) -> bool:
     return False
 
 
+def _build_decision_map(decisions_payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    decision_items = decisions_payload.get("data", {}).get("items", [])
+    decision_map: dict[str, dict[str, object]] = {}
+    if isinstance(decision_items, list):
+        for item in decision_items:
+            if not isinstance(item, dict):
+                continue
+            trace_id = str(item.get("trace_id") or "").strip()
+            if trace_id:
+                decision_map[trace_id] = item
+    return decision_map
+
+
+def _normalize_notification(
+    entry: dict[str, object], decision_map: dict[str, dict[str, object]]
+) -> dict[str, object]:
+    if str(entry.get("type") or "") != "trade_signal":
+        return entry
+    trace_id = str(entry.get("trace_id") or "").strip()
+    decision = decision_map.get(trace_id)
+    if decision is None:
+        return entry
+    reason = str(decision.get("reason") or "").lower()
+    reasoning_summary = str(decision.get("reasoning_summary") or "").lower()
+    llm_succeeded = decision.get("llm_succeeded")
+    is_fallback = (
+        (llm_succeeded is False) or ("fallback" in reason) or ("fallback" in reasoning_summary)
+    )
+    if not is_fallback:
+        return entry
+    action_value = str(decision.get("action") or entry.get("action") or "").lower()
+    symbol = str(decision.get("symbol") or entry.get("symbol") or "").strip()
+    return {
+        **entry,
+        "type": "fallback_trade_blocked",
+        "notification_type": "decision_degraded",
+        "title": f"Fallback {action_value.upper()} decision — {symbol}"
+        if symbol
+        else "Fallback decision",
+        "severity": "warning",
+        "original_action": action_value,
+        "action": "hold",
+        "reason": str(decision.get("reason") or entry.get("reason") or "fallback"),
+        "llm_succeeded": False,
+    }
+
+
+def _normalize_notifications_with_decisions(
+    notifications: list[object], decision_map: dict[str, dict[str, object]]
+) -> list[object]:
+    normalized: list[object] = []
+    for entry in notifications:
+        if not isinstance(entry, dict):
+            normalized.append(entry)
+            continue
+        normalized.append(_normalize_notification(entry, decision_map))
+    return normalized
+
+
 async def _get_service_health_impl() -> dict[str, object]:
+    db_available = bool(is_db_available())
     return _envelope(
         ok=True,
-        degraded=False,
-        source="settings",
-        data={"db_available": is_db_available(), "persistence_mode": runtime_mode()},
+        degraded=not db_available,
+        source="mixed" if not db_available else "settings",
+        reason="db_unavailable" if not db_available else None,
+        data={"db_available": db_available, "persistence_mode": runtime_mode()},
     )
 
 
@@ -199,7 +266,20 @@ _get_service_health_tool = _get_service_health_impl
 
 async def _get_debug_state_impl() -> dict[str, object]:
     data = await _safe_call(get_debug_state_payload)
-    return _wrap_payload(data, default_source="in_process")
+    wrapped = _wrap_payload(data, default_source="in_process")
+    store = get_redis_store()
+    if store is None:
+        return wrapped
+    data_payload = wrapped.get("data")
+    if not isinstance(data_payload, dict):
+        return wrapped
+    latest_notification = data_payload.get("latest_notification")
+    if not isinstance(latest_notification, dict):
+        return wrapped
+    decisions_payload = await _get_decisions(limit=100)
+    decision_map = _build_decision_map(decisions_payload)
+    data_payload["latest_notification"] = _normalize_notification(latest_notification, decision_map)
+    return wrapped
 
 
 @mcp.tool
@@ -334,10 +414,12 @@ async def _classify_health_impl() -> dict[str, object]:
     else:
         classification = "unknown"
 
+    degraded = not db_available
     return _envelope(
         ok=True,
-        degraded=False,
+        degraded=degraded,
         source="in_process",
+        reason="db_unavailable" if degraded else None,
         data={"classification": classification, "db_available": db_available},
     )
 
