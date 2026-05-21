@@ -51,3 +51,15 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 2. `GET /system/trading-mode` → `status: PAUSED` means the circuit breaker is active. Clear it: `POST /system/trading-mode {"status": "TRADING"}`.
 3. Agent heartbeat for `ExecutionEngine` shows STALE or OFFLINE — the process is not running.
 4. Check `signal_confidence` values in recent decisions. If they are all below the execution gate threshold, signals are being filtered before reaching the broker.
+
+---
+
+## Fallback guard allows position-flip trades when abs exposure decreases
+
+**Symptom:** A fallback buy of qty=7 when short 5 is allowed through, flipping the position from short to long, even though the guard should block position flips.
+
+**Root cause:** `_enforce_fallback_trade_guard` evaluated `reduces_abs_exposure` before the zero-crossing check. A buy of 7 against a short of 5 gives `signed_after = +2`, and `abs(2) <= abs(-5)` is `True`, so `reduces_abs_exposure` was `True` and the trade was passed as reduce-only. The zero-crossing guard (`current < 0 < after`) was in an `elif` that was never reached.
+
+**Fix:** Swapped the check order — position-flip (zero-crossing) is checked first and always blocks. The reduce-only path is only reached when there is no sign change.
+
+**Regression test:** `tests/agents/test_execution_fallback_guard.py::test_fallback_buy_over_closes_short_and_opens_long_blocked`

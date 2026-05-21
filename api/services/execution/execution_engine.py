@@ -895,13 +895,13 @@ class ExecutionEngine(BaseStreamConsumer):
                     if side == OrderSide.BUY
                     else current_signed_qty - parsed.qty
                 )
-                # Reduce-only is always allowed once fallback trading is enabled.
-                reduces_abs_exposure = abs(signed_after) <= abs(current_signed_qty)
-                if reduces_abs_exposure:
-                    blocked = False
-                # Position-flip/over-close from one side through flat to the other side.
-                elif current_signed_qty < 0 < signed_after or current_signed_qty > 0 > signed_after:
+                # Position-flip/over-close from one side through flat to the other side
+                # — always blocked, even when abs(signed_after) < abs(current).
+                if current_signed_qty < 0 < signed_after or current_signed_qty > 0 > signed_after:
                     blocked = True
+                # Reduce-only is always allowed once fallback trading is enabled.
+                elif abs(signed_after) <= abs(current_signed_qty):
+                    blocked = False
                 # Enforce capped absolute exposure for position-increasing fallback trades.
                 elif abs(signed_after) > max_allowed:
                     blocked = True
