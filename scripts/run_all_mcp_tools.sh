@@ -58,13 +58,17 @@ call_tool() {
   fi
 
   if [[ -n "$TOKEN" ]]; then
-    curl -sS --fail-with-body "$BASE_URL" \
-      -H "content-type: application/json" \
+    curl -sS --fail-with-body \
+      -X POST "$BASE_URL" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json, text/event-stream" \
       -H "x-mcp-shared-token: $TOKEN" \
       --data-binary "$payload"
   else
-    curl -sS --fail-with-body "$BASE_URL" \
-      -H "content-type: application/json" \
+    curl -sS --fail-with-body \
+      -X POST "$BASE_URL" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json, text/event-stream" \
       --data-binary "$payload"
   fi
 }
