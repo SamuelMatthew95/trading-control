@@ -67,6 +67,10 @@ MCP_STREAMS: tuple[str, ...] = (
     STREAM_SELL_REJECTED,
 )
 
+STREAMS_REQUIRING_ACTIVE_CONSUMERS: frozenset[str] = frozenset(
+    {STREAM_SIGNALS, STREAM_DECISIONS, STREAM_ORDERS, STREAM_EXECUTIONS, STREAM_TRADE_LIFECYCLE}
+)
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -246,23 +250,36 @@ async def get_agent_heartbeats_data() -> dict[str, Any]:
 async def get_llm_health_data() -> dict[str, Any]:
     snap = llm_metrics.snapshot()
     success_rate = float(snap.get("success_rate_pct", 0.0))
+    error_rate = round(max(0.0, 100.0 - success_rate), 1)
+    last_success_timestamp = snap.get("last_success_at")
+    last_failure_timestamp = (snap.get("last_error") or {}).get("at")
+    enabled = True
+    unhealthy = enabled and last_failure_timestamp and not last_success_timestamp
+    degraded = bool(unhealthy or error_rate >= 50.0)
     provider = {
         "provider": settings.LLM_PROVIDER,
-        "enabled": True,
+        "enabled": enabled,
         "healthy": "healthy"
         if success_rate >= 80
         else ("unhealthy" if success_rate > 0 else "unknown"),
         "success_rate": success_rate,
-        "error_rate": round(max(0.0, 100.0 - success_rate), 1),
+        "error_rate": error_rate,
         "average_latency_ms": snap.get("avg_latency_ms", 0.0),
         "p95_latency_ms": None,
         "rate_limit_count": snap.get("rate_limited_count", 0),
         "current_call_delay_ms": snap.get("effective_delay_ms", 0),
-        "last_success_timestamp": None,
-        "last_failure_timestamp": (snap.get("last_error") or {}).get("at"),
+        "last_success_timestamp": last_success_timestamp,
+        "last_failure_timestamp": last_failure_timestamp,
         "fallback_mode": bool(snap.get("grade_adjusted_delay", False)),
     }
-    return _wrap({"providers": [provider]}, source="in_process")
+    return _wrap(
+        {"providers": [provider]},
+        source="in_process",
+        degraded=degraded,
+        reason="llm_provider_unhealthy"
+        if unhealthy
+        else ("llm_provider_degraded" if degraded else None),
+    )
 
 
 async def get_agent_grades_data(
@@ -306,6 +323,7 @@ async def get_stream_lag_data() -> dict[str, Any]:
                 continue
 
             if not groups:
+                missing_required_consumers = stream_name in STREAMS_REQUIRING_ACTIVE_CONSUMERS
                 data.append(
                     {
                         "stream": stream_name,
@@ -316,7 +334,12 @@ async def get_stream_lag_data() -> dict[str, Any]:
                         "lag": None,
                         "consumers": 0,
                         "last_delivered_id": None,
-                        "health": "warning",
+                        "health": "warning" if missing_required_consumers else "ok",
+                        "reason": (
+                            "no_active_consumers"
+                            if missing_required_consumers
+                            else "no_consumer_group"
+                        ),
                     }
                 )
                 continue
@@ -329,6 +352,11 @@ async def get_stream_lag_data() -> dict[str, Any]:
                     health = "critical"
                 elif pending >= 100:
                     health = "warning"
+                consumers = int(group.get("consumers", 0) or 0)
+                reason = None
+                if consumers == 0 and stream_name in STREAMS_REQUIRING_ACTIVE_CONSUMERS:
+                    health = "warning"
+                    reason = "no_active_consumers"
                 data.append(
                     {
                         "stream": stream_name,
@@ -337,9 +365,10 @@ async def get_stream_lag_data() -> dict[str, Any]:
                         "group": group.get("name"),
                         "pending": pending,
                         "lag": lag,
-                        "consumers": group.get("consumers", 0),
+                        "consumers": consumers,
                         "last_delivered_id": group.get("last-delivered-id"),
                         "health": health,
+                        "reason": reason,
                     }
                 )
         return _wrap({"streams": data}, source="redis")
@@ -387,8 +416,12 @@ async def get_market_data_data(*, symbol: str | None = None, limit: int = 20) ->
 
 async def get_positions_data() -> dict[str, Any]:
     if not is_db_available():
+        positions = get_runtime_store().open_positions()
         return _wrap(
-            {"positions": get_runtime_store().open_positions()},
+            {
+                "positions": positions,
+                "empty_reason": "fallback_hold_only" if not positions else None,
+            },
             source="in_memory",
             degraded=True,
             reason="db_unavailable",
@@ -408,7 +441,13 @@ async def get_positions_data() -> dict[str, Any]:
                 )
             )
             positions = [dict(row._mapping) for row in result]
-        return _wrap({"positions": positions}, source="db")
+        return _wrap(
+            {
+                "positions": positions,
+                "empty_reason": "no_executed_trades" if not positions else None,
+            },
+            source="db",
+        )
     except Exception:
         return _wrap(
             {"positions": get_runtime_store().open_positions()},
