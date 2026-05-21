@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from api.main import app
-from api.mcp.server import _debug_state_has_activity, _get_decisions, _get_notifications
+from api.mcp.server import (
+    _classify_health_tool,
+    _debug_state_has_activity,
+    _get_debug_state_tool,
+    _get_decisions,
+    _get_health_summary_tool,
+    _get_notifications,
+    _get_performance_trends_tool,
+    _get_pnl_tool,
+    _get_service_health_tool,
+    _get_trade_feed_tool,
+)
 
 
 def test_mcp_mount_exists_on_main_app() -> None:
@@ -16,9 +27,10 @@ async def test_decisions_unavailable_payload_when_store_missing(monkeypatch) -> 
 
     payload = await _get_decisions(limit=10)
 
-    assert payload["status"] == "unavailable"
+    assert payload["ok"] is False
     assert payload["reason"] == "redis_store_not_ready"
-    assert payload["items"] is None
+    assert payload["data"]["items"] == []
+    assert "status" not in payload
 
 
 async def test_notifications_unavailable_payload_when_store_missing(monkeypatch) -> None:
@@ -27,9 +39,74 @@ async def test_notifications_unavailable_payload_when_store_missing(monkeypatch)
 
     payload = await _get_notifications(limit=10)
 
-    assert payload["status"] == "unavailable"
+    assert payload["ok"] is False
     assert payload["reason"] == "redis_store_not_ready"
-    assert payload["items"] is None
+    assert payload["data"]["items"] == []
+    assert "status" not in payload
+
+
+async def test_mcp_tools_standard_envelope(monkeypatch) -> None:
+    async def _ok_payload():
+        return {
+            "ok": True,
+            "degraded": False,
+            "source": "in_memory",
+            "generated_at": "x",
+            "data": {},
+        }
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _ok_payload)
+    monkeypatch.setattr("api.mcp.server.get_pnl_payload", _ok_payload)
+    monkeypatch.setattr("api.mcp.server.get_performance_trends_payload", _ok_payload)
+    monkeypatch.setattr(
+        "api.mcp.server.get_trade_feed_payload", lambda limit, session_id: _ok_payload()
+    )
+
+    for payload in [
+        await _get_service_health_tool(),
+        await _get_debug_state_tool(),
+        await _get_pnl_tool(),
+        await _get_trade_feed_tool(),
+        await _get_performance_trends_tool(),
+        await _get_health_summary_tool(),
+        await _classify_health_tool(),
+    ]:
+        assert payload.get("ok") is not None
+        assert payload.get("degraded") is not None
+        assert payload.get("source") is not None
+        assert payload.get("generated_at") is not None
+        assert isinstance(payload.get("data"), dict)
+        assert "status" not in payload
+
+
+async def test_wrap_payload_normalizes_non_canonical_source(monkeypatch) -> None:
+    async def _raw_payload():
+        return {"source": "redis_hydrated", "counts": {}}
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _raw_payload)
+    payload = await _get_debug_state_tool()
+    assert payload["source"] == "in_memory"
+    assert payload["data"]["upstream_source"] == "redis_hydrated"
+
+
+async def test_health_summary_marks_degraded_for_raw_db_fallback(monkeypatch) -> None:
+    async def _debug_payload():
+        return {"source": "in_memory", "counts": {}}
+
+    async def _pnl_payload():
+        return {"source": "db", "pnl": []}
+
+    async def _trade_feed_payload(limit: int, session_id: str | None):
+        return {"source": "db_error", "empty_reason": "db_degraded", "trades": []}
+
+    monkeypatch.setattr("api.mcp.server.get_debug_state_payload", _debug_payload)
+    monkeypatch.setattr("api.mcp.server.get_pnl_payload", _pnl_payload)
+    monkeypatch.setattr("api.mcp.server.get_trade_feed_payload", _trade_feed_payload)
+
+    payload = await _get_health_summary_tool()
+    assert payload["ok"] is False
+    assert payload["degraded"] is True
+    assert payload["reason"] == "component_unavailable"
 
 
 def test_settings_exposes_mcp_shared_token_field() -> None:
