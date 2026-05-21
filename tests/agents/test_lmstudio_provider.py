@@ -1318,6 +1318,50 @@ def test_extract_json_from_text_brace_inside_string():
     assert _json.loads(result) == {"note": "contains } brace", "action": "hold"}
 
 
+def test_extract_json_from_text_truncated_json_returns_empty():
+    """Truncated JSON (model hit token limit mid-generation) returns empty string, not a crash.
+
+    raw_decode raises JSONDecodeError on incomplete input; the function must
+    catch it and return '' so call_lmstudio leaves text empty and the router's
+    normal parse-failure / cloud-fallback path takes over.
+    """
+    from api.services.lmstudio_provider import _extract_json_from_text
+
+    assert _extract_json_from_text('{"action": "buy", "confiden') == ""
+    assert _extract_json_from_text('{"nested": {"x": 1') == ""
+    assert _extract_json_from_text("") == ""
+
+
+async def test_call_lmstudio_reasoning_content_truncated_returns_empty(monkeypatch):
+    """Truncated reasoning_content (finish_reason=length) yields empty text, not a crash.
+
+    call_lmstudio must return ("", 0, 0.0) so the router's existing
+    parse-failure handling kicks in rather than propagating an exception.
+    _health.healthy must remain True — this is not an infrastructure failure.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    message = MagicMock()
+    message.content = ""
+    message.reasoning_content = '{"action": "buy", "confiden'  # truncated mid-token
+    choice = MagicMock()
+    choice.message = message
+    completion = MagicMock()
+    completion.choices = [choice]
+
+    mock = _mock_client()
+    mock.chat.completions.create = AsyncMock(return_value=completion)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == ""
+    assert tokens == 0
+    assert cost == 0.0
+    assert _health.healthy is True  # infrastructure is fine; router handles the empty response
+
+
 async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
     """call_lmstudio default max_tokens must be LLM_MAX_TOKENS_LMSTUDIO (1500).
 
