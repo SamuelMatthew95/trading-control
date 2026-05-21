@@ -266,3 +266,15 @@ Both `call_llm` and `call_llm_with_system` are fixed.
 **Fix:** Added `_health.available_models = []` to all three failure return paths in `check_health()`: the remote-localhost mismatch branch, the `validate_lm_studio_config()` exception branch, and the final `except Exception` network-failure branch.
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_check_health_clears_available_models_on_mismatch`
+
+---
+
+## get_lm_studio_base_url corrupts URLs with query/fragment components (P2)
+
+**Symptom:** Setting `LM_STUDIO_BASE_URL=http://host:1234/path?token=abc` causes both health probes and inference calls to target `http://host:1234/path?token=abc/v1` — an invalid endpoint — even though the original URL was correct.
+
+**Root cause:** `get_lm_studio_base_url()` appended `/v1` to the raw string after `rstrip("/")`. When the URL contained a query string, the path check `not base_url.endswith("/v1")` evaluated against the query tail (`"abc"`), so `/v1` was appended after the query rather than after the path.
+
+**Fix:** Use `urlparse` to decompose the URL, append `/v1` to `parsed.path` only, then recompose with `urlunparse` (dropping query and fragment, which have no meaning for an API base URL).
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_get_lm_studio_base_url_with_query_string`

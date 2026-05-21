@@ -235,13 +235,17 @@ def get_lm_studio_base_url() -> str:
     """Return the canonical LM Studio base URL, always ending in /v1.
 
     When LM_STUDIO_BASE_URL is set it takes precedence over LM_STUDIO_HOST
-    and LM_STUDIO_PORT.  The /v1 suffix is appended if not already present.
+    and LM_STUDIO_PORT.  The /v1 suffix is appended to the URL *path* (not the
+    raw string) so query/fragment components in the original URL are preserved
+    without corruption.
     """
-    base_url = getattr(settings, "LM_STUDIO_BASE_URL", "").strip().rstrip("/")
-    if base_url:
-        if not base_url.endswith("/v1"):
-            base_url = base_url + "/v1"
-        return base_url
+    raw = getattr(settings, "LM_STUDIO_BASE_URL", "").strip()
+    if raw:
+        parsed = urlparse(raw)
+        path = parsed.path.rstrip("/")
+        if not path.endswith("/v1"):
+            path = path + "/v1"
+        return urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
     host = settings.LM_STUDIO_HOST.strip()
     port = settings.LM_STUDIO_PORT
     return f"http://{host}:{port}/v1"
