@@ -66,6 +66,7 @@ traffic through the SOCKS5 listener with plain HTTP, producing the
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urlparse, urlunparse
@@ -75,7 +76,7 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from api.config import settings
 from api.constants import (
-    LLM_MAX_TOKENS_TRADING,
+    LLM_MAX_TOKENS_LMSTUDIO,
     LLM_TEMPERATURE_TRADING,
     LM_STUDIO_PROVIDER,
     FieldName,
@@ -405,11 +406,37 @@ async def check_health() -> bool:
         return False
 
 
+def _extract_json_from_text(text: str) -> str:
+    """Scan text for the first valid top-level JSON object and return it.
+
+    Used as a fallback when a thinking-mode model (e.g. Qwen3.5) puts all
+    output in reasoning_content and leaves content empty.  Brace-matches
+    rather than regex so nested objects are handled correctly.
+    """
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start != -1:
+                candidate = text[start : i + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    start = -1
+    return ""
+
+
 async def call_lmstudio(
     prompt: str,
     system_prompt: str,
     trace_id: str,
-    max_tokens: int = LLM_MAX_TOKENS_TRADING,
+    max_tokens: int = LLM_MAX_TOKENS_LMSTUDIO,
     temperature: float = LLM_TEMPERATURE_TRADING,
 ) -> tuple[str, int, float]:
     """Call LM Studio with the given system + user prompt.
@@ -448,8 +475,28 @@ async def call_lmstudio(
             ],
             max_tokens=max_tokens,
             temperature=temperature,
+            # Disable thinking mode for Qwen3.5 and similar models so the JSON
+            # decision lands in content rather than reasoning_content.  Non-thinking
+            # models ignore this field.
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
         text: str = (completion.choices[0].message.content or "") if completion.choices else ""
+        if not text and completion.choices:
+            # Thinking mode fallback: some models emit reasoning_content even
+            # when thinking is disabled.  If content is empty, scan
+            # reasoning_content for an embedded JSON object.
+            reasoning: str = getattr(completion.choices[0].message, "reasoning_content", None) or ""
+            if reasoning:
+                extracted = _extract_json_from_text(reasoning)
+                if extracted:
+                    log_structured(
+                        "info",
+                        "lmstudio_reasoning_content_fallback",
+                        trace_id=trace_id,
+                        model=model_id,
+                        reasoning_chars=len(reasoning),
+                    )
+                    text = extracted
     except LMStudioUnavailableError:
         raise
     except APITimeoutError:
