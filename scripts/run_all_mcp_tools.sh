@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${MCP_BASE_URL:-http://localhost:8000/mcp}"
-TOKEN="${MCP_SHARED_TOKEN:-}"
+BASE_URL="${MCP_BASE_URL:-${MCP_URL:-http://localhost:8000/mcp}}"
+TOKEN="${MCP_SHARED_TOKEN:-${MCP_TOKEN:-}}"
 DRY_RUN_PAYLOADS=false
 
 if [[ "${1:-}" == "--dry-run-payloads" ]]; then
