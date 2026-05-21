@@ -1174,3 +1174,160 @@ def test_check_health_clears_available_models_on_network_failure(monkeypatch):
     result = asyncio.get_event_loop().run_until_complete(_mod.check_health())
     assert result is False
     assert _mod._health.available_models == [], "stale models must be cleared on network failure"
+
+
+# ---------------------------------------------------------------------------
+# Thinking mode: extra_body disables thinking and reasoning_content fallback
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_sends_enable_thinking_false(monkeypatch):
+    """call_lmstudio must pass chat_template_kwargs.enable_thinking=False in extra_body.
+
+    This disables Qwen3.5 thinking mode so the JSON decision lands in content,
+    not reasoning_content.  Non-thinking models ignore the field.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content=_VALID_JSON)
+    call_kwargs: list[dict] = []
+
+    original_create = mock.chat.completions.create
+
+    async def capturing_create(**kwargs):
+        call_kwargs.append(kwargs)
+        return await original_create(**kwargs)
+
+    mock.chat.completions.create = capturing_create
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert call_kwargs, "completions.create was never called"
+    extra_body = call_kwargs[0].get("extra_body", {})
+    assert extra_body.get("chat_template_kwargs", {}).get("enable_thinking") is False
+
+
+async def test_call_lmstudio_reasoning_content_fallback(monkeypatch):
+    """When content is empty but reasoning_content has embedded JSON, use it.
+
+    Regression: Qwen3.5 thinking mode sometimes outputs everything in
+    reasoning_content and leaves content as an empty string even when
+    enable_thinking=False is set.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content="")
+    mock.chat.completions.create = AsyncMock()
+
+    message = MagicMock()
+    message.content = ""
+    message.reasoning_content = (
+        f"Thinking Process: analyzing BTC/USD momentum...\n\nFinal answer: {_VALID_JSON}\n\nDone."
+    )
+    choice = MagicMock()
+    choice.message = message
+    completion = MagicMock()
+    completion.choices = [choice]
+    mock.chat.completions.create = AsyncMock(return_value=completion)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == _VALID_JSON
+    assert _health.healthy is True
+
+
+async def test_call_lmstudio_reasoning_content_no_json_returns_empty(monkeypatch):
+    """When reasoning_content has no valid JSON, return empty string (not a crash)."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    message = MagicMock()
+    message.content = ""
+    message.reasoning_content = "I am thinking... but I cannot form a JSON object."
+    choice = MagicMock()
+    choice.message = message
+    completion = MagicMock()
+    completion.choices = [choice]
+
+    mock = _mock_client()
+    mock.chat.completions.create = AsyncMock(return_value=completion)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == ""
+    assert _health.healthy is True
+
+
+def test_extract_json_from_text_finds_embedded_json():
+    """_extract_json_from_text returns the first valid JSON object found in free text."""
+    from api.services.lmstudio_provider import _extract_json_from_text
+
+    text = 'Thinking...\n{"action":"hold","confidence":0.7}\nDone.'
+    result = _extract_json_from_text(text)
+    assert result == '{"action":"hold","confidence":0.7}'
+
+
+def test_extract_json_from_text_returns_empty_when_no_json():
+    """_extract_json_from_text returns empty string when no valid JSON object exists."""
+    from api.services.lmstudio_provider import _extract_json_from_text
+
+    result = _extract_json_from_text("no json here")
+    assert result == ""
+
+
+def test_extract_json_from_text_handles_nested_objects():
+    """_extract_json_from_text correctly handles JSON with nested objects."""
+    from api.services.lmstudio_provider import _extract_json_from_text
+
+    text = 'prefix {"outer": {"inner": 1}, "x": 2} suffix'
+    result = _extract_json_from_text(text)
+    import json as _json
+
+    assert _json.loads(result) == {"outer": {"inner": 1}, "x": 2}
+
+
+async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
+    """call_lmstudio default max_tokens must be LLM_MAX_TOKENS_LMSTUDIO (1500).
+
+    Regression: 300 (LLM_MAX_TOKENS_TRADING) was too low for Qwen3.5 responses
+    and caused truncated JSON decisions on Apple M2 at ~12 tok/s.
+    """
+    from api.constants import LLM_MAX_TOKENS_LMSTUDIO
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content=_VALID_JSON)
+    call_kwargs: list[dict] = []
+
+    async def capturing_create(**kwargs):
+        call_kwargs.append(kwargs)
+        return await mock.chat.completions.create.return_value.__class__.return_value
+
+    mock.chat.completions.create = AsyncMock(side_effect=None)
+
+    msg = MagicMock()
+    msg.content = _VALID_JSON
+    choice = MagicMock()
+    choice.message = msg
+    completion = MagicMock()
+    completion.choices = [choice]
+    mock.chat.completions.create = AsyncMock(return_value=completion)
+
+    captured: list[dict] = []
+
+    async def spy(**kwargs):
+        captured.append(kwargs)
+        return completion
+
+    mock.chat.completions.create = spy
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert captured[0]["max_tokens"] == LLM_MAX_TOKENS_LMSTUDIO == 1500
