@@ -325,6 +325,8 @@ _get_debug_state_tool = _get_debug_state_impl
 async def _get_pnl_impl() -> dict[str, object]:
     data = await _safe_call(get_pnl_payload)
     wrapped = _wrap_payload(data, default_source="in_process")
+    if wrapped.get("ok") is False:
+        return wrapped
     payload = wrapped.get("data")
     if isinstance(payload, dict):
         if float(payload.get("total_pnl") or 0.0) == 0.0 and not payload.get("pnl"):
@@ -346,6 +348,8 @@ async def _get_trade_feed_impl(limit: int = 50, session_id: str | None = None) -
 
     data = await _safe_call(_call)
     wrapped = _wrap_payload(data, default_source="in_process")
+    if wrapped.get("ok") is False:
+        return wrapped
     payload = wrapped.get("data")
     if isinstance(payload, dict):
         if int(payload.get("count") or 0) == 0:
@@ -364,6 +368,8 @@ _get_trade_feed_tool = _get_trade_feed_impl
 async def _get_performance_trends_impl() -> dict[str, object]:
     data = await _safe_call(get_performance_trends_payload)
     wrapped = _wrap_payload(data, default_source="in_process")
+    if wrapped.get("ok") is False:
+        return wrapped
     payload = wrapped.get("data")
     if isinstance(payload, dict):
         summary = payload.get("summary") or {}

@@ -374,3 +374,13 @@ async def test_trade_feed_wrapper_adds_empty_reason_when_count_zero(monkeypatch)
     monkeypatch.setattr("api.mcp.server.get_trade_feed_payload", _trade_feed_payload)
     payload = await _get_trade_feed_tool()
     assert payload["data"]["empty_reason"] == "no_trade_lifecycle_events"
+
+
+async def test_pnl_wrapper_does_not_add_empty_reason_to_error_payload(monkeypatch) -> None:
+    async def _bad_pnl_payload():
+        return {"ok": False, "degraded": True, "reason": "component_unavailable", "data": {}}
+
+    monkeypatch.setattr("api.mcp.server.get_pnl_payload", _bad_pnl_payload)
+    payload = await _get_pnl_tool()
+    assert payload["ok"] is False
+    assert "empty_reason" not in payload["data"]
