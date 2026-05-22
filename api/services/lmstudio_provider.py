@@ -76,12 +76,10 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from api.config import settings
 from api.constants import (
-    LLM_MAX_TOKENS_LMSTUDIO,
     LLM_STOP_SEQUENCES,
     LLM_TASK_HEALTH_CHECK,
     LLM_TASK_PRICE_ANALYSIS,
     LLM_TASK_TRADE_EXECUTION,
-    LLM_TEMPERATURE_TRADING,
     LM_STUDIO_PROVIDER,
     FieldName,
 )
@@ -410,6 +408,25 @@ async def check_health() -> bool:
         return False
 
 
+def _hold_fallback_json(trace_id: str, reason: str) -> str:
+    """Return a serialized safe HOLD decision for use when model output is unusable."""
+    return json.dumps(
+        {
+            FieldName.ACTION: "hold",
+            FieldName.CONFIDENCE: 0.0,
+            FieldName.PRIMARY_EDGE: "lmstudio_fallback",
+            FieldName.RISK_FACTORS: [reason],
+            FieldName.SIZE_PCT: 0.0,
+            FieldName.STOP_ATR_X: 0.0,
+            FieldName.RR_RATIO: 0.0,
+            FieldName.LATENCY_MS: 0,
+            FieldName.COST_USD: 0.0,
+            FieldName.TRACE_ID: trace_id,
+            FieldName.FALLBACK: True,
+        }
+    )
+
+
 def _extract_json_from_text(text: str) -> str:
     """Return the first valid JSON object found in text, or empty string."""
     decoder = json.JSONDecoder()
@@ -435,13 +452,14 @@ def _get_task_params(
     Token budgets come from env-overridable settings so Render deployments can tune them
     without a code deploy.
     """
+    temp = settings.LM_STUDIO_TEMPERATURE
     if task_type == LLM_TASK_TRADE_EXECUTION:
-        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, 0.1
+        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, temp
     if task_type == LLM_TASK_HEALTH_CHECK:
-        return settings.LM_STUDIO_MAX_TOKENS_HEALTH_CHECK, 0.1
+        return settings.LM_STUDIO_MAX_TOKENS_HEALTH_CHECK, temp
     if task_type == LLM_TASK_PRICE_ANALYSIS:
-        return settings.LM_STUDIO_MAX_TOKENS_ANALYSIS, 0.3
-    return default_max_tokens, default_temperature
+        return settings.LM_STUDIO_MAX_TOKENS_ANALYSIS, temp
+    return default_max_tokens, temp
 
 
 async def _collect_streaming_response(
@@ -494,19 +512,24 @@ async def call_lmstudio(
     prompt: str,
     system_prompt: str,
     trace_id: str,
-    max_tokens: int = LLM_MAX_TOKENS_LMSTUDIO,
-    temperature: float = LLM_TEMPERATURE_TRADING,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
     task_type: str | None = None,
+    *,
+    parse_json: bool = True,
 ) -> tuple[str, int, float]:
     """Call LM Studio with the given system + user prompt.
 
-    Uses streaming by default so TCP keepalive packets arrive during long
-    model generation — this fixes "Client Disconnected" errors on slow models
-    (e.g. Qwen3.5-9B at ~12 tok/s takes 65s+ for 800 tokens).  If streaming
-    fails mid-stream, retries once with a conventional non-streaming request.
+    Non-streaming by default (LM_STUDIO_STREAM=false) — instruct models return
+    short, bounded JSON in one shot so streaming adds no benefit and complicates
+    response handling.  Set LM_STUDIO_STREAM=true to re-enable streaming.
 
     task_type selects the token budget (price_analysis / trade_execution /
-    health_check); falls back to the explicit max_tokens param when None.
+    health_check); falls back to LM_STUDIO_MAX_TOKENS when None.
+
+    When parse_json=True (default), validates that content is a recognised
+    trade action JSON and returns a safe HOLD fallback when it is not.
+    Set parse_json=False for freeform text calls (reflections, analysis).
 
     Returns (raw_text, token_count, cost_usd).
     Raises LMStudioUnavailableError on any failure so the router can fall back.
@@ -519,8 +542,10 @@ async def call_lmstudio(
         _record_failure("lm_studio_model_not_configured")
         raise LMStudioUnavailableError("lm_studio_model_not_configured")
 
+    _default_max = max_tokens if max_tokens is not None else settings.LM_STUDIO_MAX_TOKENS
+    _default_temp = temperature if temperature is not None else settings.LM_STUDIO_TEMPERATURE
     effective_max_tokens, effective_temperature = _get_task_params(
-        task_type, max_tokens, temperature
+        task_type, _default_max, _default_temp
     )
 
     proxy_raw = settings.LM_STUDIO_PROXY_URL.strip()
@@ -537,13 +562,8 @@ async def call_lmstudio(
         trace_id=trace_id,
     )
 
-    # Append /no_think to disable Qwen3 thinking mode at the prompt level.
-    # LM Studio ignores extra_body chat_template_kwargs — the /no_think
-    # suffix is what actually prevents <think> block generation.
-    effective_system_prompt = system_prompt.rstrip() + " /no_think"
-
     messages = [
-        {FieldName.ROLE: "system", FieldName.CONTENT: effective_system_prompt},
+        {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
         {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
     ]
 
@@ -551,49 +571,114 @@ async def call_lmstudio(
     try:
         client = _make_client()
 
-        # --- Primary path: streaming (keeps TCP alive during long generation) ---
-        try:
-            content, reasoning = await _collect_streaming_response(
+        if settings.LM_STUDIO_STREAM:
+            raw_content, _ = await _collect_streaming_response(
                 client, model_id, messages, effective_max_tokens, effective_temperature, trace_id
             )
-        except (APITimeoutError, APIConnectionError):
-            raise  # propagate immediately; no point retrying with non-streaming
-        except Exception as stream_exc:
-            # Mid-stream connection drop → retry once with non-streaming
-            log_structured(
-                "warning",
-                "lmstudio_stream_error_nonstreaming_retry",
-                provider=LM_STUDIO_PROVIDER,
-                exc_class=type(stream_exc).__name__,
-                trace_id=trace_id,
-                exc_info=True,
-            )
+            reasoning_present = False
+            finish_reason = None
+        else:
+            # Non-streaming: deterministic, bounded — the right choice for instruct
+            # models (Llama 3.1) that return short JSON decisions in one shot.
             completion = await client.chat.completions.create(
                 model=model_id,
                 messages=messages,
                 max_tokens=effective_max_tokens,
                 temperature=effective_temperature,
+                stream=False,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 stop=LLM_STOP_SEQUENCES,
             )
             msg = completion.choices[0].message if completion.choices else None
-            content = (msg.content or "") if msg else ""
-            reasoning = (getattr(msg, "reasoning_content", None) or "") if msg else ""
+            # Only read message.content — reasoning_content is a thinking-mode field
+            # not produced by instruct models such as Llama 3.1.
+            raw_content = (msg.content or "") if msg else ""
+            reasoning_present = bool(getattr(msg, "reasoning_content", None)) if msg else False
+            finish_reason = (
+                completion.choices[0].finish_reason
+                if completion.choices and hasattr(completion.choices[0], "finish_reason")
+                else None
+            )
 
-        text: str = content
-        if not text and reasoning:
-            # Thinking mode fallback: some models put the JSON in reasoning_content
-            # even when enable_thinking=False is set.
-            extracted = _extract_json_from_text(reasoning)
-            if extracted:
+        log_structured(
+            "info",
+            "lmstudio_response_received",
+            trace_id=trace_id,
+            model=model_id,
+            content_present=bool(raw_content),
+            reasoning_content_present=reasoning_present,
+            finish_reason=finish_reason,
+            content_preview=raw_content[:300] if raw_content else None,
+        )
+
+        # Empty response: let the router fall back or ReasoningAgent apply HOLD.
+        if not raw_content:
+            _record_failure("lmstudio_empty_response")
+            log_structured(
+                "warning",
+                "lmstudio_parse_completed",
+                trace_id=trace_id,
+                model=model_id,
+                parse_result="empty_content",
+                fallback_used=True,
+            )
+            raise LMStudioUnavailableError(
+                "lmstudio_empty_response: model returned no parseable content"
+            )
+
+        # JSON validation: only for callers that expect a trading decision JSON.
+        # Freeform calls (reflections, analysis) pass parse_json=False.
+        text: str = raw_content
+        if parse_json:
+            parse_result = "success"
+            parsed: dict | None = None
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                extracted = _extract_json_from_text(text)
+                if extracted:
+                    try:
+                        parsed = json.loads(extracted)
+                        text = extracted
+                    except json.JSONDecodeError:
+                        parsed = None
+                if parsed is None:
+                    parse_result = "invalid_json"
+                    log_structured(
+                        "warning",
+                        "lmstudio_json_invalid_hold_fallback",
+                        trace_id=trace_id,
+                        model=model_id,
+                        parse_result=parse_result,
+                        content_preview=raw_content[:300],
+                        fallback_used=True,
+                    )
+                    text = _hold_fallback_json(trace_id, "LM Studio returned invalid or empty JSON")
+                    parsed = json.loads(text)
+
+            # Schema validation: action must be a recognised trade action.
+            action = str(parsed.get(FieldName.ACTION, "")).lower().strip()  # type: ignore[union-attr]
+            if action not in {"buy", "sell", "hold", "reject"}:
+                parse_result = "schema_invalid"
                 log_structured(
-                    "info",
-                    "lmstudio_reasoning_content_fallback",
+                    "warning",
+                    "lmstudio_invalid_action_hold_fallback",
                     trace_id=trace_id,
                     model=model_id,
-                    reasoning_chars=len(reasoning),
+                    action_received=action,
+                    parse_result=parse_result,
+                    fallback_used=True,
                 )
-                text = extracted
+                text = _hold_fallback_json(trace_id, f"unknown action: {action!r}")
+
+            log_structured(
+                "info",
+                "lmstudio_parse_completed",
+                trace_id=trace_id,
+                model=model_id,
+                parse_result=parse_result,
+                fallback_used=(parse_result not in {"success"}),
+            )
 
     except LMStudioUnavailableError:
         raise
