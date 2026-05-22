@@ -198,6 +198,20 @@ class TestLLMRouter:
         assert result["action"] == "sell"
         assert result["confidence"] == 0.6
 
+    def test_parse_response_preserves_fallback_true(self):
+        # When lmstudio_provider substitutes a HOLD fallback JSON it sets fallback=True.
+        # _parse_response must NOT overwrite it — the router uses this flag to detect
+        # parse failures and route to _record_lm_failure / cloud fallback.
+        text = '{"action": "hold", "confidence": 0.0, "fallback": true}'
+        result = _parse_response(text, "trace-fb")
+        assert result["fallback"] is True
+
+    def test_parse_response_sets_fallback_false_when_absent(self):
+        # Normal cloud responses have no fallback key — _parse_response should default it.
+        text = '{"action": "buy", "confidence": 0.9}'
+        result = _parse_response(text, "trace-ok")
+        assert result["fallback"] is False
+
     def test_get_provider_key(self):
         # Default groq
         with patch.object(settings, "GROQ_API_KEY", "test-groq-key"):

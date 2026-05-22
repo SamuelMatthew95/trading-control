@@ -36,10 +36,14 @@ Covers:
  38-41. validate_lm_studio_config also blocks LM_STUDIO_BASE_URL proxy endpoints (P2 regression).
  42-44. _is_lmstudio_effectively_enabled covers LLM_PROVIDER=lmstudio without flag (P2 regression).
  45-47. Streaming transport: stream=True, non-streaming fallback, task-based token selection.
+ 48. check_health no_model_loaded updates last_failure_at so should_try_local respects cooldown.
+ 49. check_health model_not_configured updates last_failure_at.
+ 50. Streaming retry non-streaming completion has finish_reason captured (not discarded).
 """
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -131,25 +135,38 @@ def _mock_client(
     models=None,
     reasoning_content: str | None = None,
 ):
-    """Build a mock openai.AsyncOpenAI client for LM Studio streaming tests.
+    """Build a mock openai.AsyncOpenAI client.
 
-    The ``create`` call returns a _FakeAsyncStream that yields one chunk with
-    the given content/reasoning_content.  Tests that need non-streaming
-    completion behaviour can override ``mock.chat.completions.create`` directly
-    after building the mock — the streaming path will raise TypeError on a
-    non-iterable return value, triggering the non-streaming fallback path.
+    Dispatches on the ``stream`` kwarg passed to ``completions.create``:
+    - ``stream=True``  → returns a _FakeAsyncStream with content/reasoning_content chunks.
+    - ``stream=False`` → returns a non-streaming completion with ``msg.content`` set.
+
+    When ``raise_on_create`` is given it takes precedence (useful for API error tests).
     """
     client = MagicMock()
     if raise_on_create:
         client.chat.completions.create = AsyncMock(side_effect=raise_on_create)
     else:
-        chunks: list = []
-        if content is not None:
-            chunks.append(_make_streaming_chunk(content=content))
-        if reasoning_content is not None:
-            chunks.append(_make_streaming_chunk(reasoning_content=reasoning_content))
-        stream = _FakeAsyncStream(chunks)
-        client.chat.completions.create = AsyncMock(return_value=stream)
+
+        async def _create(**kwargs):
+            if kwargs.get("stream"):
+                chunks: list = []
+                if content is not None:
+                    chunks.append(_make_streaming_chunk(content=content))
+                if reasoning_content is not None:
+                    chunks.append(_make_streaming_chunk(reasoning_content=reasoning_content))
+                return _FakeAsyncStream(chunks)
+            # Non-streaming completion
+            msg = MagicMock()
+            msg.content = content
+            msg.reasoning_content = reasoning_content
+            choice = MagicMock()
+            choice.message = msg
+            completion = MagicMock()
+            completion.choices = [choice] if content is not None else []
+            return completion
+
+        client.chat.completions.create = _create
 
     models_page = MagicMock()
     models_page.data = models if models is not None else [MagicMock(id="test-model")]
@@ -246,29 +263,58 @@ async def test_call_llm_lmstudio_timeout_falls_back_to_cloud(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_call_llm_lmstudio_malformed_falls_back(monkeypatch):
+async def test_call_llm_lmstudio_malformed_returns_hold(monkeypatch):
+    """Malformed JSON from LM Studio → HOLD returned by the provider directly.
+
+    call_lmstudio validates the response JSON and returns a safe HOLD fallback
+    (with fallback=True) when the model's output cannot be parsed.
+    _health.healthy stays True — the infrastructure is fine; only the output
+    was unusable.  The router then detects fallback=True and can route to a
+    cloud provider if one is available (tested separately via call_llm_with_system
+    cloud-fallback tests).
+    """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
     monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 10)
 
     mock = _mock_client(content="not json at all {{{")
-    cloud_parsed = {"action": "reject", "confidence": 0.0, "fallback": False, "trace_id": _TRACE_ID}
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        with patch(
-            "api.services.llm_router._PROVIDERS",
-            {"gemini": AsyncMock(return_value=(cloud_parsed, 50, 0.0))},
-        ):
-            with patch("api.services.llm_router._get_provider_key", return_value="fake-key"):
-                monkeypatch.setattr(settings, "LLM_PROVIDER", "gemini")
-                from api.services.llm_router import call_llm
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-                result, _, _ = await call_llm(_USER_PROMPT, _TRACE_ID)
+    result = json.loads(text)
+    # malformed output → provider substitutes HOLD with fallback=True
+    assert result[FieldName.ACTION] == "hold"
+    assert result[FieldName.FALLBACK] is True
+    assert _health.healthy is True  # infrastructure worked — parse used fallback
 
-    # malformed LM Studio output → fallback=True in parsed → cloud used
-    assert result[FieldName.ACTION] == "reject"
-    assert _health.healthy is False  # parse failure must be recorded
-    assert _health.fallback_count == 1
+
+# ---------------------------------------------------------------------------
+# 5b. Non-dict JSON (list, string, null) → HOLD, not AttributeError.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_non_dict_json_returns_hold(monkeypatch):
+    """Valid JSON that is not a dict (e.g. []) must produce HOLD, not AttributeError.
+
+    json.loads on a list/string/null succeeds but parsed.get(...) would raise
+    AttributeError.  The isinstance(candidate, dict) guard must catch this
+    and route to the HOLD fallback instead of surfacing a hard failure.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 10)
+
+    for non_dict_payload in ["[]", '"just a string"', "null", "42"]:
+        mock = _mock_client(content=non_dict_payload)
+        with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+            from api.services.lmstudio_provider import call_lmstudio
+
+            text, _, _ = await call_lmstudio("prompt", "system", _TRACE_ID, parse_json=True)
+        result = json.loads(text)
+        assert result[FieldName.ACTION] == "hold", f"expected hold for payload {non_dict_payload!r}"
+        assert _health.healthy is True
 
 
 # ---------------------------------------------------------------------------
@@ -509,8 +555,12 @@ async def test_check_health_no_model_loaded(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_call_lmstudio_empty_choices_returns_empty_string(monkeypatch):
-    """Empty completion.choices is a degenerate but not a hard failure — returns '' and marks healthy."""
+async def test_call_lmstudio_empty_choices_raises_unavailable(monkeypatch):
+    """Empty completion.choices raises LMStudioUnavailableError.
+
+    An empty choices list means the model produced nothing — treat it the same
+    as empty content: raise so the router can fall back or apply HOLD.
+    """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
@@ -520,12 +570,10 @@ async def test_call_lmstudio_empty_choices_returns_empty_string(monkeypatch):
     mock.chat.completions.create = AsyncMock(return_value=completion_no_choices)
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with pytest.raises(LMStudioUnavailableError, match="lmstudio_empty_response"):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    assert text == ""
-    assert tokens == 0
-    assert cost == 0.0
-    assert _health.healthy is True
+    assert _health.healthy is False
 
 
 # ---------------------------------------------------------------------------
@@ -1251,33 +1299,32 @@ async def test_call_lmstudio_sends_enable_thinking_false(monkeypatch):
     assert extra_body.get("chat_template_kwargs", {}).get("enable_thinking") is False
 
 
-async def test_call_lmstudio_reasoning_content_fallback(monkeypatch):
-    """When content is empty but reasoning_content has embedded JSON, use it.
+async def test_call_lmstudio_empty_content_raises_unavailable(monkeypatch):
+    """When message.content is empty, call_lmstudio raises LMStudioUnavailableError.
 
-    Regression: Qwen3.5 thinking mode sometimes outputs everything in
-    reasoning_content and leaves content as an empty string even when
-    enable_thinking=False is set.
-
-    In streaming mode reasoning_content arrives on delta.reasoning_content chunks.
+    Instruct models (Llama 3.1) always put their output in content; an empty
+    content field means the model failed to produce a response.  The router
+    catches LMStudioUnavailableError and falls back to cloud or HOLD.
     """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    reasoning_text = (
-        f"Thinking Process: analyzing BTC/USD momentum...\n\nFinal answer: {_VALID_JSON}\n\nDone."
-    )
-    # Yield a streaming chunk with no content but with reasoning_content
-    mock = _mock_client(content=None, reasoning_content=reasoning_text)
+    mock = _mock_client(content=None)
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with pytest.raises(LMStudioUnavailableError, match="lmstudio_empty_response"):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    assert text == _VALID_JSON
-    assert _health.healthy is True
+    assert _health.healthy is False
 
 
-async def test_call_lmstudio_reasoning_content_no_json_returns_empty(monkeypatch):
-    """When reasoning_content has no valid JSON, return empty string (not a crash)."""
+async def test_call_lmstudio_only_reasoning_content_raises_unavailable(monkeypatch):
+    """reasoning_content-only response raises LMStudioUnavailableError.
+
+    Instruct models write their answer to content, not reasoning_content.
+    When content is empty the provider treats it as a model failure, not
+    a parse failure, so the router can fall back rather than returning HOLD.
+    """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
@@ -1286,10 +1333,10 @@ async def test_call_lmstudio_reasoning_content_no_json_returns_empty(monkeypatch
     )
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with pytest.raises(LMStudioUnavailableError, match="lmstudio_empty_response"):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    assert text == ""
-    assert _health.healthy is True
+    assert _health.healthy is False
 
 
 def test_extract_json_from_text_finds_embedded_json():
@@ -1361,40 +1408,30 @@ def test_extract_json_from_text_truncated_json_returns_empty():
     assert _extract_json_from_text("") == ""
 
 
-async def test_call_lmstudio_reasoning_content_truncated_returns_empty(monkeypatch):
-    """Truncated reasoning_content (finish_reason=length) yields empty text, not a crash.
+async def test_call_lmstudio_empty_content_raises_not_returns_empty(monkeypatch):
+    """Empty content (e.g. model hit token limit before writing anything) raises, not returns ''.
 
-    call_lmstudio must return ("", 0, 0.0) so the router's existing
-    parse-failure handling kicks in rather than propagating an exception.
-    _health.healthy must remain True — this is not an infrastructure failure.
+    Previously call_lmstudio returned ("", 0, 0.0) and relied on the router's
+    parse-failure path.  Now it raises LMStudioUnavailableError so the router
+    can fall back to cloud or the ReasoningAgent can apply HOLD.
     """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    mock = _mock_client(
-        content=None, reasoning_content='{"action": "buy", "confiden'
-    )  # truncated mid-token
+    mock = _mock_client(content=None)
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with pytest.raises(LMStudioUnavailableError, match="lmstudio_empty_response"):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    assert text == ""
-    assert tokens == 0
-    assert cost == 0.0
-    assert _health.healthy is True  # infrastructure is fine; router handles the empty response
+    assert _health.healthy is False
 
 
 async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
-    """call_lmstudio default max_tokens must be LLM_MAX_TOKENS_LMSTUDIO (1500) when task_type=None.
-
-    Regression: 300 (LLM_MAX_TOKENS_TRADING) was too low for Qwen3.5 responses
-    and caused truncated JSON decisions on Apple M2 at ~12 tok/s.
-    The streaming call (stream=True) must carry the correct token budget.
-    """
-    from api.constants import LLM_MAX_TOKENS_LMSTUDIO
-
+    """call_lmstudio default max_tokens comes from settings.LM_STUDIO_MAX_TOKENS when task_type=None."""
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_MAX_TOKENS", 256)
 
     mock = _mock_client(content=_VALID_JSON)
     captured: list[dict] = []
@@ -1410,9 +1447,8 @@ async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
         await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
     assert captured, "completions.create was never called"
-    # First call is always the streaming attempt
-    assert captured[0]["max_tokens"] == LLM_MAX_TOKENS_LMSTUDIO == 1500
-    assert captured[0].get("stream") is True
+    assert captured[0]["max_tokens"] == 256
+    assert captured[0].get("stream") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1420,11 +1456,11 @@ async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_call_lmstudio_uses_streaming(monkeypatch):
-    """call_lmstudio must use stream=True so TCP keepalives prevent Client Disconnected.
+async def test_call_lmstudio_uses_nonstreaming(monkeypatch):
+    """call_lmstudio must use stream=False for bounded, deterministic JSON output.
 
-    The streaming flag is what keeps the connection alive during long model
-    generation (e.g. 65s for 800 tokens at 12 tok/s on Qwen3.5-9B).
+    Instruct models (Llama 3.1) return short JSON decisions in one shot;
+    non-streaming is simpler and more reliable than streaming.
     """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
@@ -1442,54 +1478,29 @@ async def test_call_lmstudio_uses_streaming(monkeypatch):
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    assert captured[0].get("stream") is True
+    assert captured[0].get("stream") is False
     assert "response_format" not in captured[0]
     assert text == _VALID_JSON
 
 
-async def test_call_lmstudio_falls_back_to_nonstreaming_on_midstream_error(monkeypatch):
-    """When streaming iteration raises mid-stream, call_lmstudio retries with non-streaming.
+async def test_call_lmstudio_nonstreaming_api_error_raises(monkeypatch):
+    """A connection error from the non-streaming request raises LMStudioUnavailableError.
 
-    Simulates a TCP connection drop after the stream is acquired (the create()
-    call succeeds but iterating the stream raises).
+    call_lmstudio always uses stream=False; any API error propagates as
+    LMStudioUnavailableError so the router can fall back.
     """
+    from openai import APIConnectionError
+
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    call_count = 0
-
-    async def failing_stream_then_nonstreaming(**kwargs):
-        nonlocal call_count
-        call_count += 1
-        if kwargs.get("stream"):
-            # Return a broken async iterable that raises on iteration
-            class _BrokenStream:
-                def __aiter__(self):
-                    return self
-
-                async def __anext__(self):
-                    raise ConnectionResetError("connection reset by peer")
-
-            return _BrokenStream()
-        # Non-streaming fallback — return a proper completion
-        msg = MagicMock()
-        msg.content = _VALID_JSON
-        msg.reasoning_content = None
-        choice = MagicMock()
-        choice.message = msg
-        completion = MagicMock()
-        completion.choices = [choice]
-        return completion
-
-    mock = _mock_client(content=_VALID_JSON)
-    mock.chat.completions.create = failing_stream_then_nonstreaming
+    mock = _mock_client(raise_on_create=APIConnectionError(request=MagicMock()))
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+        with pytest.raises(LMStudioUnavailableError):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-    assert call_count == 2, "expected streaming attempt + non-streaming retry"
-    assert text == _VALID_JSON
-    assert _health.healthy is True
+    assert _health.healthy is False
 
 
 async def test_call_lmstudio_task_type_price_analysis_uses_analysis_tokens(monkeypatch):
@@ -1516,4 +1527,308 @@ async def test_call_lmstudio_task_type_price_analysis_uses_analysis_tokens(monke
         )
 
     assert captured[0]["max_tokens"] == 1024
-    assert captured[0].get("stream") is True
+    assert captured[0].get("stream") is False
+
+
+# ---------------------------------------------------------------------------
+# 48-52. Llama instruct model: non-streaming success, empty/reasoning-only
+#        raises, invalid JSON HOLD, unknown action HOLD, model env var.
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_nonstreaming_reads_message_content(monkeypatch):
+    """Non-streaming (default): reads message.content, returns clean JSON. (48)"""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content=_VALID_JSON)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == _VALID_JSON
+    assert tokens == 0
+    assert cost == 0.0
+    assert _health.healthy is True
+
+
+async def test_call_lmstudio_reasoning_content_only_raises_unavailable(monkeypatch):
+    """Only reasoning_content set, content empty → LMStudioUnavailableError. (49)
+
+    Instruct models write their answer to content, not reasoning_content.
+    Empty content is treated as a provider failure so the router can fall back.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content=None, reasoning_content='{"action":"buy"}')
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        with pytest.raises(LMStudioUnavailableError, match="lmstudio_empty_response"):
+            await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert _health.healthy is False
+
+
+async def test_call_lmstudio_streaming_ignores_delta_reasoning_content(monkeypatch):
+    """_collect_streaming_response ignores delta.reasoning_content; only delta.content used. (50)"""
+    from api.services.lmstudio_provider import _collect_streaming_response
+
+    # Build a fake client that streams one reasoning chunk and one content chunk.
+    content_chunk = _make_streaming_chunk(content=_VALID_JSON)
+    reasoning_chunk = _make_streaming_chunk(reasoning_content="some thinking ignored")
+
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(
+        return_value=_FakeAsyncStream([reasoning_chunk, content_chunk])
+    )
+
+    content, reasoning = await _collect_streaming_response(
+        client, "test-model", [], 256, 0.0, _TRACE_ID
+    )
+    assert content == _VALID_JSON
+    assert reasoning == "some thinking ignored"  # collected but never used by call_lmstudio
+
+
+async def test_call_lmstudio_invalid_json_returns_hold(monkeypatch):
+    """Invalid JSON in content → HOLD fallback JSON returned (not raise). (51)"""
+    import json as _json
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content="Sure! Here is my analysis: {{{not json}}}")
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    parsed = _json.loads(text)
+    assert parsed["action"] == "hold"
+    assert parsed["fallback"] is True
+    assert _health.healthy is True  # parse failure is not a provider infrastructure failure
+
+
+async def test_call_lmstudio_unknown_action_returns_hold(monkeypatch):
+    """Valid JSON with unknown action → HOLD fallback JSON returned. (52)"""
+    import json as _json
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    bad_action_json = '{"action":"maybe","confidence":0.5,"trace_id":"t1"}'
+    mock = _mock_client(content=bad_action_json)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    parsed = _json.loads(text)
+    assert parsed["action"] == "hold"
+    assert parsed["fallback"] is True
+    assert _health.healthy is True
+
+
+async def test_call_lmstudio_model_env_var_sent_in_payload(monkeypatch):
+    """LM_STUDIO_MODEL env var controls the model field sent in the completions request."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "meta-llama-3.1-8b-instruct")
+
+    mock = _mock_client(content=_VALID_JSON)
+    captured: list[dict] = []
+    original_create = mock.chat.completions.create
+
+    async def spy(**kwargs):
+        captured.append(kwargs)
+        return await original_create(**kwargs)
+
+    mock.chat.completions.create = spy
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert captured[0]["model"] == "meta-llama-3.1-8b-instruct"
+    assert captured[0].get("stream") is False
+
+
+async def test_call_lmstudio_task_type_uses_caller_temperature(monkeypatch):
+    """Explicit temperature= override must survive _get_task_params; settings default is not used.
+
+    Regression for bug where _get_task_params always returned settings.LM_STUDIO_TEMPERATURE
+    and silently discarded the caller's resolved temperature.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_TEMPERATURE", 0.0)  # default
+
+    mock = _mock_client(content=_VALID_JSON)
+    captured: list[dict] = []
+    original_create = mock.chat.completions.create
+
+    async def spy(**kwargs):
+        captured.append(kwargs)
+        return await original_create(**kwargs)
+
+    mock.chat.completions.create = spy
+
+    from api.constants import LLM_TASK_PRICE_ANALYSIS
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(
+            _USER_PROMPT,
+            _SYSTEM_PROMPT,
+            _TRACE_ID,
+            temperature=0.7,  # explicit override
+            task_type=LLM_TASK_PRICE_ANALYSIS,
+        )
+
+    # The explicit 0.7 must reach the API call, not the settings default of 0.0.
+    assert captured[0]["temperature"] == pytest.approx(0.7)
+
+
+async def test_call_lmstudio_streaming_fallback_to_nonstreaming(monkeypatch):
+    """Mid-stream drop retries once with stream=False before failing.
+
+    Regression for bug where streaming mode had no retry — any chunk-iteration
+    exception surfaced immediately as LMStudioUnavailableError.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_STREAM", True)
+
+    call_count = 0
+
+    async def flaky_create(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if kwargs.get("stream"):
+            # Streaming call fails with a mid-stream error
+            raise RuntimeError("stream dropped")
+        # Non-streaming retry succeeds
+        msg = MagicMock()
+        msg.content = _VALID_JSON
+        msg.reasoning_content = None
+        choice = MagicMock()
+        choice.message = msg
+        completion = MagicMock()
+        completion.choices = [choice]
+        return completion
+
+    mock = MagicMock()
+    mock.chat.completions.create = flaky_create
+    models_page = MagicMock()
+    models_page.data = [MagicMock(id="test-model")]
+    mock.models.list = AsyncMock(return_value=models_page)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    # call 1 = streaming (failed), call 2 = non-streaming retry (succeeded)
+    assert call_count == 2
+    assert text == _VALID_JSON
+    assert _health.healthy is True
+
+
+# ---------------------------------------------------------------------------
+# 48. check_health no_model_loaded updates last_failure_at so should_try_local
+#     respects the 60s retry cooldown (regression for bug: last_failure_at=0
+#     after a health probe failure bypassed the cooldown entirely).
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_no_model_loaded_updates_last_failure_at(monkeypatch):
+    """check_health(no_model_loaded) must stamp last_failure_at so should_try_local
+    returns False within the cooldown window — not True (which would bypass it).
+    """
+    import time
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+
+    mock = _mock_client(models=[])
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "no_model_loaded"
+    # last_failure_at must be recent so the cooldown fires correctly.
+    assert _health.last_failure_at > 0.0
+    assert (time.monotonic() - _health.last_failure_at) < 2.0
+    # Cooldown is now active — should_try_local must return False.
+    assert should_try_local() is False
+
+
+# ---------------------------------------------------------------------------
+# 49. check_health model_not_configured updates last_failure_at.
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_model_not_configured_updates_last_failure_at(monkeypatch):
+    """check_health(LM_STUDIO_MODEL='') stamps last_failure_at so cooldown fires."""
+    import time
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "")
+
+    mock = _mock_client(models=[MagicMock(id="some-model")])
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "lm_studio_model_not_configured"
+    assert _health.last_failure_at > 0.0
+    assert (time.monotonic() - _health.last_failure_at) < 2.0
+    assert should_try_local() is False
+
+
+# ---------------------------------------------------------------------------
+# 50. Streaming retry path captures finish_reason from the non-streaming
+#     fallback completion instead of discarding it (logging accuracy fix).
+# ---------------------------------------------------------------------------
+
+
+async def test_streaming_retry_captures_finish_reason(monkeypatch):
+    """When streaming fails and non-streaming retry succeeds, finish_reason from
+    the retry completion must be logged (not discarded as None).
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_STREAM", True)
+
+    async def flaky_create(**kwargs):
+        if kwargs.get("stream"):
+            raise RuntimeError("stream dropped")
+        msg = MagicMock()
+        msg.content = _VALID_JSON
+        msg.reasoning_content = None
+        choice = MagicMock()
+        choice.message = msg
+        choice.finish_reason = "stop"
+        completion = MagicMock()
+        completion.choices = [choice]
+        return completion
+
+    mock = MagicMock()
+    mock.chat.completions.create = flaky_create
+    models_page = MagicMock()
+    models_page.data = [MagicMock(id="test-model")]
+    mock.models.list = AsyncMock(return_value=models_page)
+
+    log_calls: list = []
+
+    def _capture_log(level, event, **kwargs):
+        log_calls.append((level, event, kwargs))
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        with patch("api.services.lmstudio_provider.log_structured", side_effect=_capture_log):
+            text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == _VALID_JSON
+    # finish_reason="stop" from the non-streaming retry must appear in the
+    # lmstudio_response_received log, not None (which would indicate the
+    # value was discarded before logging).
+    response_log = next((kw for _, ev, kw in log_calls if ev == "lmstudio_response_received"), None)
+    assert response_log is not None, "lmstudio_response_received not logged"
+    assert response_log.get("finish_reason") == "stop", (
+        f"Expected finish_reason='stop', got {response_log.get('finish_reason')!r}. "
+        "Streaming retry likely discarded finish_reason from non-streaming completion."
+    )

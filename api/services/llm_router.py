@@ -105,7 +105,9 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
         }
     try:
         parsed = json.loads(text)
-        parsed[FieldName.FALLBACK] = False
+        # Preserve fallback=True already set by a downstream provider (e.g. lmstudio HOLD
+        # substitution from _hold_fallback_json) — don't overwrite it with False.
+        parsed.setdefault(FieldName.FALLBACK, False)
         parsed[FieldName.TRACE_ID] = trace_id
         parsed.setdefault(FieldName.LATENCY_MS, 0)
         parsed.setdefault(FieldName.COST_USD, cost_usd)
@@ -541,6 +543,7 @@ async def call_llm_with_system(
                 system_prompt,
                 trace_id,
                 task_type=task_type or LLM_TASK_PRICE_ANALYSIS,
+                parse_json=False,  # freeform text — caller handles parsing
             )
             llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
             return result

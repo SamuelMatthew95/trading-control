@@ -1,121 +1,186 @@
-# Local Inference — LM Studio + LM Link
+# Local Inference — LM Studio
 
-Run your own GPU model alongside the cloud provider.  Every `call_llm()`
-and `call_llm_with_system()` tries the local model first; if it fails
-(or is disabled) it falls through to the configured cloud provider
-transparently.  The app always boots — local inference unavailability is
-never fatal.
+Run a local GPU model alongside (or instead of) a cloud provider.
+The app always boots — local inference unavailability is never fatal.
 
 ---
 
-## Architecture
+## How it works
 
 ```
-call_llm() / call_llm_with_system()
-      │
-      ▼  LM_STUDIO_ENABLED=true?
-  lmstudio_provider.call_lmstudio()
-      │  success  →  return result
-      │  LMStudioUnavailableError  →  fall through silently
-      ▼
-  Cloud provider  (LLM_PROVIDER = gemini / groq / anthropic / openai)
+call_llm()                          call_llm_with_system()
+     │                                       │
+     ▼                                       ▼
+lmstudio_provider.call_lmstudio()   lmstudio_provider.call_lmstudio()
+     │  parse_json=True (default)        │  parse_json=False (freeform text)
+     │  Returns valid trade JSON OR       │  Returns raw text as-is
+     │  safe HOLD fallback JSON           │
+     │
+     │  LMStudioUnavailableError?
+     ▼
+  Cloud provider  (LLM_PROVIDER = groq / gemini / anthropic / openai)
+  (only if LLM_FALLBACK_ENABLED=true and a cloud API key is configured)
 ```
 
-All LM Studio interaction lives in `api/services/lmstudio_provider.py`.
-The provider uses `openai.AsyncOpenAI` pointed at LM Studio's
-OpenAI-compatible REST endpoint (`/v1`) — **not the OpenAI cloud service**.
-You can load any model LM Studio supports (Llama, Mistral, Phi, Qwen, etc.).
-No other file imports the openai client for local inference directly.
+All LM Studio interaction is in `api/services/lmstudio_provider.py`.
+The provider uses `openai.AsyncOpenAI` against LM Studio's OpenAI-compatible
+REST endpoint (`/v1`) — not the OpenAI cloud.  No other module imports the
+openai client for local inference.
+
+### When does LM Studio activate?
+
+Either condition triggers LM Studio as the first-try provider:
+
+| Setting | Effect |
+|---|---|
+| `LLM_PROVIDER=lmstudio` | LM Studio is the primary provider. Cloud fallback only if `LLM_FALLBACK_ENABLED=true`. |
+| `LM_STUDIO_ENABLED=true` | LM Studio tried first, cloud provider (`LLM_PROVIDER`) is the fallback. |
+
+**Recommended**: use `LLM_PROVIDER=lmstudio` with `LLM_FALLBACK_ENABLED=false`.
+This makes LM Studio the sole inference path with no silent cloud escape hatch.
 
 ---
 
-## Call parameters (shared across all providers)
+## Inference parameters
 
-Defined in `api/constants.py` — change once, applies everywhere:
+LM Studio has its own dedicated env vars — separate from the cloud provider constants.
 
-| Constant | Value | Used in |
+| Env var | Default | Purpose |
 |---|---|---|
-| `LLM_MAX_TOKENS_TRADING` | 300 | `call_llm()` — JSON trading decision |
-| `LLM_TEMPERATURE_TRADING` | 0.0 | `call_llm()` — deterministic JSON |
-| `LLM_MAX_TOKENS_ANALYSIS` | 800 | `call_llm_with_system()` — reasoning / reflection |
-| `LLM_TEMPERATURE_ANALYSIS` | 0.3 | `call_llm_with_system()` — free-text reasoning |
-| `LLM_TIMEOUT_SECONDS` | 90 | Cloud + local inference timeout (from `settings.LLM_TIMEOUT_SECONDS`) |
+| `LM_STUDIO_MODEL` | `meta-llama-3.1-8b-instruct` | Exact model ID shown in LM Studio — must match `/v1/models` |
+| `LM_STUDIO_TEMPERATURE` | `0.0` | 0 = fully deterministic; same prompt → same JSON every time |
+| `LM_STUDIO_MAX_TOKENS` | `256` | Global token budget; 256 is enough for a clean trading JSON |
+| `LM_STUDIO_MAX_TOKENS_ANALYSIS` | `256` | Token budget for price-analysis signals |
+| `LM_STUDIO_MAX_TOKENS_EXECUTION` | `256` | Token budget for trade-execution decisions |
+| `LM_STUDIO_MAX_TOKENS_HEALTH_CHECK` | `256` | Token budget for health-check calls |
+| `LM_STUDIO_STREAM` | `false` | `true` enables streaming; adds resilience on slow/unstable connections but is slower to set up |
+| `LM_STUDIO_TIMEOUT_SECONDS` | `30` | Per-call timeout before raising `LMStudioUnavailableError` |
+
+> **Why temperature=0?**  Instruct models like Llama 3.1 produce valid, parseable JSON
+> reliably at temperature 0.  Higher values introduce randomness with no benefit for a
+> bounded `{"action": "buy/sell/hold"}` decision.
 
 ---
 
-## Env vars — what to set in Render
+## Response validation
 
-### Option A — Local LM Studio (same machine as backend)
+`call_lmstudio()` validates every trading-decision response through three gates:
+
+1. **Must parse as JSON** — if not, `_extract_json_from_text` scans the prose for any
+   embedded `{...}` block and retries.  Failure → HOLD fallback.
+2. **Must be a JSON object (dict)** — `[]`, `null`, `"string"`, `42` are valid JSON but
+   not valid decisions.  Non-dict → HOLD fallback.
+3. **`action` must be `buy / sell / hold / reject`** — any other value → HOLD fallback.
+
+HOLD fallback JSON is returned directly by the provider; no cloud call is made and
+`_health.healthy` stays `True` (infrastructure worked, only the output was unusable).
+
+```json
+{
+  "action": "hold",
+  "confidence": 0.0,
+  "primary_edge": "lmstudio_fallback",
+  "risk_factors": ["LM Studio returned invalid or empty JSON"],
+  "size_pct": 0.0,
+  "stop_atr_x": 0.0,
+  "rr_ratio": 0.0,
+  "latency_ms": 0,
+  "cost_usd": 0.0,
+  "trace_id": "...",
+  "fallback": true
+}
+```
+
+`LMStudioUnavailableError` is only raised for infrastructure failures (empty response,
+timeout, connection refused).  Bad JSON output never raises — it always produces HOLD.
+
+---
+
+## Quickstart — local backend + local LM Studio (same machine)
+
+```bash
+# 1. Load meta-llama-3.1-8b-instruct in LM Studio (or any instruct model)
+# 2. Start LM Studio's local server on port 1234
+# 3. Set these env vars and start the backend:
+
+LLM_PROVIDER=lmstudio
+LLM_FALLBACK_ENABLED=false
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LM_STUDIO_MODEL=meta-llama-3.1-8b-instruct
+LM_STUDIO_TEMPERATURE=0
+LM_STUDIO_MAX_TOKENS=128
+LM_STUDIO_STREAM=false
+```
+
+Verify the model is loaded before starting:
+
+```bash
+curl -s http://localhost:1234/v1/models | jq '.data[].id'
+
+# Quick round-trip test:
+curl -s http://localhost:1234/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer lm-studio" \
+  -d '{
+    "model": "meta-llama-3.1-8b-instruct",
+    "messages": [{"role":"user","content":
+      "Return only this JSON: {\"action\":\"hold\",\"confidence\":0.5,\"reason\":\"test\"}"}],
+    "max_tokens": 128,
+    "temperature": 0,
+    "stream": false
+  }' | jq '.choices[0].message.content'
+```
+
+---
+
+## Remote backend + LM Studio via Tailscale
+
+A Render backend cannot reach `localhost:1234` on your laptop.
+Use Tailscale to create an encrypted peer-to-peer connection.
 
 ```
-LM_STUDIO_ENABLED=true
-LM_STUDIO_HOST=127.0.0.1
+LLM_PROVIDER=lmstudio
+LLM_FALLBACK_ENABLED=false
+LM_STUDIO_HOST=<tailscale-ip-of-mac>   # e.g. 100.112.224.78 — NOT 127.0.0.1
 LM_STUDIO_PORT=1234
-LM_STUDIO_MODEL=<exact model id shown in LM Studio>
-LM_STUDIO_TIMEOUT_SECONDS=90
-LM_LINK_ENABLED=false
-```
-
-### Option B — LM Link (home GPU → Render cloud)
-
-LM Link uses **Tailscale** to create an encrypted peer-to-peer mesh between
-your home GPU machine and the Render backend — no open ports required.
-There is no relay host or bearer token from LM Studio; authentication is
-Tailscale identity-based.
-
-Setup steps:
-1. Install Tailscale on both the home GPU machine and the Render instance.
-2. Log in both devices to the same Tailscale account (`tailscale up`).
-3. Find the Tailscale IP or MagicDNS hostname of the GPU machine
-   (`tailscale ip` or the Tailscale admin panel).
-4. Set `LM_STUDIO_HOST` to that Tailscale IP/hostname and leave
-   `LM_STUDIO_PORT` at `1234` (LM Studio's default).
-
-```
-LM_STUDIO_ENABLED=true
-LM_STUDIO_HOST=<Tailscale IP or hostname of your GPU machine>
-LM_STUDIO_PORT=1234
-LM_STUDIO_MODEL=<exact model id shown in LM Studio>
-LM_STUDIO_TIMEOUT_SECONDS=90
+LM_STUDIO_MODEL=meta-llama-3.1-8b-instruct
+LM_STUDIO_TIMEOUT_SECONDS=30
+LM_STUDIO_PROXY_URL=http://127.0.0.1:1055   # Tailscale HTTP CONNECT proxy
 LM_LINK_ENABLED=true
-LM_LINK_DEVICE_NAME=my-gpu-rig      # optional — appears in startup logs only
+TAILSCALE_AUTHKEY=tskey-auth-...
 ```
 
-`LM_LINK_TOKEN` is only needed if you put a custom authenticating proxy
-(e.g. nginx + HTTP basic auth) in front of LM Studio.  LM Studio itself
-ignores HTTP `Authorization` headers — leave `LM_LINK_TOKEN` unset for
-a plain Tailscale setup.
+`LM_STUDIO_PROXY_URL` is required when Tailscale runs in userspace-networking mode
+(`--tun=userspace-networking`).  Traffic to Tailscale peers must go through the HTTP
+CONNECT proxy that `tailscaled` exposes at `localhost:1055`.
 
-### Cloud fallback (always required)
-
-The cloud provider is used when local inference fails or is disabled.
-
-```
-LLM_PROVIDER=gemini                 # or groq / anthropic / openai
-GEMINI_API_KEY=<your key>           # key for whichever provider you chose
-```
+**Never** set `LM_STUDIO_HOST=127.0.0.1:1055` — that is the proxy, not LM Studio.
+`validate_lm_studio_config()` will catch this and fail fast at startup.
 
 ---
 
 ## Full env var reference
 
-| Variable | Default | Required? | Notes |
-|---|---|---|---|
-| `LM_STUDIO_ENABLED` | `false` | Only for local inference | Master on/off switch |
-| `LM_STUDIO_HOST` | `127.0.0.1` | When enabled | IP or hostname of LM Studio server |
-| `LM_STUDIO_PORT` | `1234` | When enabled | HTTP port |
-| `LM_STUDIO_MODEL` | _(empty)_ | **Yes, when enabled** | Must match exactly what LM Studio shows — blank causes immediate fallback |
-| `LM_STUDIO_TIMEOUT_SECONDS` | `90` | No | Per-call timeout before falling back to cloud |
-| `LM_LINK_ENABLED` | `false` | Only for remote GPU | Signal that LM Studio is on a remote machine reachable via Tailscale (LM Link); used for log context only |
-| `LM_LINK_TOKEN` | _(empty)_ | No | Optional bearer token for a custom authenticating proxy in front of LM Studio; not required for plain Tailscale/LM Link |
-| `LM_LINK_DEVICE_NAME` | _(empty)_ | No | Human label; appears in startup logs |
-| `LLM_PROVIDER` | `gemini` | Yes | Cloud fallback provider |
-| `GEMINI_API_KEY` | _(empty)_ | When provider=gemini | |
-| `GROQ_API_KEY` | _(empty)_ | When provider=groq | |
-| `ANTHROPIC_API_KEY` | _(empty)_ | When provider=anthropic | |
-| `OPENAI_API_KEY` | _(empty)_ | When provider=openai | |
-| `LLM_TIMEOUT_SECONDS` | `90` | No | Shared timeout for cloud provider calls |
-| `LLM_MAX_RETRIES` | `2` | No | Retry attempts on transient cloud errors |
+| Variable | Default | Notes |
+|---|---|---|
+| `LLM_PROVIDER` | `gemini` | Set to `lmstudio` to make LM Studio the primary provider |
+| `LLM_FALLBACK_ENABLED` | `true` | Set to `false` to disable cloud fallback entirely |
+| `LM_STUDIO_ENABLED` | `false` | Alternative to `LLM_PROVIDER=lmstudio`; used when you want LM Studio as first-try with a cloud fallback |
+| `LM_STUDIO_BASE_URL` | _(empty)_ | Full base URL override, e.g. `http://localhost:1234/v1`; takes precedence over HOST+PORT |
+| `LM_STUDIO_HOST` | `127.0.0.1` | Ignored when `LM_STUDIO_BASE_URL` is set |
+| `LM_STUDIO_PORT` | `1234` | Ignored when `LM_STUDIO_BASE_URL` is set |
+| `LM_STUDIO_MODEL` | `meta-llama-3.1-8b-instruct` | Must match exactly what `/v1/models` returns |
+| `LM_STUDIO_TEMPERATURE` | `0.0` | Use 0 for deterministic JSON; raise only for freeform creative tasks |
+| `LM_STUDIO_MAX_TOKENS` | `256` | Global default; per-task vars override |
+| `LM_STUDIO_MAX_TOKENS_ANALYSIS` | `256` | Token budget for price-analysis signals |
+| `LM_STUDIO_MAX_TOKENS_EXECUTION` | `256` | Token budget for trade-execution decisions |
+| `LM_STUDIO_MAX_TOKENS_HEALTH_CHECK` | `256` | Token budget for health-check calls |
+| `LM_STUDIO_STREAM` | `false` | Enable streaming (keeps TCP alive on slow models over Tailscale) |
+| `LM_STUDIO_TIMEOUT_SECONDS` | `30` | Per-call timeout in seconds |
+| `LM_STUDIO_PROXY_URL` | _(empty)_ | HTTP CONNECT proxy for Tailscale userspace networking, e.g. `http://127.0.0.1:1055` |
+| `LM_LINK_ENABLED` | `false` | Cosmetic — appears in startup logs to indicate remote GPU setup |
+| `LM_LINK_DEVICE_NAME` | _(empty)_ | Human label in startup logs |
+| `LM_LINK_TOKEN` | _(empty)_ | Bearer token for a custom auth proxy in front of LM Studio; not needed for plain Tailscale |
 
 ---
 
@@ -126,57 +191,39 @@ Check `/llm/health` after startup:
 ```json
 {
   "status": "live",
-  "provider": "gemini",
   "active_provider": "lmstudio",
   "lm_studio_enabled": true,
   "lm_studio_healthy": true,
-  "local_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF",
-  "local_latency_ms": 312,
+  "local_model": "meta-llama-3.1-8b-instruct",
+  "local_latency_ms": 850,
   "local_fallback_count": 0,
-  "last_local_error": null
+  "last_local_error": null,
+  "remote_localhost_mismatch": false
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `active_provider` | `"lmstudio"` when local is healthy, cloud name otherwise — what is actually serving requests right now |
-| `lm_studio_healthy` | `true` = last probe/call succeeded |
-| `local_latency_ms` | round-trip ms for the last successful local call |
-| `local_fallback_count` | increments on every failure (including bad JSON output) |
-| `last_local_error` | most recent failure reason, e.g. `"timeout"`, `"lm_studio_model_not_configured"` |
+| `active_provider` | `"lmstudio"` when local is healthy; cloud provider name when falling back |
+| `lm_studio_healthy` | `true` = last probe or call succeeded |
+| `local_latency_ms` | round-trip ms for the last successful call |
+| `local_fallback_count` | increments on every infrastructure failure |
+| `last_local_error` | most recent failure reason |
+| `remote_localhost_mismatch` | `true` when backend is remote (Render) but host is localhost — LM Studio is unreachable |
 
 ---
 
-## Call capacity and throughput
+## Call capacity
 
-### How many concurrent calls does the backend make?
+`ReasoningAgent` is the only agent that calls the LLM. It processes one Redis message
+at a time (consumer-group model) — **at most one local inference call is in flight at
+any moment**. This is a perfect match for LM Studio's single-request default.
 
-The **ReasoningAgent** is the only agent that calls the LLM. It runs as a Redis consumer-group consumer — it reads one message, processes it fully, then reads the next. This means **at most one local inference call is in flight at any moment**. LM Studio's single-threaded default inference model is a perfect match.
-
-### Expected throughput by model
-
-| Model | Size | Typical latency | Max calls/min |
-|---|---|---|---|
-| Llama-3-8B-Instruct Q4 | 7B | 0.5–3 s | 20–120 |
-| Mistral-7B-Instruct Q4 | 7B | 0.5–2 s | 30–120 |
-| Phi-3-mini-4k Q4 | 3.8B | 0.2–1 s | 60–300 |
-| Llama-3-13B Q4 | 13B | 2–8 s | 7–30 |
-| Qwen-2.5-14B Q4 | 14B | 3–10 s | 6–20 |
-| DeepSeek-R1-14B Q4 | 14B | 5–20 s | 3–12 |
-| Llama-3-70B Q4 | 70B | 15–60 s | 1–4 |
-
-> Values assume a mid-range consumer GPU (RTX 3090 / 4090). A weaker GPU or larger context will be slower.
-
-### What happens when LM Studio is too slow?
-
-If `call_lmstudio()` takes longer than `LM_STUDIO_TIMEOUT_SECONDS` (default 90 s), the openai client raises `APITimeoutError`. The router catches this, records it as a failure in the health state, and falls through to the configured cloud provider. The `/llm/health` endpoint shows `local_fallback_count` incrementing and `last_local_error: "timeout"`. No trade is missed — cloud takes over seamlessly.
-
-### Tuning recommendations
-
-- **Choose a model where single-call latency ≪ `LM_STUDIO_TIMEOUT_SECONDS`**. A 7B Q4 model at 2 s/call leaves 88 s of headroom — plenty.
-- **Raise `LM_STUDIO_TIMEOUT_SECONDS`** if you use a large model and are willing to wait (the ReasoningAgent loop blocks until the call returns or times out).
-- **`LM_STUDIO_TIMEOUT_SECONDS` does not need to match `LLM_TIMEOUT_SECONDS`**. The former is the local inference timeout; the latter applies only to cloud provider calls.
-- Use **LM Studio's Server settings → Threads** to allow parallelism if you ever run multiple backend workers. Default (1 thread) is correct for a single-worker Render deployment.
+| Model | Typical latency | Max calls/min |
+|---|---|---|
+| Llama-3.1-8B Q4 | 0.5–3 s | 20–120 |
+| Llama-3.1-13B Q4 | 2–8 s | 7–30 |
+| Llama-3.1-70B Q4 | 15–60 s | 1–4 |
 
 ---
 
@@ -184,10 +231,11 @@ If `call_lmstudio()` takes longer than `LM_STUDIO_TIMEOUT_SECONDS` (default 90 s
 
 | `last_local_error` | Fix |
 |---|---|
-| `lm_studio_model_not_configured` | Set `LM_STUDIO_MODEL` to the exact model id |
+| `lm_studio_model_not_configured` | Set `LM_STUDIO_MODEL` to the exact model id from `/v1/models` |
 | `no_model_loaded` | Load a model in LM Studio before starting the backend |
-| `timeout` | LM Studio server is too slow; increase `LM_STUDIO_TIMEOUT_SECONDS` or use a smaller model |
-| `lmstudio_connection_failed: ...` | LM Studio server is not running or wrong host/port |
-| `connection refused` | LM Studio server is not running or wrong host/port |
+| `timeout` | Model too slow; reduce `LM_STUDIO_MAX_TOKENS` or use a smaller model |
+| `lmstudio_connection_failed` | LM Studio not running, wrong host/port, or Tailscale not connected |
+| `lmstudio_empty_response` | Model returned no content — OOM, crashed mid-generation, or the model was just unloaded |
+| `lm_studio_model_not_configured` in health but inference worked | Blank or whitespace-only `LM_STUDIO_MODEL` — `.strip()` evaluates to empty |
 
 See `docs/troubleshooting/lm-studio.md` for full symptom → fix entries.

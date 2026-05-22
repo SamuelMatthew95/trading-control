@@ -742,13 +742,13 @@ class ReasoningAgent(BaseStreamConsumer):
                 cleaned_preview=cleaned[:300],
             )
             parsed = {
-                "action": AgentAction.HOLD,
-                "confidence": 0.0,
-                "primary_edge": "invalid_json",
-                "risk_factors": ["invalid_llm_json"],
-                "size_pct": 0.01,
-                "stop_atr_x": 1.5,
-                "rr_ratio": 2.0,
+                FieldName.ACTION: AgentAction.HOLD,
+                FieldName.CONFIDENCE: 0.0,
+                FieldName.PRIMARY_EDGE: "invalid_json",
+                FieldName.RISK_FACTORS: ["invalid_llm_json"],
+                FieldName.SIZE_PCT: 0.01,
+                FieldName.STOP_ATR_X: 1.5,
+                FieldName.RR_RATIO: 2.0,
             }
         return parsed, tokens, cost_usd
 
@@ -853,7 +853,7 @@ class ReasoningAgent(BaseStreamConsumer):
 
         return {
             FieldName.ACTION: action,
-            "confidence": round(max(composite_score, 0.1), 4),
+            FieldName.CONFIDENCE: round(max(composite_score, 0.1), 4),
             FieldName.PRIMARY_EDGE: f"fallback:{settings.LLM_FALLBACK_MODE}",
             FieldName.RISK_FACTORS: [reason],
             FieldName.SIZE_PCT: round(
@@ -861,10 +861,10 @@ class ReasoningAgent(BaseStreamConsumer):
             ),
             FieldName.STOP_ATR_X: float(data.get(FieldName.STOP_ATR_X, 1.5) or 1.5),
             FieldName.RR_RATIO: float(data.get(FieldName.RR_RATIO, 2.0) or 2.0),
-            "latency_ms": 0,
-            "cost_usd": 0.0,
+            FieldName.LATENCY_MS: 0,
+            FieldName.COST_USD: 0.0,
             FieldName.TRACE_ID: trace_id,
-            "fallback": True,
+            FieldName.FALLBACK: True,
         }
 
     # ------------------------------------------------------------------
