@@ -436,7 +436,7 @@ def _get_task_params(
     without a code deploy.
     """
     if task_type == LLM_TASK_TRADE_EXECUTION:
-        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, 0.2
+        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, 0.1
     if task_type == LLM_TASK_HEALTH_CHECK:
         return settings.LM_STUDIO_MAX_TOKENS_HEALTH_CHECK, 0.1
     if task_type == LLM_TASK_PRICE_ANALYSIS:
@@ -463,6 +463,7 @@ async def _collect_streaming_response(
         messages=messages,
         max_tokens=max_tokens,
         temperature=temperature,
+        response_format={"type": "json_object"},
         stream=True,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         stop=LLM_STOP_SEQUENCES,
@@ -568,6 +569,7 @@ async def call_lmstudio(
                 messages=messages,
                 max_tokens=effective_max_tokens,
                 temperature=effective_temperature,
+                response_format={"type": "json_object"},
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 stop=LLM_STOP_SEQUENCES,
             )
