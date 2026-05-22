@@ -1642,3 +1642,81 @@ async def test_call_lmstudio_model_env_var_sent_in_payload(monkeypatch):
 
     assert captured[0]["model"] == "meta-llama-3.1-8b-instruct"
     assert captured[0].get("stream") is False
+
+
+async def test_call_lmstudio_task_type_uses_caller_temperature(monkeypatch):
+    """Explicit temperature= override must survive _get_task_params; settings default is not used.
+
+    Regression for bug where _get_task_params always returned settings.LM_STUDIO_TEMPERATURE
+    and silently discarded the caller's resolved temperature.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_TEMPERATURE", 0.0)  # default
+
+    mock = _mock_client(content=_VALID_JSON)
+    captured: list[dict] = []
+    original_create = mock.chat.completions.create
+
+    async def spy(**kwargs):
+        captured.append(kwargs)
+        return await original_create(**kwargs)
+
+    mock.chat.completions.create = spy
+
+    from api.constants import LLM_TASK_PRICE_ANALYSIS
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(
+            _USER_PROMPT,
+            _SYSTEM_PROMPT,
+            _TRACE_ID,
+            temperature=0.7,  # explicit override
+            task_type=LLM_TASK_PRICE_ANALYSIS,
+        )
+
+    # The explicit 0.7 must reach the API call, not the settings default of 0.0.
+    assert captured[0]["temperature"] == pytest.approx(0.7)
+
+
+async def test_call_lmstudio_streaming_fallback_to_nonstreaming(monkeypatch):
+    """Mid-stream drop retries once with stream=False before failing.
+
+    Regression for bug where streaming mode had no retry — any chunk-iteration
+    exception surfaced immediately as LMStudioUnavailableError.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_STREAM", True)
+
+    call_count = 0
+
+    async def flaky_create(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if kwargs.get("stream"):
+            # Streaming call fails with a mid-stream error
+            raise RuntimeError("stream dropped")
+        # Non-streaming retry succeeds
+        msg = MagicMock()
+        msg.content = _VALID_JSON
+        msg.reasoning_content = None
+        choice = MagicMock()
+        choice.message = msg
+        completion = MagicMock()
+        completion.choices = [choice]
+        return completion
+
+    mock = MagicMock()
+    mock.chat.completions.create = flaky_create
+    models_page = MagicMock()
+    models_page.data = [MagicMock(id="test-model")]
+    mock.models.list = AsyncMock(return_value=models_page)
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    # call 1 = streaming (failed), call 2 = non-streaming retry (succeeded)
+    assert call_count == 2
+    assert text == _VALID_JSON
+    assert _health.healthy is True

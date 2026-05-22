@@ -312,3 +312,55 @@ Both `call_llm` and `call_llm_with_system` are fixed.
 **Root cause:** `ADAPTIVE_TRADING_SYSTEM_PROMPT` had no explicit JSON-only output constraint, and the model was not given stop sequences to terminate generation at natural break points.
 
 **Fix:** Added explicit "CRITICAL OUTPUT RULES" to `ADAPTIVE_TRADING_SYSTEM_PROMPT` in `api/services/agents/prompts.py` prohibiting preamble and markdown fences. Added `_STOP_SEQUENCES = ["\n\n\n", "```", "Thinking Process:"]` passed to every `completions.create()` call so generation halts at these patterns before they accumulate.
+
+---
+
+## Migration from Qwen3 to Llama 3.1 instruct — Qwen3 hacks break Llama inference
+
+**Symptom:** After switching `LM_STUDIO_MODEL` to `meta-llama-3.1-8b-instruct` (or any non-thinking instruct model), the system prompt contains `/no_think` which becomes literal prompt noise, and the provider attempts to read `reasoning_content` from the completion message — a field that Llama 3.1 never populates.
+
+**Root cause:** The previous implementation targeted Qwen3 in thinking mode, which required:
+- Appending `/no_think` to the system prompt to suppress the chain-of-thought preamble
+- Reading `message.reasoning_content` as a fallback when `message.content` was empty
+
+Neither mechanism applies to instruct models (Llama, Mistral, Phi, etc.) that do not have a thinking mode. The `/no_think` token becomes noise that degrades instruction-following on strict JSON tasks.
+
+**Fix:** Removed `/no_think` entirely from `lmstudio_provider.py`. The provider now reads `message.content` only — `reasoning_content` is logged for observability but never used as a content source. `enable_thinking: False` is passed in `extra_body` on every call to explicitly suppress thinking mode if the model supports it, without affecting instruct models that don't.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_success`
+
+---
+
+## Non-dict JSON triggers AttributeError instead of HOLD fallback
+
+**Symptom:** When the model returns syntactically valid JSON that is not an object — e.g. `[]`, `null`, `"a string"`, or `42` — the provider raises `LMStudioUnavailableError` with message `lmstudio_inference_failed: 'list' object has no attribute 'get'` instead of applying the safe HOLD fallback. With `LLM_FALLBACK_ENABLED=false` this becomes a hard inference failure.
+
+**Root cause:** After a successful `json.loads(text)`, the code called `parsed.get(FieldName.ACTION, "")` unconditionally. If `parsed` is a list, string, or `None`, `.get()` raises `AttributeError`, which the outer `except Exception` handler reclassified as `lmstudio_inference_failed`.
+
+**Fix:** Added an `isinstance(candidate, dict)` check immediately after `json.loads`. Non-dict results set `parsed = None`, which triggers the existing fallback path: `_extract_json_from_text` runs as a second chance (an array that happens to contain a `{"action": ...}` object is correctly salvaged), and if nothing usable is found the safe HOLD JSON is returned.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_llm_lmstudio_non_dict_json_returns_hold`
+
+---
+
+## Explicit temperature override silently discarded
+
+**Symptom:** Passing `temperature=0.9` to `call_lmstudio(..., temperature=0.9)` has no effect — the model always runs at `settings.LM_STUDIO_TEMPERATURE` (default 0.0).
+
+**Root cause:** `_get_task_params(task_type, default_max_tokens, default_temperature)` was reading `settings.LM_STUDIO_TEMPERATURE` directly instead of using the `default_temperature` argument. The caller's resolved value was ignored.
+
+**Fix:** `_get_task_params` now uses the `default_temperature` parameter throughout. The caller resolves temperature as `temperature if temperature is not None else settings.LM_STUDIO_TEMPERATURE` before calling `_get_task_params`, which preserves both explicit call-site overrides and the settings default.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_task_type_uses_caller_temperature`
+
+---
+
+## Streaming mode — mid-stream drop fails immediately instead of retrying
+
+**Symptom:** With `LM_STUDIO_STREAM=true`, any mid-stream TCP drop or chunk-iteration error raises `LMStudioUnavailableError` immediately and triggers cloud fallback. A non-streaming retry that would have succeeded in the same condition is never attempted.
+
+**Root cause:** `_collect_streaming_response()` was called without a try/except wrapper. Any exception propagated directly out of `call_lmstudio()` as an infrastructure failure.
+
+**Fix:** The streaming call is now wrapped in a try/except. On any exception, the provider logs `lmstudio_stream_error_retry_nonstreaming` and immediately retries with `stream=False`. Only if the non-streaming retry also fails does the error propagate as `LMStudioUnavailableError`. This restores the reliability of the streaming path — transient drops are invisible to the caller.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_streaming_fallback_to_nonstreaming`
