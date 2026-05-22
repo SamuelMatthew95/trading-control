@@ -1233,10 +1233,9 @@ LLM_TASK_TRADE_EXECUTION: Final[str] = "trade_execution"
 LLM_TASK_HEALTH_CHECK: Final[str] = "health_check"
 
 # Stop sequences sent to LM Studio to halt runaway generation.
-# NOTE: backtick fences are intentionally excluded — the model sometimes wraps
-# its JSON in ```json ... ``` and ReasoningAgent already strips those fences.
-# Stopping at ``` would cut the response before the payload arrives.
-LLM_STOP_SEQUENCES: Final[list[str]] = ["\n\n\n", "Thinking Process:"]
+# Keep these away from JSON structural tokens so valid objects are not
+# truncated before the final closing brace is emitted.
+LLM_STOP_SEQUENCES: Final[list[str]] = ["Thinking Process:"]
 
 # Symbol constants
 SYMBOL_BTC_USD: Final[str] = "BTC/USD"
