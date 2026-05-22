@@ -1826,9 +1826,7 @@ async def test_streaming_retry_captures_finish_reason(monkeypatch):
     # finish_reason="stop" from the non-streaming retry must appear in the
     # lmstudio_response_received log, not None (which would indicate the
     # value was discarded before logging).
-    response_log = next(
-        (kw for _, ev, kw in log_calls if ev == "lmstudio_response_received"), None
-    )
+    response_log = next((kw for _, ev, kw in log_calls if ev == "lmstudio_response_received"), None)
     assert response_log is not None, "lmstudio_response_received not logged"
     assert response_log.get("finish_reason") == "stop", (
         f"Expected finish_reason='stop', got {response_log.get('finish_reason')!r}. "
