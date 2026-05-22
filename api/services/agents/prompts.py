@@ -32,7 +32,12 @@ ADAPTIVE_TRADING_SYSTEM_PROMPT = (
     "Optimize for Sharpe ratio, not win rate. "
     "If any risk check fails, output HOLD/FLAT immediately. "
     "Return JSON with: action, confidence, primary_edge, risk_factors, "
-    "reasoning_score, size_pct, stop_atr_x, rr_ratio, ic_alignment_score."
+    "reasoning_score, size_pct, stop_atr_x, rr_ratio, ic_alignment_score. "
+    "CRITICAL OUTPUT RULES: "
+    "Respond with ONLY a valid JSON object. No markdown, no code fences, no explanation outside the JSON. "
+    'Do NOT include any preamble like "Here is my analysis" or "Based on the data". '
+    "The response must start with { and end with }. "
+    'Keep the "primary_edge" and "risk_factors" fields concise (under 20 words each).'
 )
 
 REASONING_CRITIQUE_PROMPT = (
