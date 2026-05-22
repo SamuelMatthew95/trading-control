@@ -105,7 +105,9 @@ def _parse_response(text: str, trace_id: str, cost_usd: float = 0.0) -> dict:
         }
     try:
         parsed = json.loads(text)
-        parsed[FieldName.FALLBACK] = False
+        # Preserve fallback=True already set by a downstream provider (e.g. lmstudio HOLD
+        # substitution from _hold_fallback_json) — don't overwrite it with False.
+        parsed.setdefault(FieldName.FALLBACK, False)
         parsed[FieldName.TRACE_ID] = trace_id
         parsed.setdefault(FieldName.LATENCY_MS, 0)
         parsed.setdefault(FieldName.COST_USD, cost_usd)
