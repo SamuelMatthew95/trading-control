@@ -77,11 +77,17 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 from api.config import settings
 from api.constants import (
     LLM_MAX_TOKENS_LMSTUDIO,
+    LLM_TASK_HEALTH_CHECK,
+    LLM_TASK_PRICE_ANALYSIS,
+    LLM_TASK_TRADE_EXECUTION,
     LLM_TEMPERATURE_TRADING,
     LM_STUDIO_PROVIDER,
     FieldName,
 )
 from api.observability import log_structured
+
+# Stop sequences that prevent runaway generation (code fences, thinking headers, triple newlines)
+_STOP_SEQUENCES: list[str] = ["\n\n\n", "```", "Thinking Process:"]
 
 
 class LMStudioUnavailableError(RuntimeError):
@@ -422,14 +428,87 @@ def _extract_json_from_text(text: str) -> str:
     return ""
 
 
+def _get_task_params(
+    task_type: str | None, default_max_tokens: int, default_temperature: float
+) -> tuple[int, float]:
+    """Return (max_tokens, temperature) for the given task type.
+
+    Falls back to the caller-supplied defaults when task_type is None or unrecognised.
+    Token budgets come from env-overridable settings so Render deployments can tune them
+    without a code deploy.
+    """
+    if task_type == LLM_TASK_TRADE_EXECUTION:
+        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, 0.2
+    if task_type == LLM_TASK_HEALTH_CHECK:
+        return settings.LM_STUDIO_MAX_TOKENS_HEALTH_CHECK, 0.1
+    if task_type == LLM_TASK_PRICE_ANALYSIS:
+        return settings.LM_STUDIO_MAX_TOKENS_ANALYSIS, 0.3
+    return default_max_tokens, default_temperature
+
+
+async def _collect_streaming_response(
+    client,
+    model_id: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+    trace_id: str,
+) -> tuple[str, str]:
+    """Stream a completion and return (content, reasoning_content).
+
+    Keeps the TCP connection alive during long model generation by consuming
+    each token chunk as it arrives.  Raises the original exception on any
+    mid-stream failure so the caller can retry with non-streaming.
+    """
+    stream = await client.chat.completions.create(
+        model=model_id,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stream=True,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        stop=_STOP_SEQUENCES,
+    )
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    chunk_count = 0
+    t_start = time.monotonic()
+    async for chunk in stream:
+        chunk_count += 1
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta:
+            if delta.content:
+                content_parts.append(delta.content)
+            rc = getattr(delta, "reasoning_content", None)
+            if rc:
+                reasoning_parts.append(rc)
+    log_structured(
+        "info",
+        "lmstudio_stream_completed",
+        trace_id=trace_id,
+        stream_secs=round(time.monotonic() - t_start, 2),
+        chunk_count=chunk_count,
+    )
+    return "".join(content_parts), "".join(reasoning_parts)
+
+
 async def call_lmstudio(
     prompt: str,
     system_prompt: str,
     trace_id: str,
     max_tokens: int = LLM_MAX_TOKENS_LMSTUDIO,
     temperature: float = LLM_TEMPERATURE_TRADING,
+    task_type: str | None = None,
 ) -> tuple[str, int, float]:
     """Call LM Studio with the given system + user prompt.
+
+    Uses streaming by default so TCP keepalive packets arrive during long
+    model generation — this fixes "Client Disconnected" errors on slow models
+    (e.g. Qwen3.5-9B at ~12 tok/s takes 65s+ for 800 tokens).  If streaming
+    fails mid-stream, retries once with a conventional non-streaming request.
+
+    task_type selects the token budget (price_analysis / trade_execution /
+    health_check); falls back to the explicit max_tokens param when None.
 
     Returns (raw_text, token_count, cost_usd).
     Raises LMStudioUnavailableError on any failure so the router can fall back.
@@ -442,6 +521,10 @@ async def call_lmstudio(
         _record_failure("lm_studio_model_not_configured")
         raise LMStudioUnavailableError("lm_studio_model_not_configured")
 
+    effective_max_tokens, effective_temperature = _get_task_params(
+        task_type, max_tokens, temperature
+    )
+
     proxy_raw = settings.LM_STUDIO_PROXY_URL.strip()
     proxy_enabled = bool(proxy_raw)
     log_structured(
@@ -451,42 +534,64 @@ async def call_lmstudio(
         base_url_host=_get_lm_studio_configured_host(),
         proxy_enabled=proxy_enabled,
         timeout_seconds=settings.LM_STUDIO_TIMEOUT_SECONDS,
+        task_type=task_type or LLM_TASK_PRICE_ANALYSIS,
+        max_tokens=effective_max_tokens,
         trace_id=trace_id,
     )
+
+    messages = [
+        {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+        {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
+    ]
 
     t0 = time.monotonic()
     try:
         client = _make_client()
-        completion = await client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
-                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
-            ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-            # Disable thinking mode for Qwen3.5 and similar models so the JSON
-            # decision lands in content rather than reasoning_content.  Non-thinking
-            # models ignore this field.
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-        )
-        text: str = (completion.choices[0].message.content or "") if completion.choices else ""
-        if not text and completion.choices:
-            # Thinking mode fallback: some models emit reasoning_content even
-            # when thinking is disabled.  If content is empty, scan
-            # reasoning_content for an embedded JSON object.
-            reasoning: str = getattr(completion.choices[0].message, "reasoning_content", None) or ""
-            if reasoning:
-                extracted = _extract_json_from_text(reasoning)
-                if extracted:
-                    log_structured(
-                        "info",
-                        "lmstudio_reasoning_content_fallback",
-                        trace_id=trace_id,
-                        model=model_id,
-                        reasoning_chars=len(reasoning),
-                    )
-                    text = extracted
+
+        # --- Primary path: streaming (keeps TCP alive during long generation) ---
+        try:
+            content, reasoning = await _collect_streaming_response(
+                client, model_id, messages, effective_max_tokens, effective_temperature, trace_id
+            )
+        except (APITimeoutError, APIConnectionError):
+            raise  # propagate immediately; no point retrying with non-streaming
+        except Exception as stream_exc:
+            # Mid-stream connection drop → retry once with non-streaming
+            log_structured(
+                "warning",
+                "lmstudio_stream_error_nonstreaming_retry",
+                provider=LM_STUDIO_PROVIDER,
+                exc_class=type(stream_exc).__name__,
+                trace_id=trace_id,
+                exc_info=True,
+            )
+            completion = await client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                max_tokens=effective_max_tokens,
+                temperature=effective_temperature,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                stop=_STOP_SEQUENCES,
+            )
+            msg = completion.choices[0].message if completion.choices else None
+            content = (msg.content or "") if msg else ""
+            reasoning = (getattr(msg, "reasoning_content", None) or "") if msg else ""
+
+        text: str = content
+        if not text and reasoning:
+            # Thinking mode fallback: some models put the JSON in reasoning_content
+            # even when enable_thinking=False is set.
+            extracted = _extract_json_from_text(reasoning)
+            if extracted:
+                log_structured(
+                    "info",
+                    "lmstudio_reasoning_content_fallback",
+                    trace_id=trace_id,
+                    model=model_id,
+                    reasoning_chars=len(reasoning),
+                )
+                text = extracted
+
     except LMStudioUnavailableError:
         raise
     except APITimeoutError:
