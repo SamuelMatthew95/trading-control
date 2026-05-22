@@ -1216,25 +1216,24 @@ LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
 # LM Studio provider identifier — used in provider fields of inference responses
 LM_STUDIO_PROVIDER: Final[str] = "lmstudio"
 
-# LLM call parameters — uniform across all providers (cloud + local)
+# LLM call parameters — cloud providers (groq / gemini / anthropic / openai)
 # call_llm() — structured JSON trading decision; 0.0 = fully deterministic output
 LLM_MAX_TOKENS_TRADING: Final[int] = 300
 LLM_TEMPERATURE_TRADING: Final[float] = 0.0
 # call_llm_with_system() — free-text reasoning / reflection; slight variation is fine
 LLM_MAX_TOKENS_ANALYSIS: Final[int] = 800
 LLM_TEMPERATURE_ANALYSIS: Final[float] = 0.3
-# LM Studio decision calls — higher ceiling because local inference includes reasoning fields
-# and thinking-mode models (e.g. Qwen3.5) need room even with thinking disabled
-LLM_MAX_TOKENS_LMSTUDIO: Final[int] = 1500
+
+# LM Studio token budgets are controlled by LM_STUDIO_MAX_TOKENS* env vars (api/config.py).
 
 # LM Studio task type identifiers — select the right token budget per call site
 LLM_TASK_PRICE_ANALYSIS: Final[str] = "price_analysis"
 LLM_TASK_TRADE_EXECUTION: Final[str] = "trade_execution"
 LLM_TASK_HEALTH_CHECK: Final[str] = "health_check"
 
-# Stop sequences sent to LM Studio to halt runaway generation.
-# Keep these away from JSON structural tokens so valid objects are not
-# truncated before the final closing brace is emitted.
+# Stop sequences for LM Studio — defence against thinking-mode preambles.
+# "Thinking Process:" guards against any model that ignores enable_thinking=False.
+# Does not affect instruct-only models (Llama 3.1) — never triggers but costs nothing.
 LLM_STOP_SEQUENCES: Final[list[str]] = ["Thinking Process:"]
 
 # Symbol constants
