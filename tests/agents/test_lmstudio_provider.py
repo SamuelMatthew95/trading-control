@@ -36,6 +36,9 @@ Covers:
  38-41. validate_lm_studio_config also blocks LM_STUDIO_BASE_URL proxy endpoints (P2 regression).
  42-44. _is_lmstudio_effectively_enabled covers LLM_PROVIDER=lmstudio without flag (P2 regression).
  45-47. Streaming transport: stream=True, non-streaming fallback, task-based token selection.
+ 48. check_health no_model_loaded updates last_failure_at so should_try_local respects cooldown.
+ 49. check_health model_not_configured updates last_failure_at.
+ 50. Streaming retry non-streaming completion has finish_reason captured (not discarded).
 """
 
 from __future__ import annotations
@@ -264,9 +267,11 @@ async def test_call_llm_lmstudio_malformed_returns_hold(monkeypatch):
     """Malformed JSON from LM Studio → HOLD returned by the provider directly.
 
     call_lmstudio validates the response JSON and returns a safe HOLD fallback
-    when the model's output cannot be parsed.  The cloud provider is never
-    called because call_lmstudio succeeds (returning HOLD), so _health.healthy
-    stays True — the infrastructure is fine; only the output was bad.
+    (with fallback=True) when the model's output cannot be parsed.
+    _health.healthy stays True — the infrastructure is fine; only the output
+    was unusable.  The router then detects fallback=True and can route to a
+    cloud provider if one is available (tested separately via call_llm_with_system
+    cloud-fallback tests).
     """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
@@ -275,12 +280,12 @@ async def test_call_llm_lmstudio_malformed_returns_hold(monkeypatch):
     mock = _mock_client(content="not json at all {{{")
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
-        from api.services.llm_router import call_llm
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
-        result, _, _ = await call_llm(_USER_PROMPT, _TRACE_ID)
-
-    # malformed output → HOLD from provider; cloud is never tried
+    result = json.loads(text)
+    # malformed output → provider substitutes HOLD with fallback=True
     assert result[FieldName.ACTION] == "hold"
+    assert result[FieldName.FALLBACK] is True
     assert _health.healthy is True  # infrastructure worked — parse used fallback
 
 
@@ -1720,3 +1725,112 @@ async def test_call_lmstudio_streaming_fallback_to_nonstreaming(monkeypatch):
     assert call_count == 2
     assert text == _VALID_JSON
     assert _health.healthy is True
+
+
+# ---------------------------------------------------------------------------
+# 48. check_health no_model_loaded updates last_failure_at so should_try_local
+#     respects the 60s retry cooldown (regression for bug: last_failure_at=0
+#     after a health probe failure bypassed the cooldown entirely).
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_no_model_loaded_updates_last_failure_at(monkeypatch):
+    """check_health(no_model_loaded) must stamp last_failure_at so should_try_local
+    returns False within the cooldown window — not True (which would bypass it).
+    """
+    import time
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+
+    mock = _mock_client(models=[])
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "no_model_loaded"
+    # last_failure_at must be recent so the cooldown fires correctly.
+    assert _health.last_failure_at > 0.0
+    assert (time.monotonic() - _health.last_failure_at) < 2.0
+    # Cooldown is now active — should_try_local must return False.
+    assert should_try_local() is False
+
+
+# ---------------------------------------------------------------------------
+# 49. check_health model_not_configured updates last_failure_at.
+# ---------------------------------------------------------------------------
+
+
+async def test_check_health_model_not_configured_updates_last_failure_at(monkeypatch):
+    """check_health(LM_STUDIO_MODEL='') stamps last_failure_at so cooldown fires."""
+    import time
+
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "")
+
+    mock = _mock_client(models=[MagicMock(id="some-model")])
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        ok = await check_health()
+
+    assert ok is False
+    assert _health.healthy is False
+    assert _health.last_error == "lm_studio_model_not_configured"
+    assert _health.last_failure_at > 0.0
+    assert (time.monotonic() - _health.last_failure_at) < 2.0
+    assert should_try_local() is False
+
+
+# ---------------------------------------------------------------------------
+# 50. Streaming retry path captures finish_reason from the non-streaming
+#     fallback completion instead of discarding it (logging accuracy fix).
+# ---------------------------------------------------------------------------
+
+
+async def test_streaming_retry_captures_finish_reason(monkeypatch):
+    """When streaming fails and non-streaming retry succeeds, finish_reason from
+    the retry completion must be logged (not discarded as None).
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_STREAM", True)
+
+    async def flaky_create(**kwargs):
+        if kwargs.get("stream"):
+            raise RuntimeError("stream dropped")
+        msg = MagicMock()
+        msg.content = _VALID_JSON
+        msg.reasoning_content = None
+        choice = MagicMock()
+        choice.message = msg
+        choice.finish_reason = "stop"
+        completion = MagicMock()
+        completion.choices = [choice]
+        return completion
+
+    mock = MagicMock()
+    mock.chat.completions.create = flaky_create
+    models_page = MagicMock()
+    models_page.data = [MagicMock(id="test-model")]
+    mock.models.list = AsyncMock(return_value=models_page)
+
+    log_calls: list = []
+
+    def _capture_log(level, event, **kwargs):
+        log_calls.append((level, event, kwargs))
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        with patch("api.services.lmstudio_provider.log_structured", side_effect=_capture_log):
+            text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert text == _VALID_JSON
+    # finish_reason="stop" from the non-streaming retry must appear in the
+    # lmstudio_response_received log, not None (which would indicate the
+    # value was discarded before logging).
+    response_log = next(
+        (kw for _, ev, kw in log_calls if ev == "lmstudio_response_received"), None
+    )
+    assert response_log is not None, "lmstudio_response_received not logged"
+    assert response_log.get("finish_reason") == "stop", (
+        f"Expected finish_reason='stop', got {response_log.get('finish_reason')!r}. "
+        "Streaming retry likely discarded finish_reason from non-streaming completion."
+    )
