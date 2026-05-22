@@ -360,6 +360,7 @@ async def check_health() -> bool:
             "Use a public tunnel, Tailscale, or run backend locally."
         )
         _health.last_error = mismatch_msg
+        _health.last_failure_at = time.monotonic()
         log_structured(
             "warning",
             "lmstudio_remote_localhost_mismatch",
@@ -374,6 +375,7 @@ async def check_health() -> bool:
         _health.healthy = False
         _health.available_models = []
         _health.last_error = str(exc)[:200]
+        _health.last_failure_at = time.monotonic()
         log_structured("error", "lmstudio_config_invalid", exc_info=True)
         return False
     try:
@@ -389,6 +391,7 @@ async def check_health() -> bool:
             if not configured:
                 _health.last_error = "lm_studio_model_not_configured"
                 _health.healthy = False
+                _health.last_failure_at = time.monotonic()
                 return False
             if configured not in model_ids:
                 _health.last_error = (
@@ -396,14 +399,17 @@ async def check_health() -> bool:
                     f"Loaded models: {', '.join(model_ids)}"
                 )
                 _health.healthy = False
+                _health.last_failure_at = time.monotonic()
                 return False
         else:
             _health.last_error = "no_model_loaded"
+            _health.last_failure_at = time.monotonic()
         return ok
     except Exception as exc:
         _health.healthy = False
         _health.available_models = []
         _health.last_error = str(exc)[:200]
+        _health.last_failure_at = time.monotonic()
         log_structured("warning", "lmstudio_health_probe_failed", exc_info=True)
         return False
 
@@ -572,6 +578,8 @@ async def call_lmstudio(
         client = _make_client()
 
         if settings.LM_STUDIO_STREAM:
+            reasoning_present = False
+            finish_reason = None
             try:
                 raw_content, _ = await _collect_streaming_response(
                     client,
@@ -604,8 +612,12 @@ async def call_lmstudio(
                 )
                 msg = completion.choices[0].message if completion.choices else None
                 raw_content = (msg.content or "") if msg else ""
-            reasoning_present = False
-            finish_reason = None
+                reasoning_present = bool(getattr(msg, "reasoning_content", None)) if msg else False
+                finish_reason = (
+                    completion.choices[0].finish_reason
+                    if completion.choices and hasattr(completion.choices[0], "finish_reason")
+                    else None
+                )
         else:
             # Non-streaming: deterministic, bounded — the right choice for instruct
             # models (Llama 3.1) that return short JSON decisions in one shot.
