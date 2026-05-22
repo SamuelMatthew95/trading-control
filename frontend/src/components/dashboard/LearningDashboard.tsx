@@ -466,7 +466,7 @@ function ReflectionPanel({ reflection }: { reflection: Reflection | null }) {
     <Panel title="Latest Reflection">
       {!reflection ? (
         <p className="text-xs text-slate-500">No reflections yet — runs after every {' '}
-          <code className="rounded bg-slate-200 px-1 dark:bg-slate-800">N</code> trades.</p>
+          <code className="rounded bg-slate-200 px-1 dark:bg-slate-800">10</code> trades.</p>
       ) : (
         <div className="space-y-3">
           <div className="flex gap-4 text-xs font-mono">
