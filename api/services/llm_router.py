@@ -12,6 +12,7 @@ from api.constants import (
     LLM_MAX_RETRIES,
     LLM_MAX_TOKENS_ANALYSIS,
     LLM_MAX_TOKENS_TRADING,
+    LLM_TASK_PRICE_ANALYSIS,
     LLM_TEMPERATURE_ANALYSIS,
     LLM_TEMPERATURE_TRADING,
     LM_STUDIO_PROVIDER,
@@ -499,7 +500,11 @@ async def _inter_call_delay() -> None:
 
 
 async def call_llm_with_system(
-    prompt: str, system_prompt: str, trace_id: str
+    prompt: str,
+    system_prompt: str,
+    trace_id: str,
+    *,
+    task_type: str | None = None,
 ) -> tuple[str, int, float]:
     """Call the configured LLM provider with a custom system prompt.
 
@@ -511,6 +516,9 @@ async def call_llm_with_system(
         falls back to the first cloud provider with an API key configured.
       - LM_STUDIO_ENABLED=true with a cloud LLM_PROVIDER:
         falls back to the configured cloud provider (legacy behaviour).
+
+    task_type selects the LM Studio token budget (price_analysis /
+    trade_execution / health_check).  Ignored for cloud providers.
 
     Returns (raw_text, tokens_used, cost_usd). The caller is responsible
     for parsing the response.
@@ -532,8 +540,7 @@ async def call_llm_with_system(
                 prompt,
                 system_prompt,
                 trace_id,
-                max_tokens=LLM_MAX_TOKENS_ANALYSIS,
-                temperature=LLM_TEMPERATURE_ANALYSIS,
+                task_type=task_type or LLM_TASK_PRICE_ANALYSIS,
             )
             llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
             return result

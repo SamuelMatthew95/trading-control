@@ -278,3 +278,37 @@ Both `call_llm` and `call_llm_with_system` are fixed.
 **Fix:** Use `urlparse` to decompose the URL, append `/v1` to `parsed.path` only, then recompose with `urlunparse` (dropping query and fragment, which have no meaning for an API base URL).
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_get_lm_studio_base_url_with_query_string`
+
+---
+
+## "Client Disconnected" errors on long Qwen3.5-9B inference over Tailscale (Pillar 1)
+
+**Symptom:** Production logs show `Client Disconnected` errors mid-inference. LM Studio at ~12 tok/s takes ~65s for 800 tokens; the Tailscale SOCKS5 proxy closes idle TCP connections before inference completes.
+
+**Root cause:** `call_lmstudio()` used a one-shot `completions.create()` call. No data was sent over the TCP connection until the full response arrived, so the proxy treated the connection as idle and closed it.
+
+**Fix:** `call_lmstudio()` now calls `completions.create(stream=True)` via `_collect_streaming_response()`. Streaming sends TCP data packets continuously as tokens arrive, keeping the connection alive. On any mid-stream exception (excluding `APITimeoutError`/`APIConnectionError`, which re-raise immediately) the call retries once with the non-streaming path.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_uses_streaming`
+
+---
+
+## Token waste on routine PRICE_UPDATE signals (Pillar 2)
+
+**Symptom:** Every market tick consumed 1500 tokens even for simple hold decisions, exhausting Qwen3.5-9B's context window and increasing latency unnecessarily.
+
+**Root cause:** `call_lmstudio()` used a single fixed `LLM_MAX_TOKENS_LMSTUDIO=1500` budget regardless of signal strength or task type.
+
+**Fix:** Added `_get_task_params(task_type, ...)` that maps `LLM_TASK_PRICE_ANALYSIS` → 1024 tokens, `LLM_TASK_TRADE_EXECUTION` → 2048 tokens, `LLM_TASK_HEALTH_CHECK` → 256 tokens (all env-overridable via `LM_STUDIO_MAX_TOKENS_*` settings). `ReasoningAgent._call_llm()` classifies each signal: strong signals (`STRONG` in type or `composite_score >= 0.75`) get `trade_execution`; others get `price_analysis`. Default behaviour (`task_type=None`) is unchanged at 1500 tokens.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_task_type_price_analysis_uses_analysis_tokens`
+
+---
+
+## Verbose reasoning prefixes waste tokens and break JSON extraction (Pillar 3)
+
+**Symptom:** Qwen3.5-9B prepended reasoning text like `"Thinking Process: ..."` or markdown code fences before the JSON object, causing `_extract_json_from_text` to scan through many tokens before finding the payload.
+
+**Root cause:** `ADAPTIVE_TRADING_SYSTEM_PROMPT` had no explicit JSON-only output constraint, and the model was not given stop sequences to terminate generation at natural break points.
+
+**Fix:** Added explicit "CRITICAL OUTPUT RULES" to `ADAPTIVE_TRADING_SYSTEM_PROMPT` in `api/services/agents/prompts.py` prohibiting preamble and markdown fences. Added `_STOP_SEQUENCES = ["\n\n\n", "```", "Thinking Process:"]` passed to every `completions.create()` call so generation halts at these patterns before they accumulate.

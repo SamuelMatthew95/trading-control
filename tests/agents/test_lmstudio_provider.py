@@ -35,6 +35,7 @@ Covers:
  32-37. Remote localhost mismatch detection and LLM_PROVIDER=lmstudio mode.
  38-41. validate_lm_studio_config also blocks LM_STUDIO_BASE_URL proxy endpoints (P2 regression).
  42-44. _is_lmstudio_effectively_enabled covers LLM_PROVIDER=lmstudio without flag (P2 regression).
+ 45-47. Streaming transport: stream=True, non-streaming fallback, task-based token selection.
 """
 
 from __future__ import annotations
@@ -94,20 +95,61 @@ _USER_PROMPT = "BTC/USD signal: rsi=35"
 _TRACE_ID = "trace-lmstudio-test"
 
 
-def _mock_client(content: str | None = _VALID_JSON, raise_on_create=None, models=None):
-    """Build a mock openai.AsyncOpenAI client for LM Studio tests."""
-    message = MagicMock()
-    message.content = content
-    choice = MagicMock()
-    choice.message = message
-    completion = MagicMock()
-    completion.choices = [choice]
+class _FakeAsyncStream:
+    """Minimal async iterable simulating an openai streaming response."""
 
+    def __init__(self, chunks: list):
+        self._chunks = list(chunks)
+        self._pos = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._pos >= len(self._chunks):
+            raise StopAsyncIteration
+        result = self._chunks[self._pos]
+        self._pos += 1
+        return result
+
+
+def _make_streaming_chunk(content: str | None = None, reasoning_content: str | None = None):
+    """Build a mock ChatCompletionChunk delta for streaming tests."""
+    delta = MagicMock()
+    delta.content = content
+    delta.reasoning_content = reasoning_content
+    choice = MagicMock()
+    choice.delta = delta
+    chunk = MagicMock()
+    chunk.choices = [choice]
+    return chunk
+
+
+def _mock_client(
+    content: str | None = _VALID_JSON,
+    raise_on_create=None,
+    models=None,
+    reasoning_content: str | None = None,
+):
+    """Build a mock openai.AsyncOpenAI client for LM Studio streaming tests.
+
+    The ``create`` call returns a _FakeAsyncStream that yields one chunk with
+    the given content/reasoning_content.  Tests that need non-streaming
+    completion behaviour can override ``mock.chat.completions.create`` directly
+    after building the mock — the streaming path will raise TypeError on a
+    non-iterable return value, triggering the non-streaming fallback path.
+    """
     client = MagicMock()
     if raise_on_create:
         client.chat.completions.create = AsyncMock(side_effect=raise_on_create)
     else:
-        client.chat.completions.create = AsyncMock(return_value=completion)
+        chunks: list = []
+        if content is not None:
+            chunks.append(_make_streaming_chunk(content=content))
+        if reasoning_content is not None:
+            chunks.append(_make_streaming_chunk(reasoning_content=reasoning_content))
+        stream = _FakeAsyncStream(chunks)
+        client.chat.completions.create = AsyncMock(return_value=stream)
 
     models_page = MagicMock()
     models_page.data = models if models is not None else [MagicMock(id="test-model")]
@@ -1215,23 +1257,17 @@ async def test_call_lmstudio_reasoning_content_fallback(monkeypatch):
     Regression: Qwen3.5 thinking mode sometimes outputs everything in
     reasoning_content and leaves content as an empty string even when
     enable_thinking=False is set.
+
+    In streaming mode reasoning_content arrives on delta.reasoning_content chunks.
     """
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    mock = _mock_client(content="")
-    mock.chat.completions.create = AsyncMock()
-
-    message = MagicMock()
-    message.content = ""
-    message.reasoning_content = (
+    reasoning_text = (
         f"Thinking Process: analyzing BTC/USD momentum...\n\nFinal answer: {_VALID_JSON}\n\nDone."
     )
-    choice = MagicMock()
-    choice.message = message
-    completion = MagicMock()
-    completion.choices = [choice]
-    mock.chat.completions.create = AsyncMock(return_value=completion)
+    # Yield a streaming chunk with no content but with reasoning_content
+    mock = _mock_client(content=None, reasoning_content=reasoning_text)
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
@@ -1245,16 +1281,9 @@ async def test_call_lmstudio_reasoning_content_no_json_returns_empty(monkeypatch
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    message = MagicMock()
-    message.content = ""
-    message.reasoning_content = "I am thinking... but I cannot form a JSON object."
-    choice = MagicMock()
-    choice.message = message
-    completion = MagicMock()
-    completion.choices = [choice]
-
-    mock = _mock_client()
-    mock.chat.completions.create = AsyncMock(return_value=completion)
+    mock = _mock_client(
+        content=None, reasoning_content="I am thinking... but I cannot form a JSON object."
+    )
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
@@ -1342,16 +1371,9 @@ async def test_call_lmstudio_reasoning_content_truncated_returns_empty(monkeypat
     monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
-    message = MagicMock()
-    message.content = ""
-    message.reasoning_content = '{"action": "buy", "confiden'  # truncated mid-token
-    choice = MagicMock()
-    choice.message = message
-    completion = MagicMock()
-    completion.choices = [choice]
-
-    mock = _mock_client()
-    mock.chat.completions.create = AsyncMock(return_value=completion)
+    mock = _mock_client(
+        content=None, reasoning_content='{"action": "buy", "confiden'
+    )  # truncated mid-token
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
@@ -1363,10 +1385,11 @@ async def test_call_lmstudio_reasoning_content_truncated_returns_empty(monkeypat
 
 
 async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
-    """call_lmstudio default max_tokens must be LLM_MAX_TOKENS_LMSTUDIO (1500).
+    """call_lmstudio default max_tokens must be LLM_MAX_TOKENS_LMSTUDIO (1500) when task_type=None.
 
     Regression: 300 (LLM_MAX_TOKENS_TRADING) was too low for Qwen3.5 responses
     and caused truncated JSON decisions on Apple M2 at ~12 tok/s.
+    The streaming call (stream=True) must carry the correct token budget.
     """
     from api.constants import LLM_MAX_TOKENS_LMSTUDIO
 
@@ -1374,31 +1397,122 @@ async def test_call_lmstudio_uses_lmstudio_max_tokens_default(monkeypatch):
     monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
 
     mock = _mock_client(content=_VALID_JSON)
-    call_kwargs: list[dict] = []
-
-    async def capturing_create(**kwargs):
-        call_kwargs.append(kwargs)
-        return await mock.chat.completions.create.return_value.__class__.return_value
-
-    mock.chat.completions.create = AsyncMock(side_effect=None)
-
-    msg = MagicMock()
-    msg.content = _VALID_JSON
-    choice = MagicMock()
-    choice.message = msg
-    completion = MagicMock()
-    completion.choices = [choice]
-    mock.chat.completions.create = AsyncMock(return_value=completion)
-
     captured: list[dict] = []
+    original_create = mock.chat.completions.create
 
     async def spy(**kwargs):
         captured.append(kwargs)
-        return completion
+        return await original_create(**kwargs)
 
     mock.chat.completions.create = spy
 
     with patch("api.services.lmstudio_provider._make_client", return_value=mock):
         await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
+    assert captured, "completions.create was never called"
+    # First call is always the streaming attempt
     assert captured[0]["max_tokens"] == LLM_MAX_TOKENS_LMSTUDIO == 1500
+    assert captured[0].get("stream") is True
+
+
+# ---------------------------------------------------------------------------
+# 45-47. Streaming transport: stream=True, fallback, task-based token selection
+# ---------------------------------------------------------------------------
+
+
+async def test_call_lmstudio_uses_streaming(monkeypatch):
+    """call_lmstudio must use stream=True so TCP keepalives prevent Client Disconnected.
+
+    The streaming flag is what keeps the connection alive during long model
+    generation (e.g. 65s for 800 tokens at 12 tok/s on Qwen3.5-9B).
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    mock = _mock_client(content=_VALID_JSON)
+    captured: list[dict] = []
+    original_create = mock.chat.completions.create
+
+    async def spy(**kwargs):
+        captured.append(kwargs)
+        return await original_create(**kwargs)
+
+    mock.chat.completions.create = spy
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert captured[0].get("stream") is True
+    assert text == _VALID_JSON
+
+
+async def test_call_lmstudio_falls_back_to_nonstreaming_on_midstream_error(monkeypatch):
+    """When streaming iteration raises mid-stream, call_lmstudio retries with non-streaming.
+
+    Simulates a TCP connection drop after the stream is acquired (the create()
+    call succeeds but iterating the stream raises).
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+
+    call_count = 0
+
+    async def failing_stream_then_nonstreaming(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if kwargs.get("stream"):
+            # Return a broken async iterable that raises on iteration
+            class _BrokenStream:
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    raise ConnectionResetError("connection reset by peer")
+
+            return _BrokenStream()
+        # Non-streaming fallback — return a proper completion
+        msg = MagicMock()
+        msg.content = _VALID_JSON
+        msg.reasoning_content = None
+        choice = MagicMock()
+        choice.message = msg
+        completion = MagicMock()
+        completion.choices = [choice]
+        return completion
+
+    mock = _mock_client(content=_VALID_JSON)
+    mock.chat.completions.create = failing_stream_then_nonstreaming
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        text, tokens, cost = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
+
+    assert call_count == 2, "expected streaming attempt + non-streaming retry"
+    assert text == _VALID_JSON
+    assert _health.healthy is True
+
+
+async def test_call_lmstudio_task_type_price_analysis_uses_analysis_tokens(monkeypatch):
+    """task_type='price_analysis' selects settings.LM_STUDIO_MAX_TOKENS_ANALYSIS (1024)."""
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_MAX_TOKENS_ANALYSIS", 1024)
+
+    mock = _mock_client(content=_VALID_JSON)
+    captured: list[dict] = []
+    original_create = mock.chat.completions.create
+
+    async def spy(**kwargs):
+        captured.append(kwargs)
+        return await original_create(**kwargs)
+
+    mock.chat.completions.create = spy
+
+    from api.constants import LLM_TASK_PRICE_ANALYSIS
+
+    with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+        await call_lmstudio(
+            _USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID, task_type=LLM_TASK_PRICE_ANALYSIS
+        )
+
+    assert captured[0]["max_tokens"] == 1024
+    assert captured[0].get("stream") is True

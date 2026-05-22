@@ -22,6 +22,8 @@ from api.constants import (
     AGENT_REASONING,
     LLM_FALLBACK_MODE_REJECT_SIGNAL,
     LLM_FALLBACK_MODE_USE_LAST_REFLECTION,
+    LLM_TASK_PRICE_ANALYSIS,
+    LLM_TASK_TRADE_EXECUTION,
     LLM_TIMEOUT_SECONDS,
     NO_ORDER_ACTIONS,
     REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
@@ -568,7 +570,10 @@ class ReasoningAgent(BaseStreamConsumer):
                 system_prompt_preview=REASONING_CRITIQUE_PROMPT[:200],
             )
             raw_text, tokens, cost = await call_llm_with_system(
-                critique_prompt, REASONING_CRITIQUE_PROMPT, trace_id
+                critique_prompt,
+                REASONING_CRITIQUE_PROMPT,
+                trace_id,
+                task_type=LLM_TASK_PRICE_ANALYSIS,
             )
             log_structured(
                 "debug",
@@ -649,6 +654,15 @@ class ReasoningAgent(BaseStreamConsumer):
         trace_id: str,
         context: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], int, float]:
+        # Select token budget: strong directional signals warrant deeper reasoning
+        signal_type = str(data.get(FieldName.SIGNAL_TYPE) or data.get(FieldName.TYPE) or "").upper()
+        composite_score = float(data.get(FieldName.COMPOSITE_SCORE) or 0.0)
+        task_type = (
+            LLM_TASK_TRADE_EXECUTION
+            if ("STRONG" in signal_type or composite_score >= 0.75)
+            else LLM_TASK_PRICE_ANALYSIS
+        )
+
         prompt = json.dumps(
             {
                 "signal": data,
@@ -664,12 +678,13 @@ class ReasoningAgent(BaseStreamConsumer):
             "llm_prompt_sent",
             trace_id=trace_id,
             call_type="decision",
+            task_type=task_type,
             prompt_chars=len(prompt),
             prompt_preview=prompt[:400],
             system_prompt_preview=ADAPTIVE_TRADING_SYSTEM_PROMPT[:200],
         )
         raw_text, tokens, cost_usd = await call_llm_with_system(
-            prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id
+            prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id, task_type=task_type
         )
         log_structured(
             "debug",

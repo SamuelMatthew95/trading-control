@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     # Leave empty when LM Studio is local (same machine) or when Tailscale uses
     # kernel networking (TUN device).  Never set this to the LM Studio base URL.
     LM_STUDIO_PROXY_URL: str = Field(default="")
+    # Task-specific token budgets — override via env vars on Render
+    LM_STUDIO_MAX_TOKENS_ANALYSIS: int = Field(default=1024)
+    LM_STUDIO_MAX_TOKENS_EXECUTION: int = Field(default=2048)
+    LM_STUDIO_MAX_TOKENS_HEALTH_CHECK: int = Field(default=256)
     LM_LINK_ENABLED: bool = Field(default=False)
     LM_LINK_DEVICE_NAME: str = ""
     LM_LINK_TOKEN: str = Field(default="")
