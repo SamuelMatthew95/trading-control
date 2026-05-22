@@ -95,6 +95,7 @@ const AGENT_STALE_THRESHOLD_MS = 120_000
 // Per-agent overrides: Reasoning Agent can take 60-90s per LLM call.
 const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
   REASONING_AGENT: 90_000,
+  REFLECTION_AGENT: 90_000,
 }
 const getLiveThresholdMs = (agentKey: string): number =>
   AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
@@ -897,7 +898,7 @@ export function DashboardView({ section }: { section: Section }) {
       const agentKey = canonicalAgentKey(inst.pool_name)
       const existing = normalizedByName.get(agentKey)
       const startedDate = parseTimestamp(inst.started_at)
-      const mappedStatus: AgentSummary['status'] = inst.status === 'active' ? 'Stale' : 'Idle'
+      const mappedStatus: AgentSummary['status'] = inst.status === 'active' ? 'Idle' : 'Idle'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       const lastSeen = [existing?.lastSeen, startedDate]
         .filter((d): d is Date => d instanceof Date)
