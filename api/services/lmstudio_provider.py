@@ -77,6 +77,7 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 from api.config import settings
 from api.constants import (
     LLM_MAX_TOKENS_LMSTUDIO,
+    LLM_STOP_SEQUENCES,
     LLM_TASK_HEALTH_CHECK,
     LLM_TASK_PRICE_ANALYSIS,
     LLM_TASK_TRADE_EXECUTION,
@@ -85,9 +86,6 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
-
-# Stop sequences that prevent runaway generation (code fences, thinking headers, triple newlines)
-_STOP_SEQUENCES: list[str] = ["\n\n\n", "```", "Thinking Process:"]
 
 
 class LMStudioUnavailableError(RuntimeError):
@@ -467,7 +465,7 @@ async def _collect_streaming_response(
         temperature=temperature,
         stream=True,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-        stop=_STOP_SEQUENCES,
+        stop=LLM_STOP_SEQUENCES,
     )
     content_parts: list[str] = []
     reasoning_parts: list[str] = []
@@ -571,7 +569,7 @@ async def call_lmstudio(
                 max_tokens=effective_max_tokens,
                 temperature=effective_temperature,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-                stop=_STOP_SEQUENCES,
+                stop=LLM_STOP_SEQUENCES,
             )
             msg = completion.choices[0].message if completion.choices else None
             content = (msg.content or "") if msg else ""
