@@ -541,6 +541,7 @@ async def call_llm_with_system(
                 system_prompt,
                 trace_id,
                 task_type=task_type or LLM_TASK_PRICE_ANALYSIS,
+                parse_json=False,  # freeform text — caller handles parsing
             )
             llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
             return result
