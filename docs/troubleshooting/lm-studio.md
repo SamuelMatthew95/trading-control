@@ -364,3 +364,39 @@ Neither mechanism applies to instruct models (Llama, Mistral, Phi, etc.) that do
 **Fix:** The streaming call is now wrapped in a try/except. On any exception, the provider logs `lmstudio_stream_error_retry_nonstreaming` and immediately retries with `stream=False`. Only if the non-streaming retry also fails does the error propagate as `LMStudioUnavailableError`. This restores the reliability of the streaming path — transient drops are invisible to the caller.
 
 **Regression test:** `tests/agents/test_lmstudio_provider.py::test_call_lmstudio_streaming_fallback_to_nonstreaming`
+
+---
+
+## `_parse_response` overwrites `fallback=True` from LM Studio HOLD substitution
+
+**Symptom:** When LM Studio returns invalid JSON or an unrecognised action, `call_lmstudio` substitutes a HOLD decision with `"fallback": true`. The router's `_parse_response` then stamps it `"fallback": false`. The `if not parsed.get(FALLBACK)` guard in `call_llm` evaluates as True (success), so `_record_lm_failure` is never called and cloud fallback is never triggered — even when `LLM_FALLBACK_ENABLED=true`.
+
+**Root cause:** `_parse_response` in `llm_router.py` unconditionally set `parsed[FieldName.FALLBACK] = False` on any successful `json.loads`, overwriting the `fallback=True` sentinel already placed by `_hold_fallback_json`.
+
+**Fix:** Changed the assignment to `parsed.setdefault(FieldName.FALLBACK, False)` so that a `fallback=True` already in the response is preserved. Cloud providers that never include the key still get `False` by default.
+
+**Regression test:** `tests/core/test_signal_pipeline.py::TestLLMRouter::test_parse_response_preserves_fallback_true`
+
+---
+
+## `check_health()` model failures don't update `last_failure_at` — retry cooldown bypassed
+
+**Symptom:** After a startup `check_health()` finds LM Studio unhealthy (e.g. no model loaded), `should_try_local()` returns `True` on every subsequent call — the 60s retry cooldown (`_RETRY_INTERVAL_S`) has no effect. Every inference attempt still tries LM Studio immediately, adding a full `LM_STUDIO_TIMEOUT_SECONDS` wait before falling back to cloud.
+
+**Root cause:** `_record_failure()` (which sets `_health.last_failure_at`) was only called inside `call_lmstudio()`, not in `check_health()`. A health-probe failure left `last_failure_at=0.0`. `should_try_local()` computes `monotonic() - 0.0 >= 60` — always `True`.
+
+**Fix:** Added `_health.last_failure_at = time.monotonic()` to each failure exit path inside `check_health()`: remote-localhost mismatch, config validation error, model not configured, configured model not present, and exception during probe.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_check_health_no_model_loaded_updates_last_failure_at`
+
+---
+
+## Streaming retry discards `finish_reason` from fallback non-streaming completion
+
+**Symptom:** When streaming fails and the non-streaming retry succeeds, the log entry `lmstudio_response_received` always shows `finish_reason=None` — the actual `finish_reason` ("stop", "length", etc.) from the retry completion is silently discarded.
+
+**Root cause:** `reasoning_present = False; finish_reason = None` were assigned AFTER the streaming try/except block. The non-streaming retry inside the except block set `raw_content` correctly but did not update `reasoning_present` / `finish_reason` before the code fell through to the log statement at lines 607-608.
+
+**Fix:** Moved the `False`/`None` defaults before the try/except so both paths initialise them. Added explicit extraction of `reasoning_present` and `finish_reason` from the retry completion inside the except block, mirroring the non-streaming success path.
+
+**Regression test:** `tests/agents/test_lmstudio_provider.py::test_streaming_retry_captures_finish_reason`
