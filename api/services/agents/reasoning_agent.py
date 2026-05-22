@@ -663,12 +663,23 @@ class ReasoningAgent(BaseStreamConsumer):
             else LLM_TASK_PRICE_ANALYSIS
         )
 
+        risk_state = (context or {}).get(FieldName.RISK_STATE) or {
+            "status": "nominal",
+            "current_drawdown_pct": 0.0,
+            "global_veto": False,
+        }
+        ic_weights = (context or {}).get(FieldName.IC_WEIGHTS) or {"composite_score": 1.0}
+        similar_trades_payload = similar_trades or []
+        if not similar_trades_payload:
+            # No memory matches: bias to smaller sizing while preserving direction signal context.
+            risk_state.setdefault("size_pct_scale", 0.5)
+
         prompt = json.dumps(
             {
                 "signal": data,
-                FieldName.SIMILAR_TRADES: similar_trades,
-                FieldName.IC_WEIGHTS: (context or {}).get(FieldName.IC_WEIGHTS, {}),
-                FieldName.RISK_STATE: (context or {}).get(FieldName.RISK_STATE, {}),
+                FieldName.SIMILAR_TRADES: similar_trades_payload,
+                FieldName.IC_WEIGHTS: ic_weights,
+                FieldName.RISK_STATE: risk_state,
                 FieldName.SYSTEM_DIRECTIVE: "CAPITAL_PRESERVATION_FIRST",
             },
             default=str,

@@ -37,7 +37,12 @@ ADAPTIVE_TRADING_SYSTEM_PROMPT = (
     "Respond with ONLY a valid JSON object. No markdown, no code fences, no explanation outside the JSON. "
     'Do NOT include any preamble like "Here is my analysis" or "Based on the data". '
     "The response must start with { and end with }. "
-    'Keep the "primary_edge" and "risk_factors" fields concise (under 20 words each).'
+    'Keep the "primary_edge" and "risk_factors" fields concise (under 20 words each). '
+    "Edge Case & Empty State Handling: "
+    "If risk_state is empty, assume baseline volatility and do not stall on missing metrics. "
+    "If ic_weights is empty, default to equal-weight factor interpretation. "
+    "If similar_trades is empty, rely on composite_score for consensus and reduce size_pct by 50% "
+    "to preserve capital. Prioritize moving quickly from reasoning to final JSON output."
 )
 
 REASONING_CRITIQUE_PROMPT = (
