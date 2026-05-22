@@ -1233,9 +1233,9 @@ LLM_TASK_TRADE_EXECUTION: Final[str] = "trade_execution"
 LLM_TASK_HEALTH_CHECK: Final[str] = "health_check"
 
 # Stop sequences sent to LM Studio to halt runaway generation.
-# Avoid whitespace-only stop tokens (e.g. "\n\n\n") because they can match
-# during pretty-printed JSON output and truncate the payload too early.
-LLM_STOP_SEQUENCES: Final[list[str]] = ["\n}", "Thinking Process:"]
+# Keep these away from JSON structural tokens so valid objects are not
+# truncated before the final closing brace is emitted.
+LLM_STOP_SEQUENCES: Final[list[str]] = ["Thinking Process:"]
 
 # Symbol constants
 SYMBOL_BTC_USD: Final[str] = "BTC/USD"
