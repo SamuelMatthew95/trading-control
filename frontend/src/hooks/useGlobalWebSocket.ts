@@ -495,7 +495,7 @@ class WebSocketManager {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _normalizeAgentEvent(raw: any): any | null {
     if (!raw || typeof raw !== 'object') return null
-    const inferredAgentName = raw.agent_name || raw.agent || raw.source_agent || (raw.stream === 'agent_logs' ? 'Agent Pipeline' : 'Unknown')
+    const inferredAgentName = raw.agent_name || raw.agent || raw.source_agent || raw.source || (raw.stream === 'agent_logs' ? 'Agent Pipeline' : 'Unknown')
     return {
       agent_name: inferredAgentName,
       event_type: this._normalizeEventType(raw.event_type || raw.action || raw.type || 'processed'),
