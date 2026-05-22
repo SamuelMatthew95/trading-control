@@ -710,7 +710,7 @@ export const useCodexStore = create<CodexState>((set) => ({
           if (!raw || typeof raw !== 'object') return []
           const r = raw as Record<string, unknown>
           const log: AgentLog = {
-            agent_name: String(r.agent_name || r.agent || r.source_agent || 'Unknown'),
+            agent_name: String(r.agent_name || r.agent || r.source_agent || r.source || 'Unknown'),
             event_type: String(r.event_type || r.action || r.type || 'processed'),
             timestamp: String(r.timestamp || r.created_at || new Date().toISOString()),
             symbol: r.symbol as string | undefined,
