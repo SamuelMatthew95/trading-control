@@ -1443,6 +1443,7 @@ async def test_call_lmstudio_uses_streaming(monkeypatch):
         text, _, _ = await call_lmstudio(_USER_PROMPT, _SYSTEM_PROMPT, _TRACE_ID)
 
     assert captured[0].get("stream") is True
+    assert "response_format" not in captured[0]
     assert text == _VALID_JSON
 
 

@@ -463,7 +463,6 @@ async def _collect_streaming_response(
         messages=messages,
         max_tokens=max_tokens,
         temperature=temperature,
-        response_format={"type": "json_object"},
         stream=True,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         stop=LLM_STOP_SEQUENCES,
@@ -569,7 +568,6 @@ async def call_lmstudio(
                 messages=messages,
                 max_tokens=effective_max_tokens,
                 temperature=effective_temperature,
-                response_format={"type": "json_object"},
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 stop=LLM_STOP_SEQUENCES,
             )
