@@ -40,6 +40,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -281,6 +282,34 @@ async def test_call_llm_lmstudio_malformed_returns_hold(monkeypatch):
     # malformed output → HOLD from provider; cloud is never tried
     assert result[FieldName.ACTION] == "hold"
     assert _health.healthy is True  # infrastructure worked — parse used fallback
+
+
+# ---------------------------------------------------------------------------
+# 5b. Non-dict JSON (list, string, null) → HOLD, not AttributeError.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_llm_lmstudio_non_dict_json_returns_hold(monkeypatch):
+    """Valid JSON that is not a dict (e.g. []) must produce HOLD, not AttributeError.
+
+    json.loads on a list/string/null succeeds but parsed.get(...) would raise
+    AttributeError.  The isinstance(candidate, dict) guard must catch this
+    and route to the HOLD fallback instead of surfacing a hard failure.
+    """
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_MODEL", "test-model")
+    monkeypatch.setattr(settings, "LM_STUDIO_TIMEOUT_SECONDS", 10)
+
+    for non_dict_payload in ["[]", '"just a string"', "null", "42"]:
+        mock = _mock_client(content=non_dict_payload)
+        with patch("api.services.lmstudio_provider._make_client", return_value=mock):
+            from api.services.lmstudio_provider import call_lmstudio
+
+            text, _, _ = await call_lmstudio("prompt", "system", _TRACE_ID, parse_json=True)
+        result = json.loads(text)
+        assert result[FieldName.ACTION] == "hold", f"expected hold for payload {non_dict_payload!r}"
+        assert _health.healthy is True
 
 
 # ---------------------------------------------------------------------------

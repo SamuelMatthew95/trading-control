@@ -662,15 +662,22 @@ async def call_lmstudio(
             parse_result = "success"
             parsed: dict | None = None
             try:
-                parsed = json.loads(text)
+                _candidate = json.loads(text)
+                if isinstance(_candidate, dict):
+                    parsed = _candidate
             except json.JSONDecodeError:
+                pass
+
+            if parsed is None:
                 extracted = _extract_json_from_text(text)
                 if extracted:
                     try:
-                        parsed = json.loads(extracted)
-                        text = extracted
+                        _candidate = json.loads(extracted)
+                        if isinstance(_candidate, dict):
+                            parsed = _candidate
+                            text = extracted
                     except json.JSONDecodeError:
-                        parsed = None
+                        pass
                 if parsed is None:
                     parse_result = "invalid_json"
                     log_structured(
