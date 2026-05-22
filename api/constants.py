@@ -1227,6 +1227,11 @@ LLM_TEMPERATURE_ANALYSIS: Final[float] = 0.3
 # and thinking-mode models (e.g. Qwen3.5) need room even with thinking disabled
 LLM_MAX_TOKENS_LMSTUDIO: Final[int] = 1500
 
+# LM Studio task type identifiers — select the right token budget per call site
+LLM_TASK_PRICE_ANALYSIS: Final[str] = "price_analysis"
+LLM_TASK_TRADE_EXECUTION: Final[str] = "trade_execution"
+LLM_TASK_HEALTH_CHECK: Final[str] = "health_check"
+
 # Symbol constants
 SYMBOL_BTC_USD: Final[str] = "BTC/USD"
 SYMBOL_ETH_USD: Final[str] = "ETH/USD"
