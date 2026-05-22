@@ -450,16 +450,16 @@ def _get_task_params(
 
     Falls back to the caller-supplied defaults when task_type is None or unrecognised.
     Token budgets come from env-overridable settings so Render deployments can tune them
-    without a code deploy.
+    without a code deploy.  Temperature is the caller's resolved default — already
+    factoring in settings.LM_STUDIO_TEMPERATURE vs an explicit call-site override.
     """
-    temp = settings.LM_STUDIO_TEMPERATURE
     if task_type == LLM_TASK_TRADE_EXECUTION:
-        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, temp
+        return settings.LM_STUDIO_MAX_TOKENS_EXECUTION, default_temperature
     if task_type == LLM_TASK_HEALTH_CHECK:
-        return settings.LM_STUDIO_MAX_TOKENS_HEALTH_CHECK, temp
+        return settings.LM_STUDIO_MAX_TOKENS_HEALTH_CHECK, default_temperature
     if task_type == LLM_TASK_PRICE_ANALYSIS:
-        return settings.LM_STUDIO_MAX_TOKENS_ANALYSIS, temp
-    return default_max_tokens, temp
+        return settings.LM_STUDIO_MAX_TOKENS_ANALYSIS, default_temperature
+    return default_max_tokens, default_temperature
 
 
 async def _collect_streaming_response(
@@ -572,9 +572,38 @@ async def call_lmstudio(
         client = _make_client()
 
         if settings.LM_STUDIO_STREAM:
-            raw_content, _ = await _collect_streaming_response(
-                client, model_id, messages, effective_max_tokens, effective_temperature, trace_id
-            )
+            try:
+                raw_content, _ = await _collect_streaming_response(
+                    client,
+                    model_id,
+                    messages,
+                    effective_max_tokens,
+                    effective_temperature,
+                    trace_id,
+                )
+            except Exception as _stream_exc:
+                # Stream dropped mid-flight — retry once with a non-streaming request
+                # before surfacing the failure, restoring the reliability of the
+                # original streaming path.
+                log_structured(
+                    "warning",
+                    "lmstudio_stream_error_retry_nonstreaming",
+                    trace_id=trace_id,
+                    model=model_id,
+                    exc_class=type(_stream_exc).__name__,
+                    exc_info=True,
+                )
+                completion = await client.chat.completions.create(
+                    model=model_id,
+                    messages=messages,
+                    max_tokens=effective_max_tokens,
+                    temperature=effective_temperature,
+                    stream=False,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                    stop=LLM_STOP_SEQUENCES,
+                )
+                msg = completion.choices[0].message if completion.choices else None
+                raw_content = (msg.content or "") if msg else ""
             reasoning_present = False
             finish_reason = None
         else:
