@@ -537,8 +537,13 @@ async def call_lmstudio(
         trace_id=trace_id,
     )
 
+    # Append /no_think to disable Qwen3 thinking mode at the prompt level.
+    # LM Studio ignores extra_body chat_template_kwargs — the /no_think
+    # suffix is what actually prevents <think> block generation.
+    effective_system_prompt = system_prompt.rstrip() + " /no_think"
+
     messages = [
-        {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+        {FieldName.ROLE: "system", FieldName.CONTENT: effective_system_prompt},
         {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
     ]
 
