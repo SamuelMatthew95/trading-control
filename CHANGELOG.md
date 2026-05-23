@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026-05-23] — Decision provenance: grade trades with model awareness
+
+### Added
+- `api/services/llm_router.py` — `active_provider_and_model()` / `active_model_label()`: single source of truth for the `provider:model` label of the active LLM
+- `FieldName.MODEL_USED` — payload key for the model that produced a decision
+- Alembic migration `20260502_decision_provenance` — adds nullable `model_used` + `primary_edge` columns to `trade_evaluations`
+- `docs/AGENTS.md` — "LLM models — which model runs where" + "Decision provenance" sections
+
+### Changed
+- `ReasoningAgent` — stamps `model_used` (`provider:model`, or `fallback`) on every decision; flows to `agent_logs`, the Redis decision record, and the `decisions` stream
+- `ExecutionEngine` / `fill_publisher` — `FillContext` carries `model_used` + `primary_edge` onto `trade_performance` / `trade_completed` events
+- `trade_scorer.score_trade` + `db_helpers.persist_trade_evaluation` — record decision provenance on each `trade_evaluations` row
+- `GET /learning/trades` (+ single-trade) — return `model_used` + `primary_edge`
+- Frontend `LearningDashboard` — trade-detail modal shows the model + thesis behind each graded trade
+
 ## [2026-05-15] — Execution engine modularisation and observability fixes
 
 ### Added
