@@ -13,9 +13,21 @@ from api.services.agents.trade_scorer import (
 def test_aggregate_model_performance_groups_and_skips_blank():
     rows = aggregate_model_performance(
         [
-            {FieldName.MODEL_USED: "gemini:flash", FieldName.PNL: 10.0, FieldName.OVERALL_SCORE: 0.8},
-            {FieldName.MODEL_USED: "gemini:flash", FieldName.PNL: -4.0, FieldName.OVERALL_SCORE: 0.4},
-            {FieldName.MODEL_USED: "lmstudio:llama", FieldName.PNL: 6.0, FieldName.OVERALL_SCORE: 0.7},
+            {
+                FieldName.MODEL_USED: "gemini:flash",
+                FieldName.PNL: 10.0,
+                FieldName.OVERALL_SCORE: 0.8,
+            },
+            {
+                FieldName.MODEL_USED: "gemini:flash",
+                FieldName.PNL: -4.0,
+                FieldName.OVERALL_SCORE: 0.4,
+            },
+            {
+                FieldName.MODEL_USED: "lmstudio:llama",
+                FieldName.PNL: 6.0,
+                FieldName.OVERALL_SCORE: 0.7,
+            },
             {FieldName.MODEL_USED: "", FieldName.PNL: 99.0},  # blank model is skipped
         ]
     )
@@ -57,6 +69,7 @@ def test_score_trade_provenance_defaults_empty_when_absent():
     evaluation = score_trade({FieldName.TRADE_ID: "t-2", FieldName.PNL_PERCENT: 0.5})
     assert evaluation[FieldName.MODEL_USED] == ""
     assert evaluation[FieldName.PRIMARY_EDGE] == ""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
