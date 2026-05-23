@@ -228,6 +228,24 @@ async def test_reflection_skipped_when_insufficient_data(agent, mock_bus):
         mock_reflect.assert_not_called()
 
 
+def test_quant_reflection_includes_model_performance(agent):
+    """The deterministic reflection groups trades by the model that produced them."""
+    for _ in range(3):
+        agent._recent_fills.append(
+            {**_trade_performance_event(pnl=100.0), "model_used": "gemini:flash"}
+        )
+    agent._recent_fills.append(
+        {**_trade_performance_event(pnl=-50.0), "model_used": "lmstudio:llama"}
+    )
+
+    quant = agent._compute_quant_reflection()
+
+    assert "model_performance" in quant
+    by_model = {m["model_used"]: m for m in quant["model_performance"]}
+    assert by_model["gemini:flash"]["trade_count"] == 3
+    assert "lmstudio:llama" in by_model
+
+
 # ---------------------------------------------------------------------------
 # LLM / fallback tests
 # ---------------------------------------------------------------------------
