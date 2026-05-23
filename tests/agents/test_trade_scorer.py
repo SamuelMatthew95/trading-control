@@ -3,7 +3,35 @@
 import pytest
 
 from api.constants import FieldName
-from api.services.agents.trade_scorer import compute_learning_metrics, score_trade
+from api.services.agents.trade_scorer import (
+    aggregate_model_performance,
+    compute_learning_metrics,
+    score_trade,
+)
+
+
+def test_aggregate_model_performance_groups_and_skips_blank():
+    rows = aggregate_model_performance(
+        [
+            {FieldName.MODEL_USED: "gemini:flash", FieldName.PNL: 10.0, FieldName.OVERALL_SCORE: 0.8},
+            {FieldName.MODEL_USED: "gemini:flash", FieldName.PNL: -4.0, FieldName.OVERALL_SCORE: 0.4},
+            {FieldName.MODEL_USED: "lmstudio:llama", FieldName.PNL: 6.0, FieldName.OVERALL_SCORE: 0.7},
+            {FieldName.MODEL_USED: "", FieldName.PNL: 99.0},  # blank model is skipped
+        ]
+    )
+    by_model = {r[FieldName.MODEL_USED]: r for r in rows}
+    assert set(by_model) == {"gemini:flash", "lmstudio:llama"}
+    assert by_model["gemini:flash"][FieldName.TRADE_COUNT] == 2
+    assert by_model["gemini:flash"][FieldName.WIN_RATE] == 0.5
+    assert by_model["gemini:flash"][FieldName.AVG_SCORE] == 0.6
+    assert by_model["gemini:flash"][FieldName.TOTAL_PNL] == 6.0
+    assert by_model["gemini:flash"][FieldName.AVG_PNL] == 3.0
+    # sorted by trade count descending
+    assert rows[0][FieldName.MODEL_USED] == "gemini:flash"
+
+
+def test_aggregate_model_performance_empty():
+    assert aggregate_model_performance([]) == []
 
 
 def test_score_trade_carries_decision_provenance():
