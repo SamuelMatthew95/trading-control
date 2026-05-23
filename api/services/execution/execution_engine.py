@@ -393,6 +393,8 @@ class ExecutionEngine(BaseStreamConsumer):
             trace_id=trace_id,
             vwap_plan=vwap_plan,
             filled_at=datetime.now(timezone.utc),
+            model_used=str(data.get(FieldName.MODEL_USED) or ""),
+            primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
         )
         await publish_fill_events(self.bus, ctx)
 
@@ -563,6 +565,8 @@ class ExecutionEngine(BaseStreamConsumer):
             trace_id=trace_id,
             vwap_plan=vwap_plan,
             filled_at=filled_at,
+            model_used=str(data.get(FieldName.MODEL_USED) or ""),
+            primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
         )
         await publish_fill_events(self.bus, ctx)
 
@@ -794,6 +798,8 @@ class ExecutionEngine(BaseStreamConsumer):
                 trace_id=trace_id,
                 vwap_plan=vwap_plan,
                 filled_at=filled_at,
+                model_used=str(data.get(FieldName.MODEL_USED) or ""),
+                primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
             )
             await publish_fill_events(self.bus, ctx)
 
