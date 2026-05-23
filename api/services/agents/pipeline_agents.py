@@ -766,6 +766,10 @@ class ReflectionAgent(MultiStreamAgent):
                     "pnl_percent": data.get(FieldName.PNL_PERCENT),
                     "fill_price": data.get(FieldName.FILL_PRICE),
                     "filled_at": data.get(FieldName.FILLED_AT),
+                    # Decision provenance carried on the fill events so the
+                    # per-model reflection summary (_build_prompt) is populated.
+                    FieldName.MODEL_USED: data.get(FieldName.MODEL_USED),
+                    FieldName.PRIMARY_EDGE: data.get(FieldName.PRIMARY_EDGE),
                 }
             )
         elif stream == STREAM_AGENT_GRADES:
