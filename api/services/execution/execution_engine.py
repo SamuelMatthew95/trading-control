@@ -146,10 +146,32 @@ class ExecutionEngine(BaseStreamConsumer):
     # DB path
     # -------------------------------------------------------------------------
 
+    async def _apply_size_pct(
+        self, parsed: _ParsedDecision, data: dict[str, Any]
+    ) -> _ParsedDecision:
+        """Override qty using size_pct × portfolio_value / price when size_pct is present.
+
+        Falls back silently to the original qty if size_pct is absent, out of
+        range, or if the broker call fails — so existing test fixtures that omit
+        size_pct are unaffected.
+        """
+        size_pct = float(data.get(FieldName.SIZE_PCT) or 0.0)
+        if not (0 < size_pct <= 0.10) or parsed.price <= 0:
+            return parsed
+        try:
+            portfolio = await self.broker.get_cash()
+            computed = round((size_pct * portfolio) / parsed.price, 6)
+            if computed > 0:
+                return parsed._replace(qty=computed)
+        except Exception:
+            pass
+        return parsed
+
     async def _process_with_db(self, data: dict[str, Any]) -> None:
         parsed = await self._parse_and_validate(data)
         if parsed is None:
             return
+        parsed = await self._apply_size_pct(parsed, data)
 
         signal_confidence, reasoning_score = self._extract_scores(data)
         log_structured(
@@ -200,6 +222,12 @@ class ExecutionEngine(BaseStreamConsumer):
             )
             if not lock_acquired:
                 raise RuntimeError(f"Order lock already held for {symbol}")
+
+            # Second kill-switch check with lock held — closes the race window
+            # between the pre-lock check above and actual order submission.
+            if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
+                await self.redis.delete(lock_key)
+                raise RuntimeError("KillSwitchActive")
 
             order_id: str | None = None
             vwap_plan: list[float] | None = None
@@ -597,6 +625,7 @@ class ExecutionEngine(BaseStreamConsumer):
         parsed = await self._parse_and_validate(data)
         if parsed is None:
             return
+        parsed = await self._apply_size_pct(parsed, data)
 
         signal_confidence, reasoning_score = self._extract_scores(data)
         log_structured(
@@ -1034,7 +1063,7 @@ class ExecutionEngine(BaseStreamConsumer):
         timestamp: datetime,
         signal_data: dict[str, Any] | None = None,
     ) -> str:
-        ts_minute = timestamp.astimezone(timezone.utc).strftime("%Y%m%d%H%M")
+        ts_minute = timestamp.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S")
         signal_hash = ""
         if signal_data:
             signal_content = json.dumps(
