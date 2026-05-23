@@ -87,6 +87,26 @@ def _grade_from_score(score: float) -> str:
     return "F"
 
 
+async def _trade_eval_has_provenance(session: Any) -> bool:
+    """True when trade_evaluations has the model_used column (migration 20260502).
+
+    Lets the trade endpoints tolerate a partial-migration window: if the
+    provenance columns aren't present yet, callers fall back to the base SELECT
+    instead of 500-ing on a missing column.
+    """
+    try:
+        chk = await session.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'trade_evaluations' "
+                "AND column_name = 'model_used' LIMIT 1"
+            )
+        )
+        return chk.first() is not None
+    except Exception:
+        return False
+
+
 def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) -> dict[str, Any]:
     """Convert a raw grade score into the trade_evaluation response shape."""
     return {
@@ -239,19 +259,38 @@ async def list_trade_evaluations(
                     FieldName.MODE: mode,
                 }
 
-            rows = await session.execute(
-                text("""
-                    SELECT id, trade_id, symbol, side, pnl, return_pct,
-                           entry_quality, exit_quality, timing_score, signal_alignment,
-                           risk_reward, overall_score, grade, confidence,
-                           mistakes, strengths, created_at,
-                           model_used, primary_edge
-                    FROM trade_evaluations
-                    ORDER BY created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """),
-                {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
-            )
+            # Provenance columns (model_used/primary_edge) were added in migration
+            # 20260502. Tolerate a partial-migration window: probe once, then pick
+            # the matching SELECT so a missing column never 500s this endpoint.
+            has_provenance = await _trade_eval_has_provenance(session)
+
+            if has_provenance:
+                rows = await session.execute(
+                    text("""
+                        SELECT id, trade_id, symbol, side, pnl, return_pct,
+                               entry_quality, exit_quality, timing_score, signal_alignment,
+                               risk_reward, overall_score, grade, confidence,
+                               mistakes, strengths, created_at,
+                               model_used, primary_edge
+                        FROM trade_evaluations
+                        ORDER BY created_at DESC
+                        LIMIT :limit OFFSET :offset
+                    """),
+                    {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
+                )
+            else:
+                rows = await session.execute(
+                    text("""
+                        SELECT id, trade_id, symbol, side, pnl, return_pct,
+                               entry_quality, exit_quality, timing_score, signal_alignment,
+                               risk_reward, overall_score, grade, confidence,
+                               mistakes, strengths, created_at
+                        FROM trade_evaluations
+                        ORDER BY created_at DESC
+                        LIMIT :limit OFFSET :offset
+                    """),
+                    {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
+                )
             trades = [
                 {
                     FieldName.ID: str(r[0]),
@@ -271,8 +310,8 @@ async def list_trade_evaluations(
                     FieldName.MISTAKES: _as_list(r[14]),
                     FieldName.STRENGTHS: _as_list(r[15]),
                     FieldName.CREATED_AT: _iso(r[16]),
-                    FieldName.MODEL_USED: r[17] or "",
-                    FieldName.PRIMARY_EDGE: r[18] or "",
+                    FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
+                    FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
                 }
                 for r in rows.all()
             ]
@@ -324,23 +363,41 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         async with AsyncSessionFactory() as session:
             # trade_evaluations may not exist during a partial migration; guard
             # each query independently so the agent_grades bridge always runs.
+            # Probe for provenance columns so a partial migration (table present,
+            # model_used absent) doesn't fail the SELECT.
+            has_provenance = await _trade_eval_has_provenance(session)
             r = None
             te_accessible = True
             try:
-                row = await session.execute(
-                    text("""
-                        SELECT id, trade_id, symbol, side, pnl, return_pct,
-                               entry_quality, exit_quality, timing_score, signal_alignment,
-                               risk_reward, overall_score, grade, confidence,
-                               mistakes, strengths, created_at,
-                               model_used, primary_edge
-                        FROM trade_evaluations
-                        WHERE trade_id = :trade_id
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    """),
-                    {"trade_id": trade_id},
-                )
+                if has_provenance:
+                    row = await session.execute(
+                        text("""
+                            SELECT id, trade_id, symbol, side, pnl, return_pct,
+                                   entry_quality, exit_quality, timing_score, signal_alignment,
+                                   risk_reward, overall_score, grade, confidence,
+                                   mistakes, strengths, created_at,
+                                   model_used, primary_edge
+                            FROM trade_evaluations
+                            WHERE trade_id = :trade_id
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        """),
+                        {"trade_id": trade_id},
+                    )
+                else:
+                    row = await session.execute(
+                        text("""
+                            SELECT id, trade_id, symbol, side, pnl, return_pct,
+                                   entry_quality, exit_quality, timing_score, signal_alignment,
+                                   risk_reward, overall_score, grade, confidence,
+                                   mistakes, strengths, created_at
+                            FROM trade_evaluations
+                            WHERE trade_id = :trade_id
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        """),
+                        {"trade_id": trade_id},
+                    )
                 r = row.first()
             except Exception:
                 te_accessible = False
@@ -364,8 +421,8 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                         FieldName.MISTAKES: _as_list(r[14]),
                         FieldName.STRENGTHS: _as_list(r[15]),
                         FieldName.CREATED_AT: _iso(r[16]),
-                        FieldName.MODEL_USED: r[17] or "",
-                        FieldName.PRIMARY_EDGE: r[18] or "",
+                        FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
+                        FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
                     },
                     FieldName.MODE: "db",
                 }
