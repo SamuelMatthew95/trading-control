@@ -62,29 +62,6 @@ class Settings(BaseSettings):
     # Reflection / strategy
     HYPOTHESIS_MIN_CONFIDENCE: float = 0.7
 
-    # Hybrid decision pipeline — conservative defaults. LLMs only recommend;
-    # deterministic code (market validator, candidate gate, risk engine, sizing)
-    # approves or blocks. All tunable via env; defaults fail safe (hold/block).
-    HYBRID_MIN_SIGNAL_SCORE: float = 0.65  # candidate gate: below → no LLM call
-    HYBRID_MIN_INSTRUCT_CONFIDENCE: float = 0.70  # below → risk engine blocks buy/sell
-    HYBRID_REASONING_REVIEW_LOWER: float = 0.55  # gray-zone lower bound
-    HYBRID_REASONING_REVIEW_UPPER: float = 0.80  # gray-zone upper bound
-    HYBRID_MIN_REWARD_RISK: float = 2.0  # min reward/risk for a new entry
-    HYBRID_MAX_RISK_PER_TRADE_PCT: float = 0.005  # 0.5% of equity at risk per trade
-    HYBRID_MAX_DAILY_DRAWDOWN_PCT: float = 0.02  # halt new risk past this drawdown
-    HYBRID_MAX_SYMBOL_EXPOSURE_PCT: float = 0.10  # 10% of equity per symbol
-    HYBRID_MAX_OPEN_POSITIONS: int = 5
-    HYBRID_MAX_SPREAD_BPS: float = 50.0  # block if bid/ask spread wider than this
-    HYBRID_PRICE_MAX_STALENESS_SECONDS: float = 30.0  # block on stale price
-    HYBRID_MIN_RELATIVE_VOLUME: float = 0.5  # block if rel-volume below this
-    HYBRID_ALLOW_SHORTING: bool = False
-    HYBRID_ALLOW_AVERAGING_DOWN: bool = False
-    HYBRID_REQUIRE_STOP_LOSS: bool = True
-    HYBRID_REQUIRE_TAKE_PROFIT: bool = True
-    HYBRID_ONE_OPEN_POSITION_PER_SYMBOL: bool = True
-    # Reasoning model is expensive — only call it in the gray zone / high-risk cases.
-    HYBRID_REASONING_REVIEW_ENABLED: bool = True
-
     # LLM provider routing
     LLM_PROVIDER: str = "gemini"
     # When True (default), fall back to a cloud provider if LM Studio is

@@ -11,6 +11,4 @@ ignore = ["E501"]
 [lint.per-file-ignores]
 # Tests legitimately import inside test bodies (module-under-test setup,
 # monkeypatch ordering) — PLC0415 is enforced only on application code.
-# C408: test fixtures favour dict(...) builders merged with **overrides for
-# readability; the literal-vs-dict() style rule is not worth enforcing here.
-"tests/*" = ["S101", "PLC0415", "C408"]
+"tests/*" = ["S101", "PLC0415"]
