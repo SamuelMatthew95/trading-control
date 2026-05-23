@@ -579,6 +579,7 @@ class FieldName(StrEnum):
     MISTAKE_CLUSTERS = "mistake_clusters"
     MODE = "mode"
     MODEL = "model"
+    MODEL_USED = "model_used"
     MODEL_VAR = "model_var"
     MOMENTUM = "momentum"
     MOMENTUM_PCT = "momentum_pct"
