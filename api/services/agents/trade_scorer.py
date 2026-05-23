@@ -155,6 +155,10 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
         FieldName.MISTAKES: mistakes,
         FieldName.STRENGTHS: strengths,
         FieldName.NORM_RETURN: round(norm_return, 4),
+        # Decision provenance — which model produced the trade and its thesis,
+        # so a graded trade can be traced back to the reasoning behind it.
+        FieldName.MODEL_USED: str(trade_data.get(FieldName.MODEL_USED) or ""),
+        FieldName.PRIMARY_EDGE: str(trade_data.get(FieldName.PRIMARY_EDGE) or ""),
     }
 
 
