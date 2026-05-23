@@ -27,6 +27,9 @@ interface TradeEvaluation {
   mistakes: string[]
   strengths: string[]
   created_at: string | null
+  // Decision provenance — which LLM made the call and its one-line thesis.
+  model_used?: string | null
+  primary_edge?: string | null
 }
 
 interface TradesResponse {
@@ -268,6 +271,26 @@ function TradeDetailModal({
             </div>
           ))}
         </div>
+
+        {(trade.model_used || trade.primary_edge) && (
+          <div className="mb-4 space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
+            {trade.model_used && (
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Model:{' '}
+                <span className="font-mono text-slate-800 dark:text-slate-200">{trade.model_used}</span>
+              </p>
+            )}
+            {trade.primary_edge && (
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Thesis:{' '}
+                <span className="text-slate-800 dark:text-slate-200">
+                  {trade.primary_edge.replace(/_/g, ' ')}
+                </span>
+              </p>
+            )}
+          </div>
+        )}
 
         {trade.mistakes.length > 0 && (
           <div className="mb-3">
