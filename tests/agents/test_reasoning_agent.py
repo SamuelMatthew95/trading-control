@@ -252,6 +252,38 @@ async def test_fallback_decision_marks_model_used_fallback(
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
 @patch("api.services.agents.vector_helpers.embed_text")
+async def test_decision_records_actual_provider_from_result_meta(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
+    """The decision records the provider the router actually used (reported via
+    result_meta) — e.g. an lmstudio→cloud fallback — not just the configured default."""
+    mock_embed.return_value = [0.1] * 1536
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    async def _fake_call(prompt, system_prompt, trace_id, *, task_type=None, result_meta=None):
+        if result_meta is not None:
+            result_meta["model_label"] = "groq:llama-3.3-70b-versatile"
+        return json.dumps(_valid_summary("buy")), 500, 0.001
+
+    mock_call_llm_with_system.side_effect = _fake_call
+
+    with patch(
+        "api.services.agents.reasoning_agent.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        with patch(
+            "api.services.agents.vector_helpers.search_vector_memory",
+            AsyncMock(return_value=[]),
+        ):
+            await agent.process(_make_signal("buy"))
+
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    assert decision_call.args[1]["model_used"] == "groq:llama-3.3-70b-versatile"
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
 async def test_hold_action_no_order_published(
     mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
 ):
