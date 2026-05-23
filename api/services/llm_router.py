@@ -326,6 +326,34 @@ _PROVIDERS = {
 _LOCAL_PROVIDERS: frozenset[str] = frozenset({LM_STUDIO_PROVIDER})
 
 
+def active_provider_and_model() -> tuple[str, str]:
+    """Return the (provider, model) the router is configured to use right now.
+
+    Single source of truth for "which model produced this decision", so the
+    learning loop can record it without duplicating the routing logic. Reflects
+    the configured/primary route; if a per-call fallback fires, the decision's
+    ``fallback`` flag records that separately.
+    """
+    if _is_lmstudio_primary():
+        return LM_STUDIO_PROVIDER, settings.LM_STUDIO_MODEL
+    provider = settings.LLM_PROVIDER.lower().strip()
+    if provider == FieldName.GROQ:
+        return provider, settings.GROQ_MODEL
+    if provider == FieldName.ANTHROPIC:
+        return provider, settings.ANTHROPIC_MODEL
+    if provider == FieldName.OPENAI:
+        return provider, settings.OPENAI_MODEL
+    if provider == FieldName.GEMINI:
+        return provider, settings.GEMINI_MODEL
+    return provider, provider
+
+
+def active_model_label() -> str:
+    """``"provider:model"`` label for the active LLM, e.g. ``"gemini:gemini-1.5-flash"``."""
+    provider, model = active_provider_and_model()
+    return f"{provider}:{model}"
+
+
 def _find_cloud_fallback() -> str | None:
     """Return the first cloud provider that has an API key configured.
 
