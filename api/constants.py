@@ -931,6 +931,13 @@ class FieldName(StrEnum):
     WORST_HOURS = "worst_hours"
     WORST_TRADE = "worst_trade"
 
+    # Hybrid decision-pipeline lifecycle / envelope keys
+    DECISION_ID = "decision_id"
+    EVENT_VERSION = "event_version"
+    PRODUCER = "producer"
+    MODEL_USED = "model_used"
+    BLOCK_REASON = "block_reason"
+
 
 class StatusValue(StrEnum):
     RUNNING = "running"
@@ -962,6 +969,106 @@ class MarketDirection(StrEnum):
     BULLISH = "bullish"
     BEARISH = "bearish"
     NEUTRAL = "neutral"
+
+
+# ---------------------------------------------------------------------------
+# Hybrid decision-pipeline enums
+#
+# The pipeline is: market validation → deterministic signal → candidate gate
+# → instruct LLM → (optional) reasoning review → deterministic risk engine →
+# position sizing → execution. LLMs only recommend; deterministic code approves
+# or blocks. These enums name the lifecycle stages and the block reasons that
+# the deterministic stages emit so the dashboard can always explain a decision.
+# ---------------------------------------------------------------------------
+
+
+class LifecycleStage(StrEnum):
+    """Durable lifecycle stages for a single trading decision (decision_id)."""
+
+    SIGNAL_CREATED = "signal_created"
+    MARKET_VALIDATED = "market_validated"
+    SIGNAL_CANDIDATE_CREATED = "signal_candidate_created"
+    MODEL_RECOMMENDED = "model_recommended"
+    REASONING_REVIEWED = "reasoning_reviewed"
+    RISK_APPROVED = "risk_approved"
+    RISK_BLOCKED = "risk_blocked"
+    ORDER_SIZED = "order_sized"
+    ORDER_PENDING = "order_pending"
+    ORDER_SUBMITTED = "order_submitted"
+    ORDER_FILLED = "order_filled"
+    POSITION_OPENED = "position_opened"
+    POSITION_UPDATED = "position_updated"
+    EXIT_SIGNAL_CREATED = "exit_signal_created"
+    POSITION_CLOSED = "position_closed"
+    PNL_REALIZED = "pnl_realized"
+    TRADE_GRADED = "trade_graded"
+    NOTIFICATION_CREATED = "notification_created"
+
+
+class BlockReason(StrEnum):
+    """Deterministic block reasons. Stable strings — the dashboard renders these
+    verbatim to explain why a decision did not reach the broker."""
+
+    # Market-validation blocks (pre-LLM)
+    MARKET_CLOSED = "market_closed"
+    PRICE_STALE = "price_stale"
+    PRICE_MISSING = "price_missing"
+    SPREAD_TOO_WIDE = "spread_too_wide"
+    VOLUME_TOO_LOW = "volume_too_low"
+    SYMBOL_NOT_TRADABLE = "symbol_not_tradable"
+    BROKER_UNAVAILABLE = "broker_unavailable"
+    DATA_INCOMPLETE = "data_incomplete"
+    INVALID_QUOTE = "invalid_quote"
+    # Candidate-gate blocks (pre-LLM)
+    WEAK_SIGNAL = "weak_signal"
+    INDICATORS_INCOMPLETE = "indicators_incomplete"
+    NO_DIRECTION = "no_direction"
+    # Model-output blocks
+    MODEL_OUTPUT_INVALID = "model_output_invalid"
+    LOW_CONFIDENCE = "low_confidence"
+    # Risk-engine blocks (post-LLM, deterministic authority)
+    DUPLICATE_SIGNAL = "duplicate_signal"
+    OPEN_ORDER_EXISTS = "open_order_exists"
+    DAILY_LOSS_LIMIT = "daily_loss_limit"
+    MAX_POSITION_RISK = "max_position_risk"
+    MAX_SYMBOL_EXPOSURE = "max_symbol_exposure"
+    MAX_OPEN_POSITIONS = "max_open_positions"
+    MISSING_STOP_LOSS = "missing_stop_loss"
+    MISSING_TAKE_PROFIT = "missing_take_profit"
+    REWARD_RISK_TOO_LOW = "reward_risk_too_low"
+    AVERAGING_DOWN_DISALLOWED = "averaging_down_disallowed"
+    SHORTING_DISALLOWED = "shorting_disallowed"
+    LEDGER_UNCERTAIN = "ledger_uncertain"
+    PORTFOLIO_INCOMPLETE = "portfolio_incomplete"
+    KILL_SWITCH_ACTIVE = "kill_switch_active"
+    IDEMPOTENCY_REUSED = "idempotency_reused"
+    SIZE_ZERO = "size_zero"
+    REASONING_DOWNGRADE = "reasoning_downgrade"
+
+
+class SizeHint(StrEnum):
+    """Coarse position-size hint the instruct model may suggest. The deterministic
+    sizing engine maps these to multipliers; the model never sets exact qty."""
+
+    NONE = "none"
+    SMALL = "small"
+    NORMAL = "normal"
+    REDUCE_ONLY = "reduce_only"
+
+
+class ReviewResult(StrEnum):
+    """Output of the skeptical reasoning-review agent. It may only recommend —
+    it can never approve execution directly."""
+
+    CONTINUE_TO_RISK_REVIEW = "continue_to_risk_review"
+    DOWNGRADE_TO_HOLD = "downgrade_to_hold"
+    REDUCE_ONLY = "reduce_only"
+    EXIT_POSITION = "exit_position"
+
+
+# event_type marker for every hybrid-pipeline lifecycle event published to
+# STREAM_TRADE_LIFECYCLE. The specific stage lives in FieldName.STAGE.
+HYBRID_LIFECYCLE_EVENT_TYPE: Final[str] = "hybrid.decision.lifecycle"
 
 
 # ---------------------------------------------------------------------------
@@ -1008,6 +1115,7 @@ SOURCE_NOTIFICATION: Final[str] = "notification_agent"
 SOURCE_DB_HELPERS: Final[str] = "db_helpers"
 SOURCE_SUPERVISOR: Final[str] = "agent_supervisor"
 SOURCE_PROPOSAL_APPLIER: Final[str] = "proposal_applier"
+SOURCE_HYBRID: Final[str] = "hybrid_pipeline"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
