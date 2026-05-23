@@ -18,6 +18,7 @@ from api.routes.learning import (
     _grade_record_to_trade,
     _iso,
     _mem_grades_as_trades,
+    _row_to_trade_eval,
 )
 from api.runtime_state import set_db_available, set_runtime_store
 
@@ -26,6 +27,32 @@ from api.runtime_state import set_db_available, set_runtime_store
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         yield c
+
+
+def test_row_to_trade_eval_with_provenance():
+    row = (
+        "id-1", "trade-1", "BTC/USD", "buy", 12.0, 1.2,
+        0.7, 0.6, 0.65, 0.8, 2.0, 0.72, "B", 0.8,
+        ["late_entry"], ["good_rr"], "2026-05-23T00:00:00+00:00",
+        "gemini:flash", "vwap_reclaim",
+    )
+    out = _row_to_trade_eval(row, has_provenance=True)
+    assert out[FieldName.TRADE_EVAL_ID] == "trade-1"
+    assert out[FieldName.MODEL_USED] == "gemini:flash"
+    assert out[FieldName.PRIMARY_EDGE] == "vwap_reclaim"
+    assert out[FieldName.MISTAKES] == ["late_entry"]
+
+
+def test_row_to_trade_eval_without_provenance_is_blank():
+    # Base row has 17 columns; helper must not index past it when provenance is off.
+    row = (
+        "id-2", "trade-2", "ETH/USD", "sell", -3.0, -0.5,
+        0.4, 0.5, 0.45, 0.6, 1.0, 0.4, "D", 0.5,
+        [], [], "2026-05-23T00:00:00+00:00",
+    )
+    out = _row_to_trade_eval(row, has_provenance=False)
+    assert out[FieldName.MODEL_USED] == ""
+    assert out[FieldName.PRIMARY_EDGE] == ""
 
 
 # ---------------------------------------------------------------------------
