@@ -14,6 +14,7 @@ Final formula:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 from api.constants import FieldName, Grade
@@ -427,3 +428,54 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
         "metric_status": metric_status,
         "min_required_sample_size": _MIN_RELIABLE_TRADES,
     }
+
+
+@dataclass
+class _ModelAcc:
+    """Mutable per-model accumulator. A dataclass (not a dict) so its attribute
+    names never collide with the FieldName guardrail's key checks."""
+
+    trades: int = 0
+    wins: int = 0
+    score_sum: float = 0.0
+    pnl_sum: float = 0.0
+
+
+def aggregate_model_performance(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group scored trades by the LLM that produced them.
+
+    Returns one row per ``model_used`` (skipping blank/unknown) with trade count,
+    win rate, average score, and PnL totals — sorted by trade count descending.
+    Pure: same aggregation is reused by the DB and in-memory route paths so the
+    two modes can never diverge. No LLM, no IO.
+    """
+    buckets: dict[str, _ModelAcc] = {}
+    for ev in evaluations:
+        model = str(ev.get(FieldName.MODEL_USED) or "").strip()
+        if not model:
+            continue
+        acc = buckets.setdefault(model, _ModelAcc())
+        acc.trades += 1
+        pnl = ev.get(FieldName.PNL)
+        if pnl is not None:
+            pnl_f = float(pnl)
+            acc.pnl_sum += pnl_f
+            if pnl_f > 0:
+                acc.wins += 1
+        score = ev.get(FieldName.OVERALL_SCORE)
+        if score is not None:
+            acc.score_sum += float(score)
+
+    rows = [
+        {
+            FieldName.MODEL_USED: model,
+            FieldName.TRADE_COUNT: acc.trades,
+            FieldName.WIN_RATE: round(acc.wins / acc.trades, 4) if acc.trades else 0.0,
+            FieldName.AVG_SCORE: round(acc.score_sum / acc.trades, 4) if acc.trades else 0.0,
+            FieldName.TOTAL_PNL: round(acc.pnl_sum, 4),
+            FieldName.AVG_PNL: round(acc.pnl_sum / acc.trades, 4) if acc.trades else 0.0,
+        }
+        for model, acc in buckets.items()
+    ]
+    rows.sort(key=lambda r: r[FieldName.TRADE_COUNT], reverse=True)
+    return rows
