@@ -107,6 +107,46 @@ async def _trade_eval_has_provenance(session: Any) -> bool:
         return False
 
 
+# Column order for trade_evaluations SELECTs. Fixed identifiers (never user
+# input) so they are safe to interpolate into text(). _row_to_trade_eval reads
+# rows positionally and MUST stay in sync with this order.
+_TRADE_EVAL_COLS = (
+    "id, trade_id, symbol, side, pnl, return_pct, "
+    "entry_quality, exit_quality, timing_score, signal_alignment, "
+    "risk_reward, overall_score, grade, confidence, "
+    "mistakes, strengths, created_at"
+)
+_TRADE_EVAL_COLS_PROV = _TRADE_EVAL_COLS + ", model_used, primary_edge"
+
+
+def _row_to_trade_eval(r: Any, has_provenance: bool) -> dict[str, Any]:
+    """Map one trade_evaluations row (ordered per _TRADE_EVAL_COLS) to the API
+    trade shape. Shared by the list and single-trade endpoints so the response
+    shape can't drift. Provenance fields are blank when those columns are absent
+    (partial-migration window)."""
+    return {
+        FieldName.ID: str(r[0]),
+        FieldName.TRADE_EVAL_ID: str(r[1]),
+        FieldName.SYMBOL: r[2],
+        FieldName.SIDE: r[3],
+        FieldName.PNL: float(r[4]) if r[4] is not None else None,
+        FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
+        FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
+        FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
+        FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
+        FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
+        FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
+        FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
+        FieldName.GRADE: r[12],
+        FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
+        FieldName.MISTAKES: _as_list(r[14]),
+        FieldName.STRENGTHS: _as_list(r[15]),
+        FieldName.CREATED_AT: _iso(r[16]),
+        FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
+        FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
+    }
+
+
 def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) -> dict[str, Any]:
     """Convert a raw grade score into the trade_evaluation response shape."""
     return {
@@ -260,61 +300,18 @@ async def list_trade_evaluations(
                 }
 
             # Provenance columns (model_used/primary_edge) were added in migration
-            # 20260502. Tolerate a partial-migration window: probe once, then pick
-            # the matching SELECT so a missing column never 500s this endpoint.
+            # 20260502. Probe once, then pick the column set so a partial-migration
+            # window (table present, columns absent) never 500s this endpoint.
             has_provenance = await _trade_eval_has_provenance(session)
-
-            if has_provenance:
-                rows = await session.execute(
-                    text("""
-                        SELECT id, trade_id, symbol, side, pnl, return_pct,
-                               entry_quality, exit_quality, timing_score, signal_alignment,
-                               risk_reward, overall_score, grade, confidence,
-                               mistakes, strengths, created_at,
-                               model_used, primary_edge
-                        FROM trade_evaluations
-                        ORDER BY created_at DESC
-                        LIMIT :limit OFFSET :offset
-                    """),
-                    {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
-                )
-            else:
-                rows = await session.execute(
-                    text("""
-                        SELECT id, trade_id, symbol, side, pnl, return_pct,
-                               entry_quality, exit_quality, timing_score, signal_alignment,
-                               risk_reward, overall_score, grade, confidence,
-                               mistakes, strengths, created_at
-                        FROM trade_evaluations
-                        ORDER BY created_at DESC
-                        LIMIT :limit OFFSET :offset
-                    """),
-                    {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
-                )
-            trades = [
-                {
-                    FieldName.ID: str(r[0]),
-                    FieldName.TRADE_EVAL_ID: str(r[1]),
-                    FieldName.SYMBOL: r[2],
-                    FieldName.SIDE: r[3],
-                    FieldName.PNL: float(r[4]) if r[4] is not None else None,
-                    FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
-                    FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
-                    FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
-                    FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
-                    FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
-                    FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
-                    FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
-                    FieldName.GRADE: r[12],
-                    FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
-                    FieldName.MISTAKES: _as_list(r[14]),
-                    FieldName.STRENGTHS: _as_list(r[15]),
-                    FieldName.CREATED_AT: _iso(r[16]),
-                    FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
-                    FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
-                }
-                for r in rows.all()
-            ]
+            cols = _TRADE_EVAL_COLS_PROV if has_provenance else _TRADE_EVAL_COLS
+            rows = await session.execute(
+                text(
+                    f"SELECT {cols} FROM trade_evaluations "
+                    "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                ),
+                {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
+            )
+            trades = [_row_to_trade_eval(r, has_provenance) for r in rows.all()]
         return {
             FieldName.TRADES: trades,
             FieldName.TOTAL: total,
@@ -366,66 +363,22 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
             # Probe for provenance columns so a partial migration (table present,
             # model_used absent) doesn't fail the SELECT.
             has_provenance = await _trade_eval_has_provenance(session)
+            cols = _TRADE_EVAL_COLS_PROV if has_provenance else _TRADE_EVAL_COLS
             r = None
             te_accessible = True
             try:
-                if has_provenance:
-                    row = await session.execute(
-                        text("""
-                            SELECT id, trade_id, symbol, side, pnl, return_pct,
-                                   entry_quality, exit_quality, timing_score, signal_alignment,
-                                   risk_reward, overall_score, grade, confidence,
-                                   mistakes, strengths, created_at,
-                                   model_used, primary_edge
-                            FROM trade_evaluations
-                            WHERE trade_id = :trade_id
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        """),
-                        {"trade_id": trade_id},
-                    )
-                else:
-                    row = await session.execute(
-                        text("""
-                            SELECT id, trade_id, symbol, side, pnl, return_pct,
-                                   entry_quality, exit_quality, timing_score, signal_alignment,
-                                   risk_reward, overall_score, grade, confidence,
-                                   mistakes, strengths, created_at
-                            FROM trade_evaluations
-                            WHERE trade_id = :trade_id
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        """),
-                        {"trade_id": trade_id},
-                    )
+                row = await session.execute(
+                    text(
+                        f"SELECT {cols} FROM trade_evaluations "
+                        "WHERE trade_id = :trade_id ORDER BY created_at DESC LIMIT 1"
+                    ),
+                    {"trade_id": trade_id},
+                )
                 r = row.first()
             except Exception:
                 te_accessible = False
             if r is not None:
-                return {
-                    "trade": {
-                        FieldName.ID: str(r[0]),
-                        FieldName.TRADE_EVAL_ID: str(r[1]),
-                        FieldName.SYMBOL: r[2],
-                        FieldName.SIDE: r[3],
-                        FieldName.PNL: float(r[4]) if r[4] is not None else None,
-                        FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
-                        FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
-                        FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
-                        FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
-                        FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
-                        FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
-                        FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
-                        FieldName.GRADE: r[12],
-                        FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
-                        FieldName.MISTAKES: _as_list(r[14]),
-                        FieldName.STRENGTHS: _as_list(r[15]),
-                        FieldName.CREATED_AT: _iso(r[16]),
-                        FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
-                        FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
-                    },
-                    FieldName.MODE: "db",
-                }
+                return {"trade": _row_to_trade_eval(r, has_provenance), FieldName.MODE: "db"}
             # trade_evaluations miss or inaccessible — IDs may come from the agent_grades bridge
             te_empty = not te_accessible
             if te_accessible:
