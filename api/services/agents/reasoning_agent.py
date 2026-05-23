@@ -293,9 +293,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.SIGNAL_CONFIDENCE: round(scaled_signal, 6),
                 FieldName.WEIGHT_SCALE: round(weight_scale, 6),
                 # Order parameters forwarded for ExecutionEngine use
-                FieldName.QTY: max(
-                    float(data.get(FieldName.QTY, 1.0)), float(summary.get(FieldName.SIZE_PCT, 1.0))
-                ),
+                # QTY is the raw signal quantity; ExecutionEngine converts it to a
+                # portfolio-fraction order using size_pct below.
+                FieldName.QTY: float(data.get(FieldName.QTY, 1.0)),
                 FieldName.PRICE: float(
                     data.get(FieldName.PRICE, data.get(FieldName.LAST_PRICE, 0.0))
                 ),
@@ -306,7 +306,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.TRACE_ID: trace_id,
                 FieldName.PRIMARY_EDGE: summary.get(FieldName.PRIMARY_EDGE, ""),
                 FieldName.RISK_FACTORS: summary.get(FieldName.RISK_FACTORS, []),
-                FieldName.SIZE_PCT: float(summary.get(FieldName.SIZE_PCT) or 0.01),
+                FieldName.SIZE_PCT: max(
+                    0.01, min(0.10, float(summary.get(FieldName.SIZE_PCT) or 0.01))
+                ),
                 FieldName.STOP_ATR_X: float(summary.get(FieldName.STOP_ATR_X) or 1.5),
                 FieldName.RR_RATIO: float(summary.get(FieldName.RR_RATIO) or 2.0),
             },
@@ -857,7 +859,7 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.PRIMARY_EDGE: f"fallback:{settings.LLM_FALLBACK_MODE}",
             FieldName.RISK_FACTORS: [reason],
             FieldName.SIZE_PCT: round(
-                max(float(data.get(FieldName.SIZE_PCT, 0.01) or 0.01), 0.01), 4
+                max(0.01, min(0.10, float(data.get(FieldName.SIZE_PCT, 0.01) or 0.01))), 4
             ),
             FieldName.STOP_ATR_X: float(data.get(FieldName.STOP_ATR_X, 1.5) or 1.5),
             FieldName.RR_RATIO: float(data.get(FieldName.RR_RATIO, 2.0) or 2.0),
