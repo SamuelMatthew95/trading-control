@@ -200,6 +200,10 @@ Every decision records the model that produced it so the learning loop grades
    "Model Performance" panel so you can compare how each model actually trades.
    Aggregation (`aggregate_model_performance`) is shared by the DB and memory
    paths so the two never diverge.
+6. `ReflectionAgent` feeds the per-model summary into its LLM prompt and records
+   it on each reflection (`model_performance`), so reflections — and the
+   `StrategyProposer` proposals they drive — can reason about *which model* is
+   trading well, not just aggregate outcomes.
 
 Learning thresholds (env): `GRADE_EVERY_N_FILLS`, `GRADE_LOOKBACK_N`,
 `GRADE_WEIGHT_*`, `IC_UPDATE_EVERY_N_FILLS`, `IC_LOOKBACK_DAYS`,
