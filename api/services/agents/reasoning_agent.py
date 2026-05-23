@@ -60,7 +60,7 @@ from api.services.agents.vector_helpers import (
     embed_text,
     search_vector_memory,
 )
-from api.services.llm_router import call_llm_with_system
+from api.services.llm_router import active_model_label, call_llm_with_system
 from api.services.redis_store import get_redis_store
 
 
@@ -180,6 +180,12 @@ class ReasoningAgent(BaseStreamConsumer):
 
         # Enforce strict risk hierarchy before persistence/publishing.
         summary = self._apply_risk_hierarchy(summary, context)
+
+        # Stamp the model that produced this decision so the learning loop
+        # (GradeAgent / ReflectionAgent) can grade decisions with model
+        # awareness. Flows into agent_logs.step_data and the Redis decision
+        # record via `summary`; no schema change required.
+        summary[FieldName.MODEL_USED] = "fallback" if is_fallback else active_model_label()
 
         # --- Persist agent run + cost tracking ---------------------------
         agent_run_id = await self._persist_run(
@@ -306,6 +312,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.TRACE_ID: trace_id,
                 FieldName.PRIMARY_EDGE: summary.get(FieldName.PRIMARY_EDGE, ""),
                 FieldName.RISK_FACTORS: summary.get(FieldName.RISK_FACTORS, []),
+                FieldName.MODEL_USED: summary.get(FieldName.MODEL_USED, ""),
                 FieldName.SIZE_PCT: float(summary.get(FieldName.SIZE_PCT) or 0.01),
                 FieldName.STOP_ATR_X: float(summary.get(FieldName.STOP_ATR_X) or 1.5),
                 FieldName.RR_RATIO: float(summary.get(FieldName.RR_RATIO) or 2.0),
