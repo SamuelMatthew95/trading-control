@@ -30,7 +30,10 @@ from api.constants import FieldName, GradeType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
-from api.services.agents.trade_scorer import compute_learning_metrics
+from api.services.agents.trade_scorer import (
+    aggregate_model_performance,
+    compute_learning_metrics,
+)
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -503,6 +506,56 @@ async def get_learning_metrics() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "learning_metrics_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# GET /learning/model-performance
+# ---------------------------------------------------------------------------
+
+
+@router.get("/model-performance")
+async def get_model_performance() -> dict[str, Any]:
+    """Per-model trade performance grouped by the LLM that produced each trade.
+
+    Powered by decision provenance (``model_used`` on each trade evaluation):
+    win rate, average score, and PnL per ``provider:model``. Same aggregation
+    runs for both DB and memory mode so the two never diverge.
+    """
+    mode = "db" if is_db_available() else "memory"
+
+    if not is_db_available():
+        store = get_runtime_store()
+        models = aggregate_model_performance(store.get_trade_evaluations(200))
+        return {FieldName.MODELS: models, FieldName.MODE: mode}
+
+    try:
+        evaluations: list[dict[str, Any]] = []
+        async with AsyncSessionFactory() as session:
+            try:
+                rows = await session.execute(
+                    text("""
+                        SELECT model_used, overall_score, pnl
+                        FROM trade_evaluations
+                        WHERE model_used IS NOT NULL AND model_used <> ''
+                        ORDER BY created_at DESC
+                        LIMIT 1000
+                    """)
+                )
+                evaluations = [
+                    {
+                        FieldName.MODEL_USED: r[0],
+                        FieldName.OVERALL_SCORE: float(r[1]) if r[1] is not None else None,
+                        FieldName.PNL: float(r[2]) if r[2] is not None else None,
+                    }
+                    for r in rows.all()
+                ]
+            except Exception:
+                # Columns absent before migration 20260502 — degrade to empty, never 500.
+                evaluations = []
+        return {FieldName.MODELS: aggregate_model_performance(evaluations), FieldName.MODE: mode}
+    except Exception:
+        log_structured("error", "learning_model_performance_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
