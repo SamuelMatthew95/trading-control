@@ -195,6 +195,11 @@ Every decision records the model that produced it so the learning loop grades
    (columns added in migration `20260502_decision_provenance`).
 4. `GET /learning/trades` returns them and the dashboard's trade-detail modal
    shows the model + thesis behind every graded trade.
+5. `GET /learning/model-performance` aggregates graded trades by `model_used`
+   (trade count, win rate, avg score, total PnL) — surfaced as the dashboard's
+   "Model Performance" panel so you can compare how each model actually trades.
+   Aggregation (`aggregate_model_performance`) is shared by the DB and memory
+   paths so the two never diverge.
 
 Learning thresholds (env): `GRADE_EVERY_N_FILLS`, `GRADE_LOOKBACK_N`,
 `GRADE_WEIGHT_*`, `IC_UPDATE_EVERY_N_FILLS`, `IC_LOOKBACK_DAYS`,
