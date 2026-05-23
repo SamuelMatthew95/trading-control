@@ -580,6 +580,7 @@ class FieldName(StrEnum):
     MODE = "mode"
     MODEL = "model"
     MODELS = "models"
+    MODEL_PERFORMANCE = "model_performance"
     MODEL_USED = "model_used"
     MODEL_VAR = "model_var"
     MOMENTUM = "momentum"
