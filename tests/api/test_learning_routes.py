@@ -163,6 +163,46 @@ async def test_list_trades_db_down_with_trade_evaluations(client):
 
 
 @pytest.mark.asyncio
+async def test_model_performance_db_down_groups_by_model(client):
+    store = InMemoryStore()
+    for i, (model, pnl, score) in enumerate(
+        [("gemini:flash", 10.0, 0.8), ("gemini:flash", -4.0, 0.4), ("lmstudio:llama", 6.0, 0.7)]
+    ):
+        store.add_trade_evaluation(
+            {
+                FieldName.TRADE_EVAL_ID: f"eval-{i}",
+                FieldName.MODEL_USED: model,
+                FieldName.PNL: pnl,
+                FieldName.OVERALL_SCORE: score,
+                "created_at": time.time(),
+            }
+        )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/model-performance")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mode"] == "memory"
+    by_model = {m[FieldName.MODEL_USED]: m for m in data[FieldName.MODELS]}
+    assert by_model["gemini:flash"][FieldName.TRADE_COUNT] == 2
+    assert by_model["gemini:flash"][FieldName.WIN_RATE] == 0.5
+    assert by_model["gemini:flash"][FieldName.TOTAL_PNL] == 6.0
+    assert by_model["lmstudio:llama"][FieldName.TRADE_COUNT] == 1
+    # Models with no model_used are excluded; sorted by trade count desc.
+    assert data[FieldName.MODELS][0][FieldName.MODEL_USED] == "gemini:flash"
+
+
+@pytest.mark.asyncio
+async def test_model_performance_empty_store(client):
+    set_runtime_store(InMemoryStore())
+    set_db_available(False)
+    resp = await client.get("/learning/model-performance")
+    assert resp.status_code == 200
+    assert resp.json()[FieldName.MODELS] == []
+
+
+@pytest.mark.asyncio
 async def test_list_trades_db_down_grade_history_when_no_evals(client):
     store = InMemoryStore()
     # DB is down. GradeAgent ran and wrote to grade_history. No trade_evaluations yet.
