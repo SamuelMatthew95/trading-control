@@ -3,7 +3,32 @@
 import pytest
 
 from api.constants import FieldName
-from api.services.agents.trade_scorer import compute_learning_metrics
+from api.services.agents.trade_scorer import compute_learning_metrics, score_trade
+
+
+def test_score_trade_carries_decision_provenance():
+    """A scored trade records the model + thesis that produced it, so the
+    learning loop can grade decisions with model awareness."""
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-1",
+            FieldName.SYMBOL: "BTC/USD",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: 12.0,
+            FieldName.PNL_PERCENT: 1.2,
+            FieldName.CONFIDENCE: 0.8,
+            FieldName.MODEL_USED: "gemini:gemini-1.5-flash",
+            FieldName.PRIMARY_EDGE: "vwap_reclaim_momentum",
+        }
+    )
+    assert evaluation[FieldName.MODEL_USED] == "gemini:gemini-1.5-flash"
+    assert evaluation[FieldName.PRIMARY_EDGE] == "vwap_reclaim_momentum"
+
+
+def test_score_trade_provenance_defaults_empty_when_absent():
+    evaluation = score_trade({FieldName.TRADE_ID: "t-2", FieldName.PNL_PERCENT: 0.5})
+    assert evaluation[FieldName.MODEL_USED] == ""
+    assert evaluation[FieldName.PRIMARY_EDGE] == ""
 
 # ---------------------------------------------------------------------------
 # Helpers
