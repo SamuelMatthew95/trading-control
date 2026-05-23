@@ -287,7 +287,7 @@ async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
                         pnl, return_pct,
                         entry_quality, exit_quality, timing_score, signal_alignment,
                         risk_reward, overall_score, grade, confidence,
-                        mistakes, strengths,
+                        mistakes, strengths, model_used, primary_edge,
                         source, schema_version
                     ) VALUES (
                         gen_random_uuid(), :trade_id, :symbol, :side,
@@ -295,6 +295,7 @@ async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
                         :entry_quality, :exit_quality, :timing_score, :signal_alignment,
                         :risk_reward, :overall_score, :grade, :confidence,
                         CAST(:mistakes AS JSONB), CAST(:strengths AS JSONB),
+                        :model_used, :primary_edge,
                         :source, :schema_version
                     )
                     ON CONFLICT DO NOTHING
@@ -315,6 +316,8 @@ async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
                     "confidence": trade_eval.get(FieldName.CONFIDENCE),
                     "mistakes": json.dumps(trade_eval.get(FieldName.MISTAKES) or []),
                     "strengths": json.dumps(trade_eval.get(FieldName.STRENGTHS) or []),
+                    "model_used": trade_eval.get(FieldName.MODEL_USED) or "",
+                    "primary_edge": trade_eval.get(FieldName.PRIMARY_EDGE) or "",
                     "source": SOURCE_DB_HELPERS,
                     "schema_version": DB_SCHEMA_VERSION,
                 },
