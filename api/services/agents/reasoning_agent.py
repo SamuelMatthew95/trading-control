@@ -90,6 +90,10 @@ class ReasoningAgent(BaseStreamConsumer):
             agent_state=agent_state,
         )
         self.redis = redis_client
+        # Set by _call_llm to the provider:model actually used (incl. fallback);
+        # consumed by process() to stamp model_used. None means "use configured
+        # default". Safe as instance state: process() runs one event at a time.
+        self._last_model_label: str | None = None
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
@@ -111,6 +115,8 @@ class ReasoningAgent(BaseStreamConsumer):
             return
 
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
+        # Reset per-decision provenance; _call_llm sets it to the real provider.
+        self._last_model_label = None
 
         # ReAct Step 1: Gather context (IC weights + risk state) before reasoning
         context = await self._gather_context(data)
@@ -183,9 +189,13 @@ class ReasoningAgent(BaseStreamConsumer):
 
         # Stamp the model that produced this decision so the learning loop
         # (GradeAgent / ReflectionAgent) can grade decisions with model
-        # awareness. Flows into agent_logs.step_data and the Redis decision
-        # record via `summary`; no schema change required.
-        summary[FieldName.MODEL_USED] = "fallback" if is_fallback else active_model_label()
+        # awareness. Prefer the provider actually used (captured by _call_llm,
+        # incl. lmstudio→cloud fallback); fall back to the configured label.
+        # Flows into agent_logs.step_data and the Redis decision record.
+        if is_fallback:
+            summary[FieldName.MODEL_USED] = "fallback"
+        else:
+            summary[FieldName.MODEL_USED] = self._last_model_label or active_model_label()
 
         # --- Persist agent run + cost tracking ---------------------------
         agent_run_id = await self._persist_run(
@@ -701,9 +711,13 @@ class ReasoningAgent(BaseStreamConsumer):
             prompt_preview=prompt[:400],
             system_prompt_preview=ADAPTIVE_TRADING_SYSTEM_PROMPT[:200],
         )
+        meta: dict[str, Any] = {}
         raw_text, tokens, cost_usd = await call_llm_with_system(
-            prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id, task_type=task_type
+            prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id, task_type=task_type, result_meta=meta
         )
+        # Record the provider:model actually used (incl. lmstudio→cloud fallback)
+        # so model attribution stays accurate, not just the configured default.
+        self._last_model_label = meta.get("model_label")
         log_structured(
             "debug",
             "llm_response_received",
