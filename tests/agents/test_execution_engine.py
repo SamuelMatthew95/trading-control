@@ -121,6 +121,7 @@ def mock_broker():
         }
     )
     broker.get_position = AsyncMock(return_value={})
+    broker.get_cash = AsyncMock(return_value=100_000.0)
     return broker
 
 

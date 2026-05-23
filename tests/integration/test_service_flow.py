@@ -180,6 +180,9 @@ class FakeBroker:
     async def get_position(self, symbol):
         return {"symbol": symbol, "side": "flat", "qty": 0.0, "entry_price": 0.0}
 
+    async def get_cash(self) -> float:
+        return 100_000.0
+
 
 @pytest.mark.asyncio
 async def test_paper_broker_updates_cash_and_position(monkeypatch):
