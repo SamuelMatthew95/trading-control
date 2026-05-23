@@ -241,7 +241,8 @@ async def list_trade_evaluations(
                     SELECT id, trade_id, symbol, side, pnl, return_pct,
                            entry_quality, exit_quality, timing_score, signal_alignment,
                            risk_reward, overall_score, grade, confidence,
-                           mistakes, strengths, created_at
+                           mistakes, strengths, created_at,
+                           model_used, primary_edge
                     FROM trade_evaluations
                     ORDER BY created_at DESC
                     LIMIT :limit OFFSET :offset
@@ -267,6 +268,8 @@ async def list_trade_evaluations(
                     FieldName.MISTAKES: _as_list(r[14]),
                     FieldName.STRENGTHS: _as_list(r[15]),
                     FieldName.CREATED_AT: _iso(r[16]),
+                    FieldName.MODEL_USED: r[17] or "",
+                    FieldName.PRIMARY_EDGE: r[18] or "",
                 }
                 for r in rows.all()
             ]
@@ -326,7 +329,8 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                         SELECT id, trade_id, symbol, side, pnl, return_pct,
                                entry_quality, exit_quality, timing_score, signal_alignment,
                                risk_reward, overall_score, grade, confidence,
-                               mistakes, strengths, created_at
+                               mistakes, strengths, created_at,
+                               model_used, primary_edge
                         FROM trade_evaluations
                         WHERE trade_id = :trade_id
                         ORDER BY created_at DESC
@@ -357,6 +361,8 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                         FieldName.MISTAKES: _as_list(r[14]),
                         FieldName.STRENGTHS: _as_list(r[15]),
                         FieldName.CREATED_AT: _iso(r[16]),
+                        FieldName.MODEL_USED: r[17] or "",
+                        FieldName.PRIMARY_EDGE: r[18] or "",
                     },
                     FieldName.MODE: "db",
                 }
