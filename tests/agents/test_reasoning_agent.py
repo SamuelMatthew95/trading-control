@@ -193,6 +193,60 @@ async def test_processes_signal_event_publishes_order_for_buy(
     assert "trace_id" in decision_payload
     assert "reasoning_score" in decision_payload
     assert "signal_confidence" in decision_payload
+    # Decision records which model produced it (provider:model label) so the
+    # learning loop can grade with model awareness.
+    assert decision_payload["model_used"]
+    assert ":" in decision_payload["model_used"]
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_decision_records_model_used_in_agent_log(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
+    """The reasoning_summary agent_log carries the model that produced the decision."""
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch(
+        "api.services.agents.reasoning_agent.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        with patch(
+            "api.services.agents.vector_helpers.search_vector_memory",
+            AsyncMock(return_value=[]),
+        ):
+            await agent.process(_make_signal("buy"))
+
+    log_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "agent_logs")
+    assert log_call.args[1]["model_used"]
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_fallback_decision_marks_model_used_fallback(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis
+):
+    """A fallback decision (LLM failed) records model_used='fallback'."""
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.side_effect = RuntimeError("No API key configured")
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch(
+        "api.services.agents.reasoning_agent.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        with patch(
+            "api.services.agents.vector_helpers.search_vector_memory",
+            AsyncMock(return_value=[]),
+        ):
+            await agent.process(_make_signal("buy"))
+
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    assert decision_call.args[1]["model_used"] == "fallback"
 
 
 @patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
