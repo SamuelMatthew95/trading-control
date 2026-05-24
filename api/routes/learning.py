@@ -116,7 +116,7 @@ _TRADE_EVAL_COLS = (
     "risk_reward, overall_score, grade, confidence, "
     "mistakes, strengths, created_at"
 )
-_TRADE_EVAL_COLS_PROV = _TRADE_EVAL_COLS + ", model_used, primary_edge"
+_TRADE_EVAL_COLS_PROV = _TRADE_EVAL_COLS + ", model_used, primary_edge, decision_cost_usd"
 
 
 def _row_to_trade_eval(r: Any, has_provenance: bool) -> dict[str, Any]:
@@ -144,6 +144,9 @@ def _row_to_trade_eval(r: Any, has_provenance: bool) -> dict[str, Any]:
         FieldName.CREATED_AT: _iso(r[16]),
         FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
         FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
+        FieldName.DECISION_COST_USD: (
+            (float(r[19]) if r[19] is not None else 0.0) if has_provenance else 0.0
+        ),
     }
 
 
@@ -540,29 +543,28 @@ async def get_model_performance() -> dict[str, Any]:
         return {FieldName.MODELS: models, FieldName.MODE: mode}
 
     try:
-        evaluations: list[dict[str, Any]] = []
         async with AsyncSessionFactory() as session:
-            try:
-                rows = await session.execute(
-                    text("""
-                        SELECT model_used, overall_score, pnl
-                        FROM trade_evaluations
-                        WHERE model_used IS NOT NULL AND model_used <> ''
-                        ORDER BY created_at DESC
-                        LIMIT 1000
-                    """)
-                )
-                evaluations = [
-                    {
-                        FieldName.MODEL_USED: r[0],
-                        FieldName.OVERALL_SCORE: float(r[1]) if r[1] is not None else None,
-                        FieldName.PNL: float(r[2]) if r[2] is not None else None,
-                    }
-                    for r in rows.all()
-                ]
-            except Exception:
-                # Columns absent before migration 20260502 — degrade to empty, never 500.
-                evaluations = []
+            # No provenance columns yet (pre-migration) → nothing to attribute.
+            if not await _trade_eval_has_provenance(session):
+                return {FieldName.MODELS: [], FieldName.MODE: mode}
+            rows = await session.execute(
+                text("""
+                    SELECT model_used, overall_score, pnl, decision_cost_usd
+                    FROM trade_evaluations
+                    WHERE model_used IS NOT NULL AND model_used <> ''
+                    ORDER BY created_at DESC
+                    LIMIT 1000
+                """)
+            )
+            evaluations = [
+                {
+                    FieldName.MODEL_USED: r[0],
+                    FieldName.OVERALL_SCORE: float(r[1]) if r[1] is not None else None,
+                    FieldName.PNL: float(r[2]) if r[2] is not None else None,
+                    FieldName.DECISION_COST_USD: float(r[3]) if r[3] is not None else 0.0,
+                }
+                for r in rows.all()
+            ]
         return {FieldName.MODELS: aggregate_model_performance(evaluations), FieldName.MODE: mode}
     except Exception:
         log_structured("error", "learning_model_performance_failed", exc_info=True)
