@@ -5,7 +5,8 @@
 ### Added
 - `api/services/llm_router.py` — `active_provider_and_model()` / `active_model_label()`: single source of truth for the `provider:model` label of the active LLM
 - `FieldName.MODEL_USED` — payload key for the model that produced a decision
-- Alembic migration `20260502_decision_provenance` — adds nullable `model_used` + `primary_edge` columns to `trade_evaluations`
+- Alembic migration `20260502_decision_provenance` — adds nullable `model_used`, `primary_edge`, `decision_cost_usd` columns to `trade_evaluations`
+- Per-model **net ROI**: each decision's LLM cost (`decision_cost_usd`) travels with the trade; `GET /learning/model-performance` + the dashboard panel show LLM cost and net P&L (P&L − cost) per model
 - `docs/AGENTS.md` — "LLM models — which model runs where" + "Decision provenance" sections
 
 ### Changed
