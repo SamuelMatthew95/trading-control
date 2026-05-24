@@ -196,10 +196,14 @@ Every decision records the model that produced it so the learning loop grades
 4. `GET /learning/trades` returns them and the dashboard's trade-detail modal
    shows the model + thesis behind every graded trade.
 5. `GET /learning/model-performance` aggregates graded trades by `model_used`
-   (trade count, win rate, avg score, total PnL) — surfaced as the dashboard's
-   "Model Performance" panel so you can compare how each model actually trades.
-   Aggregation (`aggregate_model_performance`) is shared by the DB and memory
-   paths so the two never diverge.
+   (trade count, win rate, avg score, total PnL, **LLM cost, and net P&L =
+   P&L − cost**) — surfaced as the dashboard's "Model Performance" panel so you
+   can compare which model makes the most money *per dollar spent*. The LLM cost
+   of each decision (`decision_cost_usd`) travels with the trade the same way
+   `model_used` does. Cost is $0 for the local LM Studio model and the free-tier
+   providers, so net P&L only diverges from P&L for paid providers. Aggregation
+   (`aggregate_model_performance`) is shared by the DB and memory paths so the
+   two never diverge.
 6. `ReflectionAgent` feeds the per-model summary into its LLM prompt and records
    it on each reflection (`model_performance`), so reflections — and the
    `StrategyProposer` proposals they drive — can reason about *which model* is
