@@ -86,6 +86,7 @@ export const API_ENDPOINTS = {
   LEARNING_REFLECTIONS_V2: "/learning/reflections",
   LEARNING_STRATEGIES: "/learning/strategies",
   LEARNING_PIPELINE_STATUS: "/learning/pipeline-status",
+  LEARNING_MODEL_PERFORMANCE: "/learning/model-performance",
   
   // System
   SYSTEM_HEALTH: "/dashboard/system-health",

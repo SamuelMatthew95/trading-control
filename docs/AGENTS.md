@@ -157,6 +157,63 @@ class NewAgent:
 
 Automatic actions based on grade thresholds (A–F) are triggered by GradeAgent after each fill.
 
+## LLM models — which model runs where
+
+All LLM calls route through `api/services/llm_router.py`. The provider is chosen
+by `LLM_PROVIDER` (default `gemini`); LM Studio can be the primary local model
+via `LLM_PROVIDER=lmstudio`. `active_model_label()` returns the `provider:model`
+label used to attribute decisions.
+
+| Call site | File | Prompt | Purpose |
+|---|---|---|---|
+| ReasoningAgent decision | `reasoning_agent.py:_call_llm` | `ADAPTIVE_TRADING_SYSTEM_PROMPT` | buy/sell/hold decision |
+| ReasoningAgent self-critique | `reasoning_agent.py:_self_critique` | `REASONING_CRITIQUE_PROMPT` | skeptical review of high-confidence decisions |
+| ReflectionAgent | `pipeline_agents.py:_run_reflection` | `REFLECTION_SYSTEM_PROMPT` / `REFLECTION_IMPROVE_PROMPT` | pattern + mistake analysis |
+| StrategyProposer | `pipeline_agents.py:_plan_and_rank` | `STRATEGY_PLANNING_PROMPT` | rank reflection hypotheses |
+
+GradeAgent and ICUpdater are **deterministic** (no LLM) — pure math over outcomes.
+
+| Provider | Model var | Default |
+|---|---|---|
+| gemini (default) | `GEMINI_MODEL` | `gemini-1.5-flash` |
+| groq | `GROQ_MODEL` | `llama-3.3-70b-versatile` |
+| anthropic | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` |
+| openai | `OPENAI_MODEL` | `gpt-4o-mini` |
+| lmstudio (local) | `LM_STUDIO_MODEL` | `meta-llama-3.1-8b-instruct` |
+
+## Decision provenance — grading with model awareness
+
+Every decision records the model that produced it so the learning loop grades
+*decisions*, not just outcomes:
+
+1. `ReasoningAgent` stamps `model_used` (`provider:model`, or `fallback`) and
+   its `primary_edge` thesis onto the decision summary (→ `agent_logs`, the
+   Redis decision record, and the `decisions` stream).
+2. `ExecutionEngine` carries `model_used` + `primary_edge` onto the fill events
+   (`FillContext` → `trade_performance` / `trade_completed`).
+3. `GradeAgent` (`score_trade`) records both on each `trade_evaluations` row
+   (columns added in migration `20260502_decision_provenance`).
+4. `GET /learning/trades` returns them and the dashboard's trade-detail modal
+   shows the model + thesis behind every graded trade.
+5. `GET /learning/model-performance` aggregates graded trades by `model_used`
+   (trade count, win rate, avg score, total PnL, **LLM cost, and net P&L =
+   P&L − cost**) — surfaced as the dashboard's "Model Performance" panel so you
+   can compare which model makes the most money *per dollar spent*. The LLM cost
+   of each decision (`decision_cost_usd`) travels with the trade the same way
+   `model_used` does. Cost is $0 for the local LM Studio model and the free-tier
+   providers, so net P&L only diverges from P&L for paid providers. Aggregation
+   (`aggregate_model_performance`) is shared by the DB and memory paths so the
+   two never diverge.
+6. `ReflectionAgent` feeds the per-model summary into its LLM prompt and records
+   it on each reflection (`model_performance`), so reflections — and the
+   `StrategyProposer` proposals they drive — can reason about *which model* is
+   trading well, not just aggregate outcomes.
+
+Learning thresholds (env): `GRADE_EVERY_N_FILLS`, `GRADE_LOOKBACK_N`,
+`GRADE_WEIGHT_*`, `IC_UPDATE_EVERY_N_FILLS`, `IC_LOOKBACK_DAYS`,
+`REFLECT_EVERY_N_FILLS`, `REFLECTION_TRADE_THRESHOLD`, `RETIRE_AFTER_N_GRADES`,
+`HYPOTHESIS_MIN_CONFIDENCE`.
+
 ## Common mistakes
 
 | Mistake | Fix |

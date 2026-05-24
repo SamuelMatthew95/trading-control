@@ -393,6 +393,9 @@ class ExecutionEngine(BaseStreamConsumer):
             trace_id=trace_id,
             vwap_plan=vwap_plan,
             filled_at=datetime.now(timezone.utc),
+            model_used=str(data.get(FieldName.MODEL_USED) or ""),
+            primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
+            decision_cost_usd=float(data.get(FieldName.DECISION_COST_USD) or 0.0),
         )
         await publish_fill_events(self.bus, ctx)
 
@@ -563,6 +566,9 @@ class ExecutionEngine(BaseStreamConsumer):
             trace_id=trace_id,
             vwap_plan=vwap_plan,
             filled_at=filled_at,
+            model_used=str(data.get(FieldName.MODEL_USED) or ""),
+            primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
+            decision_cost_usd=float(data.get(FieldName.DECISION_COST_USD) or 0.0),
         )
         await publish_fill_events(self.bus, ctx)
 
@@ -794,6 +800,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 trace_id=trace_id,
                 vwap_plan=vwap_plan,
                 filled_at=filled_at,
+                model_used=str(data.get(FieldName.MODEL_USED) or ""),
+                primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
+                decision_cost_usd=float(data.get(FieldName.DECISION_COST_USD) or 0.0),
             )
             await publish_fill_events(self.bus, ctx)
 

@@ -326,6 +326,50 @@ _PROVIDERS = {
 _LOCAL_PROVIDERS: frozenset[str] = frozenset({LM_STUDIO_PROVIDER})
 
 
+def _model_name_for(provider: str) -> str:
+    """Configured model id for a given provider name."""
+    if provider == FieldName.GROQ:
+        return settings.GROQ_MODEL
+    if provider == FieldName.ANTHROPIC:
+        return settings.ANTHROPIC_MODEL
+    if provider == FieldName.OPENAI:
+        return settings.OPENAI_MODEL
+    if provider == FieldName.GEMINI:
+        return settings.GEMINI_MODEL
+    if provider == LM_STUDIO_PROVIDER:
+        return settings.LM_STUDIO_MODEL
+    return provider
+
+
+def active_provider_and_model() -> tuple[str, str]:
+    """Return the (provider, model) the router is *configured* to use right now.
+
+    Used as a best-effort default label. The actual provider for a given call —
+    including an lmstudio→cloud fallback — is reported via the ``result_meta``
+    out-parameter of :func:`call_llm_with_system`, which callers should prefer.
+    """
+    if _is_lmstudio_primary():
+        return LM_STUDIO_PROVIDER, settings.LM_STUDIO_MODEL
+    provider = settings.LLM_PROVIDER.lower().strip()
+    return provider, _model_name_for(provider)
+
+
+def active_model_label() -> str:
+    """``"provider:model"`` label for the configured LLM, e.g. ``"gemini:gemini-1.5-flash"``."""
+    provider, model = active_provider_and_model()
+    return f"{provider}:{model}"
+
+
+def _set_model_label(meta: dict | None, provider: str) -> None:
+    """Record the *actually-used* provider:model on the caller's result_meta.
+
+    This is how a decision is attributed to the real provider even when an
+    lmstudio-primary request transparently fell back to a cloud provider.
+    """
+    if meta is not None:
+        meta["model_label"] = f"{provider}:{_model_name_for(provider)}"
+
+
 def _find_cloud_fallback() -> str | None:
     """Return the first cloud provider that has an API key configured.
 
@@ -507,6 +551,7 @@ async def call_llm_with_system(
     trace_id: str,
     *,
     task_type: str | None = None,
+    result_meta: dict | None = None,
 ) -> tuple[str, int, float]:
     """Call the configured LLM provider with a custom system prompt.
 
@@ -546,6 +591,7 @@ async def call_llm_with_system(
                 parse_json=False,  # freeform text — caller handles parsing
             )
             llm_metrics.record_success(latency_ms=(_time.monotonic() - t0) * 1000)
+            _set_model_label(result_meta, LM_STUDIO_PROVIDER)
             return result
         except LMStudioUnavailableError as exc:
             if lm_primary and not settings.LLM_FALLBACK_ENABLED:
@@ -585,6 +631,7 @@ async def call_llm_with_system(
         result = await _call_provider_raw(provider, prompt, system_prompt, trace_id)
         latency_ms = (_time.monotonic() - t0) * 1000
         llm_metrics.record_success(latency_ms=latency_ms)
+        _set_model_label(result_meta, provider)
         log_structured(
             "info", "LLM custom call succeeded", provider=provider, latency_ms=round(latency_ms)
         )

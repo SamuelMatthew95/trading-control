@@ -228,6 +228,37 @@ async def test_reflection_skipped_when_insufficient_data(agent, mock_bus):
         mock_reflect.assert_not_called()
 
 
+async def test_recent_fills_capture_model_used(agent):
+    """Fill events carry decision provenance, so recent_fills keep model_used —
+    otherwise the per-model summary in _build_prompt would always be empty."""
+    event = {
+        **_trade_performance_event(),
+        "model_used": "gemini:flash",
+        "primary_edge": "vwap_reclaim",
+    }
+    await agent.process("trade_performance", "m1", event)
+    assert agent._recent_fills[-1]["model_used"] == "gemini:flash"
+    assert agent._recent_fills[-1]["primary_edge"] == "vwap_reclaim"
+
+
+def test_quant_reflection_includes_model_performance(agent):
+    """The deterministic reflection groups trades by the model that produced them."""
+    for _ in range(3):
+        agent._recent_fills.append(
+            {**_trade_performance_event(pnl=100.0), "model_used": "gemini:flash"}
+        )
+    agent._recent_fills.append(
+        {**_trade_performance_event(pnl=-50.0), "model_used": "lmstudio:llama"}
+    )
+
+    quant = agent._compute_quant_reflection()
+
+    assert "model_performance" in quant
+    by_model = {m["model_used"]: m for m in quant["model_performance"]}
+    assert by_model["gemini:flash"]["trade_count"] == 3
+    assert "lmstudio:llama" in by_model
+
+
 # ---------------------------------------------------------------------------
 # LLM / fallback tests
 # ---------------------------------------------------------------------------

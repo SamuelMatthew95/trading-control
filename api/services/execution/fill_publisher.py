@@ -45,6 +45,12 @@ class FillContext:
     trace_id: str
     vwap_plan: list[float] | None
     filled_at: datetime
+    # Decision provenance — which model made the call, its one-line thesis, and
+    # the LLM cost of the decision. Travels with the trade so the learning loop
+    # grades with model awareness and can compute per-model net ROI.
+    model_used: str = ""
+    primary_edge: str = ""
+    decision_cost_usd: float = 0.0
 
 
 async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
@@ -101,6 +107,9 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
             FieldName.TIMESTAMP: now_iso,
             FieldName.SOURCE: SOURCE_EXECUTION,
             FieldName.SESSION_ID: ctx.strategy_id,
+            FieldName.MODEL_USED: ctx.model_used,
+            FieldName.PRIMARY_EDGE: ctx.primary_edge,
+            FieldName.DECISION_COST_USD: ctx.decision_cost_usd,
         },
     )
 
@@ -123,6 +132,9 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
                 FieldName.PNL_PERCENT: ctx.pnl_percent,
                 FieldName.TIMESTAMP: now_iso,
                 FieldName.EXECUTED_AT: filled_at_iso,
+                FieldName.MODEL_USED: ctx.model_used,
+                FieldName.PRIMARY_EDGE: ctx.primary_edge,
+                FieldName.DECISION_COST_USD: ctx.decision_cost_usd,
             },
         )
 

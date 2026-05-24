@@ -269,55 +269,87 @@ async def get_last_reflection() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+async def _trade_eval_has_provenance_cols(session: Any) -> bool:
+    """True when trade_evaluations has the model_used column (migration 20260502).
+
+    Lets grade writes stay backward-compatible during a rolling deploy where app
+    code lands before the migration — the INSERT then omits the new columns and
+    still persists durably instead of falling back to non-durable memory.
+    """
+    try:
+        chk = await session.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'trade_evaluations' "
+                "AND column_name = 'model_used' LIMIT 1"
+            )
+        )
+        return chk.first() is not None
+    except Exception:
+        return False
+
+
 async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
     """Insert a per-trade evaluation row.
 
     Memory mode: writes to InMemoryStore.trade_evaluations.
     DB mode: INSERT into trade_evaluations table (idempotent on trade_eval_id).
+    Provenance columns (model_used/primary_edge) are included only when present
+    so a deploy that precedes migration 20260502 still writes durably.
     """
     if not is_db_available():
         get_runtime_store().add_trade_evaluation(trade_eval)
         return
     try:
         async with AsyncSessionFactory() as session:
+            has_prov = await _trade_eval_has_provenance_cols(session)
+            prov_cols = ", model_used, primary_edge, decision_cost_usd" if has_prov else ""
+            prov_vals = ", :model_used, :primary_edge, :decision_cost_usd" if has_prov else ""
+            params = {
+                "trade_id": str(trade_eval.get(FieldName.TRADE_EVAL_ID) or ""),
+                "symbol": trade_eval.get(FieldName.SYMBOL),
+                "side": trade_eval.get(FieldName.SIDE),
+                "pnl": trade_eval.get(FieldName.PNL),
+                FieldName.RETURN_PCT: trade_eval.get(FieldName.PNL_PERCENT),
+                "entry_quality": trade_eval.get(FieldName.ENTRY_QUALITY),
+                "exit_quality": trade_eval.get(FieldName.EXIT_QUALITY),
+                "timing_score": trade_eval.get(FieldName.TIMING_SCORE),
+                "signal_alignment": trade_eval.get(FieldName.SIGNAL_ALIGNMENT),
+                "risk_reward": trade_eval.get(FieldName.RISK_REWARD),
+                "overall_score": trade_eval.get(FieldName.OVERALL_SCORE),
+                "grade": trade_eval.get(FieldName.GRADE),
+                "confidence": trade_eval.get(FieldName.CONFIDENCE),
+                "mistakes": json.dumps(trade_eval.get(FieldName.MISTAKES) or []),
+                "strengths": json.dumps(trade_eval.get(FieldName.STRENGTHS) or []),
+                "source": SOURCE_DB_HELPERS,
+                "schema_version": DB_SCHEMA_VERSION,
+            }
+            if has_prov:
+                params[FieldName.MODEL_USED] = trade_eval.get(FieldName.MODEL_USED) or ""
+                params[FieldName.PRIMARY_EDGE] = trade_eval.get(FieldName.PRIMARY_EDGE) or ""
+                params[FieldName.DECISION_COST_USD] = float(
+                    trade_eval.get(FieldName.DECISION_COST_USD) or 0.0
+                )
             await session.execute(
-                text("""
+                text(f"""
                     INSERT INTO trade_evaluations (
                         id, trade_id, symbol, side,
                         pnl, return_pct,
                         entry_quality, exit_quality, timing_score, signal_alignment,
                         risk_reward, overall_score, grade, confidence,
-                        mistakes, strengths,
+                        mistakes, strengths{prov_cols},
                         source, schema_version
                     ) VALUES (
                         gen_random_uuid(), :trade_id, :symbol, :side,
                         :pnl, :return_pct,
                         :entry_quality, :exit_quality, :timing_score, :signal_alignment,
                         :risk_reward, :overall_score, :grade, :confidence,
-                        CAST(:mistakes AS JSONB), CAST(:strengths AS JSONB),
+                        CAST(:mistakes AS JSONB), CAST(:strengths AS JSONB){prov_vals},
                         :source, :schema_version
                     )
                     ON CONFLICT DO NOTHING
                 """),
-                {
-                    "trade_id": str(trade_eval.get(FieldName.TRADE_EVAL_ID) or ""),
-                    "symbol": trade_eval.get(FieldName.SYMBOL),
-                    "side": trade_eval.get(FieldName.SIDE),
-                    "pnl": trade_eval.get(FieldName.PNL),
-                    FieldName.RETURN_PCT: trade_eval.get(FieldName.PNL_PERCENT),
-                    "entry_quality": trade_eval.get(FieldName.ENTRY_QUALITY),
-                    "exit_quality": trade_eval.get(FieldName.EXIT_QUALITY),
-                    "timing_score": trade_eval.get(FieldName.TIMING_SCORE),
-                    "signal_alignment": trade_eval.get(FieldName.SIGNAL_ALIGNMENT),
-                    "risk_reward": trade_eval.get(FieldName.RISK_REWARD),
-                    "overall_score": trade_eval.get(FieldName.OVERALL_SCORE),
-                    "grade": trade_eval.get(FieldName.GRADE),
-                    "confidence": trade_eval.get(FieldName.CONFIDENCE),
-                    "mistakes": json.dumps(trade_eval.get(FieldName.MISTAKES) or []),
-                    "strengths": json.dumps(trade_eval.get(FieldName.STRENGTHS) or []),
-                    "source": SOURCE_DB_HELPERS,
-                    "schema_version": DB_SCHEMA_VERSION,
-                },
+                params,
             )
             await session.commit()
     except Exception:

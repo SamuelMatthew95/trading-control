@@ -30,7 +30,10 @@ from api.constants import FieldName, GradeType
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
-from api.services.agents.trade_scorer import compute_learning_metrics
+from api.services.agents.trade_scorer import (
+    aggregate_model_performance,
+    compute_learning_metrics,
+)
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -82,6 +85,69 @@ def _grade_from_score(score: float) -> str:
     if score >= 0.40:
         return "D"
     return "F"
+
+
+async def _trade_eval_has_provenance(session: Any) -> bool:
+    """True when trade_evaluations has the model_used column (migration 20260502).
+
+    Lets the trade endpoints tolerate a partial-migration window: if the
+    provenance columns aren't present yet, callers fall back to the base SELECT
+    instead of 500-ing on a missing column.
+    """
+    try:
+        chk = await session.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'trade_evaluations' "
+                "AND column_name = 'model_used' LIMIT 1"
+            )
+        )
+        return chk.first() is not None
+    except Exception:
+        return False
+
+
+# Column order for trade_evaluations SELECTs. Fixed identifiers (never user
+# input) so they are safe to interpolate into text(). _row_to_trade_eval reads
+# rows positionally and MUST stay in sync with this order.
+_TRADE_EVAL_COLS = (
+    "id, trade_id, symbol, side, pnl, return_pct, "
+    "entry_quality, exit_quality, timing_score, signal_alignment, "
+    "risk_reward, overall_score, grade, confidence, "
+    "mistakes, strengths, created_at"
+)
+_TRADE_EVAL_COLS_PROV = _TRADE_EVAL_COLS + ", model_used, primary_edge, decision_cost_usd"
+
+
+def _row_to_trade_eval(r: Any, has_provenance: bool) -> dict[str, Any]:
+    """Map one trade_evaluations row (ordered per _TRADE_EVAL_COLS) to the API
+    trade shape. Shared by the list and single-trade endpoints so the response
+    shape can't drift. Provenance fields are blank when those columns are absent
+    (partial-migration window)."""
+    return {
+        FieldName.ID: str(r[0]),
+        FieldName.TRADE_EVAL_ID: str(r[1]),
+        FieldName.SYMBOL: r[2],
+        FieldName.SIDE: r[3],
+        FieldName.PNL: float(r[4]) if r[4] is not None else None,
+        FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
+        FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
+        FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
+        FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
+        FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
+        FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
+        FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
+        FieldName.GRADE: r[12],
+        FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
+        FieldName.MISTAKES: _as_list(r[14]),
+        FieldName.STRENGTHS: _as_list(r[15]),
+        FieldName.CREATED_AT: _iso(r[16]),
+        FieldName.MODEL_USED: (r[17] or "") if has_provenance else "",
+        FieldName.PRIMARY_EDGE: (r[18] or "") if has_provenance else "",
+        FieldName.DECISION_COST_USD: (
+            (float(r[19]) if r[19] is not None else 0.0) if has_provenance else 0.0
+        ),
+    }
 
 
 def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) -> dict[str, Any]:
@@ -236,40 +302,19 @@ async def list_trade_evaluations(
                     FieldName.MODE: mode,
                 }
 
+            # Provenance columns (model_used/primary_edge) were added in migration
+            # 20260502. Probe once, then pick the column set so a partial-migration
+            # window (table present, columns absent) never 500s this endpoint.
+            has_provenance = await _trade_eval_has_provenance(session)
+            cols = _TRADE_EVAL_COLS_PROV if has_provenance else _TRADE_EVAL_COLS
             rows = await session.execute(
-                text("""
-                    SELECT id, trade_id, symbol, side, pnl, return_pct,
-                           entry_quality, exit_quality, timing_score, signal_alignment,
-                           risk_reward, overall_score, grade, confidence,
-                           mistakes, strengths, created_at
-                    FROM trade_evaluations
-                    ORDER BY created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """),
+                text(
+                    f"SELECT {cols} FROM trade_evaluations "
+                    "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                ),
                 {FieldName.LIMIT: limit, FieldName.OFFSET: offset},
             )
-            trades = [
-                {
-                    FieldName.ID: str(r[0]),
-                    FieldName.TRADE_EVAL_ID: str(r[1]),
-                    FieldName.SYMBOL: r[2],
-                    FieldName.SIDE: r[3],
-                    FieldName.PNL: float(r[4]) if r[4] is not None else None,
-                    FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
-                    FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
-                    FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
-                    FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
-                    FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
-                    FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
-                    FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
-                    FieldName.GRADE: r[12],
-                    FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
-                    FieldName.MISTAKES: _as_list(r[14]),
-                    FieldName.STRENGTHS: _as_list(r[15]),
-                    FieldName.CREATED_AT: _iso(r[16]),
-                }
-                for r in rows.all()
-            ]
+            trades = [_row_to_trade_eval(r, has_provenance) for r in rows.all()]
         return {
             FieldName.TRADES: trades,
             FieldName.TOTAL: total,
@@ -318,48 +363,25 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         async with AsyncSessionFactory() as session:
             # trade_evaluations may not exist during a partial migration; guard
             # each query independently so the agent_grades bridge always runs.
+            # Probe for provenance columns so a partial migration (table present,
+            # model_used absent) doesn't fail the SELECT.
+            has_provenance = await _trade_eval_has_provenance(session)
+            cols = _TRADE_EVAL_COLS_PROV if has_provenance else _TRADE_EVAL_COLS
             r = None
             te_accessible = True
             try:
                 row = await session.execute(
-                    text("""
-                        SELECT id, trade_id, symbol, side, pnl, return_pct,
-                               entry_quality, exit_quality, timing_score, signal_alignment,
-                               risk_reward, overall_score, grade, confidence,
-                               mistakes, strengths, created_at
-                        FROM trade_evaluations
-                        WHERE trade_id = :trade_id
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    """),
+                    text(
+                        f"SELECT {cols} FROM trade_evaluations "
+                        "WHERE trade_id = :trade_id ORDER BY created_at DESC LIMIT 1"
+                    ),
                     {"trade_id": trade_id},
                 )
                 r = row.first()
             except Exception:
                 te_accessible = False
             if r is not None:
-                return {
-                    "trade": {
-                        FieldName.ID: str(r[0]),
-                        FieldName.TRADE_EVAL_ID: str(r[1]),
-                        FieldName.SYMBOL: r[2],
-                        FieldName.SIDE: r[3],
-                        FieldName.PNL: float(r[4]) if r[4] is not None else None,
-                        FieldName.PNL_PERCENT: float(r[5]) if r[5] is not None else None,
-                        FieldName.ENTRY_QUALITY: float(r[6]) if r[6] is not None else None,
-                        FieldName.EXIT_QUALITY: float(r[7]) if r[7] is not None else None,
-                        FieldName.TIMING_SCORE: float(r[8]) if r[8] is not None else None,
-                        FieldName.SIGNAL_ALIGNMENT: float(r[9]) if r[9] is not None else None,
-                        FieldName.RISK_REWARD: float(r[10]) if r[10] is not None else None,
-                        FieldName.OVERALL_SCORE: float(r[11]) if r[11] is not None else None,
-                        FieldName.GRADE: r[12],
-                        FieldName.CONFIDENCE: float(r[13]) if r[13] is not None else None,
-                        FieldName.MISTAKES: _as_list(r[14]),
-                        FieldName.STRENGTHS: _as_list(r[15]),
-                        FieldName.CREATED_AT: _iso(r[16]),
-                    },
-                    FieldName.MODE: "db",
-                }
+                return {"trade": _row_to_trade_eval(r, has_provenance), FieldName.MODE: "db"}
             # trade_evaluations miss or inaccessible — IDs may come from the agent_grades bridge
             te_empty = not te_accessible
             if te_accessible:
@@ -497,6 +519,55 @@ async def get_learning_metrics() -> dict[str, Any]:
         }
     except Exception:
         log_structured("error", "learning_metrics_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+# ---------------------------------------------------------------------------
+# GET /learning/model-performance
+# ---------------------------------------------------------------------------
+
+
+@router.get("/model-performance")
+async def get_model_performance() -> dict[str, Any]:
+    """Per-model trade performance grouped by the LLM that produced each trade.
+
+    Powered by decision provenance (``model_used`` on each trade evaluation):
+    win rate, average score, and PnL per ``provider:model``. Same aggregation
+    runs for both DB and memory mode so the two never diverge.
+    """
+    mode = "db" if is_db_available() else "memory"
+
+    if not is_db_available():
+        store = get_runtime_store()
+        models = aggregate_model_performance(store.get_trade_evaluations(200))
+        return {FieldName.MODELS: models, FieldName.MODE: mode}
+
+    try:
+        async with AsyncSessionFactory() as session:
+            # No provenance columns yet (pre-migration) → nothing to attribute.
+            if not await _trade_eval_has_provenance(session):
+                return {FieldName.MODELS: [], FieldName.MODE: mode}
+            rows = await session.execute(
+                text("""
+                    SELECT model_used, overall_score, pnl, decision_cost_usd
+                    FROM trade_evaluations
+                    WHERE model_used IS NOT NULL AND model_used <> ''
+                    ORDER BY created_at DESC
+                    LIMIT 1000
+                """)
+            )
+            evaluations = [
+                {
+                    FieldName.MODEL_USED: r[0],
+                    FieldName.OVERALL_SCORE: float(r[1]) if r[1] is not None else None,
+                    FieldName.PNL: float(r[2]) if r[2] is not None else None,
+                    FieldName.DECISION_COST_USD: float(r[3]) if r[3] is not None else 0.0,
+                }
+                for r in rows.all()
+            ]
+        return {FieldName.MODELS: aggregate_model_performance(evaluations), FieldName.MODE: mode}
+    except Exception:
+        log_structured("error", "learning_model_performance_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 

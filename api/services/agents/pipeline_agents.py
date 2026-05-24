@@ -100,6 +100,7 @@ from api.services.agents.scoring import (
     spearman_correlation,
 )
 from api.services.agents.trade_scorer import (
+    aggregate_model_performance,
     compute_learning_metrics,
     compute_mistake_clusters,
     compute_patterns,
@@ -765,6 +766,10 @@ class ReflectionAgent(MultiStreamAgent):
                     "pnl_percent": data.get(FieldName.PNL_PERCENT),
                     "fill_price": data.get(FieldName.FILL_PRICE),
                     "filled_at": data.get(FieldName.FILLED_AT),
+                    # Decision provenance carried on the fill events so the
+                    # per-model reflection summary (_build_prompt) is populated.
+                    FieldName.MODEL_USED: data.get(FieldName.MODEL_USED),
+                    FieldName.PRIMARY_EDGE: data.get(FieldName.PRIMARY_EDGE),
                 }
             )
         elif stream == STREAM_AGENT_GRADES:
@@ -911,6 +916,7 @@ class ReflectionAgent(MultiStreamAgent):
             FieldName.TRADES_ANALYZED: quant[FieldName.TRADES_ANALYZED],
             FieldName.WIN_RATE: quant[FieldName.WIN_RATE],
             FieldName.AVG_RETURN: quant[FieldName.AVG_RETURN],
+            FieldName.MODEL_PERFORMANCE: quant[FieldName.MODEL_PERFORMANCE],
             FieldName.CONFIDENCE: quant[FieldName.CONFIDENCE],
         }
 
@@ -985,6 +991,9 @@ class ReflectionAgent(MultiStreamAgent):
             FieldName.TRADES_ANALYZED: len(evaluations),
             FieldName.WIN_RATE: metrics.get(FieldName.WIN_RATE, 0.0),
             FieldName.AVG_RETURN: metrics.get(FieldName.AVG_RETURN, 0.0),
+            # Per-model performance so reflections (and the operator) can see
+            # which LLM is actually producing the wins/losses.
+            FieldName.MODEL_PERFORMANCE: aggregate_model_performance(evaluations),
             FieldName.CONFIDENCE: round(
                 0.5 + min(len(evaluations), 50) / 100.0, 2
             ),  # confidence grows with sample size
@@ -1006,6 +1015,9 @@ class ReflectionAgent(MultiStreamAgent):
                 FieldName.RECENT_FILLS: recent_fills,
                 FieldName.RECENT_GRADES: list(self._recent_grades)[-5:],
                 FieldName.RECENT_IC_CHANGES: list(self._recent_ic)[-5:],
+                # Per-model win-rate/PnL so the LLM can reason about which model
+                # is trading well, not just aggregate outcomes.
+                FieldName.MODEL_PERFORMANCE: aggregate_model_performance(recent_fills),
             },
             default=str,
         )

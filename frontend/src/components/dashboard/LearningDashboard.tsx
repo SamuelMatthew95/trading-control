@@ -27,6 +27,9 @@ interface TradeEvaluation {
   mistakes: string[]
   strengths: string[]
   created_at: string | null
+  // Decision provenance — which LLM made the call and its one-line thesis.
+  model_used?: string | null
+  primary_edge?: string | null
 }
 
 interface TradesResponse {
@@ -89,6 +92,22 @@ interface Strategy {
 interface StrategiesResponse {
   strategies: Strategy[]
   total: number
+  mode: string
+}
+
+interface ModelPerformance {
+  model_used: string
+  trade_count: number
+  win_rate: number
+  avg_score: number
+  total_pnl: number
+  avg_pnl: number
+  total_cost: number
+  net_roi: number
+}
+
+interface ModelPerformanceResponse {
+  models: ModelPerformance[]
   mode: string
 }
 
@@ -268,6 +287,26 @@ function TradeDetailModal({
             </div>
           ))}
         </div>
+
+        {(trade.model_used || trade.primary_edge) && (
+          <div className="mb-4 space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
+            {trade.model_used && (
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Model:{' '}
+                <span className="font-mono text-slate-800 dark:text-slate-200">{trade.model_used}</span>
+              </p>
+            )}
+            {trade.primary_edge && (
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Thesis:{' '}
+                <span className="text-slate-800 dark:text-slate-200">
+                  {trade.primary_edge.replace(/_/g, ' ')}
+                </span>
+              </p>
+            )}
+          </div>
+        )}
 
         {trade.mistakes.length > 0 && (
           <div className="mb-3">
@@ -710,6 +749,68 @@ function PipelineActivityPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Panel: Model Performance (per-LLM, powered by decision provenance)
+// ---------------------------------------------------------------------------
+
+function ModelPerformancePanel({ models }: { models: ModelPerformance[] }) {
+  return (
+    <Panel title="Model Performance" badge={`${models.length} model${models.length === 1 ? '' : 's'}`}>
+      {models.length === 0 ? (
+        <p className="text-xs text-slate-500">
+          No model-attributed trades yet — appears once graded trades record the model that
+          produced them.
+        </p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-slate-500">
+              <th className="p-2">Model</th>
+              <th className="p-2 text-right">Trades</th>
+              <th className="p-2 text-right">Win Rate</th>
+              <th className="p-2 text-right">Avg Score</th>
+              <th className="p-2 text-right">Total P&L</th>
+              <th className="p-2 text-right">LLM Cost</th>
+              <th className="p-2 text-right">Net P&L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {models.map((m) => (
+              <tr key={m.model_used} className="border-t border-slate-200 dark:border-slate-800">
+                <td className="p-2 font-mono text-slate-700 dark:text-slate-300">{m.model_used}</td>
+                <td className="p-2 text-right">{m.trade_count}</td>
+                <td className="p-2 text-right">{fmtScore(m.win_rate)}</td>
+                <td className="p-2 text-right">{fmtScore(m.avg_score)}</td>
+                <td
+                  className={`p-2 text-right font-mono ${
+                    m.total_pnl >= 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {fmtUSD(m.total_pnl)}
+                </td>
+                <td className="p-2 text-right font-mono text-slate-500 dark:text-slate-400">
+                  {fmtUSD(m.total_cost)}
+                </td>
+                <td
+                  className={`p-2 text-right font-mono ${
+                    m.net_roi >= 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {fmtUSD(m.net_roi)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Panel>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
 
@@ -736,6 +837,7 @@ export function LearningDashboard() {
   const [strategiesMode, setStrategiesMode] = useState('memory')
   const [pipeline, setPipeline] = useState<PipelineStatus | null>(null)
   const [selectedTrade, setSelectedTrade] = useState<TradeEvaluation | null>(null)
+  const [modelPerf, setModelPerf] = useState<ModelPerformance[]>([])
   const [lastRefresh, setLastRefresh] = useState<string>('')
   const [errors, setErrors] = useState<string[]>([])
   const cancelRef = useRef(false)
@@ -751,12 +853,13 @@ export function LearningDashboard() {
       }
     }
 
-    const [t, m, r, s, p] = await Promise.all([
+    const [t, m, r, s, p, mp] = await Promise.all([
       safe(() => apiFetch<TradesResponse>(API_ENDPOINTS.LEARNING_TRADES + '?limit=50')),
       safe(() => apiFetch<LearningMetrics>(API_ENDPOINTS.LEARNING_METRICS)),
       safe(() => apiFetch<ReflectionsResponse>(API_ENDPOINTS.LEARNING_REFLECTIONS_V2 + '?limit=5')),
       safe(() => apiFetch<StrategiesResponse>(API_ENDPOINTS.LEARNING_STRATEGIES + '?limit=10')),
       safe(() => apiFetch<PipelineStatus>(API_ENDPOINTS.LEARNING_PIPELINE_STATUS)),
+      safe(() => apiFetch<ModelPerformanceResponse>(API_ENDPOINTS.LEARNING_MODEL_PERFORMANCE)),
     ])
 
     if (cancelRef.current) return
@@ -766,6 +869,7 @@ export function LearningDashboard() {
     if (r) { setReflections(r.reflections); setReflectionsMode(r.mode) }
     if (s) { setStrategies(s.strategies); setStrategiesTotal(s.total); setStrategiesMode(s.mode) }
     if (p) setPipeline(p)
+    if (mp) setModelPerf(mp.models)
     setErrors(errs)
     setLastRefresh(new Date().toLocaleTimeString())
   }, [])
@@ -825,6 +929,9 @@ export function LearningDashboard() {
           total={tradesTotal}
           onSelect={setSelectedTrade}
         />
+
+        {/* Row 2b: Per-model performance (decision provenance) */}
+        <ModelPerformancePanel models={modelPerf} />
 
         {/* Row 3: Reflection + Strategy */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
