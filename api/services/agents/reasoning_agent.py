@@ -323,6 +323,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.PRIMARY_EDGE: summary.get(FieldName.PRIMARY_EDGE, ""),
                 FieldName.RISK_FACTORS: summary.get(FieldName.RISK_FACTORS, []),
                 FieldName.MODEL_USED: summary.get(FieldName.MODEL_USED, ""),
+                # LLM cost of this decision (incl. self-critique). Travels with
+                # the trade so the learning loop can compute per-model net ROI.
+                FieldName.DECISION_COST_USD: cost_usd,
                 FieldName.SIZE_PCT: float(summary.get(FieldName.SIZE_PCT) or 0.01),
                 FieldName.STOP_ATR_X: float(summary.get(FieldName.STOP_ATR_X) or 1.5),
                 FieldName.RR_RATIO: float(summary.get(FieldName.RR_RATIO) or 2.0),
