@@ -17,16 +17,19 @@ def test_aggregate_model_performance_groups_and_skips_blank():
                 FieldName.MODEL_USED: "gemini:flash",
                 FieldName.PNL: 10.0,
                 FieldName.OVERALL_SCORE: 0.8,
+                FieldName.DECISION_COST_USD: 0.01,
             },
             {
                 FieldName.MODEL_USED: "gemini:flash",
                 FieldName.PNL: -4.0,
                 FieldName.OVERALL_SCORE: 0.4,
+                FieldName.DECISION_COST_USD: 0.03,
             },
             {
                 FieldName.MODEL_USED: "lmstudio:llama",
                 FieldName.PNL: 6.0,
                 FieldName.OVERALL_SCORE: 0.7,
+                FieldName.DECISION_COST_USD: 0.0,
             },
             {FieldName.MODEL_USED: "", FieldName.PNL: 99.0},  # blank model is skipped
         ]
@@ -38,6 +41,10 @@ def test_aggregate_model_performance_groups_and_skips_blank():
     assert by_model["gemini:flash"][FieldName.AVG_SCORE] == 0.6
     assert by_model["gemini:flash"][FieldName.TOTAL_PNL] == 6.0
     assert by_model["gemini:flash"][FieldName.AVG_PNL] == 3.0
+    # cost + net ROI (P&L minus the LLM cost of those trades' decisions)
+    assert by_model["gemini:flash"][FieldName.TOTAL_COST] == 0.04
+    assert by_model["gemini:flash"][FieldName.NET_ROI] == 5.96
+    assert by_model["lmstudio:llama"][FieldName.NET_ROI] == 6.0  # local model is free
     # sorted by trade count descending
     assert rows[0][FieldName.MODEL_USED] == "gemini:flash"
 
@@ -59,16 +66,19 @@ def test_score_trade_carries_decision_provenance():
             FieldName.CONFIDENCE: 0.8,
             FieldName.MODEL_USED: "gemini:gemini-1.5-flash",
             FieldName.PRIMARY_EDGE: "vwap_reclaim_momentum",
+            FieldName.DECISION_COST_USD: 0.002,
         }
     )
     assert evaluation[FieldName.MODEL_USED] == "gemini:gemini-1.5-flash"
     assert evaluation[FieldName.PRIMARY_EDGE] == "vwap_reclaim_momentum"
+    assert evaluation[FieldName.DECISION_COST_USD] == 0.002
 
 
 def test_score_trade_provenance_defaults_empty_when_absent():
     evaluation = score_trade({FieldName.TRADE_ID: "t-2", FieldName.PNL_PERCENT: 0.5})
     assert evaluation[FieldName.MODEL_USED] == ""
     assert evaluation[FieldName.PRIMARY_EDGE] == ""
+    assert evaluation[FieldName.DECISION_COST_USD] == 0.0
 
 
 # ---------------------------------------------------------------------------
