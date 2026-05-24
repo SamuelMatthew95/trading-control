@@ -223,7 +223,7 @@ async def get_state_payload() -> dict[str, Any]:
                         status = json.loads(raw)
                         agent_statuses.append({FieldName.NAME: name, **status})
                     except (json.JSONDecodeError, TypeError):
-                        agent_statuses.append({FieldName.NAME: name, "status": "unknown"})
+                        agent_statuses.append({FieldName.NAME: name, FieldName.STATUS: "unknown"})
                 else:
                     agent_statuses.append({FieldName.NAME: name, "status": "offline"})
             data[FieldName.AGENT_STATUSES] = agent_statuses
