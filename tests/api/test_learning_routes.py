@@ -50,11 +50,13 @@ def test_row_to_trade_eval_with_provenance():
         "2026-05-23T00:00:00+00:00",
         "gemini:flash",
         "vwap_reclaim",
+        0.002,
     )
     out = _row_to_trade_eval(row, has_provenance=True)
     assert out[FieldName.TRADE_EVAL_ID] == "trade-1"
     assert out[FieldName.MODEL_USED] == "gemini:flash"
     assert out[FieldName.PRIMARY_EDGE] == "vwap_reclaim"
+    assert out[FieldName.DECISION_COST_USD] == 0.002
     assert out[FieldName.MISTAKES] == ["late_entry"]
 
 
@@ -82,6 +84,7 @@ def test_row_to_trade_eval_without_provenance_is_blank():
     out = _row_to_trade_eval(row, has_provenance=False)
     assert out[FieldName.MODEL_USED] == ""
     assert out[FieldName.PRIMARY_EDGE] == ""
+    assert out[FieldName.DECISION_COST_USD] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -221,8 +224,12 @@ async def test_list_trades_db_down_with_trade_evaluations(client):
 @pytest.mark.asyncio
 async def test_model_performance_db_down_groups_by_model(client):
     store = InMemoryStore()
-    for i, (model, pnl, score) in enumerate(
-        [("gemini:flash", 10.0, 0.8), ("gemini:flash", -4.0, 0.4), ("lmstudio:llama", 6.0, 0.7)]
+    for i, (model, pnl, score, cost) in enumerate(
+        [
+            ("gemini:flash", 10.0, 0.8, 0.01),
+            ("gemini:flash", -4.0, 0.4, 0.03),
+            ("lmstudio:llama", 6.0, 0.7, 0.0),
+        ]
     ):
         store.add_trade_evaluation(
             {
@@ -230,6 +237,7 @@ async def test_model_performance_db_down_groups_by_model(client):
                 FieldName.MODEL_USED: model,
                 FieldName.PNL: pnl,
                 FieldName.OVERALL_SCORE: score,
+                FieldName.DECISION_COST_USD: cost,
                 "created_at": time.time(),
             }
         )
@@ -244,6 +252,8 @@ async def test_model_performance_db_down_groups_by_model(client):
     assert by_model["gemini:flash"][FieldName.TRADE_COUNT] == 2
     assert by_model["gemini:flash"][FieldName.WIN_RATE] == 0.5
     assert by_model["gemini:flash"][FieldName.TOTAL_PNL] == 6.0
+    assert by_model["gemini:flash"][FieldName.TOTAL_COST] == 0.04
+    assert by_model["gemini:flash"][FieldName.NET_ROI] == 5.96
     assert by_model["lmstudio:llama"][FieldName.TRADE_COUNT] == 1
     # Models with no model_used are excluded; sorted by trade count desc.
     assert data[FieldName.MODELS][0][FieldName.MODEL_USED] == "gemini:flash"
