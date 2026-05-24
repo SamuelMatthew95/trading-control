@@ -885,6 +885,12 @@ class ExecutionEngine(BaseStreamConsumer):
         if not is_fallback:
             return False
 
+        # Memory/paper mode: no live capital at risk — skip the fallback guard.
+        # EXECUTION_DECISION_THRESHOLD_MEMORY (0.30) was lowered precisely so
+        # rule-based paper signals can execute; blocking them here defeats that.
+        if not is_db_available():
+            return False
+
         trace_id = str(parsed.trace_id or "")
         symbol = str(parsed.symbol or "")
         max_allowed = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)

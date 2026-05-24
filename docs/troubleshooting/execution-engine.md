@@ -63,3 +63,13 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** Swapped the check order — position-flip (zero-crossing) is checked first and always blocks. The reduce-only path is only reached when there is no sign change.
 
 **Regression test:** `tests/agents/test_execution_fallback_guard.py::test_fallback_buy_over_closes_short_and_opens_long_blocked`
+
+## Fallback guard silently blocks ALL paper trades when no LLM key is configured
+
+**Symptom:** Dashboard shows zero orders, zero positions, zero P&L, and SYSTEM STATUS: IDLE indefinitely — even with Signal Agent and Execution Engine showing thousands of events.
+
+**Root cause:** Without an LLM API key every reasoning decision has `llm_succeeded=False` and is marked `is_fallback=True`. `_enforce_fallback_trade_guard` then checks `settings.ALLOW_FALLBACK_TRADES` (default `False`) and blocks the trade. `EXECUTION_DECISION_THRESHOLD_MEMORY` (0.30) was deliberately lowered to let paper signals through, but the fallback guard fires before the score gate and silently cancels them all.
+
+**Fix:** `_enforce_fallback_trade_guard` in `api/services/execution/execution_engine.py` now returns `False` immediately when `is_db_available()` is `False` — paper/memory mode has no live capital at risk so the fallback guard is irrelevant.
+
+**Regression test:** `tests/agents/test_execution_fallback_guard.py`
