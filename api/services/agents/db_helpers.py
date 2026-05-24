@@ -303,8 +303,8 @@ async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
     try:
         async with AsyncSessionFactory() as session:
             has_prov = await _trade_eval_has_provenance_cols(session)
-            prov_cols = ", model_used, primary_edge" if has_prov else ""
-            prov_vals = ", :model_used, :primary_edge" if has_prov else ""
+            prov_cols = ", model_used, primary_edge, decision_cost_usd" if has_prov else ""
+            prov_vals = ", :model_used, :primary_edge, :decision_cost_usd" if has_prov else ""
             params = {
                 "trade_id": str(trade_eval.get(FieldName.TRADE_EVAL_ID) or ""),
                 "symbol": trade_eval.get(FieldName.SYMBOL),
@@ -327,6 +327,9 @@ async def persist_trade_evaluation(trade_eval: dict[str, Any]) -> None:
             if has_prov:
                 params[FieldName.MODEL_USED] = trade_eval.get(FieldName.MODEL_USED) or ""
                 params[FieldName.PRIMARY_EDGE] = trade_eval.get(FieldName.PRIMARY_EDGE) or ""
+                params[FieldName.DECISION_COST_USD] = float(
+                    trade_eval.get(FieldName.DECISION_COST_USD) or 0.0
+                )
             await session.execute(
                 text(f"""
                     INSERT INTO trade_evaluations (
