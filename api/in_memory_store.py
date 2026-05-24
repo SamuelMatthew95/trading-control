@@ -270,12 +270,12 @@ class InMemoryStore:
             FieldName.AGENT_STATUSES: [
                 {
                     FieldName.NAME: name,
-                    "status": data.get(FieldName.STATUS, "unknown"),
-                    "last_seen": data.get(FieldName.LAST_SEEN, now),
-                    "last_seen_at": data.get(FieldName.LAST_SEEN_AT),
-                    "last_event": data.get(FieldName.LAST_EVENT, ""),
-                    "event_count": int(data.get(FieldName.EVENT_COUNT, 0) or 0),
-                    "source": data.get(FieldName.SOURCE, "in_memory"),
+                    FieldName.STATUS: data.get(FieldName.STATUS, "unknown"),
+                    FieldName.LAST_SEEN: data.get(FieldName.LAST_SEEN, now),
+                    FieldName.LAST_SEEN_AT: data.get(FieldName.LAST_SEEN_AT),
+                    FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
+                    FieldName.EVENT_COUNT: int(data.get(FieldName.EVENT_COUNT, 0) or 0),
+                    FieldName.SOURCE: data.get(FieldName.SOURCE, "in_memory"),
                 }
                 for name, data in self.agents.items()
             ],
