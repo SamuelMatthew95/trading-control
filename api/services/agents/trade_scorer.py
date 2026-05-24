@@ -156,10 +156,11 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
         FieldName.MISTAKES: mistakes,
         FieldName.STRENGTHS: strengths,
         FieldName.NORM_RETURN: round(norm_return, 4),
-        # Decision provenance — which model produced the trade and its thesis,
-        # so a graded trade can be traced back to the reasoning behind it.
+        # Decision provenance — which model produced the trade, its thesis, and
+        # the LLM cost of the decision (for per-model net ROI).
         FieldName.MODEL_USED: str(trade_data.get(FieldName.MODEL_USED) or ""),
         FieldName.PRIMARY_EDGE: str(trade_data.get(FieldName.PRIMARY_EDGE) or ""),
+        FieldName.DECISION_COST_USD: float(trade_data.get(FieldName.DECISION_COST_USD) or 0.0),
     }
 
 
@@ -439,6 +440,7 @@ class _ModelAcc:
     wins: int = 0
     score_sum: float = 0.0
     pnl_sum: float = 0.0
+    cost_sum: float = 0.0
 
 
 def aggregate_model_performance(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -465,6 +467,9 @@ def aggregate_model_performance(evaluations: list[dict[str, Any]]) -> list[dict[
         score = ev.get(FieldName.OVERALL_SCORE)
         if score is not None:
             acc.score_sum += float(score)
+        cost = ev.get(FieldName.DECISION_COST_USD)
+        if cost is not None:
+            acc.cost_sum += float(cost)
 
     rows = [
         {
@@ -474,6 +479,9 @@ def aggregate_model_performance(evaluations: list[dict[str, Any]]) -> list[dict[
             FieldName.AVG_SCORE: round(acc.score_sum / acc.trades, 4) if acc.trades else 0.0,
             FieldName.TOTAL_PNL: round(acc.pnl_sum, 4),
             FieldName.AVG_PNL: round(acc.pnl_sum / acc.trades, 4) if acc.trades else 0.0,
+            # LLM cost of the decisions behind these trades, and P&L net of it.
+            FieldName.TOTAL_COST: round(acc.cost_sum, 6),
+            FieldName.NET_ROI: round(acc.pnl_sum - acc.cost_sum, 4),
         }
         for model, acc in buckets.items()
     ]
