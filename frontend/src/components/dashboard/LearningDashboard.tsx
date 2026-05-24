@@ -102,6 +102,8 @@ interface ModelPerformance {
   avg_score: number
   total_pnl: number
   avg_pnl: number
+  total_cost: number
+  net_roi: number
 }
 
 interface ModelPerformanceResponse {
@@ -767,6 +769,8 @@ function ModelPerformancePanel({ models }: { models: ModelPerformance[] }) {
               <th className="p-2 text-right">Win Rate</th>
               <th className="p-2 text-right">Avg Score</th>
               <th className="p-2 text-right">Total P&L</th>
+              <th className="p-2 text-right">LLM Cost</th>
+              <th className="p-2 text-right">Net P&L</th>
             </tr>
           </thead>
           <tbody>
@@ -784,6 +788,18 @@ function ModelPerformancePanel({ models }: { models: ModelPerformance[] }) {
                   }`}
                 >
                   {fmtUSD(m.total_pnl)}
+                </td>
+                <td className="p-2 text-right font-mono text-slate-500 dark:text-slate-400">
+                  {fmtUSD(m.total_cost)}
+                </td>
+                <td
+                  className={`p-2 text-right font-mono ${
+                    m.net_roi >= 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {fmtUSD(m.net_roi)}
                 </td>
               </tr>
             ))}
