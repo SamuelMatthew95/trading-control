@@ -331,6 +331,26 @@ class WebSocketManager {
       } else if (msg.stream === 'orders') {
         // Stream payloads are partially typed; store merge handles sparse updates.
         store.updateOrder(msg as never)
+      } else if (msg.type === 'trade_notification') {
+        // Execution fill from STREAM_EXECUTIONS — update order store so equity
+        // curve and P&L display refresh in real-time without waiting for REST poll.
+        const raw = msg as unknown as Record<string, unknown>
+        const side = String(raw.side || 'buy')
+        const fillPrice = Number(raw.fill_price ?? 0)
+        store.updateOrder({
+          order_id: raw.order_id as string,
+          symbol: String(raw.symbol || ''),
+          side: (side === 'sell' ? 'short' : 'long') as 'long' | 'short',
+          quantity: Number(raw.qty ?? 0),
+          entry_price: fillPrice,
+          current_price: fillPrice,
+          pnl: Number(raw.pnl ?? 0),
+          timestamp: String(raw.filled_at || msg.timestamp || new Date().toISOString()),
+          filled_at: String(raw.filled_at || msg.timestamp || new Date().toISOString()),
+          status: 'filled',
+          trace_id: raw.trace_id as string,
+          source: raw.source as string,
+        } as import('@/stores/useCodexStore').Order)
       } else if (msg.stream === 'notifications') {
         const messageRaw = msg as unknown as Record<string, unknown>
         const payloadRaw = this._coerceObject(messageRaw.payload)
