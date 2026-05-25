@@ -15,6 +15,12 @@ import {
   agentCardTextClass,
   streamEventBadgeClass,
   systemStatusBadgeClass,
+  agentStatusDotClass,
+  pipelineStatusTextClass,
+  apiHealthBadgeClass,
+  priceChangeTextClass,
+  agentTierFromStatus,
+  performancePnlColorClass,
 } from '@/lib/dashboard-helpers'
 
 describe('pnlColorClass', () => {
@@ -285,5 +291,97 @@ describe('winRateFromFeed', () => {
   it('treats pnl of 0 as a loss (not a win)', () => {
     // pnl > 0 check means exactly 0 is not counted as a win
     expect(winRateFromFeed([{ pnl: 0 }, { pnl: 10 }])).toBe(50)
+  })
+})
+
+describe('agentStatusDotClass', () => {
+  it('returns emerald for Live', () => {
+    expect(agentStatusDotClass('Live')).toContain('emerald')
+  })
+  it('returns amber for Stale', () => {
+    expect(agentStatusDotClass('Stale')).toContain('amber')
+  })
+  it('returns rose for Error', () => {
+    expect(agentStatusDotClass('Error')).toContain('rose')
+  })
+  it('returns slate for Idle', () => {
+    expect(agentStatusDotClass('Idle')).toContain('slate')
+  })
+  it('uses lighter shade than agentCardDotClass (bg-emerald-300 not 500)', () => {
+    expect(agentStatusDotClass('Live')).toBe('bg-emerald-300')
+  })
+})
+
+describe('pipelineStatusTextClass', () => {
+  it('returns emerald for Healthy', () => {
+    expect(pipelineStatusTextClass('Healthy')).toContain('emerald')
+  })
+  it('returns amber for Degraded', () => {
+    expect(pipelineStatusTextClass('Degraded')).toContain('amber')
+  })
+  it('returns rose for Stalled or unknown', () => {
+    expect(pipelineStatusTextClass('Stalled')).toContain('rose')
+    expect(pipelineStatusTextClass('unknown')).toContain('rose')
+  })
+})
+
+describe('apiHealthBadgeClass', () => {
+  it('returns emerald for ok', () => {
+    expect(apiHealthBadgeClass('ok')).toContain('emerald')
+  })
+  it('returns rose for error', () => {
+    expect(apiHealthBadgeClass('error')).toContain('rose')
+  })
+  it('returns slate for unknown values', () => {
+    expect(apiHealthBadgeClass('pending')).toContain('slate')
+    expect(apiHealthBadgeClass('')).toContain('slate')
+  })
+})
+
+describe('priceChangeTextClass', () => {
+  it('returns slate when change is null', () => {
+    expect(priceChangeTextClass(null, true)).toContain('slate')
+  })
+  it('returns slate when hasData is false', () => {
+    expect(priceChangeTextClass(5, false)).toContain('slate')
+  })
+  it('returns emerald for positive change', () => {
+    expect(priceChangeTextClass(1, true)).toContain('emerald')
+  })
+  it('returns rose for negative change', () => {
+    expect(priceChangeTextClass(-1, true)).toContain('rose')
+  })
+  it('returns slate for zero change', () => {
+    expect(priceChangeTextClass(0, true)).toContain('slate')
+  })
+})
+
+describe('agentTierFromStatus', () => {
+  it('returns active for Live', () => {
+    expect(agentTierFromStatus('Live')).toBe('active')
+  })
+  it('returns inactive for Error', () => {
+    expect(agentTierFromStatus('Error')).toBe('inactive')
+  })
+  it('returns challenger for Stale', () => {
+    expect(agentTierFromStatus('Stale')).toBe('challenger')
+  })
+  it('returns challenger for Idle', () => {
+    expect(agentTierFromStatus('Idle')).toBe('challenger')
+  })
+})
+
+describe('performancePnlColorClass', () => {
+  it('returns neutral slate for null pnl', () => {
+    expect(performancePnlColorClass(null)).toContain('slate')
+  })
+  it('returns emerald for positive pnl', () => {
+    expect(performancePnlColorClass(100)).toContain('emerald')
+  })
+  it('returns emerald for zero pnl', () => {
+    expect(performancePnlColorClass(0)).toContain('emerald')
+  })
+  it('returns rose for negative pnl', () => {
+    expect(performancePnlColorClass(-1)).toContain('rose')
   })
 })
