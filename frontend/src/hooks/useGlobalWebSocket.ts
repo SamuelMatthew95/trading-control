@@ -265,169 +265,45 @@ class WebSocketManager {
       try { msg = JSON.parse(event.data) } catch {}
       if (!msg) return
       this.dispatch('ws-message', msg)
-      // Store logic with safe data normalization
       const store = useCodexStore.getState()
 
-      // Agent status push — replaces client-side HTTP polling
       if (msg.type === 'agent_status_update') {
-        if (Array.isArray((msg as unknown as Record<string, unknown>).agents)) {
-          store.setAgentStatuses((msg as unknown as { agents: AgentStatus[] }).agents)
-        }
-        const metricsRaw = (msg as unknown as Record<string, unknown>).metrics
-        if (metricsRaw && typeof metricsRaw === 'object' && !Array.isArray(metricsRaw)) {
-          store.setPipelineMetrics(metricsRaw as Record<string, number>)
-        }
+        this._handleAgentStatusUpdate(msg, store)
         return
       }
 
-      const messageTimestamp = msg.timestamp || (msg.payload as Record<string, unknown> | undefined)?.timestamp as string | undefined || new Date().toISOString()
+      const messageTimestamp = msg.timestamp
+        || (msg.payload as Record<string, unknown> | undefined)?.timestamp as string | undefined
+        || new Date().toISOString()
       store.trackWsMessage({
         stream: msg.stream || msg.type || 'system',
         msgId: msg.msg_id || msg.message_id || null,
         timestamp: messageTimestamp,
       })
+
       const eventPayload = msg.data ?? (msg as unknown as { payload?: unknown }).payload
-      if (msg.type === 'dashboard_update' && msg.data) {
-        try {
-          store.hydrateDashboard(this._normalizeDashboardData(msg.data))
-        } catch (error) {
-          console.error('Error hydrating dashboard:', error)
-        }
-      } else if (msg.type === 'system_metric' && eventPayload) {
+
+      if (msg.type === 'dashboard_update' && msg.data) return this._handleDashboardUpdate(msg, store)
+      if (msg.type === 'system_metric' && eventPayload) {
         const norm = this._normalizeSystemMetric(eventPayload)
         if (norm) store.addSystemMetric(norm)
-      } else if (msg.stream === 'market_ticks') {
-        const price = Number(msg.price)
-        const symbol = msg.symbol || 'UNKNOWN'
-        const previousPrice = store.prices[symbol]?.price ?? price
-        const change = Number.isFinite(price) ? price - previousPrice : 0
-        if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
-        store.trackMarketTick(symbol)
-      } else if ((msg.type === 'PRICE_UPDATE' || msg.type === 'price_update') && msg.symbol && msg.price) {
-        // Handle price updates from background worker
-        const price = Number(msg.price)
-        const symbol = msg.symbol
-        const currentPriceData = store.prices[symbol]
-        const messageTimestamp = msg.timestamp || new Date().toISOString()
-        
-        // Only update if WebSocket data is newer than existing data.
-        // Use Date.parse() so an invalid messageTimestamp (NaN) never silently
-        // beats a valid stored timestamp and never silently blocks an update.
-        const msgTs = Date.parse(messageTimestamp)
-        const storedTs = currentPriceData?.updatedAt ? Date.parse(currentPriceData.updatedAt) : -Infinity
-        const shouldUpdate = !currentPriceData?.updatedAt || (Number.isFinite(msgTs) && msgTs > storedTs)
-        
-        if (shouldUpdate && Number.isFinite(price)) {
-          const previousPrice = currentPriceData?.price ?? price
-          const change = price - previousPrice
-          store.updatePrice(symbol, price, change)
-          store.trackMarketTick(symbol)
-        }
-      } else if (msg.stream === 'signals') {
-        store.addSignal({
-          ...(msg as unknown as Record<string, unknown>),
-          confidence: Number(msg.confidence),
-        })
-      } else if (msg.stream === 'orders') {
-        // Stream payloads are partially typed; store merge handles sparse updates.
-        store.updateOrder(msg as never)
-      } else if (msg.type === 'trade_notification') {
-        // Execution fill from STREAM_EXECUTIONS — update order store so equity
-        // curve and P&L display refresh in real-time without waiting for REST poll.
-        const raw = msg as unknown as Record<string, unknown>
-        const side = String(raw.side || 'buy')
-        const fillPrice = Number(raw.fill_price ?? 0)
-        // Preserve null pnl for opens (BUY): equity curve skips null-pnl orders.
-        // Converts to number only when pnl is explicitly provided (SELL closes).
-        const pnlRaw = raw.pnl
-        const pnl = (pnlRaw != null && pnlRaw !== '') ? Number(pnlRaw) : (null as unknown as number)
-        const ts = String(raw.filled_at || msg.timestamp || new Date().toISOString())
-        store.updateOrder({
-          order_id: raw.order_id as string,
-          symbol: String(raw.symbol || ''),
-          side: (side === 'sell' ? 'short' : 'long') as 'long' | 'short',
-          quantity: Number(raw.qty ?? 0),
-          entry_price: fillPrice,
-          current_price: fillPrice,
-          pnl,
-          timestamp: ts,
-          filled_at: ts,
-          status: 'filled',
-          trace_id: raw.trace_id as string,
-          source: raw.source as string,
-        } as import('@/stores/useCodexStore').Order)
-      } else if (msg.stream === 'notifications') {
-        const messageRaw = msg as unknown as Record<string, unknown>
-        const payloadRaw = this._coerceObject(messageRaw.payload)
-        // Unwrap event envelope if present; merge timestamp/stream from the outer msg.
-        const raw = msg.type === 'event' && payloadRaw
-          ? { ...payloadRaw, timestamp: payloadRaw.timestamp ?? msg.timestamp, stream_source: payloadRaw.stream_source ?? msg.stream }
-          : { ...messageRaw, stream_source: messageRaw.stream_source ?? messageRaw.source ?? msg.stream }
-        store.addNotification(raw)
-      } else if (msg.stream === 'proposals') {
-        const raw = msg as unknown as Record<string, unknown>
-        store.addProposal({
-          proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useCodexStore').ProposalType,
-          content: String(raw.content || raw.description || ''),
-          requires_approval: raw.requires_approval !== false,
-          reflection_trace_id: raw.reflection_trace_id as string | undefined,
-          confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
-          timestamp: msg.timestamp || new Date().toISOString(),
-        })
-      } else if (msg.stream === 'trade_lifecycle') {
-        const raw = { ...(msg as unknown as Record<string, unknown>), created_at: msg.timestamp }
-        store.addTradeFeedItem(normalizeTradeFeedItem(raw))
-      } else if (msg.stream === 'agent_grades' || msg.stream === 'reflection_outputs') {
-        store.addLearningEvent({
-          type: msg.stream === 'agent_grades' ? 'trade_evaluated' : 'reflection',
-          timestamp: msg.timestamp || new Date().toISOString(),
-          ...(msg as unknown as Record<string, unknown>),
-        })
-      } else if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) {
-        const normalizedAgentPayload = msg.type === 'agent_status'
-          ? {
-              agent_name: (eventPayload as Record<string, unknown>).name,
-              timestamp: (eventPayload as Record<string, unknown>).updated_at || new Date().toISOString(),
-              message: (eventPayload as Record<string, unknown>).last_task || 'status_update',
-              ...(eventPayload as Record<string, unknown>),
-            }
-          : eventPayload
-        const norm = this._normalizeAgentEvent(normalizedAgentPayload)
-        if (norm) store.addAgentLog(norm)
-      } else if (msg.type === 'event' && eventPayload) {
-        const unwrappedPayload = ((eventPayload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (eventPayload as Record<string, unknown>)
-        const normalizedEventPayload = this._coerceObject(unwrappedPayload)
-        if (!normalizedEventPayload) return
-
-        const payloadWithContext: Record<string, unknown> = {
-          ...normalizedEventPayload,
-          stream: msg.stream || normalizedEventPayload.stream,
-          event_type: msg.event_type || normalizedEventPayload.event_type || normalizedEventPayload.type,
-          timestamp: msg.timestamp || normalizedEventPayload.timestamp,
-        }
-
-        const looksLikeAgentEvent = Boolean(
-          payloadWithContext['agent_name'] ||
-          payloadWithContext['agent'] ||
-          payloadWithContext['stream'] === 'agent_logs' ||
-          payloadWithContext['event_type'] === 'agent_log'
-        )
-
-        if (looksLikeAgentEvent) {
-          const norm = this._normalizeAgentEvent(payloadWithContext)
-          if (norm) store.addAgentLog(norm)
-        }
-      } else if (msg.stream === 'agent_logs') {
-        const source = msg as unknown as Record<string, unknown>
-        const payloadObj = (source.payload as Record<string, unknown> | undefined) ?? {}
-        const norm = this._normalizeAgentEvent({
-          ...source,
-          ...payloadObj,
-          agent_name: source.agent || source.source || payloadObj.agent || source['agent_name'],
-          timestamp: msg.timestamp || payloadObj.timestamp || new Date().toISOString(),
-        })
-        if (norm) store.addAgentLog(norm)
+        return
       }
+      if (msg.stream === 'market_ticks') return this._handleMarketTick(msg, store)
+      if (msg.type === 'PRICE_UPDATE' || msg.type === 'price_update') return this._handlePriceUpdate(msg, store)
+      if (msg.stream === 'signals') {
+        store.addSignal({ ...(msg as unknown as Record<string, unknown>), confidence: Number(msg.confidence) })
+        return
+      }
+      if (msg.stream === 'orders') { store.updateOrder(msg as never); return }
+      if (msg.type === 'trade_notification') return this._handleTradeNotification(msg, store)
+      if (msg.stream === 'notifications') return this._handleNotification(msg, store)
+      if (msg.stream === 'proposals') return this._handleProposal(msg, store)
+      if (msg.stream === 'trade_lifecycle') return this._handleTradeFeed(msg, store)
+      if (msg.stream === 'agent_grades' || msg.stream === 'reflection_outputs') return this._handleLearningEvent(msg, store)
+      if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) return this._handleAgentEvent(msg, store, eventPayload)
+      if (msg.type === 'event' && eventPayload) return this._handleGenericEvent(msg, store, eventPayload)
+      if (msg.stream === 'agent_logs') return this._handleAgentLog(msg, store)
     }
     this._socket.onclose = (event) => {
       const wasConnected = this._state === ConnectionState.CONNECTED
@@ -452,6 +328,153 @@ class WebSocketManager {
         this._updateStoreState()
       }
     }
+  }
+
+  // --- Message Handlers ---
+  private _handleAgentStatusUpdate(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    if (Array.isArray((msg as unknown as Record<string, unknown>).agents)) {
+      store.setAgentStatuses((msg as unknown as { agents: AgentStatus[] }).agents)
+    }
+    const metricsRaw = (msg as unknown as Record<string, unknown>).metrics
+    if (metricsRaw && typeof metricsRaw === 'object' && !Array.isArray(metricsRaw)) {
+      store.setPipelineMetrics(metricsRaw as Record<string, number>)
+    }
+  }
+
+  private _handleDashboardUpdate(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    try {
+      store.hydrateDashboard(this._normalizeDashboardData(msg.data))
+    } catch (error) {
+      console.error('Error hydrating dashboard:', error)
+    }
+  }
+
+  private _handleMarketTick(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const price = Number(msg.price)
+    const symbol = msg.symbol || 'UNKNOWN'
+    const previousPrice = store.prices[symbol]?.price ?? price
+    const change = Number.isFinite(price) ? price - previousPrice : 0
+    if (Number.isFinite(price)) store.updatePrice(symbol, price, change)
+    store.trackMarketTick(symbol)
+  }
+
+  private _handlePriceUpdate(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const price = Number(msg.price)
+    const symbol = msg.symbol
+    if (!symbol) return
+    const currentPriceData = store.prices[symbol]
+    const msgTimestamp = msg.timestamp || new Date().toISOString()
+    const msgTs = Date.parse(msgTimestamp)
+    const storedTs = currentPriceData?.updatedAt ? Date.parse(currentPriceData.updatedAt) : -Infinity
+    const shouldUpdate = !currentPriceData?.updatedAt || (Number.isFinite(msgTs) && msgTs > storedTs)
+    if (shouldUpdate && Number.isFinite(price)) {
+      const previousPrice = currentPriceData?.price ?? price
+      store.updatePrice(symbol, price, price - previousPrice)
+      store.trackMarketTick(symbol)
+    }
+  }
+
+  private _handleTradeNotification(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const raw = msg as unknown as Record<string, unknown>
+    const side = String(raw.side || 'buy')
+    const fillPrice = Number(raw.fill_price ?? 0)
+    const pnlRaw = raw.pnl
+    // Preserve null pnl for opens (BUY): equity curve skips null-pnl orders.
+    const pnl = (pnlRaw != null && pnlRaw !== '') ? Number(pnlRaw) : (null as unknown as number)
+    const ts = String(raw.filled_at || msg.timestamp || new Date().toISOString())
+    store.updateOrder({
+      order_id: raw.order_id as string,
+      symbol: String(raw.symbol || ''),
+      side: (side === 'sell' ? 'short' : 'long') as 'long' | 'short',
+      quantity: Number(raw.qty ?? 0),
+      entry_price: fillPrice,
+      current_price: fillPrice,
+      pnl,
+      timestamp: ts,
+      filled_at: ts,
+      status: 'filled',
+      trace_id: raw.trace_id as string,
+      source: raw.source as string,
+    } as import('@/stores/useCodexStore').Order)
+  }
+
+  private _handleNotification(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const messageRaw = msg as unknown as Record<string, unknown>
+    const payloadRaw = this._coerceObject(messageRaw.payload)
+    const raw = msg.type === 'event' && payloadRaw
+      ? { ...payloadRaw, timestamp: payloadRaw.timestamp ?? msg.timestamp, stream_source: payloadRaw.stream_source ?? msg.stream }
+      : { ...messageRaw, stream_source: messageRaw.stream_source ?? messageRaw.source ?? msg.stream }
+    store.addNotification(raw)
+  }
+
+  private _handleProposal(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const raw = msg as unknown as Record<string, unknown>
+    store.addProposal({
+      proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useCodexStore').ProposalType,
+      content: String(raw.content || raw.description || ''),
+      requires_approval: raw.requires_approval !== false,
+      reflection_trace_id: raw.reflection_trace_id as string | undefined,
+      confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+      timestamp: msg.timestamp || new Date().toISOString(),
+    })
+  }
+
+  private _handleTradeFeed(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const raw = { ...(msg as unknown as Record<string, unknown>), created_at: msg.timestamp }
+    store.addTradeFeedItem(normalizeTradeFeedItem(raw))
+  }
+
+  private _handleLearningEvent(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    store.addLearningEvent({
+      type: msg.stream === 'agent_grades' ? 'trade_evaluated' : 'reflection',
+      timestamp: msg.timestamp || new Date().toISOString(),
+      ...(msg as unknown as Record<string, unknown>),
+    })
+  }
+
+  private _handleAgentEvent(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>, payload: unknown): void {
+    const normalizedPayload = msg.type === 'agent_status'
+      ? {
+          agent_name: (payload as Record<string, unknown>).name,
+          timestamp: (payload as Record<string, unknown>).updated_at || new Date().toISOString(),
+          message: (payload as Record<string, unknown>).last_task || 'status_update',
+          ...(payload as Record<string, unknown>),
+        }
+      : payload
+    const norm = this._normalizeAgentEvent(normalizedPayload)
+    if (norm) store.addAgentLog(norm)
+  }
+
+  private _handleGenericEvent(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>, payload: unknown): void {
+    const unwrapped = ((payload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (payload as Record<string, unknown>)
+    const coerced = this._coerceObject(unwrapped)
+    if (!coerced) return
+    const enriched: Record<string, unknown> = {
+      ...coerced,
+      stream: msg.stream || coerced.stream,
+      event_type: msg.event_type || coerced.event_type || coerced.type,
+      timestamp: msg.timestamp || coerced.timestamp,
+    }
+    const looksLikeAgentEvent = Boolean(
+      enriched['agent_name'] || enriched['agent'] ||
+      enriched['stream'] === 'agent_logs' || enriched['event_type'] === 'agent_log'
+    )
+    if (looksLikeAgentEvent) {
+      const norm = this._normalizeAgentEvent(enriched)
+      if (norm) store.addAgentLog(norm)
+    }
+  }
+
+  private _handleAgentLog(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+    const source = msg as unknown as Record<string, unknown>
+    const payloadObj = (source.payload as Record<string, unknown> | undefined) ?? {}
+    const norm = this._normalizeAgentEvent({
+      ...source,
+      ...payloadObj,
+      agent_name: source.agent || source.source || payloadObj.agent || source['agent_name'],
+      timestamp: msg.timestamp || payloadObj.timestamp || new Date().toISOString(),
+    })
+    if (norm) store.addAgentLog(norm)
   }
 
   // --- Normalization ---
