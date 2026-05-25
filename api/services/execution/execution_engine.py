@@ -883,10 +883,12 @@ class ExecutionEngine(BaseStreamConsumer):
         if not is_fallback:
             return False
 
-        # Memory/paper mode: no live capital at risk — skip the fallback guard.
-        # EXECUTION_DECISION_THRESHOLD_MEMORY (0.30) was lowered precisely so
-        # rule-based paper signals can execute; blocking them here defeats that.
-        if not is_db_available():
+        # Paper/simulated mode: no live capital at risk — skip the fallback guard.
+        # EXECUTION_DECISION_THRESHOLD_MEMORY (0.30) was lowered so rule-based
+        # paper signals can execute; blocking them here defeats that intent.
+        # NOTE: do NOT use is_db_available() here — a DB outage during live
+        # trading must NOT bypass the guard with real capital at risk.
+        if settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER:
             return False
 
         trace_id = str(parsed.trace_id or "")
