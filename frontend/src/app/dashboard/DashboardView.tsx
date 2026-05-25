@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
-import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
+// useEffect kept: used for showNoAgentDataMessage timer
+import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
-import { api, API_ENDPOINTS } from '@/lib/apiClient'
+import { useRestPoll } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -11,11 +12,14 @@ import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { TradingView } from '@/components/dashboard/TradingView'
+import { TraceModal } from '@/components/dashboard/TraceModal'
+import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
+import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
+import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
 import {
   Brain,
   TrendingDown,
   TrendingUp,
-  Zap,
 } from 'lucide-react'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
@@ -47,10 +51,6 @@ const formatWiringAge = (ageMs: number | null): string => {
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
 }
 
-const cardClass = 'rounded-xl border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
-const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
-const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
-const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
 
@@ -64,19 +64,6 @@ type AgentSummary = {
   source: 'realtime' | 'persisted' | 'hybrid'
 }
 
-type PersistedStreamCount = {
-  stream: string
-  processed_count: number
-  last_processed_at: string | null
-}
-
-type PersistedHistoryItem = {
-  id: string
-  kind: string
-  source?: string | null
-  trace_id?: string | null
-  created_at: string | null
-}
 
 function displayAgentName(rawName: string): string {
   const canonical = canonicalAgentKey(rawName)
@@ -173,10 +160,20 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
   return toFiniteNumber(match?.value)
 }
 
-function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
+
+function EmptyState({ message, icon: Icon }: { message: string; icon?: ComponentType<{ className?: string }> }) {
   return (
-    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-500 dark:text-slate-400">{message}</p>
+    <div className="flex min-h-28 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 dark:border-slate-800 dark:bg-slate-900/30">
+      {Icon && <Icon className="h-5 w-5 text-slate-300 dark:text-slate-600" />}
+      <p className="text-xs font-sans font-medium text-slate-400 dark:text-slate-600">{message}</p>
     </div>
   )
 }
@@ -196,271 +193,6 @@ function PriceCardSkeleton() {
 
 
 
-// ---------------------------------------------------------------------------
-// Trace modal
-// ---------------------------------------------------------------------------
-
-type TraceData = {
-  trace_id: string
-  agent_runs: Array<Record<string, unknown>>
-  agent_logs: Array<Record<string, unknown>>
-  agent_grades: Array<Record<string, unknown>>
-}
-
-function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void }) {
-  const [data, setData] = useState<TraceData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((d) => { setData(d as TraceData); setLoading(false) })
-      .catch(() => { setError('Failed to load trace'); setLoading(false) })
-  }, [traceId])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16" onClick={onClose}>
-      <div
-        className="w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900 max-h-[80vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
-        </div>
-        {loading && <p className={mutedClass}>Loading…</p>}
-        {error && <p className="text-rose-500 text-sm">{error}</p>}
-        {data && (
-          <div className="space-y-4">
-            {data.agent_runs.length > 0 && (
-              <div>
-                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
-                <div className="space-y-1">
-                  {data.agent_runs.map((r, i) => (
-                    <div key={`${traceId}-run-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
-                      {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
-                      {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {data.agent_logs.length > 0 && (
-              <div>
-                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
-                <div className="space-y-1">
-                  {data.agent_logs.map((lg, i) => (
-                    <div key={`${traceId}-log-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
-                      {' · '}{String(lg.created_at ?? '')}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {data.agent_grades.length > 0 && (
-              <div>
-                <p className={cn(sectionTitleClass, 'mb-2')}>Grades</p>
-                <div className="space-y-1">
-                  {data.agent_grades.map((g, i) => {
-                    const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
-                    const scoreColor = score == null ? 'text-slate-500 dark:text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
-                    return (
-                      <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                        <span>{String(g.grade_type ?? '--')}</span>
-                        <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Proposals section
-// ---------------------------------------------------------------------------
-
-function ProposalsSection() {
-  const proposals = useCodexStore((state) => state.proposals)
-  const updateProposalStatus = useCodexStore((state) => state.updateProposalStatus)
-  const [pendingAction, setPendingAction] = useState<string | null>(null)
-
-  const handleVote = async (id: string, vote: 'approve' | 'reject') => {
-    setPendingAction(id)
-    const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
-    try {
-      // fetch only rejects on network error — HTTP 4xx/5xx must be detected via
-      // response.ok or the store update becomes detached from server state.
-      const response = await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      if (response.ok) {
-        updateProposalStatus(id, status)
-      }
-    } catch {
-      // network failure — leave proposal in its current state
-    } finally {
-      setPendingAction(null)
-    }
-  }
-
-  if (proposals.length === 0) {
-    return (
-      <div className={cardClass}>
-        <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
-        <EmptyState message="No proposals yet — they arrive from the ReflectionAgent" icon={Zap} />
-      </div>
-    )
-  }
-
-  return (
-    <div className={cardClass}>
-      <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
-      <div className="space-y-3">
-        {proposals.map((p) => {
-          const isPending = p.status === 'pending'
-          const isApproved = p.status === 'approved'
-          const confidencePct = p.confidence != null ? `${(p.confidence * 100).toFixed(0)}%` : null
-          return (
-            <div
-              key={p.id}
-              className={cn(
-                'rounded-lg border p-3',
-                isApproved ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' :
-                p.status === 'rejected' ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 opacity-60' :
-                'border-slate-200 dark:border-slate-800'
-              )}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded bg-slate-500/10 px-2 py-0.5 text-xs font-semibold text-slate-500">
-                      {p.proposal_type.replace(/_/g, ' ')}
-                    </span>
-                    {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
-                  </div>
-                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
-                  {p.reflection_trace_id && (
-                    <p className="text-[10px] font-mono text-slate-400 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
-                  )}
-                </div>
-                {isPending ? (
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      disabled={pendingAction === p.id}
-                      onClick={() => handleVote(p.id, 'approve')}
-                      className="rounded px-3 py-1 text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
-                    >Approve</button>
-                    <button
-                      disabled={pendingAction === p.id}
-                      onClick={() => handleVote(p.id, 'reject')}
-                      className="rounded px-3 py-1 text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
-                    >Reject</button>
-                  </div>
-                ) : (
-                  <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
-                    isApproved ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-500'
-                  )}>{p.status}</span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function formatUptime(seconds: number): string {
-  if (seconds < 60) return `${Math.floor(seconds)}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return `${hours}h ${remainingMinutes}m`
-}
-
-type DecisionStats = {
-  total: number
-  last_hour: { buys: number; sells: number; holds: number }
-  last_decision: Record<string, unknown> | null
-}
-
-function RecentDecisionsPanel({
-  stats,
-  recent,
-}: {
-  stats: DecisionStats | null
-  recent: Array<Record<string, unknown>>
-}) {
-  const actionable = recent.filter((d) => {
-    const action = String(d.action ?? '').toLowerCase()
-    return action === 'buy' || action === 'sell'
-  })
-  return (
-    <div className={cardClass}>
-      <div className="mb-3 flex items-center justify-between">
-        <p className={sectionTitleClass}>Recent Decisions</p>
-        {stats && (
-          <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            <span className="text-emerald-600 dark:text-emerald-400">Buys: {stats.last_hour.buys}</span>
-            <span className="text-rose-600 dark:text-rose-400">Sells: {stats.last_hour.sells}</span>
-            <span>Holds: {stats.last_hour.holds}</span>
-            <span>Total: {stats.total}</span>
-          </div>
-        )}
-      </div>
-      {actionable.length === 0 ? (
-        <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          No buy/sell decisions yet
-        </div>
-      ) : (
-        <div className="max-h-64 space-y-2 overflow-y-auto">
-          {actionable.slice(0, 10).map((d, index) => {
-            const action = String(d.action ?? '').toLowerCase()
-            const symbol = String(d.symbol ?? '--')
-            const priceNum = Number(d.price)
-            const priceTxt = Number.isFinite(priceNum) ? `$${priceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '--'
-            const confNum = Number(d.confidence)
-            const confTxt = Number.isFinite(confNum) ? `${(confNum * 100).toFixed(0)}%` : '--'
-            const ts = formatTimestamp(d.timestamp ? String(d.timestamp) : null)
-            const badgeClass = action === 'buy'
-              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-            return (
-              <div key={`${String(d.id ?? d.trace_id ?? index)}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-black uppercase', badgeClass)}>{action || 'hold'}</span>
-                  <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">{symbol}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
-                  <span>{priceTxt}</span>
-                  <span className="text-slate-400">·</span>
-                  <span>{confTxt}</span>
-                  <span className="text-slate-400">·</span>
-                  <span>{ts}</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export function DashboardView({ section }: { section: Section }) {
   const {
@@ -487,35 +219,21 @@ export function DashboardView({ section }: { section: Section }) {
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
-  // Track whether we have attempted a price fetch so we stop showing skeleton
-  // loaders even when the price poller hasn't populated Redis yet.
-  const [pricesFetched, setPricesFetched] = useState(false)
-  const [persistedCounts, setPersistedCounts] = useState<PersistedStreamCount[]>([])
-  const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
-  const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
-  const [apiHealth, setApiHealth] = useState<{
-    dashboardState: 'pending' | 'ok' | 'error'
-    agentInstances: 'pending' | 'ok' | 'error'
-    eventHistory: 'pending' | 'ok' | 'error'
-  }>({
-    dashboardState: 'pending',
-    agentInstances: 'pending',
-    eventHistory: 'pending',
-  })
-  const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
-  const [tradeFeedEmptyReason, setTradeFeedEmptyReason] = useState<string | null>(null)
-  const [tradeFeedUpstream, setTradeFeedUpstream] = useState<{
-    signal_events?: number
-    decisions_evaluated?: number
-    ee_last_status?: string | null
-    ee_event_count?: number
-  } | null>(null)
-  // null = not yet fetched, true/false = fetched from /dashboard/state
-  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
-  const [llmProvider, setLlmProvider] = useState<string>('')
 
-  const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null)
-  const [recentDecisions, setRecentDecisions] = useState<Array<Record<string, unknown>>>([])
+  const {
+    apiHealth,
+    systemFeedError,
+    llmAvailable,
+    llmProvider,
+    pricesFetched,
+    tradeFeedEmptyReason,
+    tradeFeedUpstream,
+    decisionStats,
+    recentDecisions,
+    persistedCounts,
+    persistedEvents,
+    persistedLogs,
+  } = useRestPoll(wsConnected)
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -557,235 +275,6 @@ export function DashboardView({ section }: { section: Section }) {
   const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
   const baseSystemStatus = useSystemStatus()
   const systemStatus = systemFeedError ? 'error' : baseSystemStatus
-
-  // ── REST fallback data fetching ──────────────────────────────────────────
-  // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
-  // connected. Stops as soon as wsConnected flips to true (WS takes over).
-  // This is the primary defence against Render cold-starts, misconfigured WS
-  // URL env vars, and any brief network hiccup on first load.
-  useEffect(() => {
-    const fetchState = async () => {
-      try {
-        console.info('[Dashboard] REST fetch /dashboard/state (wsConnected:', wsConnected, ')')
-        const r = await fetch(api('/dashboard/state'))
-        if (r.ok) {
-          const data = await r.json()
-          console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
-          useCodexStore.getState().hydrateDashboard(data)
-          setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
-          if (typeof data.llm_available === 'boolean') setLlmAvailable(data.llm_available)
-          if (typeof data.llm_provider === 'string') setLlmProvider(data.llm_provider)
-        } else {
-          console.warn('[Dashboard] /dashboard/state responded', r.status)
-          setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
-        }
-      } catch (err) {
-        console.warn('[Dashboard] /dashboard/state fetch failed:', err)
-        setSystemFeedError('Dashboard API unreachable')
-        setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
-      }
-    }
-    const fetchPricesOnce = async () => {
-      console.info('[Dashboard] Fetching prices via REST')
-      await useCodexStore.getState().fetchPrices()
-      const count = Object.keys(useCodexStore.getState().prices).length
-      console.info('[Dashboard] Prices fetched —', count, 'symbols in store')
-      setPricesFetched(true)
-    }
-
-    // Immediate fetch on mount — don't wait for WS
-    fetchState()
-    fetchPricesOnce()
-
-    // When WS is connected we still poll every 30 s so that orders / positions
-    // written between WS messages (e.g. slow fills, REST-only writes) stay
-    // current.  Without this the equity curve and P&L stay at 0 because the
-    // WS broadcaster sends trade_notification events but the order array only
-    // grows from REST hydration.
-    const interval = wsConnected ? 30_000 : 15_000
-    if (wsConnected) {
-      console.info('[Dashboard] WS connected — REST polling at 30 s cadence')
-    } else {
-      console.info('[Dashboard] WS not connected — starting 15 s REST polling fallback')
-    }
-    const t = setInterval(() => {
-      fetchState()
-      useCodexStore.getState().fetchPrices()
-    }, interval)
-    return () => clearInterval(t)
-  }, [wsConnected])
-
-  // Fetch learning data (proposals, IC weights, grades) on mount, every 30s,
-  // and whenever WS reconnects so historical learnings are always visible.
-  useEffect(() => {
-    const { addProposal } = useCodexStore.getState()
-    const fetchLearning = async () => {
-      try {
-        const proposalsRes = await fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS))
-        if (proposalsRes.ok) {
-          const data = await proposalsRes.json()
-          const existing = useCodexStore.getState().proposals
-          const existingIds = new Set(existing.map((p) => p.id))
-          const newOnes = (data.proposals ?? []).filter((p: Record<string, unknown>) => !existingIds.has(p.id as string))
-          console.info('[Dashboard] Proposals — total:', data.proposals?.length ?? 0, 'new:', newOnes.length)
-          for (const p of newOnes) {
-            addProposal({ proposal_type: (p.proposal_type as ProposalType) ?? 'parameter_change', content: JSON.stringify(p.content), requires_approval: p.requires_approval !== false, confidence: p.confidence as number | undefined, reflection_trace_id: p.reflection_trace_id as string | undefined, timestamp: (p.timestamp as string) ?? new Date().toISOString() })
-          }
-        } else {
-          console.warn('[Dashboard] /learning/proposals responded', proposalsRes.status)
-        }
-      } catch (err) {
-        console.warn('[Dashboard] fetchLearning failed:', err)
-      }
-    }
-    fetchLearning()
-    const interval = setInterval(fetchLearning, 30_000)
-    return () => clearInterval(interval)
-  }, [wsConnected]) // re-run on reconnect so we catch data that arrived while away
-
-  // Fetch trade feed on mount and every 30s
-  useEffect(() => {
-    const fetchTradeFeed = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_TRADE_FEED))
-        if (r.ok) {
-          const d = await r.json()
-          const trades = d.trades ?? []
-          console.info('[Dashboard] Trade feed —', trades.length, 'trades')
-          useCodexStore.getState().setTradeFeed(trades)
-          if (trades.length === 0) {
-            setTradeFeedEmptyReason(d.empty_reason ?? null)
-            setTradeFeedUpstream(d.upstream_activity ?? null)
-          } else {
-            setTradeFeedEmptyReason(null)
-            setTradeFeedUpstream(null)
-          }
-        } else {
-          console.warn('[Dashboard] /dashboard/trade-feed responded', r.status)
-        }
-      } catch (err) {
-        console.warn('[Dashboard] fetchTradeFeed failed:', err)
-      }
-    }
-    fetchTradeFeed()
-    const interval = setInterval(fetchTradeFeed, 30_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Hydrate notifications + decisions from the Redis-backed REST endpoints on
-  // mount and every time the WebSocket reconnects. Without this the dashboard
-  // shows nothing in memory mode unless the client was connected at the
-  // exact moment each event fired.
-  useEffect(() => {
-    const addNotification = useCodexStore.getState().addNotification
-    const fetchNotifications = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.NOTIFICATIONS_RECENT))
-        if (!r.ok) return
-        const items = (await r.json()) as Array<Record<string, unknown>>
-        // Pass raw items — addNotification calls normalizeStoredNotification internally.
-        for (const raw of [...items].reverse()) {
-          addNotification({ ...raw, stream_source: raw.stream_source ?? 'rest' })
-        }
-      } catch {
-        // non-fatal — WebSocket may still deliver realtime events
-      }
-    }
-    fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30_000)
-    return () => clearInterval(interval)
-  }, [wsConnected])
-
-  // Decisions stats + recent decisions REST hydration.
-  useEffect(() => {
-    const fetchDecisions = async () => {
-      try {
-        const [statsRes, recentRes] = await Promise.all([
-          fetch(api(API_ENDPOINTS.DECISIONS_STATS)),
-          fetch(api(`${API_ENDPOINTS.DECISIONS_RECENT}?limit=20`)),
-        ])
-        if (statsRes.ok) {
-          const stats = await statsRes.json()
-          setDecisionStats(stats)
-        }
-        if (recentRes.ok) {
-          const recent = (await recentRes.json()) as Array<Record<string, unknown>>
-          setRecentDecisions(recent)
-        }
-      } catch {
-        // non-fatal
-      }
-    }
-    fetchDecisions()
-    const interval = setInterval(fetchDecisions, 15_000)
-    return () => clearInterval(interval)
-  }, [wsConnected])
-
-  // Fetch performance summary on mount, every 30 s, and on WS reconnect.
-  // Without the interval, a single transient fetch failure on initial mount
-  // left performanceSummary permanently null, so the PnL headline card
-  // stayed at "--" even after fills successfully landed in the DB. Matches
-  // the retry cadence of fetchTradeFeed / fetchLearning.
-  useEffect(() => {
-    const fetchPerformance = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
-        if (!r.ok) return
-        const d = await r.json()
-        if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
-      } catch {
-        // non-fatal
-      }
-    }
-    fetchPerformance()
-    const interval = setInterval(fetchPerformance, 30_000)
-    return () => clearInterval(interval)
-  }, [wsConnected])
-
-  // Fetch agent instances on mount and every 30s
-  useEffect(() => {
-    const fetchAgentInstances = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
-        if (!r.ok) {
-          setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
-          return
-        }
-        const d = await r.json()
-        useCodexStore.getState().setAgentInstances(d.instances ?? [])
-        setApiHealth((prev) => ({ ...prev, agentInstances: 'ok' }))
-      } catch {
-        setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
-      }
-    }
-    fetchAgentInstances()
-    const interval = setInterval(fetchAgentInstances, 30_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Fetch persisted history view so operators can confirm durable writes.
-  useEffect(() => {
-    const fetchPersistedHistory = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.EVENTS_HISTORY))
-        if (!r.ok) {
-          setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
-          return
-        }
-        const d = await r.json()
-        setPersistedCounts((d.stream_counts ?? []) as PersistedStreamCount[])
-        setPersistedEvents((d.persisted_events ?? []) as PersistedHistoryItem[])
-        setPersistedLogs((d.persisted_logs ?? []) as PersistedHistoryItem[])
-        setApiHealth((prev) => ({ ...prev, eventHistory: 'ok' }))
-      } catch {
-        // non-fatal
-        setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
-      }
-    }
-    fetchPersistedHistory()
-    const interval = setInterval(fetchPersistedHistory, 30_000)
-    return () => clearInterval(interval)
-  }, [])
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -1050,26 +539,34 @@ export function DashboardView({ section }: { section: Section }) {
                   {realAgents.map((agent) => (
                     <div
                       key={agent.name}
-                      className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
+                      className={cn(
+                        'rounded-lg border p-3 transition-all duration-150 hover:shadow-sm',
+                        agent.status === 'Live'
+                          ? 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+                          : agent.status === 'Error'
+                            ? 'border-rose-200 bg-rose-50/30 dark:border-rose-900/30 dark:bg-rose-950/10'
+                            : 'border-slate-200 dark:border-slate-800',
+                      )}
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
-                        <div className="flex items-center gap-2">
-                          <span className={cn('h-1.5 w-1.5 rounded-full', 
-                            agent.status === 'Live' ? 'bg-emerald-300' : 
-                            agent.status === 'Stale' ? 'bg-amber-300' :
-                            agent.status === 'Error' ? 'bg-rose-300' : 'bg-slate-400'
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            'h-2 w-2 rounded-full',
+                            agent.status === 'Live' ? 'animate-pulse bg-emerald-500' :
+                            agent.status === 'Stale' ? 'bg-amber-400' :
+                            agent.status === 'Error' ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'
                           )} />
-                          <span className={cn('text-xs font-sans font-medium',
-                            agent.status === 'Live' ? 'text-emerald-300' : 
-                            agent.status === 'Stale' ? 'text-amber-300' :
-                            agent.status === 'Error' ? 'text-rose-300' : 'text-slate-400'
+                          <span className={cn('text-xs font-mono font-semibold',
+                            agent.status === 'Live' ? 'text-emerald-600 dark:text-emerald-400' :
+                            agent.status === 'Stale' ? 'text-amber-600 dark:text-amber-400' :
+                            agent.status === 'Error' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'
                           )}>{agent.status}</span>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
                         {(agent.realtimeCount + agent.persistedCount) > 0 ? (
-                          <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                          <p className="text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">
                             {agent.realtimeCount + agent.persistedCount} events
                           </p>
                         ) : agent.lastSeen ? (
