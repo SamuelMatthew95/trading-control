@@ -74,6 +74,48 @@ export function tradeFeedEmptyLabel(reason: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
+// CSS class helpers — Agent card grid (DashboardView)
+// ---------------------------------------------------------------------------
+
+export function agentCardBorderClass(status: string): string {
+  if (status === 'Live') return 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+  if (status === 'Error') return 'border-rose-200 bg-rose-50/30 dark:border-rose-900/30 dark:bg-rose-950/10'
+  return 'border-slate-200 dark:border-slate-800'
+}
+
+export function agentCardDotClass(status: string): string {
+  if (status === 'Live') return 'animate-pulse bg-emerald-500'
+  if (status === 'Stale') return 'bg-amber-400'
+  if (status === 'Error') return 'bg-rose-500'
+  return 'bg-slate-300 dark:bg-slate-600'
+}
+
+export function agentCardTextClass(status: string): string {
+  if (status === 'Live') return 'text-emerald-600 dark:text-emerald-400'
+  if (status === 'Stale') return 'text-amber-600 dark:text-amber-400'
+  if (status === 'Error') return 'text-rose-600 dark:text-rose-400'
+  return 'text-slate-400'
+}
+
+// ---------------------------------------------------------------------------
+// CSS class helpers — Stream events / System status
+// ---------------------------------------------------------------------------
+
+export function streamEventBadgeClass(stream: string | null | undefined): string {
+  if (stream === 'market_ticks') return 'bg-emerald-500/15 text-emerald-500'
+  if (stream === 'signals') return 'bg-slate-500/10 text-slate-500'
+  if (stream === 'orders') return 'bg-amber-500/15 text-amber-500'
+  return 'bg-slate-500/15 text-slate-500'
+}
+
+export function systemStatusBadgeClass(status: string): string {
+  if (status === 'trading') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
+  if (status === 'booting') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
+  if (status === 'error') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
+  return 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+}
+
+// ---------------------------------------------------------------------------
 // Computation helpers
 // ---------------------------------------------------------------------------
 
