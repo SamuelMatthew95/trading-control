@@ -191,8 +191,135 @@ function PriceCardSkeleton() {
   )
 }
 
+// ── Style helpers ─────────────────────────────────────────────────────────────
 
+function agentStatusDotClass(status: AgentSummary['status']): string {
+  if (status === 'Live') return 'bg-emerald-300'
+  if (status === 'Stale') return 'bg-amber-300'
+  if (status === 'Error') return 'bg-rose-300'
+  return 'bg-slate-400'
+}
 
+function pipelineStatusTextClass(status: string): string {
+  if (status === 'Healthy') return 'text-emerald-500'
+  if (status === 'Degraded') return 'text-amber-500'
+  return 'text-rose-500'
+}
+
+function apiHealthBadgeClass(value: string): string {
+  if (value === 'ok') return 'bg-emerald-500/10 text-emerald-500'
+  if (value === 'error') return 'bg-rose-500/10 text-rose-500'
+  return 'bg-slate-500/10 text-slate-500'
+}
+
+function priceChangeTextClass(change: number | null, hasData: boolean): string {
+  if (change == null || !hasData) return 'text-slate-500'
+  return change >= 0 ? 'text-emerald-500' : 'text-rose-500'
+}
+
+function priceChangeText(change: number | null, hasData: boolean): string {
+  if (change == null || !hasData) return '--'
+  return `${change >= 0 ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`
+}
+
+// ── Formatting helpers ────────────────────────────────────────────────────────
+
+function formatWinRate(rate: number | null, hasClosedTrades: boolean): string {
+  if (rate == null || !Number.isFinite(rate)) return '--'
+  return `${rate.toFixed(2)}%${hasClosedTrades ? '' : ' (open only)'}`
+}
+
+function formatDailyChange(change: number | null | undefined): string {
+  if (typeof change !== 'number' || !Number.isFinite(change)) return '0.00'
+  return change.toFixed(2)
+}
+
+function lastNotificationLabel(notifications: Array<{ timestamp?: string }>): string {
+  const ts = parseTimestamp(notifications[0]?.timestamp)
+  return ts ? `Last: ${ts.toLocaleTimeString()}` : 'No activity yet'
+}
+
+function resolveWsUrl(): string {
+  if (typeof window === 'undefined') return '—'
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
+  }
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/^https?:\/\//, 'wss://') + '/ws/dashboard'
+  }
+  return window.location.host + '/ws/dashboard (same-origin)'
+}
+
+function formatLlmProviderName(provider: string): string {
+  if (!provider) return 'LLM'
+  return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+// ── Small UI-only components ──────────────────────────────────────────────────
+
+type StatusDotProps = { live: boolean; label: string; loadingLabel?: string; loading?: boolean }
+function StatusDot({ live, label, loading }: StatusDotProps) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+        <span className="text-xs font-sans text-amber-500">Loading</span>
+      </div>
+    )
+  }
+  const color = live ? 'bg-emerald-500' : 'bg-amber-500'
+  const text = live ? 'text-emerald-500' : 'text-amber-500'
+  return (
+    <div className="flex items-center gap-2">
+      <div className={cn('h-2 w-2 rounded-full', color)} />
+      <span className={cn('text-xs font-sans', text)}>{label}</span>
+    </div>
+  )
+}
+
+function PriceFreshnessStatus({
+  prices,
+  loading,
+}: {
+  prices: Record<string, unknown>
+  loading: boolean
+}) {
+  if (loading) return <StatusDot live={false} label="" loading />
+
+  const priceValues = Object.values(prices)
+  if (priceValues.length === 0) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 rounded-full bg-slate-500" />
+        <span className="text-xs font-sans text-slate-500">No Data</span>
+      </div>
+    )
+  }
+
+  const freshestMs = priceValues
+    .map((p) => {
+      const r = p as { updatedAt?: string | null; ts?: string | null; timestamp?: string | null }
+      return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
+    })
+    .filter((d): d is Date => d instanceof Date)
+    .map((d) => Date.now() - d.getTime())
+    .reduce((min, ms) => Math.min(min, ms), Infinity)
+
+  const isLive = Number.isFinite(freshestMs) && freshestMs <= 60_000
+  return <StatusDot live={isLive} label={isLive ? 'Live' : 'Stale'} />
+}
+
+function PricesRestStatus({ priceCount, fetched }: { priceCount: number; fetched: boolean }) {
+  if (priceCount > 0) {
+    return (
+      <p className="mt-1 text-sm font-semibold text-emerald-500">● {priceCount} symbols</p>
+    )
+  }
+  if (fetched) {
+    return <p className="mt-1 text-sm font-semibold text-amber-500">● Fetched – poller offline?</p>
+  }
+  return <p className="mt-1 text-sm font-semibold text-slate-400">● Waiting…</p>
+}
 
 export function DashboardView({ section }: { section: Section }) {
   const {
@@ -468,15 +595,39 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { title: 'Daily P&L', value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
-              { title: 'Win Rate', value: summary.winRate == null || !Number.isFinite(summary.winRate) ? '--' : `${summary.winRate.toFixed(2)}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
-              { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
-              { title: 'Daily Change %', value: `${typeof summary.dailyChange === 'number' && Number.isFinite(summary.dailyChange) ? summary.dailyChange.toFixed(2) : '0.00'}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
+              {
+                title: 'Daily P&L',
+                value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--',
+                trend: summary.hasOrders
+                  ? Math.sign(summary.dailyPnlNumeric)
+                  : 0,
+              },
+              {
+                title: 'Win Rate',
+                value: formatWinRate(summary.winRate, summary.hasClosedTrades),
+                trend: 0,
+              },
+              {
+                title: 'Active Positions',
+                value: sanitizeValue(summary.activePositions),
+                trend: 0,
+              },
+              {
+                title: 'Daily Change %',
+                value: `${formatDailyChange(summary.dailyChange)}%`,
+                trend: Math.sign(summary.dailyChange ?? 0),
+              },
             ].map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
-                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-500" /> : <span className="h-4 w-4" />}
+                  {item.trend > 0 ? (
+                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                  ) : item.trend < 0 ? (
+                    <TrendingDown className="h-4 w-4 text-rose-500" />
+                  ) : (
+                    <span className="h-4 w-4" />
+                  )}
                 </div>
                 <p className={valueClass}>{item.value}</p>
               </div>
@@ -588,48 +739,7 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Live Market Prices</p>
-              <div className="flex items-center gap-2">
-                {pricesLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                    <span className="text-xs font-sans text-amber-500">Loading</span>
-                  </div>
-                ) : Object.keys(prices).length > 0 ? (
-                  (() => {
-                    // Derive freshness from the prices themselves rather than the
-                    // market_ticks stream lag. When prices are hydrated via REST
-                    // (cold start, WS not connected) the stream lag metric is
-                    // null and would falsely display "Stale" while the tile
-                    // dots show green. Pick the freshest updatedAt across all
-                    // tiles and grade by that.
-                    // /dashboard/state hydrates Redis payloads with `ts`
-                    // (or `timestamp`) rather than `updatedAt`, so fall back
-                    // to those before declaring a tile stale on cold start.
-                    const ages = Object.values(prices)
-                      .map((p) => {
-                        const r = p as { updatedAt?: string | null; ts?: string | null; timestamp?: string | null }
-                        return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
-                      })
-                      .filter((d): d is Date => d instanceof Date)
-                      .map((d) => Date.now() - d.getTime())
-                    const freshestMs = ages.length > 0 ? Math.min(...ages) : null
-                    const isLive = freshestMs != null && freshestMs <= 60_000
-                    return (
-                      <div className="flex items-center gap-2">
-                        <div className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-amber-500')} />
-                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-500' : 'text-amber-500')}>
-                          {isLive ? 'Live' : 'Stale'}
-                        </span>
-                      </div>
-                    )
-                  })()
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-slate-500" />
-                    <span className="text-xs font-sans text-slate-500">No Data</span>
-                  </div>
-                )}
-              </div>
+              <PriceFreshnessStatus prices={prices} loading={pricesLoading} />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {pricesLoading ? (
@@ -641,7 +751,6 @@ export function DashboardView({ section }: { section: Section }) {
                   const previous = toFiniteNumber(priceData?.previousPrice)
                   const observedChange = toFiniteNumber(priceData?.change)
                   const change = observedChange ?? (price != null && previous != null ? price - previous : null)
-                  const isPositive = (change ?? 0) >= 0
                   const hasData = price != null && !isNaN(price)
                   
                   return (
@@ -654,10 +763,8 @@ export function DashboardView({ section }: { section: Section }) {
                         {hasData ? formatUSD(price) : '--'}
                       </p>
                       <div className="mt-2 flex items-center justify-between">
-                        <p className={cn('text-xs font-mono tabular-nums', 
-                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500'
-                        )}>
-                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
+                        <p className={cn('text-xs font-mono tabular-nums', priceChangeTextClass(change, hasData))}>
+                          {priceChangeText(change, hasData)}
                         </p>
                         <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
                       </div>
@@ -699,14 +806,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Notifications</p>
               <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
-              <p className={mutedClass}>
-                {(() => {
-                  const lastNotificationTime = parseTimestamp(notifications[0]?.timestamp)
-                  return lastNotificationTime
-                    ? `Last: ${lastNotificationTime.toLocaleTimeString()}`
-                    : 'No activity yet'
-                })()}
-              </p>
+              <p className={mutedClass}>{lastNotificationLabel(notifications)}</p>
             </div>
           </div>
 
@@ -756,11 +856,7 @@ export function DashboardView({ section }: { section: Section }) {
                   key={apiRow.label}
                   className={cn(
                     'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                    apiRow.value === 'ok'
-                      ? 'bg-emerald-500/10 text-emerald-500'
-                      : apiRow.value === 'error'
-                        ? 'bg-rose-500/10 text-rose-500'
-                        : 'bg-slate-500/10 text-slate-500',
+                    apiHealthBadgeClass(apiRow.value),
                   )}
                 >
                   {apiRow.label}: {apiRow.value}
@@ -791,16 +887,7 @@ export function DashboardView({ section }: { section: Section }) {
                         <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
                           <span className="inline-flex items-center gap-2">
-                            <span className={cn(
-                              'h-2 w-2 rounded-full',
-                              agent.status === 'Live'
-                                ? 'bg-emerald-300'
-                                : agent.status === 'Stale'
-                                  ? 'bg-amber-300'
-                                  : agent.status === 'Error'
-                                    ? 'bg-rose-300'
-                                    : 'bg-slate-400',
-                            )} />
+                            <span className={cn('h-2 w-2 rounded-full', agentStatusDotClass(agent.status))} />
                             <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
@@ -892,7 +979,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Pipeline status</p>
-                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-500' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-500')}>{pipelineStatus}</p>
+                <p className={cn('text-sm font-semibold', pipelineStatusTextClass(pipelineStatus))}>{pipelineStatus}</p>
               </div>
             </div>
           </div>
@@ -925,9 +1012,9 @@ export function DashboardView({ section }: { section: Section }) {
           {llmAvailable === false && (
             <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 p-3 text-sm text-blue-600 dark:text-blue-400">
               <span className="font-semibold">Rule-based mode</span> — no{' '}
-              {llmProvider ? llmProvider.charAt(0).toUpperCase() + llmProvider.slice(1) : 'LLM'}{' '}
-              API key configured. Reasoning decisions use signal direction only; set{' '}
-              {llmProvider ? llmProvider.toUpperCase() + '_API_KEY' : 'an LLM API key'} to enable
+              {formatLlmProviderName(llmProvider)} API key configured. Reasoning decisions use
+              signal direction only; set{' '}
+              {llmProvider ? `${llmProvider.toUpperCase()}_API_KEY` : 'an LLM API key'} to enable
               AI-powered analysis.
             </div>
           )}
@@ -942,13 +1029,7 @@ export function DashboardView({ section }: { section: Section }) {
                   {wsConnected ? '● Connected' : '● Disconnected'}
                 </p>
                 <p className="mt-1 break-all text-[10px] font-mono text-slate-400">
-                  {typeof window !== 'undefined'
-                    ? (process.env.NEXT_PUBLIC_WS_URL
-                        ? process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
-                        : process.env.NEXT_PUBLIC_API_URL
-                          ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/^https?:\/\//, 'wss://') + '/ws/dashboard'
-                          : window.location.host + '/ws/dashboard (same-origin)')
-                    : '—'}
+                  {resolveWsUrl()}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -959,9 +1040,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Prices / REST</p>
-                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-500' : pricesFetched ? 'text-amber-500' : 'text-slate-400')}>
-                  {Object.keys(prices).length > 0 ? `● ${Object.keys(prices).length} symbols` : pricesFetched ? '● Fetched – poller offline?' : '● Waiting…'}
-                </p>
+                <PricesRestStatus priceCount={Object.keys(prices).length} fetched={pricesFetched} />
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Reconnect attempts</p>
