@@ -89,10 +89,11 @@ class InMemoryStore:
             or self._safe_float(p.get(FieldName.PRICE))
             or 0.0
         )
+        unrealized_pnl = self._safe_float(p.get(FieldName.UNREALIZED_PNL))
         unrealized = (
-            self._safe_float(p.get(FieldName.UNREALIZED_PNL))
-            or self._safe_float(p.get(FieldName.PNL))
-            or 0.0
+            unrealized_pnl
+            if unrealized_pnl is not None
+            else (self._safe_float(p.get(FieldName.PNL)) or 0.0)
         )
         return {
             **p,
@@ -308,7 +309,7 @@ class InMemoryStore:
                     FieldName.SOURCE: data.get(FieldName.SOURCE, "in_memory"),
                     FieldName.SECONDS_AGO: max(
                         0,
-                        int(now - float(data.get(FieldName.LAST_SEEN) or now)),
+                        int(now - (self._safe_float(data.get(FieldName.LAST_SEEN)) or now)),
                     ),
                 }
                 for name, data in self.agents.items()
