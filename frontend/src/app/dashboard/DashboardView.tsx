@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react'
-import { useCodexStore, type AgentStatus, type ProposalType } from '@/stores/useCodexStore'
+// useEffect kept: used for showNoAgentDataMessage timer
+import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
-import { api, API_ENDPOINTS } from '@/lib/apiClient'
+import { useRestPoll } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -11,11 +12,27 @@ import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { TradingView } from '@/components/dashboard/TradingView'
+import { TraceModal } from '@/components/dashboard/TraceModal'
+import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
+import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
+import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
+import {
+  agentCardBorderClass,
+  agentCardDotClass,
+  agentCardTextClass,
+  streamEventBadgeClass,
+  systemStatusBadgeClass,
+  agentStatusDotClass,
+  pipelineStatusTextClass,
+  apiHealthBadgeClass,
+  priceChangeTextClass,
+  agentTierFromStatus,
+  performancePnlColorClass,
+} from '@/lib/dashboard-helpers'
 import {
   Brain,
   TrendingDown,
   TrendingUp,
-  Zap,
 } from 'lucide-react'
 
 const sanitizeValue = (value: string | number | boolean | null | undefined): string => {
@@ -47,10 +64,6 @@ const formatWiringAge = (ageMs: number | null): string => {
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
 }
 
-const cardClass = 'rounded-xl border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
-const sectionTitleClass = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
-const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
-const valueClass = 'text-2xl font-black font-mono tabular-nums text-slate-950 dark:text-slate-100'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
 
@@ -64,19 +77,6 @@ type AgentSummary = {
   source: 'realtime' | 'persisted' | 'hybrid'
 }
 
-type PersistedStreamCount = {
-  stream: string
-  processed_count: number
-  last_processed_at: string | null
-}
-
-type PersistedHistoryItem = {
-  id: string
-  kind: string
-  source?: string | null
-  trace_id?: string | null
-  created_at: string | null
-}
 
 function displayAgentName(rawName: string): string {
   const canonical = canonicalAgentKey(rawName)
@@ -173,10 +173,20 @@ function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: st
   return toFiniteNumber(match?.value)
 }
 
-function EmptyState({ message }: { message: string; icon?: ComponentType<{ className?: string }> }) {
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
+
+function EmptyState({ message, icon: Icon }: { message: string; icon?: ComponentType<{ className?: string }> }) {
   return (
-    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 px-4 py-10 dark:border-slate-700">
-      <p className="text-sm font-sans text-slate-500 dark:text-slate-400">{message}</p>
+    <div className="flex min-h-28 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 dark:border-slate-800 dark:bg-slate-900/30">
+      {Icon && <Icon className="h-5 w-5 text-slate-300 dark:text-slate-600" />}
+      <p className="text-xs font-sans font-medium text-slate-400 dark:text-slate-600">{message}</p>
     </div>
   )
 }
@@ -194,272 +204,116 @@ function PriceCardSkeleton() {
   )
 }
 
+// ── Timing thresholds ─────────────────────────────────────────────────────────
 
+const PRICE_FRESHNESS_MS = 60_000
+const PIPELINE_HEALTHY_LATENCY_MS = 15_000
+const AGENT_DATA_TIMEOUT_MS = 10_000
 
-// ---------------------------------------------------------------------------
-// Trace modal
-// ---------------------------------------------------------------------------
-
-type TraceData = {
-  trace_id: string
-  agent_runs: Array<Record<string, unknown>>
-  agent_logs: Array<Record<string, unknown>>
-  agent_grades: Array<Record<string, unknown>>
+function priceChangeText(change: number | null, hasData: boolean): string {
+  if (change == null || !hasData) return '--'
+  if (change === 0) return `→ ${formatUSD(0)}`
+  return `${change > 0 ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`
 }
 
-function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void }) {
-  const [data, setData] = useState<TraceData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+// ── Formatting helpers ────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((d) => { setData(d as TraceData); setLoading(false) })
-      .catch(() => { setError('Failed to load trace'); setLoading(false) })
-  }, [traceId])
+function formatWinRate(rate: number | null, hasClosedTrades: boolean): string {
+  if (rate == null || !Number.isFinite(rate)) return '--'
+  return `${rate.toFixed(2)}%${hasClosedTrades ? '' : ' (open only)'}`
+}
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16" onClick={onClose}>
-      <div
-        className="w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900 max-h-[80vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <p className={cn(sectionTitleClass)}>Trace: <span className="font-mono text-slate-700 dark:text-slate-300">{traceId.slice(0, 16)}…</span></p>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl font-bold leading-none">×</button>
-        </div>
-        {loading && <p className={mutedClass}>Loading…</p>}
-        {error && <p className="text-rose-500 text-sm">{error}</p>}
-        {data && (
-          <div className="space-y-4">
-            {data.agent_runs.length > 0 && (
-              <div>
-                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Runs</p>
-                <div className="space-y-1">
-                  {data.agent_runs.map((r, i) => (
-                    <div key={`${traceId}-run-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{String(r.agent_name ?? '--')}</span>
-                      {' · '}{String(r.run_type ?? '')} · {String(r.status ?? '')}
-                      {r.execution_time_ms != null && <span className={mutedClass}> · {String(r.execution_time_ms)}ms</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {data.agent_logs.length > 0 && (
-              <div>
-                <p className={cn(sectionTitleClass, 'mb-2')}>Agent Logs</p>
-                <div className="space-y-1">
-                  {data.agent_logs.map((lg, i) => (
-                    <div key={`${traceId}-log-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
-                      <span className="text-slate-500">{String(lg.log_type ?? '--')}</span>
-                      {' · '}{String(lg.created_at ?? '')}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {data.agent_grades.length > 0 && (
-              <div>
-                <p className={cn(sectionTitleClass, 'mb-2')}>Grades</p>
-                <div className="space-y-1">
-                  {data.agent_grades.map((g, i) => {
-                    const score = typeof g.score === 'number' && Number.isFinite(g.score) ? g.score : null
-                    const scoreColor = score == null ? 'text-slate-500 dark:text-slate-400' : score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-amber-500' : 'text-rose-500'
-                    return (
-                      <div key={`${traceId}-grade-${i}`} className="rounded border border-slate-200 dark:border-slate-700 p-2 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                        <span>{String(g.grade_type ?? '--')}</span>
-                        <span className={cn('font-bold', scoreColor)}>{score == null ? '--' : score.toFixed(1)}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+function formatDailyChange(change: number | null | undefined): string {
+  if (typeof change !== 'number' || !Number.isFinite(change)) return '--'
+  const sign = change > 0 ? '+' : ''
+  return `${sign}${change.toFixed(2)}%`
+}
+
+function lastNotificationLabel(notifications: Array<{ timestamp?: string }>): string {
+  const ts = parseTimestamp(notifications[0]?.timestamp)
+  return ts ? `Last: ${ts.toLocaleTimeString()}` : 'No activity yet'
+}
+
+function resolveWsUrl(): string {
+  if (typeof window === 'undefined') return '—'
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
+  }
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/^https?:\/\//, 'wss://') + '/ws/dashboard'
+  }
+  return window.location.host + '/ws/dashboard (same-origin)'
+}
+
+function formatLlmProviderName(provider: string): string {
+  if (!provider) return 'LLM'
+  return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+// ── Small UI-only components ──────────────────────────────────────────────────
+
+type StatusDotProps = { live: boolean; label: string; loadingLabel?: string; loading?: boolean }
+function StatusDot({ live, label, loading }: StatusDotProps) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+        <span className="text-xs font-sans text-amber-500">Loading</span>
       </div>
+    )
+  }
+  const color = live ? 'bg-emerald-500' : 'bg-amber-500'
+  const text = live ? 'text-emerald-500' : 'text-amber-500'
+  return (
+    <div className="flex items-center gap-2">
+      <div className={cn('h-2 w-2 rounded-full', color)} />
+      <span className={cn('text-xs font-sans', text)}>{label}</span>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Proposals section
-// ---------------------------------------------------------------------------
+function PriceFreshnessStatus({
+  prices,
+  loading,
+}: {
+  prices: Record<string, unknown>
+  loading: boolean
+}) {
+  if (loading) return <StatusDot live={false} label="" loading />
 
-function ProposalsSection() {
-  const proposals = useCodexStore((state) => state.proposals)
-  const updateProposalStatus = useCodexStore((state) => state.updateProposalStatus)
-  const [pendingAction, setPendingAction] = useState<string | null>(null)
-
-  const handleVote = async (id: string, vote: 'approve' | 'reject') => {
-    setPendingAction(id)
-    const status = vote === 'approve' ? 'approved' as const : 'rejected' as const
-    try {
-      // fetch only rejects on network error — HTTP 4xx/5xx must be detected via
-      // response.ok or the store update becomes detached from server state.
-      const response = await fetch(api(`/dashboard/learning/proposals/${encodeURIComponent(id)}`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      if (response.ok) {
-        updateProposalStatus(id, status)
-      }
-    } catch {
-      // network failure — leave proposal in its current state
-    } finally {
-      setPendingAction(null)
-    }
-  }
-
-  if (proposals.length === 0) {
+  const priceValues = Object.values(prices)
+  if (priceValues.length === 0) {
     return (
-      <div className={cardClass}>
-        <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
-        <EmptyState message="No proposals yet — they arrive from the ReflectionAgent" icon={Zap} />
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 rounded-full bg-slate-500" />
+        <span className="text-xs font-sans text-slate-500">No Data</span>
       </div>
     )
   }
 
-  return (
-    <div className={cardClass}>
-      <p className={cn(sectionTitleClass, 'mb-3')}>Strategy Proposals</p>
-      <div className="space-y-3">
-        {proposals.map((p) => {
-          const isPending = p.status === 'pending'
-          const isApproved = p.status === 'approved'
-          const confidencePct = p.confidence != null ? `${(p.confidence * 100).toFixed(0)}%` : null
-          return (
-            <div
-              key={p.id}
-              className={cn(
-                'rounded-lg border p-3',
-                isApproved ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' :
-                p.status === 'rejected' ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 opacity-60' :
-                'border-slate-200 dark:border-slate-800'
-              )}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded bg-slate-500/10 px-2 py-0.5 text-xs font-semibold text-slate-500">
-                      {p.proposal_type.replace(/_/g, ' ')}
-                    </span>
-                    {confidencePct && <span className={mutedClass}>{confidencePct} confidence</span>}
-                  </div>
-                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug line-clamp-3">{p.content || '--'}</p>
-                  {p.reflection_trace_id && (
-                    <p className="text-[10px] font-mono text-slate-400 truncate">trace: {p.reflection_trace_id.slice(0, 16)}…</p>
-                  )}
-                </div>
-                {isPending ? (
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      disabled={pendingAction === p.id}
-                      onClick={() => handleVote(p.id, 'approve')}
-                      className="rounded px-3 py-1 text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
-                    >Approve</button>
-                    <button
-                      disabled={pendingAction === p.id}
-                      onClick={() => handleVote(p.id, 'reject')}
-                      className="rounded px-3 py-1 text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
-                    >Reject</button>
-                  </div>
-                ) : (
-                  <span className={cn('shrink-0 rounded px-2 py-1 text-xs font-semibold',
-                    isApproved ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-500/15 text-slate-500'
-                  )}>{p.status}</span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+  const freshestMs = priceValues
+    .map((p) => {
+      const r = p as { updatedAt?: string | null; ts?: string | null; timestamp?: string | null }
+      return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
+    })
+    .filter((d): d is Date => d instanceof Date)
+    .map((d) => Date.now() - d.getTime())
+    .reduce((min, ms) => Math.min(min, ms), Infinity)
+
+  const isLive = Number.isFinite(freshestMs) && freshestMs <= PRICE_FRESHNESS_MS
+  return <StatusDot live={isLive} label={isLive ? 'Live' : 'Stale'} />
 }
 
-function formatUptime(seconds: number): string {
-  if (seconds < 60) return `${Math.floor(seconds)}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return `${hours}h ${remainingMinutes}m`
-}
-
-type DecisionStats = {
-  total: number
-  last_hour: { buys: number; sells: number; holds: number }
-  last_decision: Record<string, unknown> | null
-}
-
-function RecentDecisionsPanel({
-  stats,
-  recent,
-}: {
-  stats: DecisionStats | null
-  recent: Array<Record<string, unknown>>
-}) {
-  const actionable = recent.filter((d) => {
-    const action = String(d.action ?? '').toLowerCase()
-    return action === 'buy' || action === 'sell'
-  })
-  return (
-    <div className={cardClass}>
-      <div className="mb-3 flex items-center justify-between">
-        <p className={sectionTitleClass}>Recent Decisions</p>
-        {stats && (
-          <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            <span className="text-emerald-600 dark:text-emerald-400">Buys: {stats.last_hour.buys}</span>
-            <span className="text-rose-600 dark:text-rose-400">Sells: {stats.last_hour.sells}</span>
-            <span>Holds: {stats.last_hour.holds}</span>
-            <span>Total: {stats.total}</span>
-          </div>
-        )}
-      </div>
-      {actionable.length === 0 ? (
-        <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          No buy/sell decisions yet
-        </div>
-      ) : (
-        <div className="max-h-64 space-y-2 overflow-y-auto">
-          {actionable.slice(0, 10).map((d, index) => {
-            const action = String(d.action ?? '').toLowerCase()
-            const symbol = String(d.symbol ?? '--')
-            const priceNum = Number(d.price)
-            const priceTxt = Number.isFinite(priceNum) ? `$${priceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '--'
-            const confNum = Number(d.confidence)
-            const confTxt = Number.isFinite(confNum) ? `${(confNum * 100).toFixed(0)}%` : '--'
-            const ts = formatTimestamp(d.timestamp ? String(d.timestamp) : null)
-            const badgeClass = action === 'buy'
-              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-            return (
-              <div key={`${String(d.id ?? d.trace_id ?? index)}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-black uppercase', badgeClass)}>{action || 'hold'}</span>
-                  <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">{symbol}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
-                  <span>{priceTxt}</span>
-                  <span className="text-slate-400">·</span>
-                  <span>{confTxt}</span>
-                  <span className="text-slate-400">·</span>
-                  <span>{ts}</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+function PricesRestStatus({ priceCount, fetched }: { priceCount: number; fetched: boolean }) {
+  if (priceCount > 0) {
+    return (
+      <p className="mt-1 text-sm font-semibold text-emerald-500">● {priceCount} symbols</p>
+    )
+  }
+  if (fetched) {
+    return <p className="mt-1 text-sm font-semibold text-amber-500">● Fetched – poller offline?</p>
+  }
+  return <p className="mt-1 text-sm font-semibold text-slate-400">● Waiting…</p>
 }
 
 export function DashboardView({ section }: { section: Section }) {
@@ -487,35 +341,21 @@ export function DashboardView({ section }: { section: Section }) {
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
   const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
-  // Track whether we have attempted a price fetch so we stop showing skeleton
-  // loaders even when the price poller hasn't populated Redis yet.
-  const [pricesFetched, setPricesFetched] = useState(false)
-  const [persistedCounts, setPersistedCounts] = useState<PersistedStreamCount[]>([])
-  const [persistedEvents, setPersistedEvents] = useState<PersistedHistoryItem[]>([])
-  const [persistedLogs, setPersistedLogs] = useState<PersistedHistoryItem[]>([])
-  const [apiHealth, setApiHealth] = useState<{
-    dashboardState: 'pending' | 'ok' | 'error'
-    agentInstances: 'pending' | 'ok' | 'error'
-    eventHistory: 'pending' | 'ok' | 'error'
-  }>({
-    dashboardState: 'pending',
-    agentInstances: 'pending',
-    eventHistory: 'pending',
-  })
-  const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
-  const [tradeFeedEmptyReason, setTradeFeedEmptyReason] = useState<string | null>(null)
-  const [tradeFeedUpstream, setTradeFeedUpstream] = useState<{
-    signal_events?: number
-    decisions_evaluated?: number
-    ee_last_status?: string | null
-    ee_event_count?: number
-  } | null>(null)
-  // null = not yet fetched, true/false = fetched from /dashboard/state
-  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
-  const [llmProvider, setLlmProvider] = useState<string>('')
 
-  const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null)
-  const [recentDecisions, setRecentDecisions] = useState<Array<Record<string, unknown>>>([])
+  const {
+    apiHealth,
+    systemFeedError,
+    llmAvailable,
+    llmProvider,
+    pricesFetched,
+    tradeFeedEmptyReason,
+    tradeFeedUpstream,
+    decisionStats,
+    recentDecisions,
+    persistedCounts,
+    persistedEvents,
+    persistedLogs,
+  } = useRestPoll(wsConnected)
 
   // Show skeletons only on the very first render before we've attempted a fetch.
   // Once we've tried (success or failure) show real cards so the UI doesn't
@@ -531,7 +371,7 @@ export function DashboardView({ section }: { section: Section }) {
   const throughput = Number(wsDiagnostics?.messageRate ?? 0)
   const pipelineStatus = !latestTickTs
     ? 'Stalled'
-    : dataLatencyMs != null && dataLatencyMs < 15_000
+    : dataLatencyMs != null && dataLatencyMs < PIPELINE_HEALTHY_LATENCY_MS
       ? 'Healthy'
       : 'Degraded'
   const signalsCount = streamStats['signals']?.count ?? 0
@@ -557,231 +397,6 @@ export function DashboardView({ section }: { section: Section }) {
   const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
   const baseSystemStatus = useSystemStatus()
   const systemStatus = systemFeedError ? 'error' : baseSystemStatus
-
-  // ── REST fallback data fetching ──────────────────────────────────────────
-  // Poll /dashboard/state and /dashboard/prices while the WebSocket is not yet
-  // connected. Stops as soon as wsConnected flips to true (WS takes over).
-  // This is the primary defence against Render cold-starts, misconfigured WS
-  // URL env vars, and any brief network hiccup on first load.
-  useEffect(() => {
-    const fetchState = async () => {
-      try {
-        console.info('[Dashboard] REST fetch /dashboard/state (wsConnected:', wsConnected, ')')
-        const r = await fetch(api('/dashboard/state'))
-        if (r.ok) {
-          const data = await r.json()
-          console.info('[Dashboard] /dashboard/state OK — orders:', data.orders?.length ?? 0, 'positions:', data.positions?.length ?? 0, 'agent_logs:', data.agent_logs?.length ?? 0)
-          useCodexStore.getState().hydrateDashboard(data)
-          setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
-          if (typeof data.llm_available === 'boolean') setLlmAvailable(data.llm_available)
-          if (typeof data.llm_provider === 'string') setLlmProvider(data.llm_provider)
-        } else {
-          console.warn('[Dashboard] /dashboard/state responded', r.status)
-          setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
-        }
-      } catch (err) {
-        console.warn('[Dashboard] /dashboard/state fetch failed:', err)
-        setSystemFeedError('Dashboard API unreachable')
-        setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
-      }
-    }
-    const fetchPricesOnce = async () => {
-      console.info('[Dashboard] Fetching prices via REST')
-      await useCodexStore.getState().fetchPrices()
-      const count = Object.keys(useCodexStore.getState().prices).length
-      console.info('[Dashboard] Prices fetched —', count, 'symbols in store')
-      setPricesFetched(true)
-    }
-
-    // Immediate fetch on mount — don't wait for WS
-    fetchState()
-    fetchPricesOnce()
-
-    if (wsConnected) {
-      console.info('[Dashboard] WS connected — REST polling stopped')
-      return
-    }
-
-    console.info('[Dashboard] WS not connected — starting 15 s REST polling fallback')
-    // Keep retrying every 15 s until WS connects
-    const t = setInterval(() => {
-      fetchState()
-      useCodexStore.getState().fetchPrices()
-    }, 15_000)
-    return () => clearInterval(t)
-  }, [wsConnected])
-
-  // Fetch learning data (proposals, IC weights, grades) on mount, every 30s,
-  // and whenever WS reconnects so historical learnings are always visible.
-  useEffect(() => {
-    const { addProposal } = useCodexStore.getState()
-    const fetchLearning = async () => {
-      try {
-        const proposalsRes = await fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS))
-        if (proposalsRes.ok) {
-          const data = await proposalsRes.json()
-          const existing = useCodexStore.getState().proposals
-          const existingIds = new Set(existing.map((p) => p.id))
-          const newOnes = (data.proposals ?? []).filter((p: Record<string, unknown>) => !existingIds.has(p.id as string))
-          console.info('[Dashboard] Proposals — total:', data.proposals?.length ?? 0, 'new:', newOnes.length)
-          for (const p of newOnes) {
-            addProposal({ proposal_type: (p.proposal_type as ProposalType) ?? 'parameter_change', content: JSON.stringify(p.content), requires_approval: p.requires_approval !== false, confidence: p.confidence as number | undefined, reflection_trace_id: p.reflection_trace_id as string | undefined, timestamp: (p.timestamp as string) ?? new Date().toISOString() })
-          }
-        } else {
-          console.warn('[Dashboard] /learning/proposals responded', proposalsRes.status)
-        }
-      } catch (err) {
-        console.warn('[Dashboard] fetchLearning failed:', err)
-      }
-    }
-    fetchLearning()
-    const interval = setInterval(fetchLearning, 30_000)
-    return () => clearInterval(interval)
-  }, [wsConnected]) // re-run on reconnect so we catch data that arrived while away
-
-  // Fetch trade feed on mount and every 30s
-  useEffect(() => {
-    const fetchTradeFeed = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_TRADE_FEED))
-        if (r.ok) {
-          const d = await r.json()
-          const trades = d.trades ?? []
-          console.info('[Dashboard] Trade feed —', trades.length, 'trades')
-          useCodexStore.getState().setTradeFeed(trades)
-          if (trades.length === 0) {
-            setTradeFeedEmptyReason(d.empty_reason ?? null)
-            setTradeFeedUpstream(d.upstream_activity ?? null)
-          } else {
-            setTradeFeedEmptyReason(null)
-            setTradeFeedUpstream(null)
-          }
-        } else {
-          console.warn('[Dashboard] /dashboard/trade-feed responded', r.status)
-        }
-      } catch (err) {
-        console.warn('[Dashboard] fetchTradeFeed failed:', err)
-      }
-    }
-    fetchTradeFeed()
-    const interval = setInterval(fetchTradeFeed, 30_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Hydrate notifications + decisions from the Redis-backed REST endpoints on
-  // mount and every time the WebSocket reconnects. Without this the dashboard
-  // shows nothing in memory mode unless the client was connected at the
-  // exact moment each event fired.
-  useEffect(() => {
-    const addNotification = useCodexStore.getState().addNotification
-    const fetchNotifications = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.NOTIFICATIONS_RECENT))
-        if (!r.ok) return
-        const items = (await r.json()) as Array<Record<string, unknown>>
-        // Pass raw items — addNotification calls normalizeStoredNotification internally.
-        for (const raw of [...items].reverse()) {
-          addNotification({ ...raw, stream_source: raw.stream_source ?? 'rest' })
-        }
-      } catch {
-        // non-fatal — WebSocket may still deliver realtime events
-      }
-    }
-    fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30_000)
-    return () => clearInterval(interval)
-  }, [wsConnected])
-
-  // Decisions stats + recent decisions REST hydration.
-  useEffect(() => {
-    const fetchDecisions = async () => {
-      try {
-        const [statsRes, recentRes] = await Promise.all([
-          fetch(api(API_ENDPOINTS.DECISIONS_STATS)),
-          fetch(api(`${API_ENDPOINTS.DECISIONS_RECENT}?limit=20`)),
-        ])
-        if (statsRes.ok) {
-          const stats = await statsRes.json()
-          setDecisionStats(stats)
-        }
-        if (recentRes.ok) {
-          const recent = (await recentRes.json()) as Array<Record<string, unknown>>
-          setRecentDecisions(recent)
-        }
-      } catch {
-        // non-fatal
-      }
-    }
-    fetchDecisions()
-    const interval = setInterval(fetchDecisions, 15_000)
-    return () => clearInterval(interval)
-  }, [wsConnected])
-
-  // Fetch performance summary on mount, every 30 s, and on WS reconnect.
-  // Without the interval, a single transient fetch failure on initial mount
-  // left performanceSummary permanently null, so the PnL headline card
-  // stayed at "--" even after fills successfully landed in the DB. Matches
-  // the retry cadence of fetchTradeFeed / fetchLearning.
-  useEffect(() => {
-    const fetchPerformance = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
-        if (!r.ok) return
-        const d = await r.json()
-        if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
-      } catch {
-        // non-fatal
-      }
-    }
-    fetchPerformance()
-    const interval = setInterval(fetchPerformance, 30_000)
-    return () => clearInterval(interval)
-  }, [wsConnected])
-
-  // Fetch agent instances on mount and every 30s
-  useEffect(() => {
-    const fetchAgentInstances = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.DASHBOARD_AGENT_INSTANCES))
-        if (!r.ok) {
-          setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
-          return
-        }
-        const d = await r.json()
-        useCodexStore.getState().setAgentInstances(d.instances ?? [])
-        setApiHealth((prev) => ({ ...prev, agentInstances: 'ok' }))
-      } catch {
-        setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))
-      }
-    }
-    fetchAgentInstances()
-    const interval = setInterval(fetchAgentInstances, 30_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Fetch persisted history view so operators can confirm durable writes.
-  useEffect(() => {
-    const fetchPersistedHistory = async () => {
-      try {
-        const r = await fetch(api(API_ENDPOINTS.EVENTS_HISTORY))
-        if (!r.ok) {
-          setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
-          return
-        }
-        const d = await r.json()
-        setPersistedCounts((d.stream_counts ?? []) as PersistedStreamCount[])
-        setPersistedEvents((d.persisted_events ?? []) as PersistedHistoryItem[])
-        setPersistedLogs((d.persisted_logs ?? []) as PersistedHistoryItem[])
-        setApiHealth((prev) => ({ ...prev, eventHistory: 'ok' }))
-      } catch {
-        // non-fatal
-        setApiHealth((prev) => ({ ...prev, eventHistory: 'error' }))
-      }
-    }
-    fetchPersistedHistory()
-    const interval = setInterval(fetchPersistedHistory, 30_000)
-    return () => clearInterval(interval)
-  }, [])
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -888,7 +503,7 @@ export function DashboardView({ section }: { section: Section }) {
         persistedCount: existing?.persistedCount ?? 0,
         lastSeen,
         status: mergedStatus,
-        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
+        tier: agentTierFromStatus(mergedStatus),
         source: existing ? 'hybrid' : 'realtime',
       })
     }
@@ -908,7 +523,7 @@ export function DashboardView({ section }: { section: Section }) {
         persistedCount: Math.max(existing?.persistedCount ?? 0, inst.event_count ?? 0),
         lastSeen,
         status: mergedStatus,
-        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
+        tier: agentTierFromStatus(mergedStatus),
         source: existing ? 'hybrid' : 'persisted',
       })
     }
@@ -938,7 +553,7 @@ export function DashboardView({ section }: { section: Section }) {
       if (!hasAgentData && state.wsConnected) {
         setShowNoAgentDataMessage(true)
       }
-    }, 10000)
+    }, AGENT_DATA_TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [realAgents.length, wsConnected])
 
@@ -975,15 +590,39 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { title: 'Daily P&L', value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--', trend: summary.hasOrders ? (summary.dailyPnlNumeric > 0 ? 1 : summary.dailyPnlNumeric < 0 ? -1 : 0) : 0 },
-              { title: 'Win Rate', value: summary.winRate == null || !Number.isFinite(summary.winRate) ? '--' : `${summary.winRate.toFixed(2)}%${summary.hasClosedTrades ? '' : ' (open only)'}`, trend: 0 },
-              { title: 'Active Positions', value: sanitizeValue(summary.activePositions), trend: 0 },
-              { title: 'Daily Change %', value: `${typeof summary.dailyChange === 'number' && Number.isFinite(summary.dailyChange) ? summary.dailyChange.toFixed(2) : '0.00'}%`, trend: (summary.dailyChange ?? 0) > 0 ? 1 : (summary.dailyChange ?? 0) < 0 ? -1 : 0 },
+              {
+                title: 'Daily P&L',
+                value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--',
+                trend: summary.hasOrders
+                  ? Math.sign(summary.dailyPnlNumeric)
+                  : 0,
+              },
+              {
+                title: 'Win Rate',
+                value: formatWinRate(summary.winRate, summary.hasClosedTrades),
+                trend: 0,
+              },
+              {
+                title: 'Active Positions',
+                value: sanitizeValue(summary.activePositions),
+                trend: 0,
+              },
+              {
+                title: 'Daily Change %',
+                value: formatDailyChange(summary.dailyChange),
+                trend: Math.sign(summary.dailyChange ?? 0),
+              },
             ].map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
-                  {item.trend > 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : item.trend < 0 ? <TrendingDown className="h-4 w-4 text-rose-500" /> : <span className="h-4 w-4" />}
+                  {item.trend > 0 ? (
+                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                  ) : item.trend < 0 ? (
+                    <TrendingDown className="h-4 w-4 text-rose-500" />
+                  ) : (
+                    <span className="h-4 w-4" />
+                  )}
                 </div>
                 <p className={valueClass}>{item.value}</p>
               </div>
@@ -999,9 +638,7 @@ export function DashboardView({ section }: { section: Section }) {
                   value: resolvedPerformanceSummary != null
                     ? signedUSD(resolvedPerformanceSummary.total_pnl)
                     : '--',
-                  colorClass: resolvedPerformanceSummary != null
-                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                    : 'text-slate-900 dark:text-slate-100',
+                  colorClass: performancePnlColorClass(resolvedPerformanceSummary?.total_pnl ?? null),
                 },
                 {
                   label: 'Win Rate',
@@ -1046,26 +683,21 @@ export function DashboardView({ section }: { section: Section }) {
                   {realAgents.map((agent) => (
                     <div
                       key={agent.name}
-                      className="rounded-lg border border-slate-200 p-3 transition-transform duration-150 hover:scale-[1.02] dark:border-slate-800"
+                      className={cn(
+                        'rounded-lg border p-3 transition-all duration-150 hover:shadow-sm',
+                        agentCardBorderClass(agent.status),
+                      )}
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
-                        <div className="flex items-center gap-2">
-                          <span className={cn('h-1.5 w-1.5 rounded-full', 
-                            agent.status === 'Live' ? 'bg-emerald-300' : 
-                            agent.status === 'Stale' ? 'bg-amber-300' :
-                            agent.status === 'Error' ? 'bg-rose-300' : 'bg-slate-400'
-                          )} />
-                          <span className={cn('text-xs font-sans font-medium',
-                            agent.status === 'Live' ? 'text-emerald-300' : 
-                            agent.status === 'Stale' ? 'text-amber-300' :
-                            agent.status === 'Error' ? 'text-rose-300' : 'text-slate-400'
-                          )}>{agent.status}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn('h-2 w-2 rounded-full', agentCardDotClass(agent.status))} />
+                          <span className={cn('text-xs font-mono font-semibold', agentCardTextClass(agent.status))}>{agent.status}</span>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
                         {(agent.realtimeCount + agent.persistedCount) > 0 ? (
-                          <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                          <p className="text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">
                             {agent.realtimeCount + agent.persistedCount} events
                           </p>
                         ) : agent.lastSeen ? (
@@ -1087,48 +719,7 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <div className="mb-3 flex items-center justify-between">
               <p className={sectionTitleClass}>Live Market Prices</p>
-              <div className="flex items-center gap-2">
-                {pricesLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                    <span className="text-xs font-sans text-amber-500">Loading</span>
-                  </div>
-                ) : Object.keys(prices).length > 0 ? (
-                  (() => {
-                    // Derive freshness from the prices themselves rather than the
-                    // market_ticks stream lag. When prices are hydrated via REST
-                    // (cold start, WS not connected) the stream lag metric is
-                    // null and would falsely display "Stale" while the tile
-                    // dots show green. Pick the freshest updatedAt across all
-                    // tiles and grade by that.
-                    // /dashboard/state hydrates Redis payloads with `ts`
-                    // (or `timestamp`) rather than `updatedAt`, so fall back
-                    // to those before declaring a tile stale on cold start.
-                    const ages = Object.values(prices)
-                      .map((p) => {
-                        const r = p as { updatedAt?: string | null; ts?: string | null; timestamp?: string | null }
-                        return parseTimestamp(r?.updatedAt ?? r?.ts ?? r?.timestamp)
-                      })
-                      .filter((d): d is Date => d instanceof Date)
-                      .map((d) => Date.now() - d.getTime())
-                    const freshestMs = ages.length > 0 ? Math.min(...ages) : null
-                    const isLive = freshestMs != null && freshestMs <= 60_000
-                    return (
-                      <div className="flex items-center gap-2">
-                        <div className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-amber-500')} />
-                        <span className={cn('text-xs font-sans', isLive ? 'text-emerald-500' : 'text-amber-500')}>
-                          {isLive ? 'Live' : 'Stale'}
-                        </span>
-                      </div>
-                    )
-                  })()
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-slate-500" />
-                    <span className="text-xs font-sans text-slate-500">No Data</span>
-                  </div>
-                )}
-              </div>
+              <PriceFreshnessStatus prices={prices} loading={pricesLoading} />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {pricesLoading ? (
@@ -1140,7 +731,6 @@ export function DashboardView({ section }: { section: Section }) {
                   const previous = toFiniteNumber(priceData?.previousPrice)
                   const observedChange = toFiniteNumber(priceData?.change)
                   const change = observedChange ?? (price != null && previous != null ? price - previous : null)
-                  const isPositive = (change ?? 0) >= 0
                   const hasData = price != null && !isNaN(price)
                   
                   return (
@@ -1153,10 +743,8 @@ export function DashboardView({ section }: { section: Section }) {
                         {hasData ? formatUSD(price) : '--'}
                       </p>
                       <div className="mt-2 flex items-center justify-between">
-                        <p className={cn('text-xs font-mono tabular-nums', 
-                          change == null || !hasData ? 'text-slate-500' : isPositive ? 'text-emerald-500' : 'text-rose-500'
-                        )}>
-                          {change == null || !hasData ? '--' : `${isPositive ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`}
+                        <p className={cn('text-xs font-mono tabular-nums', priceChangeTextClass(change, hasData))}>
+                          {priceChangeText(change, hasData)}
                         </p>
                         <p className={mutedClass}>{formatTimestamp((priceData?.updatedAt as string | null) ?? null)}</p>
                       </div>
@@ -1198,14 +786,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className={cardClass}>
               <p className={sectionTitleClass}>Notifications</p>
               <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
-              <p className={mutedClass}>
-                {(() => {
-                  const lastNotificationTime = parseTimestamp(notifications[0]?.timestamp)
-                  return lastNotificationTime
-                    ? `Last: ${lastNotificationTime.toLocaleTimeString()}`
-                    : 'No activity yet'
-                })()}
-              </p>
+              <p className={mutedClass}>{lastNotificationLabel(notifications)}</p>
             </div>
           </div>
 
@@ -1255,11 +836,7 @@ export function DashboardView({ section }: { section: Section }) {
                   key={apiRow.label}
                   className={cn(
                     'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                    apiRow.value === 'ok'
-                      ? 'bg-emerald-500/10 text-emerald-500'
-                      : apiRow.value === 'error'
-                        ? 'bg-rose-500/10 text-rose-500'
-                        : 'bg-slate-500/10 text-slate-500',
+                    apiHealthBadgeClass(apiRow.value),
                   )}
                 >
                   {apiRow.label}: {apiRow.value}
@@ -1290,16 +867,7 @@ export function DashboardView({ section }: { section: Section }) {
                         <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</td>
                         <td className="px-2 py-2 text-xs font-sans">
                           <span className="inline-flex items-center gap-2">
-                            <span className={cn(
-                              'h-2 w-2 rounded-full',
-                              agent.status === 'Live'
-                                ? 'bg-emerald-300'
-                                : agent.status === 'Stale'
-                                  ? 'bg-amber-300'
-                                  : agent.status === 'Error'
-                                    ? 'bg-rose-300'
-                                    : 'bg-slate-400',
-                            )} />
+                            <span className={cn('h-2 w-2 rounded-full', agentStatusDotClass(agent.status))} />
                             <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
                           </span>
                         </td>
@@ -1391,7 +959,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Pipeline status</p>
-                <p className={cn('text-sm font-semibold', pipelineStatus === 'Healthy' ? 'text-emerald-500' : pipelineStatus === 'Degraded' ? 'text-amber-500' : 'text-rose-500')}>{pipelineStatus}</p>
+                <p className={cn('text-sm font-semibold', pipelineStatusTextClass(pipelineStatus))}>{pipelineStatus}</p>
               </div>
             </div>
           </div>
@@ -1424,9 +992,9 @@ export function DashboardView({ section }: { section: Section }) {
           {llmAvailable === false && (
             <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 p-3 text-sm text-blue-600 dark:text-blue-400">
               <span className="font-semibold">Rule-based mode</span> — no{' '}
-              {llmProvider ? llmProvider.charAt(0).toUpperCase() + llmProvider.slice(1) : 'LLM'}{' '}
-              API key configured. Reasoning decisions use signal direction only; set{' '}
-              {llmProvider ? llmProvider.toUpperCase() + '_API_KEY' : 'an LLM API key'} to enable
+              {formatLlmProviderName(llmProvider)} API key configured. Reasoning decisions use
+              signal direction only; set{' '}
+              {llmProvider ? `${llmProvider.toUpperCase()}_API_KEY` : 'an LLM API key'} to enable
               AI-powered analysis.
             </div>
           )}
@@ -1441,13 +1009,7 @@ export function DashboardView({ section }: { section: Section }) {
                   {wsConnected ? '● Connected' : '● Disconnected'}
                 </p>
                 <p className="mt-1 break-all text-[10px] font-mono text-slate-400">
-                  {typeof window !== 'undefined'
-                    ? (process.env.NEXT_PUBLIC_WS_URL
-                        ? process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
-                        : process.env.NEXT_PUBLIC_API_URL
-                          ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/^https?:\/\//, 'wss://') + '/ws/dashboard'
-                          : window.location.host + '/ws/dashboard (same-origin)')
-                    : '—'}
+                  {resolveWsUrl()}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -1458,9 +1020,7 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Prices / REST</p>
-                <p className={cn('mt-1 text-sm font-semibold', Object.keys(prices).length > 0 ? 'text-emerald-500' : pricesFetched ? 'text-amber-500' : 'text-slate-400')}>
-                  {Object.keys(prices).length > 0 ? `● ${Object.keys(prices).length} symbols` : pricesFetched ? '● Fetched – poller offline?' : '● Waiting…'}
-                </p>
+                <PricesRestStatus priceCount={Object.keys(prices).length} fetched={pricesFetched} />
               </div>
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className={mutedClass}>Reconnect attempts</p>
@@ -1515,7 +1075,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
                 const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
-                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
+                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < PRICE_FRESHNESS_MS)
                 return (
                   <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                     <div className="flex items-center justify-between">
@@ -1538,20 +1098,11 @@ export function DashboardView({ section }: { section: Section }) {
                 {recentEvents.map((event, index) => (
                   <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? ''}-${event.msgId !== 'n/a' ? (event.msgId ?? index) : index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <span
-                      className={cn(
-                        'rounded px-2 py-0.5 text-xs font-semibold',
-                        event.stream === 'market_ticks'
-                          ? 'bg-emerald-500/15 text-emerald-500'
-                          : event.stream === 'signals'
-                            ? 'bg-slate-500/10 text-slate-500'
-                            : event.stream === 'orders'
-                              ? 'bg-amber-500/15 text-amber-500'
-                              : 'bg-slate-500/15 text-slate-500'
-                      )}
+                      className={cn('rounded px-2 py-0.5 text-xs font-semibold', streamEventBadgeClass(event.stream))}
                     >
                       {event.stream}
                     </span>
-                    <span className="text-xs font-mono text-slate-500">{event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId && event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
                     <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
                   </div>
                 ))}
@@ -1648,13 +1199,7 @@ export function DashboardView({ section }: { section: Section }) {
         <div
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
-            systemStatus === 'trading'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
-              : systemStatus === 'booting'
-                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
-                : systemStatus === 'error'
-                  ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
-                  : 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+            systemStatusBadgeClass(systemStatus),
           )}
         >
           System Status: {systemStatus}

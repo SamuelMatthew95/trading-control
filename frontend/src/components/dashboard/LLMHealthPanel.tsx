@@ -335,7 +335,7 @@ export function LLMHealthPanel() {
         <span className={MUTED}>
           Success Rate:{' '}
           <span className={successRateColor(data.success_rate_pct)}>
-            {data.success_rate_pct.toFixed(0)}%
+            {Number(data.success_rate_pct ?? 0).toFixed(0)}%
           </span>{' '}
           <span className={MUTED}>
             ({data.success_count}/{data.total_in_window} last {windowMin}m)
@@ -345,7 +345,7 @@ export function LLMHealthPanel() {
         <span className={MUTED}>
           Avg Latency:{' '}
           <span className={VALUE}>
-            {data.avg_latency_ms > 0 ? `${data.avg_latency_ms.toFixed(0)}ms` : '--'}
+            {(data.avg_latency_ms ?? 0) > 0 ? `${Number(data.avg_latency_ms).toFixed(0)}ms` : '--'}
           </span>
         </span>
 

@@ -48,9 +48,9 @@ async def write_heartbeat(
     payload: dict[str, Any] = {
         FieldName.STATUS: "ACTIVE",
         FieldName.SOURCE: "heartbeat",
-        "last_event": last_event,
-        "event_count": event_count,
-        "last_seen": int(time.time()),
+        FieldName.LAST_EVENT: last_event,
+        FieldName.EVENT_COUNT: event_count,
+        FieldName.LAST_SEEN: int(time.time()),
         FieldName.LAST_SEEN_AT: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         FieldName.UPDATED_AT: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         FieldName.HEARTBEAT_COUNT: max(int(event_count), 1),

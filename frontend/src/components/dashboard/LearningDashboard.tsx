@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS, gradeColor, gradeBg } from '@/lib/grade-colors'
+import { pnlColorClass, tradeSideClass, strategyStatusClass } from '@/lib/dashboard-helpers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,8 +133,10 @@ interface PipelineStatus {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const fmtPct = (n: number | null | undefined, decimals = 1): string =>
-  n == null ? '--' : `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`
+const fmtPct = (n: number | null | undefined, decimals = 1): string => {
+  if (n == null || !Number.isFinite(n)) return '--'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`
+}
 
 const fmtUSD = (n: number | null | undefined): string => {
   if (n == null) return '--'
@@ -170,6 +173,7 @@ const trendColor = (trend: string): string => {
 
 const stageColor = (status: string): string =>
   status === 'active' ? 'text-emerald-600 dark:text-emerald-500' : status === 'failed' ? 'text-rose-600 dark:text-rose-500' : 'text-slate-500 dark:text-slate-400'
+
 
 // ScoreBar — a horizontal bar showing a [0,1] score
 function ScoreBar({ value, color }: { value: number | null; color?: string }) {
@@ -266,13 +270,13 @@ function TradeDetailModal({
         <div className="mb-4 grid grid-cols-2 gap-3 text-xs font-mono">
           <div>
             <p className="text-slate-500">P&L</p>
-            <p className={`font-bold ${(trade.pnl ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            <p className={`font-bold ${pnlColorClass(trade.pnl ?? 0)}`}>
               {fmtUSD(trade.pnl)}
             </p>
           </div>
           <div>
             <p className="text-slate-500">Return</p>
-            <p className={`font-bold ${(trade.pnl_percent ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            <p className={`font-bold ${pnlColorClass(trade.pnl_percent ?? 0)}`}>
               {fmtPct(trade.pnl_percent)}
             </p>
           </div>
@@ -385,10 +389,10 @@ function TradeTablePanel({
                   onClick={() => onSelect(t)}
                 >
                   <td className="p-2 font-semibold">{t.symbol ?? '--'}</td>
-                  <td className={`p-2 ${t.side === 'buy' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  <td className={`p-2 ${tradeSideClass(t.side)}`}>
                     {t.side?.toUpperCase() ?? '--'}
                   </td>
-                  <td className={`p-2 text-right ${(t.pnl ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  <td className={`p-2 text-right ${pnlColorClass(t.pnl ?? 0)}`}>
                     {fmtUSD(t.pnl)}
                   </td>
                   <td className="p-2 text-right">{fmtScore(t.overall_score)}</td>
@@ -544,7 +548,7 @@ function ReflectionPanel({ reflection }: { reflection: Reflection | null }) {
                     <div className="h-1.5 flex-1 rounded-full bg-slate-200 dark:bg-slate-700">
                       <div
                         className="h-1.5 rounded-full bg-rose-500"
-                        style={{ width: `${Math.round(c.frequency * 100)}%` }}
+                        style={{ width: `${Math.round((Number.isFinite(c.frequency) ? c.frequency : 0) * 100)}%` }}
                       />
                     </div>
                     <span className="w-10 text-right text-slate-500 dark:text-slate-400">{fmtPct(c.frequency * 100, 0)}</span>
@@ -600,15 +604,7 @@ function StrategyPanel({
             >
               <div className="mb-1 flex items-start justify-between gap-2">
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{s.description || 'Strategy proposal'}</p>
-                <span
-                  className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-mono ${
-                    s.status === 'approved'
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400'
-                      : s.status === 'rejected'
-                        ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400'
-                        : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400'
-                  }`}
-                >
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-mono ${strategyStatusClass(s.status)}`}>
                   {s.status ?? 'pending'}
                 </span>
               </div>
@@ -780,25 +776,13 @@ function ModelPerformancePanel({ models }: { models: ModelPerformance[] }) {
                 <td className="p-2 text-right">{m.trade_count}</td>
                 <td className="p-2 text-right">{fmtScore(m.win_rate)}</td>
                 <td className="p-2 text-right">{fmtScore(m.avg_score)}</td>
-                <td
-                  className={`p-2 text-right font-mono ${
-                    m.total_pnl >= 0
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-600 dark:text-rose-400'
-                  }`}
-                >
+                <td className={`p-2 text-right font-mono ${pnlColorClass(m.total_pnl)}`}>
                   {fmtUSD(m.total_pnl)}
                 </td>
                 <td className="p-2 text-right font-mono text-slate-500 dark:text-slate-400">
                   {fmtUSD(m.total_cost)}
                 </td>
-                <td
-                  className={`p-2 text-right font-mono ${
-                    m.net_roi >= 0
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-600 dark:text-rose-400'
-                  }`}
-                >
+                <td className={`p-2 text-right font-mono ${pnlColorClass(m.net_roi)}`}>
                   {fmtUSD(m.net_roi)}
                 </td>
               </tr>

@@ -122,7 +122,9 @@ def apply_signed_delta(
         FieldName.ENTRY_PRICE: entry_price,
         FieldName.AVG_COST: entry_price,
         FieldName.LAST_PRICE: fill_price,
+        FieldName.CURRENT_PRICE: fill_price,
         FieldName.MARKET_VALUE: round(new_abs_qty * fill_price, 8),
         FieldName.UNREALIZED_PNL: 0.0,
+        FieldName.PNL: 0.0,
         FieldName.STRATEGY_ID: strategy_id,
     }

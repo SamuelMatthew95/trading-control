@@ -29,14 +29,17 @@ from api.observability import (
 )
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
+from api.routes.analyze import router as analyze_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.decisions import router as decisions_router
 from api.routes.dlq import router as dlq_router
 from api.routes.health import router as health_router
 from api.routes.learning import router as learning_router
 from api.routes.llm_health import router as llm_health_router
+from api.routes.monitoring import router as monitoring_router
 from api.routes.notifications import router as notifications_router
 from api.routes.system import router as system_router
+from api.routes.trades import router as trades_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
     set_db_available,
@@ -416,6 +419,12 @@ app.include_router(decisions_router)
 app.include_router(decisions_router, prefix="/api")
 app.include_router(system_router)
 app.include_router(system_router, prefix="/api")
+app.include_router(trades_router)
+app.include_router(trades_router, prefix="/api")
+app.include_router(monitoring_router)
+app.include_router(monitoring_router, prefix="/api")
+app.include_router(analyze_router)
+app.include_router(analyze_router, prefix="/api")
 app.include_router(ws_router)
 app.mount("/mcp", mcp_app)
 

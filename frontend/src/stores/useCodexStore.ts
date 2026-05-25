@@ -688,18 +688,25 @@ export const useCodexStore = create<CodexState>((set) => ({
         isLoading: false
       }
 
-      if (data.system_metrics) {
+      if (Array.isArray(data.system_metrics)) {
         updates.systemMetrics = [
           ...data.system_metrics,
           ...currentState.systemMetrics
         ].slice(0, 100)
       }
 
-      if (data.orders) {
+      if (Array.isArray(data.orders)) {
+        // REST API sends side as "buy"/"sell" (OrderSide enum); store expects "long"/"short".
+        // WS trade_fill path already normalizes in _handleTradeNotification — match it here.
+        const normSide = (side: unknown): 'long' | 'short' => {
+          const v = String(side ?? '').toLowerCase()
+          return v === 'sell' || v === 'short' ? 'short' : 'long'
+        }
+        const restOrders = data.orders.map((o) => ({ ...o, side: normSide(o.side) }))
         updates.orders = [
-          ...data.orders,
+          ...restOrders,
           ...currentState.orders.filter((order) =>
-            !data.orders?.some((newOrder) => newOrder.order_id === order.order_id)
+            !restOrders.some((newOrder) => newOrder.order_id === order.order_id)
           )
         ].slice(0, 100)
         _saveToStorage('codex.orders', updates.orders)
@@ -709,8 +716,10 @@ export const useCodexStore = create<CodexState>((set) => ({
         const incomingLogs = (data.agent_logs as unknown[]).flatMap((raw) => {
           if (!raw || typeof raw !== 'object') return []
           const r = raw as Record<string, unknown>
+          const agentName = String(r.agent_name || r.agent || r.source_agent || r.source || '')
+          if (!agentName) return []
           const log: AgentLog = {
-            agent_name: String(r.agent_name || r.agent || r.source_agent || 'Unknown'),
+            agent_name: agentName,
             event_type: String(r.event_type || r.action || r.type || 'processed'),
             timestamp: String(r.timestamp || r.created_at || new Date().toISOString()),
             symbol: r.symbol as string | undefined,
@@ -736,7 +745,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 100)
       }
 
-      if (data.learning_events) {
+      if (Array.isArray(data.learning_events)) {
         updates.learningEvents = [
           ...data.learning_events,
           ...currentState.learningEvents.filter((event) =>
@@ -745,7 +754,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 50)
       }
 
-      if (data.risk_alerts) {
+      if (Array.isArray(data.risk_alerts)) {
         updates.riskAlerts = [
           ...data.risk_alerts,
           ...currentState.riskAlerts.filter((alert) =>
@@ -754,7 +763,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 50)
       }
 
-      if (data.signals) {
+      if (Array.isArray(data.signals)) {
         updates.signals = [
           ...data.signals,
           ...currentState.signals.filter((signal) =>
@@ -763,9 +772,15 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 50)
       }
 
-      if (data.positions) {
-        updates.positions = data.positions
-        _saveToStorage('codex.positions', data.positions)
+      if (Array.isArray(data.positions)) {
+        // Merge by symbol: REST is authoritative for symbols it covers; keep WS-only positions.
+        const restSymbols = new Set(data.positions.map((p) => p.symbol))
+        const merged = [
+          ...data.positions,
+          ...currentState.positions.filter((p) => !restSymbols.has(p.symbol)),
+        ]
+        updates.positions = merged
+        _saveToStorage('codex.positions', merged)
       }
 
       if (data.prices) {
@@ -824,8 +839,9 @@ export const useCodexStore = create<CodexState>((set) => ({
         }
       }
 
-      if (data.agent_statuses && Array.isArray(data.agent_statuses)) {
-        updates.agentStatuses = data.agent_statuses as unknown as AgentStatus[]
+      if (Array.isArray(data.agent_statuses)) {
+        updates.agentStatuses = (data.agent_statuses as Array<Record<string, unknown>>)
+          .filter((item) => typeof item?.name === 'string' && typeof item?.status === 'string') as unknown as AgentStatus[]
       }
 
       return updates

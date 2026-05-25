@@ -72,6 +72,36 @@ class InMemoryStore:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _has_open_quantity(position: dict[str, Any]) -> bool:
+        try:
+            qty = float(position.get(FieldName.QTY, 0) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        return abs(qty) > 0
+
+    def _normalize_position(self, p: dict[str, Any]) -> dict[str, Any]:
+        """Map internal position keys to what the frontend expects."""
+        qty = self._safe_float(p.get(FieldName.QTY) or p.get(FieldName.QUANTITY)) or 0.0
+        current_price = (
+            self._safe_float(p.get(FieldName.CURRENT_PRICE))
+            or self._safe_float(p.get(FieldName.LAST_PRICE))
+            or self._safe_float(p.get(FieldName.PRICE))
+            or 0.0
+        )
+        unrealized_pnl = self._safe_float(p.get(FieldName.UNREALIZED_PNL))
+        unrealized = (
+            unrealized_pnl
+            if unrealized_pnl is not None
+            else (self._safe_float(p.get(FieldName.PNL)) or 0.0)
+        )
+        return {
+            **p,
+            FieldName.QUANTITY: qty,
+            FieldName.CURRENT_PRICE: current_price,
+            FieldName.PNL: unrealized,
+        }
+
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
         self.agents[agent_id] = {**existing, **data}
@@ -245,16 +275,17 @@ class InMemoryStore:
         return list(reversed(self.strategies[-safe_limit:]))
 
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
-        def _has_open_quantity(position: dict[str, Any]) -> bool:
-            qty = self._safe_float(position.get(FieldName.QTY, 0) or 0)
-            return qty is not None and abs(qty) > 0
-
         now = time.time()
         notifications = list(self.notifications[-100:])
         notification_summary = compute_notification_summary(notifications)
+
         return {
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
-            FieldName.POSITIONS: [p for p in self.positions.values() if _has_open_quantity(p)],
+            FieldName.POSITIONS: [
+                self._normalize_position(p)
+                for p in self.positions.values()
+                if self._has_open_quantity(p)
+            ],
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
             FieldName.PROPOSALS: [
@@ -270,12 +301,16 @@ class InMemoryStore:
             FieldName.AGENT_STATUSES: [
                 {
                     FieldName.NAME: name,
-                    "status": data.get(FieldName.STATUS, "unknown"),
-                    "last_seen": data.get(FieldName.LAST_SEEN, now),
-                    "last_seen_at": data.get(FieldName.LAST_SEEN_AT),
-                    "last_event": data.get(FieldName.LAST_EVENT, ""),
-                    "event_count": int(data.get(FieldName.EVENT_COUNT, 0) or 0),
-                    "source": data.get(FieldName.SOURCE, "in_memory"),
+                    FieldName.STATUS: data.get(FieldName.STATUS, "unknown"),
+                    FieldName.LAST_SEEN: data.get(FieldName.LAST_SEEN, now),
+                    FieldName.LAST_SEEN_AT: data.get(FieldName.LAST_SEEN_AT),
+                    FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
+                    FieldName.EVENT_COUNT: int(data.get(FieldName.EVENT_COUNT, 0) or 0),
+                    FieldName.SOURCE: data.get(FieldName.SOURCE, "in_memory"),
+                    FieldName.SECONDS_AGO: max(
+                        0,
+                        int(now - (self._safe_float(data.get(FieldName.LAST_SEEN)) or now)),
+                    ),
                 }
                 for name, data in self.agents.items()
             ],

@@ -76,3 +76,45 @@ def test_dashboard_fallback_snapshot_includes_active_positions():
     symbols = [p["symbol"] for p in snapshot["positions"]]
     assert "BTC/USD" in symbols
     assert "ETH/USD" not in symbols
+
+
+def test_has_open_quantity_true_for_nonzero():
+    assert InMemoryStore._has_open_quantity({"qty": 0.5}) is True
+    assert InMemoryStore._has_open_quantity({"qty": -0.1}) is True
+
+
+def test_has_open_quantity_false_for_zero():
+    assert InMemoryStore._has_open_quantity({"qty": 0}) is False
+    assert InMemoryStore._has_open_quantity({"qty": 0.0}) is False
+    assert InMemoryStore._has_open_quantity({}) is False
+
+
+def test_normalize_position_maps_qty_and_current_price():
+    store = InMemoryStore()
+    raw = {"symbol": "BTC/USD", "qty": 0.5, "last_price": 50000.0, "unrealized_pnl": 250.0}
+    out = store._normalize_position(raw)
+    assert out["quantity"] == 0.5
+    assert out["current_price"] == 50000.0
+    assert out["pnl"] == 250.0
+    assert out["symbol"] == "BTC/USD"
+
+
+def test_normalize_position_prefers_current_price_over_last_price():
+    store = InMemoryStore()
+    raw = {"qty": 1.0, "current_price": 60000.0, "last_price": 55000.0}
+    out = store._normalize_position(raw)
+    assert out["current_price"] == 60000.0
+
+
+def test_normalize_position_falls_back_to_price_field():
+    store = InMemoryStore()
+    raw = {"qty": 1.0, "price": 45000.0}
+    out = store._normalize_position(raw)
+    assert out["current_price"] == 45000.0
+
+
+def test_normalize_position_prefers_unrealized_pnl_over_pnl():
+    store = InMemoryStore()
+    raw = {"qty": 1.0, "unrealized_pnl": 100.0, "pnl": 999.0}
+    out = store._normalize_position(raw)
+    assert out["pnl"] == 100.0

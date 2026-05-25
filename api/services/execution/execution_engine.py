@@ -860,13 +860,11 @@ class ExecutionEngine(BaseStreamConsumer):
             heartbeat_status = ":".join(error.split(":")[:2])
             await self._write_idle_heartbeat(symbol_hint, heartbeat_status)
             return None
-        if await self._enforce_fallback_trade_guard(parsed, data):
+        if await self._is_fallback_blocked(parsed, data):
             return None
         return parsed
 
-    async def _enforce_fallback_trade_guard(
-        self, parsed: _ParsedDecision, payload: dict[str, Any]
-    ) -> bool:
+    async def _is_fallback_blocked(self, parsed: _ParsedDecision, payload: dict[str, Any]) -> bool:
         side = str(parsed.side or "").lower()
         if side not in {OrderSide.BUY, OrderSide.SELL}:
             return False
@@ -885,6 +883,14 @@ class ExecutionEngine(BaseStreamConsumer):
         if not is_fallback:
             return False
 
+        # Paper/simulated mode: no live capital at risk — skip the fallback guard.
+        # EXECUTION_DECISION_THRESHOLD_MEMORY (0.30) was lowered so rule-based
+        # paper signals can execute; blocking them here defeats that intent.
+        # NOTE: do NOT use is_db_available() here — a DB outage during live
+        # trading must NOT bypass the guard with real capital at risk.
+        if settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER:
+            return False
+
         trace_id = str(parsed.trace_id or "")
         symbol = str(parsed.symbol or "")
         max_allowed = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)
@@ -893,12 +899,12 @@ class ExecutionEngine(BaseStreamConsumer):
             current_signed_qty = 0.0
             blocked = True
         else:
-            current_position = await self.broker.get_position(symbol)
-            current_signed_qty = self._signed_position_qty(current_position)
-
             if parsed.qty > settings.MAX_FALLBACK_ORDER_QTY:
+                current_signed_qty = 0.0
                 blocked = True
             else:
+                current_position = await self.broker.get_position(symbol)
+                current_signed_qty = self._signed_position_qty(current_position)
                 signed_after = (
                     current_signed_qty + parsed.qty
                     if side == OrderSide.BUY
