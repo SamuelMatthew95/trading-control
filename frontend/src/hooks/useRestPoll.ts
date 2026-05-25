@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import { useCodexStore, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 
+const POLL_SLOW_MS = 30_000
+const POLL_FAST_MS = 15_000
+
 export interface ApiHealth {
   dashboardState: 'pending' | 'ok' | 'error'
   agentInstances: 'pending' | 'ok' | 'error'
@@ -98,7 +101,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     fetchDashboardState()
     fetchPrices()
 
-    const cadenceMs = wsConnected ? 30_000 : 15_000
+    const cadenceMs = wsConnected ? POLL_SLOW_MS : POLL_FAST_MS
     const t = setInterval(() => {
       fetchDashboardState()
       useCodexStore.getState().fetchPrices()
@@ -134,7 +137,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     }
 
     fetchLearning()
-    const t = setInterval(fetchLearning, 30_000)
+    const t = setInterval(fetchLearning, POLL_SLOW_MS)
     return () => clearInterval(t)
   }, [wsConnected])
 
@@ -160,7 +163,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     }
 
     fetchTradeFeed()
-    const t = setInterval(fetchTradeFeed, 30_000)
+    const t = setInterval(fetchTradeFeed, POLL_SLOW_MS)
     return () => clearInterval(t)
   }, [])
 
@@ -181,7 +184,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     }
 
     fetchNotifications()
-    const t = setInterval(fetchNotifications, 30_000)
+    const t = setInterval(fetchNotifications, POLL_SLOW_MS)
     return () => clearInterval(t)
   }, [wsConnected])
 
@@ -201,7 +204,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     }
 
     fetchDecisions()
-    const t = setInterval(fetchDecisions, 15_000)
+    const t = setInterval(fetchDecisions, POLL_FAST_MS)
     return () => clearInterval(t)
   }, [wsConnected])
 
@@ -219,7 +222,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     }
 
     fetchPerformance()
-    const t = setInterval(fetchPerformance, 30_000)
+    const t = setInterval(fetchPerformance, POLL_SLOW_MS)
     return () => clearInterval(t)
   }, [wsConnected])
 
@@ -259,8 +262,8 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
 
     fetchAgentInstances()
     fetchPersistedHistory()
-    const t1 = setInterval(fetchAgentInstances, 30_000)
-    const t2 = setInterval(fetchPersistedHistory, 30_000)
+    const t1 = setInterval(fetchAgentInstances, POLL_SLOW_MS)
+    const t2 = setInterval(fetchPersistedHistory, POLL_SLOW_MS)
     return () => {
       clearInterval(t1)
       clearInterval(t2)
