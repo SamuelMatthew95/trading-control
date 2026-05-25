@@ -228,7 +228,7 @@ async def get_state_payload() -> dict[str, Any]:
                         agent_statuses.append(
                             {FieldName.NAME: name, FieldName.SECONDS_AGO: seconds_ago, **status}
                         )
-                    except (json.JSONDecodeError, TypeError):
+                    except (json.JSONDecodeError, TypeError, ValueError):
                         agent_statuses.append({FieldName.NAME: name, FieldName.STATUS: "unknown"})
                 else:
                     agent_statuses.append(
