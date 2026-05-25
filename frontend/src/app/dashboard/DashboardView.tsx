@@ -597,17 +597,21 @@ export function DashboardView({ section }: { section: Section }) {
     fetchState()
     fetchPricesOnce()
 
+    // When WS is connected we still poll every 30 s so that orders / positions
+    // written between WS messages (e.g. slow fills, REST-only writes) stay
+    // current.  Without this the equity curve and P&L stay at 0 because the
+    // WS broadcaster sends trade_notification events but the order array only
+    // grows from REST hydration.
+    const interval = wsConnected ? 30_000 : 15_000
     if (wsConnected) {
-      console.info('[Dashboard] WS connected — REST polling stopped')
-      return
+      console.info('[Dashboard] WS connected — REST polling at 30 s cadence')
+    } else {
+      console.info('[Dashboard] WS not connected — starting 15 s REST polling fallback')
     }
-
-    console.info('[Dashboard] WS not connected — starting 15 s REST polling fallback')
-    // Keep retrying every 15 s until WS connects
     const t = setInterval(() => {
       fetchState()
       useCodexStore.getState().fetchPrices()
-    }, 15_000)
+    }, interval)
     return () => clearInterval(t)
   }, [wsConnected])
 
