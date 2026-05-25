@@ -1555,7 +1555,7 @@ export function DashboardView({ section }: { section: Section }) {
                     >
                       {event.stream}
                     </span>
-                    <span className="text-xs font-mono text-slate-500">{event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
+                    <span className="text-xs font-mono text-slate-500">{event.msgId && event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
                     <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
                   </div>
                 ))}
