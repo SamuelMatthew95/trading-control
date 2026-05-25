@@ -337,6 +337,11 @@ class WebSocketManager {
         const raw = msg as unknown as Record<string, unknown>
         const side = String(raw.side || 'buy')
         const fillPrice = Number(raw.fill_price ?? 0)
+        // Preserve null pnl for opens (BUY): equity curve skips null-pnl orders.
+        // Converts to number only when pnl is explicitly provided (SELL closes).
+        const pnlRaw = raw.pnl
+        const pnl = (pnlRaw != null && pnlRaw !== '') ? Number(pnlRaw) : (null as unknown as number)
+        const ts = String(raw.filled_at || msg.timestamp || new Date().toISOString())
         store.updateOrder({
           order_id: raw.order_id as string,
           symbol: String(raw.symbol || ''),
@@ -344,9 +349,9 @@ class WebSocketManager {
           quantity: Number(raw.qty ?? 0),
           entry_price: fillPrice,
           current_price: fillPrice,
-          pnl: Number(raw.pnl ?? 0),
-          timestamp: String(raw.filled_at || msg.timestamp || new Date().toISOString()),
-          filled_at: String(raw.filled_at || msg.timestamp || new Date().toISOString()),
+          pnl,
+          timestamp: ts,
+          filled_at: ts,
           status: 'filled',
           trace_id: raw.trace_id as string,
           source: raw.source as string,
