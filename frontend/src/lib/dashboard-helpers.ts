@@ -124,3 +124,48 @@ export function winRateFromFeed(feed: { pnl?: number | null }[]): number | null 
   if (withPnl.length === 0) return null
   return (withPnl.filter((t) => (t.pnl ?? 0) > 0).length / withPnl.length) * 100
 }
+
+// ---------------------------------------------------------------------------
+// CSS class helpers — Agent status table (lighter palette than card grid)
+// ---------------------------------------------------------------------------
+
+export function agentStatusDotClass(status: string): string {
+  if (status === 'Live') return 'bg-emerald-300'
+  if (status === 'Stale') return 'bg-amber-300'
+  if (status === 'Error') return 'bg-rose-300'
+  return 'bg-slate-400'
+}
+
+export function pipelineStatusTextClass(status: string): string {
+  if (status === 'Healthy') return 'text-emerald-500'
+  if (status === 'Degraded') return 'text-amber-500'
+  return 'text-rose-500'
+}
+
+export function apiHealthBadgeClass(value: string): string {
+  if (value === 'ok') return 'bg-emerald-500/10 text-emerald-500'
+  if (value === 'error') return 'bg-rose-500/10 text-rose-500'
+  return 'bg-slate-500/10 text-slate-500'
+}
+
+export function priceChangeTextClass(change: number | null, hasData: boolean): string {
+  if (change == null || !hasData) return 'text-slate-500'
+  if (change > 0) return 'text-emerald-500'
+  if (change < 0) return 'text-rose-500'
+  return 'text-slate-400'
+}
+
+// ---------------------------------------------------------------------------
+// Value helpers — Agent tier / Performance colour
+// ---------------------------------------------------------------------------
+
+export function agentTierFromStatus(status: string): 'active' | 'challenger' | 'inactive' {
+  if (status === 'Live') return 'active'
+  if (status === 'Error') return 'inactive'
+  return 'challenger'
+}
+
+export function performancePnlColorClass(pnl: number | null): string {
+  if (pnl == null) return 'text-slate-900 dark:text-slate-100'
+  return pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+}
