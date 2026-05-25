@@ -13,7 +13,7 @@ from api.database import get_async_session
 from api.main_state import get_learning_service
 
 router = APIRouter(tags=["performance"])
-_STATS_CACHE: dict[str, object] = {FieldName.EXPIRES_AT: 0.0, "payload": None}
+_STATS_CACHE: dict[str, object] = {FieldName.EXPIRES_AT: 0.0, FieldName.PAYLOAD: None}
 
 
 @router.get("/api/performance/{agent_name}")
