@@ -520,6 +520,7 @@ class MetricsAggregator:
                     "pnl": _safe_float(row.pnl),
                     "pnl_percent": _safe_float(row.pnl_percent),
                     "timestamp": row.created_at.isoformat() if row.created_at else None,
+                    "filled_at": row.created_at.isoformat() if row.created_at else None,
                     "entry_price": _safe_float(row.price),
                     FieldName.CURRENT_PRICE: _safe_float(row.filled_price or row.price),
                 }
