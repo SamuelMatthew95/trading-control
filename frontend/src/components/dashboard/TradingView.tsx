@@ -26,6 +26,51 @@ const resolveMessage = (raw: unknown): string => {
   return text
 }
 
+function tradeFeedEmptyLabel(reason: string | null): string {
+  if (reason === 'db_degraded') return 'DB unavailable — fills will appear when DB reconnects'
+  if (reason === 'no_orders_executed') return 'No orders executed yet — decisions are being evaluated'
+  if (reason === 'lifecycle_not_persisted') return 'Orders placed but lifecycle rows are pending'
+  if (reason === 'no_executable_intents') return 'Pipeline active — no executable intents yet'
+  return 'No fills yet — waiting for executed trades'
+}
+
+function activityDotClass(indicator: string): string {
+  if (indicator === 'live') return 'animate-pulse bg-emerald-500'
+  if (indicator === 'waiting') return 'bg-amber-400'
+  return 'bg-slate-400'
+}
+
+function activityLabel(indicator: string): string {
+  if (indicator === 'live') return 'LIVE'
+  if (indicator === 'waiting') return 'WAITING'
+  return 'OFFLINE'
+}
+
+function confColorClass(conf: number | null): string {
+  if (conf == null) return 'text-slate-400'
+  if (conf > 0.8) return 'text-emerald-500'
+  if (conf >= 0.5) return 'text-amber-500'
+  return 'text-slate-400'
+}
+
+function actionBadgeClass(action: string): string {
+  if (action === 'BUY') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+  if (action === 'SELL') return 'bg-rose-500/15 text-rose-500'
+  return 'bg-slate-500/10 text-slate-500'
+}
+
+function positionSideBadgeClass(side: string): string {
+  if (side === 'LONG') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+  if (side === 'SHORT') return 'bg-rose-500/15 text-rose-500'
+  return 'bg-slate-500/10 text-slate-500'
+}
+
+function winRateFromFeed(feed: { pnl?: number | null }[]): number | null {
+  const withPnl = feed.filter((t) => t.pnl != null)
+  if (withPnl.length === 0) return null
+  return (withPnl.filter((t) => (t.pnl ?? 0) > 0).length / withPnl.length) * 100
+}
+
 // ---------------------------------------------------------------------------
 // Stat tile
 // ---------------------------------------------------------------------------
@@ -79,16 +124,7 @@ function TradeFeedPanel({
 }) {
   const { tradeFeed = [] } = useCodexStore()
 
-  const emptyLabel =
-    emptyReason === 'db_degraded'
-      ? 'DB unavailable — fills will appear when DB reconnects'
-      : emptyReason === 'no_orders_executed'
-        ? 'No orders executed yet — decisions are being evaluated'
-        : emptyReason === 'lifecycle_not_persisted'
-          ? 'Orders placed but lifecycle rows are pending'
-          : emptyReason === 'no_executable_intents'
-            ? 'Pipeline active — no executable intents yet'
-            : 'No fills yet — waiting for executed trades'
+  const emptyLabel = tradeFeedEmptyLabel(emptyReason)
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -239,14 +275,9 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
           Agent Activity
         </p>
         <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              'h-2 w-2 rounded-full',
-              activityIndicator === 'live' ? 'animate-pulse bg-emerald-500' : activityIndicator === 'waiting' ? 'bg-amber-400' : 'bg-slate-400',
-            )}
-          />
+          <span className={cn('h-2 w-2 rounded-full', activityDotClass(activityIndicator))} />
           <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-            {activityIndicator === 'live' ? 'LIVE' : activityIndicator === 'waiting' ? 'WAITING' : 'OFFLINE'}
+            {activityLabel(activityIndicator)}
           </span>
         </div>
       </div>
@@ -264,14 +295,7 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
             // Normalise to 0-1 fraction: values > 1 are percentages from the reasoning agent.
             const conf = rawConf == null ? null : rawConf > 1 ? rawConf / 100 : rawConf
             const confPct = conf == null ? null : Math.round(conf * 100)
-            const confColor =
-              conf == null
-                ? 'text-slate-400'
-                : conf > 0.8
-                  ? 'text-emerald-500'
-                  : conf >= 0.5
-                    ? 'text-amber-500'
-                    : 'text-slate-400'
+            const confColor = confColorClass(conf)
 
             const rawName = String(log?.agent_name || log?.agent || (log as Record<string, unknown>)?.source || '')
             const displayName = rawName
@@ -295,16 +319,7 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
                       <span className="font-mono text-[11px] text-slate-400">{symbol}</span>
                     )}
                     {action && action !== '' && (
-                      <span
-                        className={cn(
-                          'rounded px-1.5 py-0.5 text-[10px] font-black tracking-wide',
-                          action === 'BUY'
-                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                            : action === 'SELL'
-                              ? 'bg-rose-500/15 text-rose-500'
-                              : 'bg-slate-500/10 text-slate-500',
-                        )}
-                      >
+                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-black tracking-wide', actionBadgeClass(action))}>
                         {action}
                       </span>
                     )}
@@ -403,16 +418,7 @@ function OpenPositionsPanel() {
                       {symbol}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'rounded-md px-2 py-0.5 text-[11px] font-black',
-                          side === 'LONG'
-                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                            : side === 'SHORT'
-                              ? 'bg-rose-500/15 text-rose-500'
-                              : 'bg-slate-500/10 text-slate-500',
-                        )}
-                      >
+                      <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-black', positionSideBadgeClass(side))}>
                         {side || '--'}
                       </span>
                     </td>
@@ -506,11 +512,7 @@ export function TradingView({
     const winRatePct =
       performanceSummary?.win_rate != null && (performanceSummary?.total_trades ?? 0) > 0
         ? performanceSummary.win_rate * 100
-        : (() => {
-            const withPnl = tradeFeed.filter((t) => t.pnl != null)
-            if (withPnl.length === 0) return null
-            return (withPnl.filter((t) => (t.pnl ?? 0) > 0).length / withPnl.length) * 100
-          })()
+        : winRateFromFeed(tradeFeed)
 
     return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions: positions.length }
   }, [tradeFeed, positions, performanceSummary])
