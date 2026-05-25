@@ -66,3 +66,54 @@ because short qty is negative.
 `InMemoryStore.paired_pnl_payload()` and avoid re-implementing qty-sign logic in
 routes/services. Any new writer that mutates memory positions must preserve
 `side` and `qty` consistently and include a memory-mode regression test.
+
+## REST hydration overwrites WS orders with wrong `side` value
+
+**Symptom:** Orders hydrated via `GET /dashboard/state` appear with `side: "buy"`
+or `side: "sell"` instead of `"long"`/`"short"`, breaking order panel and
+equity curve components that compare against the `'long' | 'short'` union.
+
+**Root cause:** The backend `orders` array uses `OrderSide` values (`"buy"`, `"sell"`).
+The WS `trade_fill` path in `_handleTradeNotification` already normalizes these to
+`"long"`/`"short"`, but `hydrateDashboard` spread REST orders directly without the
+same normalization step.
+
+**Fix:** `useCodexStore.ts` `hydrateDashboard` — map each REST order through a
+`normSide` helper (`sell`→`short`, `short`→`short`, `buy`→`long`, `long`→`long`)
+before merging into the store.
+
+**Regression test:** `frontend/src/test/store/hydrate-dashboard.test.ts` —
+`hydrateDashboard — orders side normalization` suite.
+
+## REST hydration drops WS-sourced positions for symbols not in REST top-N
+
+**Symptom:** In memory-fallback mode (or when positions exceed REST page size),
+positions that arrived via WS `dashboard_update` events vanish when a REST hydration
+fires, because `hydrateDashboard` replaced `positions` wholesale.
+
+**Root cause:** `hydrateDashboard` did a full overwrite: `updates.positions = data.positions`.
+Any WS-sourced position for a symbol absent from the REST response was silently discarded.
+
+**Fix:** `useCodexStore.ts` `hydrateDashboard` — merge by symbol. REST positions are
+authoritative for symbols they cover; positions for symbols absent from the REST response
+are preserved from existing WS state. An empty REST array is treated as "no data" (no-op).
+
+**Regression test:** `frontend/src/test/store/hydrate-dashboard.test.ts` —
+`hydrateDashboard — positions merge` suite.
+
+## Dashboard shows "unreachable" error state during transient REST failure when WS is live
+
+**Symptom:** A brief backend hiccup sets `systemFeedError = "Dashboard API unreachable"`.
+The error banner persists even though the WebSocket remains healthy and is streaming
+live updates. Dashboard status indicator shows `error` instead of the true `Healthy`.
+
+**Root cause:** `useRestPoll.ts` set `systemFeedError` unconditionally on any fetch
+exception, including when `wsConnected=true`. It also continued polling `/dashboard/state`
+every 30 s after WS connected, risking stale REST values overwriting fresher WS state.
+
+**Fix:** `useRestPoll.ts` — `systemFeedError` is only set when `!wsConnected`. The
+REST dashboard/prices interval is not installed when WS is up; a single hydration fetch
+runs on WS connect instead.
+
+**Regression test:** No automated test (React hook interval logic); verified by
+checking that `POLL_SLOW_MS` branch is unreachable when `wsConnected=true`.
