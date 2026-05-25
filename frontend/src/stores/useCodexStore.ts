@@ -688,14 +688,14 @@ export const useCodexStore = create<CodexState>((set) => ({
         isLoading: false
       }
 
-      if (data.system_metrics) {
+      if (Array.isArray(data.system_metrics)) {
         updates.systemMetrics = [
           ...data.system_metrics,
           ...currentState.systemMetrics
         ].slice(0, 100)
       }
 
-      if (data.orders) {
+      if (Array.isArray(data.orders)) {
         updates.orders = [
           ...data.orders,
           ...currentState.orders.filter((order) =>
@@ -738,7 +738,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 100)
       }
 
-      if (data.learning_events) {
+      if (Array.isArray(data.learning_events)) {
         updates.learningEvents = [
           ...data.learning_events,
           ...currentState.learningEvents.filter((event) =>
@@ -747,7 +747,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 50)
       }
 
-      if (data.risk_alerts) {
+      if (Array.isArray(data.risk_alerts)) {
         updates.riskAlerts = [
           ...data.risk_alerts,
           ...currentState.riskAlerts.filter((alert) =>
@@ -756,7 +756,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 50)
       }
 
-      if (data.signals) {
+      if (Array.isArray(data.signals)) {
         updates.signals = [
           ...data.signals,
           ...currentState.signals.filter((signal) =>
@@ -826,8 +826,9 @@ export const useCodexStore = create<CodexState>((set) => ({
         }
       }
 
-      if (data.agent_statuses && Array.isArray(data.agent_statuses)) {
-        updates.agentStatuses = data.agent_statuses as unknown as AgentStatus[]
+      if (Array.isArray(data.agent_statuses)) {
+        updates.agentStatuses = (data.agent_statuses as Array<Record<string, unknown>>)
+          .filter((item) => typeof item?.name === 'string' && typeof item?.status === 'string') as unknown as AgentStatus[]
       }
 
       return updates
