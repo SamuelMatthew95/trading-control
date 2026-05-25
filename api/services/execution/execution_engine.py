@@ -860,11 +860,11 @@ class ExecutionEngine(BaseStreamConsumer):
             heartbeat_status = ":".join(error.split(":")[:2])
             await self._write_idle_heartbeat(symbol_hint, heartbeat_status)
             return None
-        if await self._enforce_fallback_trade_guard(parsed, data):
+        if await self._is_fallback_blocked(parsed, data):
             return None
         return parsed
 
-    async def _enforce_fallback_trade_guard(
+    async def _is_fallback_blocked(
         self, parsed: _ParsedDecision, payload: dict[str, Any]
     ) -> bool:
         side = str(parsed.side or "").lower()
