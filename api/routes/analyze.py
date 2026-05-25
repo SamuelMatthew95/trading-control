@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from api.services.trading_service import TradingService
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.constants import AGENT_EXECUTION, AGENT_GRADE, AGENT_REASONING, AGENT_SIGNAL, FieldName
@@ -12,6 +11,7 @@ from api.main_state import (
     get_trading_service,
 )
 from api.observability import log_structured, metrics_store
+from api.services.trading import TradingService
 from api.utils import with_retries
 
 # Agents involved in a single /analyze call (in-memory metrics_store tracking only —
