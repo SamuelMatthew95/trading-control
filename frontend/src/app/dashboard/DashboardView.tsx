@@ -22,6 +22,12 @@ import {
   agentCardTextClass,
   streamEventBadgeClass,
   systemStatusBadgeClass,
+  agentStatusDotClass,
+  pipelineStatusTextClass,
+  apiHealthBadgeClass,
+  priceChangeTextClass,
+  agentTierFromStatus,
+  performancePnlColorClass,
 } from '@/lib/dashboard-helpers'
 import {
   Brain,
@@ -198,33 +204,11 @@ function PriceCardSkeleton() {
   )
 }
 
-// ── Style helpers ─────────────────────────────────────────────────────────────
+// ── Timing thresholds ─────────────────────────────────────────────────────────
 
-function agentStatusDotClass(status: AgentSummary['status']): string {
-  if (status === 'Live') return 'bg-emerald-300'
-  if (status === 'Stale') return 'bg-amber-300'
-  if (status === 'Error') return 'bg-rose-300'
-  return 'bg-slate-400'
-}
-
-function pipelineStatusTextClass(status: string): string {
-  if (status === 'Healthy') return 'text-emerald-500'
-  if (status === 'Degraded') return 'text-amber-500'
-  return 'text-rose-500'
-}
-
-function apiHealthBadgeClass(value: string): string {
-  if (value === 'ok') return 'bg-emerald-500/10 text-emerald-500'
-  if (value === 'error') return 'bg-rose-500/10 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
-}
-
-function priceChangeTextClass(change: number | null, hasData: boolean): string {
-  if (change == null || !hasData) return 'text-slate-500'
-  if (change > 0) return 'text-emerald-500'
-  if (change < 0) return 'text-rose-500'
-  return 'text-slate-400'
-}
+const PRICE_FRESHNESS_MS = 60_000
+const PIPELINE_HEALTHY_LATENCY_MS = 15_000
+const AGENT_DATA_TIMEOUT_MS = 10_000
 
 function priceChangeText(change: number | null, hasData: boolean): string {
   if (change == null || !hasData) return '--'
@@ -316,7 +300,7 @@ function PriceFreshnessStatus({
     .map((d) => Date.now() - d.getTime())
     .reduce((min, ms) => Math.min(min, ms), Infinity)
 
-  const isLive = Number.isFinite(freshestMs) && freshestMs <= 60_000
+  const isLive = Number.isFinite(freshestMs) && freshestMs <= PRICE_FRESHNESS_MS
   return <StatusDot live={isLive} label={isLive ? 'Live' : 'Stale'} />
 }
 
@@ -387,7 +371,7 @@ export function DashboardView({ section }: { section: Section }) {
   const throughput = Number(wsDiagnostics?.messageRate ?? 0)
   const pipelineStatus = !latestTickTs
     ? 'Stalled'
-    : dataLatencyMs != null && dataLatencyMs < 15_000
+    : dataLatencyMs != null && dataLatencyMs < PIPELINE_HEALTHY_LATENCY_MS
       ? 'Healthy'
       : 'Degraded'
   const signalsCount = streamStats['signals']?.count ?? 0
@@ -519,7 +503,7 @@ export function DashboardView({ section }: { section: Section }) {
         persistedCount: existing?.persistedCount ?? 0,
         lastSeen,
         status: mergedStatus,
-        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
+        tier: agentTierFromStatus(mergedStatus),
         source: existing ? 'hybrid' : 'realtime',
       })
     }
@@ -539,7 +523,7 @@ export function DashboardView({ section }: { section: Section }) {
         persistedCount: Math.max(existing?.persistedCount ?? 0, inst.event_count ?? 0),
         lastSeen,
         status: mergedStatus,
-        tier: mergedStatus === 'Live' ? 'active' : mergedStatus === 'Error' ? 'inactive' : 'challenger',
+        tier: agentTierFromStatus(mergedStatus),
         source: existing ? 'hybrid' : 'persisted',
       })
     }
@@ -569,7 +553,7 @@ export function DashboardView({ section }: { section: Section }) {
       if (!hasAgentData && state.wsConnected) {
         setShowNoAgentDataMessage(true)
       }
-    }, 10000)
+    }, AGENT_DATA_TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [realAgents.length, wsConnected])
 
@@ -654,9 +638,7 @@ export function DashboardView({ section }: { section: Section }) {
                   value: resolvedPerformanceSummary != null
                     ? signedUSD(resolvedPerformanceSummary.total_pnl)
                     : '--',
-                  colorClass: resolvedPerformanceSummary != null
-                    ? resolvedPerformanceSummary.total_pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                    : 'text-slate-900 dark:text-slate-100',
+                  colorClass: performancePnlColorClass(resolvedPerformanceSummary?.total_pnl ?? null),
                 },
                 {
                   label: 'Win Rate',
@@ -1093,7 +1075,7 @@ export function DashboardView({ section }: { section: Section }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
                 const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
-                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < 60_000)
+                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < PRICE_FRESHNESS_MS)
                 return (
                   <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                     <div className="flex items-center justify-between">
