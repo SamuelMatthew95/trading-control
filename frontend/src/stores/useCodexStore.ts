@@ -709,7 +709,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         const incomingLogs = (data.agent_logs as unknown[]).flatMap((raw) => {
           if (!raw || typeof raw !== 'object') return []
           const r = raw as Record<string, unknown>
-          const agentName = String(r.agent_name || r.agent || r.source_agent || '')
+          const agentName = String(r.agent_name || r.agent || r.source_agent || r.source || '')
           if (!agentName) return []
           const log: AgentLog = {
             agent_name: agentName,
