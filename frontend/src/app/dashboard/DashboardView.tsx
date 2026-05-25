@@ -214,12 +214,15 @@ function apiHealthBadgeClass(value: string): string {
 
 function priceChangeTextClass(change: number | null, hasData: boolean): string {
   if (change == null || !hasData) return 'text-slate-500'
-  return change >= 0 ? 'text-emerald-500' : 'text-rose-500'
+  if (change > 0) return 'text-emerald-500'
+  if (change < 0) return 'text-rose-500'
+  return 'text-slate-400'
 }
 
 function priceChangeText(change: number | null, hasData: boolean): string {
   if (change == null || !hasData) return '--'
-  return `${change >= 0 ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`
+  if (change === 0) return `→ ${formatUSD(0)}`
+  return `${change > 0 ? '▲' : '▼'} ${formatUSD(Math.abs(change))}`
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -230,8 +233,9 @@ function formatWinRate(rate: number | null, hasClosedTrades: boolean): string {
 }
 
 function formatDailyChange(change: number | null | undefined): string {
-  if (typeof change !== 'number' || !Number.isFinite(change)) return '0.00'
-  return change.toFixed(2)
+  if (typeof change !== 'number' || !Number.isFinite(change)) return '--'
+  const sign = change > 0 ? '+' : ''
+  return `${sign}${change.toFixed(2)}%`
 }
 
 function lastNotificationLabel(notifications: Array<{ timestamp?: string }>): string {
@@ -614,7 +618,7 @@ export function DashboardView({ section }: { section: Section }) {
               },
               {
                 title: 'Daily Change %',
-                value: `${formatDailyChange(summary.dailyChange)}%`,
+                value: formatDailyChange(summary.dailyChange),
                 trend: Math.sign(summary.dailyChange ?? 0),
               },
             ].map((item) => (
