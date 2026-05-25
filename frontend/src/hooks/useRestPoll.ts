@@ -88,7 +88,10 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
           setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
         }
       } catch {
-        setSystemFeedError('Dashboard API unreachable')
+        // Only surface REST unreachability when WS is not covering live data.
+        if (!wsConnected) {
+          setSystemFeedError('Dashboard API unreachable')
+        }
         setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
       }
     }
@@ -101,11 +104,14 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     fetchDashboardState()
     fetchPrices()
 
-    const cadenceMs = wsConnected ? POLL_SLOW_MS : POLL_FAST_MS
+    // When WS is live it streams prices and state in real-time; REST polling
+  // at that point only risks overwriting fresher WS data with stale values.
+  // Only install the interval when WS is down.
+  if (wsConnected) return
     const t = setInterval(() => {
       fetchDashboardState()
       useCodexStore.getState().fetchPrices()
-    }, cadenceMs)
+    }, POLL_FAST_MS)
     return () => clearInterval(t)
   }, [wsConnected])
 
