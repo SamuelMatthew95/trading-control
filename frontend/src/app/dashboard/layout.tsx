@@ -108,8 +108,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex h-12 items-center gap-2 border-b border-slate-200 px-4 dark:border-slate-800">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-slate-900">
+        <div className="flex h-12 items-center gap-2.5 border-b border-slate-200 px-4 dark:border-slate-800">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm">
             <BarChart3 className="h-4 w-4" />
           </div>
           <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-slate-100">Trading Console</p>
