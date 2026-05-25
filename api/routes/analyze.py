@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.constants import AGENT_EXECUTION, AGENT_GRADE, AGENT_REASONING, AGENT_SIGNAL, FieldName
 from api.core.schemas import StandardResponse, TradeDecision, TradeRequest
-from api.database import get_async_session
 from api.main_state import (
     get_trading_service,
 )
@@ -56,17 +55,15 @@ async def analyze_trade(
             log_structured("error", "Trade analysis failed", symbol=request.symbol, exc_info=True)
             raise HTTPException(status_code=500, detail="Trade analysis failed") from exc
 
-        async with get_async_session():
-            elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-            for agent in _ANALYZE_AGENTS:
-                # Removed learning_service reference - service deleted
-                metrics_store.update_agent(
-                    agent,
-                    "idle",
-                    health="ok",
-                    latency_ms=round(elapsed * 1000, 2),
-                    last_task=f"analyze {request.symbol}",
-                )
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+        for agent in _ANALYZE_AGENTS:
+            metrics_store.update_agent(
+                agent,
+                "idle",
+                health="ok",
+                latency_ms=round(elapsed * 1000, 2),
+                last_task=f"analyze {request.symbol}",
+            )
 
         estimated_tokens = max(200, len(str(result)) // 2)
         estimated_cost_usd = round(estimated_tokens * 0.000003, 6)
