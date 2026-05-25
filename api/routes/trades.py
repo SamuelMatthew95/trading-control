@@ -15,6 +15,19 @@ from api.database import AsyncSessionLocal
 
 router = APIRouter(tags=["trades"])
 
+# Module-level bot state (in production this would be in a database)
+bot_state = {
+    FieldName.RUNNING: False,
+    "status": "stopped",
+    FieldName.UPTIME_MINUTES: 0,
+    FieldName.ACTIVE_POSITION: None,
+    FieldName.RISK_EXPOSURE: 0.0,
+    FieldName.TOTAL_TRADES: 0,
+    FieldName.PERFORMANCE: [0] * 30,
+    FieldName.LAST_ACTION: "none",
+    FieldName.LAST_ACTION_TIME: None,
+}
+
 
 async def get_safe_writer() -> SafeWriter:
     """Get SafeWriter instance."""
@@ -256,17 +269,3 @@ async def trading_options() -> dict[str, Any]:
         success=True,
         data={"message": "Trading endpoints support GET, POST, and OPTIONS"},
     ).model_dump()
-
-
-# Global bot state (in production this would be in a database)
-bot_state = {
-    FieldName.RUNNING: False,
-    "status": "stopped",
-    FieldName.UPTIME_MINUTES: 0,
-    FieldName.ACTIVE_POSITION: None,
-    FieldName.RISK_EXPOSURE: 0.0,
-    FieldName.TOTAL_TRADES: 0,
-    FieldName.PERFORMANCE: [0] * 30,
-    FieldName.LAST_ACTION: "none",
-    FieldName.LAST_ACTION_TIME: None,
-}
