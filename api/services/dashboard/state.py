@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any
 
 from fastapi import HTTPException
@@ -216,16 +217,27 @@ async def get_state_payload() -> dict[str, Any]:
         try:
             agent_keys = [REDIS_AGENT_STATUS_KEY.format(name=n) for n in ALL_AGENT_NAMES]
             agent_values = await redis_client.mget(agent_keys)
+            now_ts = time.time()
             agent_statuses: list[dict[str, Any]] = []
             for name, raw in zip(ALL_AGENT_NAMES, agent_values, strict=False):
                 if raw:
                     try:
                         status = json.loads(raw)
-                        agent_statuses.append({FieldName.NAME: name, **status})
+                        last_seen = float(status.get(FieldName.LAST_SEEN) or 0)
+                        seconds_ago = max(0, int(now_ts - last_seen)) if last_seen > 0 else 0
+                        agent_statuses.append(
+                            {FieldName.NAME: name, FieldName.SECONDS_AGO: seconds_ago, **status}
+                        )
                     except (json.JSONDecodeError, TypeError):
                         agent_statuses.append({FieldName.NAME: name, FieldName.STATUS: "unknown"})
                 else:
-                    agent_statuses.append({FieldName.NAME: name, "status": "offline"})
+                    agent_statuses.append(
+                        {
+                            FieldName.NAME: name,
+                            FieldName.STATUS: "offline",
+                            FieldName.SECONDS_AGO: 0,
+                        }
+                    )
             data[FieldName.AGENT_STATUSES] = agent_statuses
         except Exception:
             log_structured("warning", "dashboard_state_agent_statuses_failed", exc_info=True)
