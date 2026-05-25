@@ -9,14 +9,17 @@ const statusStyles: Record<UiStatus, string> = {
   Idle: 'border-slate-400/35 bg-transparent text-slate-500 dark:text-slate-400',
 }
 
-const statusMap: Record<AgentState, UiStatus> = {
-  running: 'Live',
-  idle: 'Idle',
-  failed: 'Error',
+function toUiStatus(status: string): UiStatus {
+  switch (status.toLowerCase()) {
+    case 'running': case 'active': case 'live': return 'Live'
+    case 'stale': case 'waiting': return 'Stale'
+    case 'failed': case 'error': case 'offline': return 'Error'
+    default: return 'Idle'
+  }
 }
 
-export function StatusBadge({ status }: { status: AgentState }) {
-  const label = statusMap[status]
+export function StatusBadge({ status }: { status: AgentState | string }) {
+  const label = toUiStatus(String(status ?? ''))
   return (
     <span className={`inline-flex items-center gap-1 rounded-[6px] border px-2 py-1 text-xs font-medium ${statusStyles[label]}`}>
       {label !== 'Idle' ? <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" /> : null}
