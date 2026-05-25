@@ -17,6 +17,13 @@ import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
 import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
 import {
+  agentCardBorderClass,
+  agentCardDotClass,
+  agentCardTextClass,
+  streamEventBadgeClass,
+  systemStatusBadgeClass,
+} from '@/lib/dashboard-helpers'
+import {
   Brain,
   TrendingDown,
   TrendingUp,
@@ -696,27 +703,14 @@ export function DashboardView({ section }: { section: Section }) {
                       key={agent.name}
                       className={cn(
                         'rounded-lg border p-3 transition-all duration-150 hover:shadow-sm',
-                        agent.status === 'Live'
-                          ? 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
-                          : agent.status === 'Error'
-                            ? 'border-rose-200 bg-rose-50/30 dark:border-rose-900/30 dark:bg-rose-950/10'
-                            : 'border-slate-200 dark:border-slate-800',
+                        agentCardBorderClass(agent.status),
                       )}
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-sans font-semibold text-slate-900 dark:text-slate-100">{displayAgentName(agent.name)}</p>
                         <div className="flex items-center gap-1.5">
-                          <span className={cn(
-                            'h-2 w-2 rounded-full',
-                            agent.status === 'Live' ? 'animate-pulse bg-emerald-500' :
-                            agent.status === 'Stale' ? 'bg-amber-400' :
-                            agent.status === 'Error' ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'
-                          )} />
-                          <span className={cn('text-xs font-mono font-semibold',
-                            agent.status === 'Live' ? 'text-emerald-600 dark:text-emerald-400' :
-                            agent.status === 'Stale' ? 'text-amber-600 dark:text-amber-400' :
-                            agent.status === 'Error' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'
-                          )}>{agent.status}</span>
+                          <span className={cn('h-2 w-2 rounded-full', agentCardDotClass(agent.status))} />
+                          <span className={cn('text-xs font-mono font-semibold', agentCardTextClass(agent.status))}>{agent.status}</span>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
@@ -1122,16 +1116,7 @@ export function DashboardView({ section }: { section: Section }) {
                 {recentEvents.map((event, index) => (
                   <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? ''}-${event.msgId !== 'n/a' ? (event.msgId ?? index) : index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <span
-                      className={cn(
-                        'rounded px-2 py-0.5 text-xs font-semibold',
-                        event.stream === 'market_ticks'
-                          ? 'bg-emerald-500/15 text-emerald-500'
-                          : event.stream === 'signals'
-                            ? 'bg-slate-500/10 text-slate-500'
-                            : event.stream === 'orders'
-                              ? 'bg-amber-500/15 text-amber-500'
-                              : 'bg-slate-500/15 text-slate-500'
-                      )}
+                      className={cn('rounded px-2 py-0.5 text-xs font-semibold', streamEventBadgeClass(event.stream))}
                     >
                       {event.stream}
                     </span>
@@ -1232,13 +1217,7 @@ export function DashboardView({ section }: { section: Section }) {
         <div
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
-            systemStatus === 'trading'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
-              : systemStatus === 'booting'
-                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
-                : systemStatus === 'error'
-                  ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
-                  : 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+            systemStatusBadgeClass(systemStatus),
           )}
         >
           System Status: {systemStatus}
