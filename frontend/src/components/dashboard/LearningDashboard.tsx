@@ -133,8 +133,10 @@ interface PipelineStatus {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const fmtPct = (n: number | null | undefined, decimals = 1): string =>
-  n == null ? '--' : `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`
+const fmtPct = (n: number | null | undefined, decimals = 1): string => {
+  if (n == null || !Number.isFinite(n)) return '--'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`
+}
 
 const fmtUSD = (n: number | null | undefined): string => {
   if (n == null) return '--'
@@ -546,7 +548,7 @@ function ReflectionPanel({ reflection }: { reflection: Reflection | null }) {
                     <div className="h-1.5 flex-1 rounded-full bg-slate-200 dark:bg-slate-700">
                       <div
                         className="h-1.5 rounded-full bg-rose-500"
-                        style={{ width: `${Math.round(c.frequency * 100)}%` }}
+                        style={{ width: `${Math.round((Number.isFinite(c.frequency) ? c.frequency : 0) * 100)}%` }}
                       />
                     </div>
                     <span className="w-10 text-right text-slate-500 dark:text-slate-400">{fmtPct(c.frequency * 100, 0)}</span>
