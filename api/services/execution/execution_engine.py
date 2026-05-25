@@ -897,12 +897,12 @@ class ExecutionEngine(BaseStreamConsumer):
             current_signed_qty = 0.0
             blocked = True
         else:
-            current_position = await self.broker.get_position(symbol)
-            current_signed_qty = self._signed_position_qty(current_position)
-
             if parsed.qty > settings.MAX_FALLBACK_ORDER_QTY:
+                current_signed_qty = 0.0
                 blocked = True
             else:
+                current_position = await self.broker.get_position(symbol)
+                current_signed_qty = self._signed_position_qty(current_position)
                 signed_after = (
                     current_signed_qty + parsed.qty
                     if side == OrderSide.BUY
