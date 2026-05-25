@@ -864,9 +864,7 @@ class ExecutionEngine(BaseStreamConsumer):
             return None
         return parsed
 
-    async def _is_fallback_blocked(
-        self, parsed: _ParsedDecision, payload: dict[str, Any]
-    ) -> bool:
+    async def _is_fallback_blocked(self, parsed: _ParsedDecision, payload: dict[str, Any]) -> bool:
         side = str(parsed.side or "").lower()
         if side not in {OrderSide.BUY, OrderSide.SELL}:
             return False
