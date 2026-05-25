@@ -696,10 +696,17 @@ export const useCodexStore = create<CodexState>((set) => ({
       }
 
       if (Array.isArray(data.orders)) {
+        // REST API sends side as "buy"/"sell" (OrderSide enum); store expects "long"/"short".
+        // WS trade_fill path already normalizes in _handleTradeNotification — match it here.
+        const normSide = (side: unknown): 'long' | 'short' => {
+          const v = String(side ?? '').toLowerCase()
+          return v === 'sell' || v === 'short' ? 'short' : 'long'
+        }
+        const restOrders = data.orders.map((o) => ({ ...o, side: normSide(o.side) }))
         updates.orders = [
-          ...data.orders,
+          ...restOrders,
           ...currentState.orders.filter((order) =>
-            !data.orders?.some((newOrder) => newOrder.order_id === order.order_id)
+            !restOrders.some((newOrder) => newOrder.order_id === order.order_id)
           )
         ].slice(0, 100)
         _saveToStorage('codex.orders', updates.orders)
@@ -765,9 +772,15 @@ export const useCodexStore = create<CodexState>((set) => ({
         ].slice(0, 50)
       }
 
-      if (data.positions) {
-        updates.positions = data.positions
-        _saveToStorage('codex.positions', data.positions)
+      if (Array.isArray(data.positions)) {
+        // Merge by symbol: REST is authoritative for symbols it covers; keep WS-only positions.
+        const restSymbols = new Set(data.positions.map((p) => p.symbol))
+        const merged = [
+          ...data.positions,
+          ...currentState.positions.filter((p) => !restSymbols.has(p.symbol)),
+        ]
+        updates.positions = merged
+        _saveToStorage('codex.positions', merged)
       }
 
       if (data.prices) {
