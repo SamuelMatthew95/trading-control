@@ -1,6 +1,5 @@
 """Monitoring system endpoints for production dashboard."""
 
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,7 +9,6 @@ from api.constants import FieldName
 from api.observability import log_structured
 from api.utils import get_nested
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
