@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS, gradeColor, gradeBg } from '@/lib/grade-colors'
+import { pnlColorClass, tradeSideClass, strategyStatusClass } from '@/lib/dashboard-helpers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,17 +172,6 @@ const trendColor = (trend: string): string => {
 const stageColor = (status: string): string =>
   status === 'active' ? 'text-emerald-600 dark:text-emerald-500' : status === 'failed' ? 'text-rose-600 dark:text-rose-500' : 'text-slate-500 dark:text-slate-400'
 
-const pnlColorClass = (value: number): string =>
-  value >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-
-const tradeSideClass = (side: string | null): string =>
-  side === 'buy' ? 'text-emerald-500' : 'text-rose-500'
-
-function strategyStatusClass(status: string | null): string {
-  if (status === 'approved') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400'
-  if (status === 'rejected') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400'
-  return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400'
-}
 
 // ScoreBar — a horizontal bar showing a [0,1] score
 function ScoreBar({ value, color }: { value: number | null; color?: string }) {
