@@ -10,6 +10,11 @@ import {
   activityLabel,
   tradeFeedEmptyLabel,
   winRateFromFeed,
+  agentCardBorderClass,
+  agentCardDotClass,
+  agentCardTextClass,
+  streamEventBadgeClass,
+  systemStatusBadgeClass,
 } from '@/lib/dashboard-helpers'
 
 describe('pnlColorClass', () => {
@@ -159,6 +164,101 @@ describe('tradeFeedEmptyLabel', () => {
   })
   it('returns default fallback for unrecognised reason', () => {
     expect(tradeFeedEmptyLabel('some_other_reason')).toMatch(/No fills yet/)
+  })
+})
+
+describe('agentCardBorderClass', () => {
+  it('returns emerald for Live', () => {
+    expect(agentCardBorderClass('Live')).toContain('emerald')
+  })
+  it('returns rose for Error', () => {
+    expect(agentCardBorderClass('Error')).toContain('rose')
+  })
+  it('returns slate for Stale', () => {
+    expect(agentCardBorderClass('Stale')).toContain('slate')
+  })
+  it('returns slate for Idle', () => {
+    expect(agentCardBorderClass('Idle')).toContain('slate')
+  })
+  it('returns slate for unknown status', () => {
+    expect(agentCardBorderClass('unknown')).toContain('slate')
+  })
+})
+
+describe('agentCardDotClass', () => {
+  it('includes animate-pulse and emerald for Live', () => {
+    const cls = agentCardDotClass('Live')
+    expect(cls).toContain('animate-pulse')
+    expect(cls).toContain('emerald')
+  })
+  it('returns amber for Stale', () => {
+    expect(agentCardDotClass('Stale')).toContain('amber')
+  })
+  it('returns rose for Error', () => {
+    expect(agentCardDotClass('Error')).toContain('rose')
+  })
+  it('returns slate for Idle', () => {
+    expect(agentCardDotClass('Idle')).toContain('slate')
+  })
+  it('returns slate for unknown status', () => {
+    expect(agentCardDotClass('unknown')).toContain('slate')
+  })
+})
+
+describe('agentCardTextClass', () => {
+  it('returns emerald for Live', () => {
+    expect(agentCardTextClass('Live')).toContain('emerald')
+  })
+  it('returns amber for Stale', () => {
+    expect(agentCardTextClass('Stale')).toContain('amber')
+  })
+  it('returns rose for Error', () => {
+    expect(agentCardTextClass('Error')).toContain('rose')
+  })
+  it('returns slate for Idle', () => {
+    expect(agentCardTextClass('Idle')).toContain('slate')
+  })
+  it('returns slate for unknown status', () => {
+    expect(agentCardTextClass('unknown')).toContain('slate')
+  })
+})
+
+describe('streamEventBadgeClass', () => {
+  it('returns emerald for market_ticks', () => {
+    expect(streamEventBadgeClass('market_ticks')).toContain('emerald')
+  })
+  it('returns slate for signals', () => {
+    expect(streamEventBadgeClass('signals')).toContain('slate')
+  })
+  it('returns amber for orders', () => {
+    expect(streamEventBadgeClass('orders')).toContain('amber')
+  })
+  it('returns slate for unknown stream', () => {
+    expect(streamEventBadgeClass('executions')).toContain('slate')
+  })
+  it('returns slate for null', () => {
+    expect(streamEventBadgeClass(null)).toContain('slate')
+  })
+  it('returns slate for undefined', () => {
+    expect(streamEventBadgeClass(undefined)).toContain('slate')
+  })
+})
+
+describe('systemStatusBadgeClass', () => {
+  it('returns emerald for trading', () => {
+    expect(systemStatusBadgeClass('trading')).toContain('emerald')
+  })
+  it('returns amber for booting', () => {
+    expect(systemStatusBadgeClass('booting')).toContain('amber')
+  })
+  it('returns rose for error', () => {
+    expect(systemStatusBadgeClass('error')).toContain('rose')
+  })
+  it('returns slate for unknown status', () => {
+    expect(systemStatusBadgeClass('offline')).toContain('slate')
+  })
+  it('returns slate for empty string', () => {
+    expect(systemStatusBadgeClass('')).toContain('slate')
   })
 })
 
