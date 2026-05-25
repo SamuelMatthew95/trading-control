@@ -252,9 +252,33 @@ class InMemoryStore:
         now = time.time()
         notifications = list(self.notifications[-100:])
         notification_summary = compute_notification_summary(notifications)
+
+        def _normalize_position(p: dict[str, Any]) -> dict[str, Any]:
+            """Map internal position keys to what the frontend expects."""
+            qty = self._safe_float(p.get(FieldName.QTY) or p.get(FieldName.QUANTITY)) or 0.0
+            current_price = (
+                self._safe_float(p.get(FieldName.CURRENT_PRICE))
+                or self._safe_float(p.get(FieldName.LAST_PRICE))
+                or self._safe_float(p.get(FieldName.PRICE))
+                or 0.0
+            )
+            unrealized = (
+                self._safe_float(p.get(FieldName.UNREALIZED_PNL))
+                or self._safe_float(p.get(FieldName.PNL))
+                or 0.0
+            )
+            return {
+                **p,
+                FieldName.QUANTITY: qty,
+                FieldName.CURRENT_PRICE: current_price,
+                FieldName.PNL: unrealized,
+            }
+
         return {
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
-            FieldName.POSITIONS: [p for p in self.positions.values() if _has_open_quantity(p)],
+            FieldName.POSITIONS: [
+                _normalize_position(p) for p in self.positions.values() if _has_open_quantity(p)
+            ],
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
             FieldName.PROPOSALS: [
@@ -276,6 +300,10 @@ class InMemoryStore:
                     FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
                     FieldName.EVENT_COUNT: int(data.get(FieldName.EVENT_COUNT, 0) or 0),
                     FieldName.SOURCE: data.get(FieldName.SOURCE, "in_memory"),
+                    FieldName.SECONDS_AGO: max(
+                        0,
+                        int(now - float(data.get(FieldName.LAST_SEEN) or now)),
+                    ),
                 }
                 for name, data in self.agents.items()
             ],
