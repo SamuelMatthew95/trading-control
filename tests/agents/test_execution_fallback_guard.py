@@ -29,7 +29,10 @@ def _engine():
 
 @pytest.mark.asyncio
 async def test_fallback_buy_blocked_when_not_allowed(_engine, monkeypatch):
-    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: True)
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "BROKER_MODE", "live")
+    monkeypatch.setattr(settings, "ALPACA_PAPER", False)
     data = {
         FieldName.SYMBOL: "BTC/USD",
         FieldName.ACTION: "buy",
@@ -69,7 +72,8 @@ async def test_fallback_not_allowed_blocks_before_broker_io(_engine, monkeypatch
     from api.config import settings
 
     monkeypatch.setattr(settings, "ALLOW_FALLBACK_TRADES", False)
-    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: True)
+    monkeypatch.setattr(settings, "BROKER_MODE", "live")
+    monkeypatch.setattr(settings, "ALPACA_PAPER", False)
     _engine.broker = _Broker(0.0, should_raise=True)
     data = {
         FieldName.SYMBOL: "BTC/USD",
@@ -88,7 +92,8 @@ async def test_fallback_detected_from_primary_edge_with_reasoning_source(_engine
     from api.config import settings
 
     monkeypatch.setattr(settings, "ALLOW_FALLBACK_TRADES", False)
-    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: True)
+    monkeypatch.setattr(settings, "BROKER_MODE", "live")
+    monkeypatch.setattr(settings, "ALPACA_PAPER", False)
     _engine.broker = _Broker(0.0, should_raise=True)
     data = {
         FieldName.SYMBOL: "BTC/USD",
@@ -132,7 +137,8 @@ async def test_fallback_buy_over_closes_short_and_opens_long_blocked(_engine, mo
     monkeypatch.setattr(settings, "MAX_FALLBACK_ORDER_QTY", 10.0)
     monkeypatch.setattr(settings, "MAX_SYMBOL_EXPOSURE", 10.0)
     monkeypatch.setattr(settings, "MAX_OPEN_POSITION_QTY", 10.0)
-    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: True)
+    monkeypatch.setattr(settings, "BROKER_MODE", "live")
+    monkeypatch.setattr(settings, "ALPACA_PAPER", False)
     _engine.broker = _Broker(5.0, side="short")
     data = {
         FieldName.SYMBOL: "BTC/USD",
