@@ -131,6 +131,19 @@ describe('DashboardView — overview', () => {
     expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/From 2 closed trades;/i)
   })
 
+  it('does not show explanation when best trade is not tiny-positive', () => {
+    mockStore.performanceSummary = {
+      total_pnl: 12,
+      win_rate: 0.5,
+      best_trade: 0.25,
+      worst_trade: -1,
+    }
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.queryByTestId('best-trade-tiny-explanation')).not.toBeInTheDocument()
+  })
+
   it('shows ticker symbols on overview when empty', () => {
     render(<DashboardView section="overview" />)
     // When loading, shows skeletons instead of ticker symbols
