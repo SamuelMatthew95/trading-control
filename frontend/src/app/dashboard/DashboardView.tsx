@@ -250,6 +250,23 @@ function formatLlmProviderName(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
+type PerformanceSummarySource = 'api' | 'local_closed_trades' | 'none'
+
+function getTinyBestTradeExplanation(
+  bestTrade: number | null | undefined,
+  source: PerformanceSummarySource,
+  closedTradeCount: number,
+): string | null {
+  if (!Number.isFinite(bestTrade) || bestTrade == null || bestTrade <= 0 || bestTrade >= 0.05) return null
+  if (source === 'api') {
+    return 'From API trade history aggregate; tiny gains (for example +$0.01) are valid execution data.'
+  }
+  if (source === 'local_closed_trades') {
+    return `From ${closedTradeCount} closed trade${closedTradeCount === 1 ? '' : 's'}; tiny gains (for example +$0.01) are valid execution data.`
+  }
+  return 'Tiny gains (for example +$0.01) are valid execution data.'
+}
+
 // ── Small UI-only components ──────────────────────────────────────────────────
 
 type StatusDotProps = { live: boolean; label: string; loadingLabel?: string; loading?: boolean }
@@ -459,19 +476,14 @@ export function DashboardView({ section }: { section: Section }) {
   const resolvedPerformanceSummary = apiSummaryHasSignal
     ? performanceSummary
     : (fallbackPerformanceSummary ?? performanceSummary)
-  const performanceSummarySource = apiSummaryHasSignal ? 'api' : (fallbackPerformanceSummary != null ? 'local_closed_trades' : 'none')
-  const hasTinyPositiveBestTrade = (() => {
-    const bestTrade = resolvedPerformanceSummary?.best_trade
-    if (!Number.isFinite(bestTrade)) return false
-    return bestTrade > 0 && bestTrade < 0.05
-  })()
-  const tinyBestTradeExplanation = (() => {
-    if (!hasTinyPositiveBestTrade) return null
-    if (performanceSummarySource === 'api') {
-      return 'From API trade history aggregate; tiny gains (for example +$0.01) are valid execution data.'
-    }
-    return `From ${closedTradeCount} closed trade${closedTradeCount === 1 ? '' : 's'}; tiny gains (for example +$0.01) are valid execution data.`
-  })()
+  const performanceSummarySource: PerformanceSummarySource = apiSummaryHasSignal
+    ? 'api'
+    : (fallbackPerformanceSummary != null ? 'local_closed_trades' : 'none')
+  const tinyBestTradeExplanation = getTinyBestTradeExplanation(
+    resolvedPerformanceSummary?.best_trade,
+    performanceSummarySource,
+    closedTradeCount,
+  )
 
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
