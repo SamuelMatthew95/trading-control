@@ -77,6 +77,12 @@ type AgentSummary = {
   source: 'realtime' | 'persisted' | 'hybrid'
 }
 
+type PerformanceCell = {
+  label: 'Total P&L' | 'Win Rate' | 'Best Trade' | 'Worst Trade'
+  value: string
+  colorClass: string
+}
+
 
 function displayAgentName(rawName: string): string {
   const canonical = canonicalAgentKey(rawName)
@@ -248,6 +254,64 @@ function resolveWsUrl(): string {
 function formatLlmProviderName(provider: string): string {
   if (!provider) return 'LLM'
   return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+type PerformanceSummarySource = 'api' | 'local_closed_trades' | 'none'
+type PerformanceSummaryLike = {
+  total_pnl?: number | null
+  win_rate?: number | null
+  best_trade?: number | null
+  worst_trade?: number | null
+}
+
+const TINY_BEST_TRADE_THRESHOLD = 0.05
+const TINY_BEST_TRADE_BASE_TEXT = 'tiny gains (for example +$0.01) are valid execution data.'
+const PERFORMANCE_SOURCE_PREFIX: Record<PerformanceSummarySource, ((closedTradeCount: number) => string) | null> = {
+  api: () => 'From API trade history aggregate;',
+  local_closed_trades: (closedTradeCount) => `From ${closedTradeCount} closed trade${closedTradeCount === 1 ? '' : 's'};`,
+  none: null,
+}
+
+function formatWinRatePercent(rate: number | null | undefined): string {
+  if (!Number.isFinite(rate)) return '--'
+  return `${(rate * 100).toFixed(1)}%`
+}
+
+function getTinyBestTradeExplanation(
+  bestTrade: number | null | undefined,
+  source: PerformanceSummarySource,
+  closedTradeCount: number,
+): string | null {
+  const isTinyPositive = Number.isFinite(bestTrade) && bestTrade != null && bestTrade > 0 && bestTrade < TINY_BEST_TRADE_THRESHOLD
+  if (!isTinyPositive) return null
+  const prefixBuilder = PERFORMANCE_SOURCE_PREFIX[source]
+  const prefix = prefixBuilder ? prefixBuilder(closedTradeCount) : ''
+  return `${prefix}${prefix ? ' ' : ''}${TINY_BEST_TRADE_BASE_TEXT}`
+}
+
+function buildPerformanceCells(summary: PerformanceSummaryLike | null): PerformanceCell[] {
+  return [
+    {
+      label: 'Total P&L',
+      value: summary != null ? signedUSD(summary.total_pnl) : '--',
+      colorClass: performancePnlColorClass(summary?.total_pnl ?? null),
+    },
+    {
+      label: 'Win Rate',
+      value: summary != null ? formatWinRatePercent(summary.win_rate) : '--',
+      colorClass: 'text-slate-900 dark:text-slate-100',
+    },
+    {
+      label: 'Best Trade',
+      value: summary != null ? signedUSD(summary.best_trade) : '--',
+      colorClass: 'text-emerald-500',
+    },
+    {
+      label: 'Worst Trade',
+      value: summary != null ? signedUSD(summary.worst_trade) : '--',
+      colorClass: 'text-rose-500',
+    },
+  ]
 }
 
 // ── Small UI-only components ──────────────────────────────────────────────────
@@ -424,21 +488,25 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [orders, positions, systemMetrics, dashboardData])
 
-  const fallbackPerformanceSummary = useMemo(() => {
-    const closedPnls = orders
+  const closedTradePnls = useMemo(
+    () => orders
       .filter((order) => isClosedTrade(order))
       .map((order) => toFiniteNumber(order?.pnl))
-      .filter((pnl): pnl is number => pnl != null)
-    if (closedPnls.length === 0) return null
-    const total = closedPnls.reduce((sum, pnl) => sum + pnl, 0)
-    const wins = closedPnls.filter((pnl) => pnl > 0)
+      .filter((pnl): pnl is number => pnl != null),
+    [orders],
+  )
+  const fallbackPerformanceSummary = useMemo(() => {
+    if (closedTradePnls.length === 0) return null
+    const total = closedTradePnls.reduce((sum, pnl) => sum + pnl, 0)
+    const wins = closedTradePnls.filter((pnl) => pnl > 0)
     return {
       total_pnl: total,
-      win_rate: wins.length / closedPnls.length,
-      best_trade: Math.max(...closedPnls),
-      worst_trade: Math.min(...closedPnls),
+      win_rate: wins.length / closedTradePnls.length,
+      best_trade: Math.max(...closedTradePnls),
+      worst_trade: Math.min(...closedTradePnls),
     }
-  }, [orders])
+  }, [closedTradePnls])
+  const closedTradeCount = closedTradePnls.length
 
   // The API summary is preferred ONLY if it actually carries data. In in-memory
   // mode the backend returns `{total_pnl: 0, win_rate: 0, ...}` even when the
@@ -455,6 +523,15 @@ export function DashboardView({ section }: { section: Section }) {
   const resolvedPerformanceSummary = apiSummaryHasSignal
     ? performanceSummary
     : (fallbackPerformanceSummary ?? performanceSummary)
+  const performanceSummarySource: PerformanceSummarySource = apiSummaryHasSignal
+    ? 'api'
+    : (fallbackPerformanceSummary != null ? 'local_closed_trades' : 'none')
+  const tinyBestTradeExplanation = getTinyBestTradeExplanation(
+    resolvedPerformanceSummary?.best_trade,
+    performanceSummarySource,
+    closedTradeCount,
+  )
+  const performanceCells = useMemo(() => buildPerformanceCells(resolvedPerformanceSummary), [resolvedPerformanceSummary])
 
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
@@ -632,33 +709,18 @@ export function DashboardView({ section }: { section: Section }) {
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Performance</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                {
-                  label: 'Total P&L',
-                  value: resolvedPerformanceSummary != null
-                    ? signedUSD(resolvedPerformanceSummary.total_pnl)
-                    : '--',
-                  colorClass: performancePnlColorClass(resolvedPerformanceSummary?.total_pnl ?? null),
-                },
-                {
-                  label: 'Win Rate',
-                  value: resolvedPerformanceSummary != null && Number.isFinite(resolvedPerformanceSummary.win_rate) ? `${(resolvedPerformanceSummary.win_rate * 100).toFixed(1)}%` : '--',
-                  colorClass: 'text-slate-900 dark:text-slate-100',
-                },
-                {
-                  label: 'Best Trade',
-                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.best_trade) : '--',
-                  colorClass: 'text-emerald-500',
-                },
-                {
-                  label: 'Worst Trade',
-                  value: resolvedPerformanceSummary != null ? signedUSD(resolvedPerformanceSummary.worst_trade) : '--',
-                  colorClass: 'text-rose-500',
-                },
-              ].map((cell) => (
+              {performanceCells.map((cell) => (
                 <div key={cell.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                   <p className={mutedClass}>{cell.label}</p>
                   <p className={cn('mt-1 text-sm font-mono tabular-nums font-semibold', cell.colorClass)}>{cell.value}</p>
+                  {cell.label === 'Best Trade' && tinyBestTradeExplanation ? (
+                    <p
+                      data-testid="best-trade-tiny-explanation"
+                      className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                    >
+                      {tinyBestTradeExplanation}
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>

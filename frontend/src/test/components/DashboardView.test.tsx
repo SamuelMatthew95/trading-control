@@ -100,6 +100,73 @@ describe('DashboardView — overview', () => {
     expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
   })
 
+  it('explains tiny positive best trade values on overview', () => {
+    mockStore.performanceSummary = {
+      total_pnl: -5,
+      win_rate: 0.5,
+      best_trade: 0.01,
+      worst_trade: -6,
+    }
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/tiny gains \(for example \+\$0.01\) are valid execution data\./i)
+    expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/From API trade history aggregate;/i)
+  })
+
+  it('shows local closed-trade count when tiny best trade comes from fallback summary', () => {
+    mockStore.performanceSummary = {
+      total_pnl: 0,
+      win_rate: 0,
+      best_trade: 0,
+      worst_trade: 0,
+    }
+    mockStore.orders = [
+      { status: 'filled', pnl: 0.01 },
+      { status: 'closed', pnl: -1.23 },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/From 2 closed trades;/i)
+  })
+
+  it('does not show explanation when best trade is not tiny-positive', () => {
+    mockStore.performanceSummary = {
+      total_pnl: 12,
+      win_rate: 0.5,
+      best_trade: 0.25,
+      worst_trade: -1,
+    }
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.queryByTestId('best-trade-tiny-explanation')).not.toBeInTheDocument()
+  })
+
+  it('does not show explanation at threshold boundary (+$0.05)', () => {
+    mockStore.performanceSummary = {
+      total_pnl: 5,
+      win_rate: 0.6,
+      best_trade: 0.05,
+      worst_trade: -1,
+    }
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.queryByTestId('best-trade-tiny-explanation')).not.toBeInTheDocument()
+  })
+
+  it('does not show explanation when no performance summary source exists', () => {
+    mockStore.performanceSummary = null
+    mockStore.orders = []
+    mockStore.dashboardData = null
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.queryByTestId('best-trade-tiny-explanation')).not.toBeInTheDocument()
+  })
+
   it('shows ticker symbols on overview when empty', () => {
     render(<DashboardView section="overview" />)
     // When loading, shows skeletons instead of ticker symbols
