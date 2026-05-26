@@ -19,6 +19,14 @@ from typing import Any
 
 from api.constants import FieldName, Grade, TradeTag
 
+_EARLY_EXIT_MAX_MINUTES = 2.0
+_PATIENCE_MIN_MINUTES = 10.0
+_ADVERSE_MOVE_PCT = -0.25
+_CAPTURED_MOVE_PCT = 0.4
+_EXECUTION_DRAG_PCT = 0.5
+_CLEAN_EXECUTION_DRAG_PCT = 0.2
+_RECOMMENDATION_MIN_FREQUENCY = 0.15
+
 
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
@@ -212,13 +220,13 @@ def _classify_mistakes(
 
     move_pct = context.move_pct
     hold_mins = context.holding_minutes
-    if hold_mins is not None and hold_mins < 2.0 and pnl_val < 0:
+    if hold_mins is not None and hold_mins < _EARLY_EXIT_MAX_MINUTES and pnl_val < 0:
         m.append(TradeTag.EARLY_EXIT)
-    if move_pct is not None and move_pct < -0.25:
+    if move_pct is not None and move_pct < _ADVERSE_MOVE_PCT:
         m.append(TradeTag.ADVERSE_PRICE_MOVE)
     if (
         context.adverse_excursion_pct is not None
-        and context.adverse_excursion_pct > 0.5
+        and context.adverse_excursion_pct > _EXECUTION_DRAG_PCT
         and pnl_val < 0
     ):
         m.append(TradeTag.EXECUTION_DRAG)
@@ -249,13 +257,13 @@ def _classify_strengths(
 
     move_pct = context.move_pct
     hold_mins = context.holding_minutes
-    if hold_mins is not None and hold_mins >= 10.0 and pnl_val > 0:
+    if hold_mins is not None and hold_mins >= _PATIENCE_MIN_MINUTES and pnl_val > 0:
         s.append(TradeTag.PATIENCE_PAID)
-    if move_pct is not None and move_pct > 0.4:
+    if move_pct is not None and move_pct > _CAPTURED_MOVE_PCT:
         s.append(TradeTag.CAPTURED_DIRECTIONAL_MOVE)
     if (
         context.adverse_excursion_pct is not None
-        and context.adverse_excursion_pct < 0.2
+        and context.adverse_excursion_pct < _CLEAN_EXECUTION_DRAG_PCT
         and pnl_val > 0
     ):
         s.append(TradeTag.CLEAN_EXECUTION)
@@ -409,7 +417,7 @@ def compute_recommendations(
     }
 
     for cluster in mistake_clusters:
-        if cluster[FieldName.FREQUENCY] < 0.15:
+        if cluster[FieldName.FREQUENCY] < _RECOMMENDATION_MIN_FREQUENCY:
             continue
         rec = mapping.get(cluster[FieldName.TYPE])
         if rec and rec not in seen:

@@ -335,3 +335,28 @@ def test_score_trade_no_price_context_does_not_emit_price_action_tags():
     )
     assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
     assert "captured_directional_move" not in evaluation[FieldName.STRENGTHS]
+
+
+def test_score_trade_short_side_directional_move_is_normalized():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-short-move",
+            FieldName.SIDE: "sell",
+            FieldName.PNL: 25.0,
+            FieldName.PNL_PERCENT: 0.8,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 99.0,  # favorable for short
+            FieldName.HOLDING_PERIOD_MINUTES: 8.0,
+            FieldName.CONFIDENCE: 0.7,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+
+
+def test_compute_recommendations_respects_frequency_threshold():
+    recs = compute_recommendations(
+        [{FieldName.TYPE: "execution_drag", FieldName.FREQUENCY: 0.10}],
+        [],
+    )
+    assert recs == []
