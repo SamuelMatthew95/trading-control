@@ -17,7 +17,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from api.constants import FieldName, Grade
+from api.constants import FieldName, Grade, TradeTag
 
 
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -107,6 +107,9 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
     """
     pnl = trade_data.get(FieldName.PNL)
     pnl_pct = trade_data.get(FieldName.PNL_PERCENT)
+    entry_price = trade_data.get(FieldName.ENTRY_PRICE)
+    exit_price = trade_data.get(FieldName.EXIT_PRICE)
+    holding_minutes = trade_data.get(FieldName.HOLDING_PERIOD_MINUTES)
     confidence = trade_data.get(FieldName.CONFIDENCE) or trade_data.get(FieldName.SIGNAL_CONFIDENCE)
     side = trade_data.get(FieldName.SIDE)
     action = trade_data.get(FieldName.ACTION)
@@ -136,8 +139,17 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
     grade = _score_to_grade(overall)
     confidence_out = _clamp(1.0 - abs(overall - 0.5) * 0.5)
 
-    mistakes = _classify_mistakes(entry_q, exit_q, rr_score, sig_align, pnl)
-    strengths = _classify_strengths(entry_q, exit_q, rr_score, sig_align, pnl)
+    context = _build_trade_context(
+        side=side,
+        pnl=pnl,
+        pnl_pct=pnl_pct,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        holding_minutes=holding_minutes,
+    )
+
+    mistakes = _classify_mistakes(entry_q, exit_q, rr_score, sig_align, pnl, context=context)
+    strengths = _classify_strengths(entry_q, exit_q, rr_score, sig_align, pnl, context=context)
 
     return {
         FieldName.TRADE_EVAL_ID: str(trade_id),
@@ -182,20 +194,35 @@ def _classify_mistakes(
     rr_score: float,
     sig_align: float,
     pnl: Any,
+    *,
+    context: TradeContext,
 ) -> list[str]:
     m: list[str] = []
     if entry_q < 0.4:
-        m.append("late_entry")
+        m.append(TradeTag.LATE_ENTRY)
     if exit_q < 0.4:
-        m.append("poor_exit")
+        m.append(TradeTag.POOR_EXIT)
     if rr_score < 0.35:
-        m.append("bad_risk_reward")
+        m.append(TradeTag.BAD_RISK_REWARD)
     if sig_align < 0.8:
-        m.append("misaligned_signal")
+        m.append(TradeTag.MISALIGNED_SIGNAL)
     pnl_val = float(pnl) if pnl is not None else 0.0
     if pnl_val < 0 and entry_q < 0.5:
-        m.append("premature_entry")
-    return m
+        m.append(TradeTag.PREMATURE_ENTRY)
+
+    move_pct = context.move_pct
+    hold_mins = context.holding_minutes
+    if hold_mins is not None and hold_mins < 2.0 and pnl_val < 0:
+        m.append(TradeTag.EARLY_EXIT)
+    if move_pct is not None and move_pct < -0.25:
+        m.append(TradeTag.ADVERSE_PRICE_MOVE)
+    if (
+        context.adverse_excursion_pct is not None
+        and context.adverse_excursion_pct > 0.5
+        and pnl_val < 0
+    ):
+        m.append(TradeTag.EXECUTION_DRAG)
+    return sorted({str(tag) for tag in m})
 
 
 def _classify_strengths(
@@ -204,20 +231,77 @@ def _classify_strengths(
     rr_score: float,
     sig_align: float,
     pnl: Any,
+    *,
+    context: TradeContext,
 ) -> list[str]:
     s: list[str] = []
     if entry_q >= 0.7:
-        s.append("good_entry_timing")
+        s.append(TradeTag.GOOD_ENTRY_TIMING)
     if exit_q >= 0.7:
-        s.append("clean_exit")
+        s.append(TradeTag.CLEAN_EXIT)
     if rr_score >= 0.65:
-        s.append("good_risk_reward")
+        s.append(TradeTag.GOOD_RISK_REWARD)
     if sig_align >= 0.9:
-        s.append("trend_alignment")
+        s.append(TradeTag.TREND_ALIGNMENT)
     pnl_val = float(pnl) if pnl is not None else 0.0
     if pnl_val > 0:
-        s.append("profitable")
-    return s
+        s.append(TradeTag.PROFITABLE)
+
+    move_pct = context.move_pct
+    hold_mins = context.holding_minutes
+    if hold_mins is not None and hold_mins >= 10.0 and pnl_val > 0:
+        s.append(TradeTag.PATIENCE_PAID)
+    if move_pct is not None and move_pct > 0.4:
+        s.append(TradeTag.CAPTURED_DIRECTIONAL_MOVE)
+    if (
+        context.adverse_excursion_pct is not None
+        and context.adverse_excursion_pct < 0.2
+        and pnl_val > 0
+    ):
+        s.append(TradeTag.CLEAN_EXECUTION)
+    return sorted({str(tag) for tag in s})
+
+
+@dataclass(frozen=True)
+class TradeContext:
+    side: str
+    pnl: float
+    pnl_pct: float
+    holding_minutes: float | None
+    move_pct: float | None
+    adverse_excursion_pct: float | None
+
+
+def _build_trade_context(
+    *,
+    side: str | None,
+    pnl: Any,
+    pnl_pct: Any,
+    entry_price: Any,
+    exit_price: Any,
+    holding_minutes: Any,
+) -> TradeContext:
+    side_norm = str(side or "").strip().lower()
+    return TradeContext(
+        side=side_norm,
+        pnl=float(pnl or 0.0),
+        pnl_pct=float(pnl_pct or 0.0),
+        holding_minutes=_safe_float(holding_minutes),
+        move_pct=_price_move_percent(
+            side=side_norm, entry_price=entry_price, exit_price=exit_price
+        ),
+        adverse_excursion_pct=_safe_float(
+            abs(
+                float(pnl_pct or 0.0)
+                - (
+                    _price_move_percent(
+                        side=side_norm, entry_price=entry_price, exit_price=exit_price
+                    )
+                    or 0.0
+                )
+            )
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -311,11 +395,26 @@ def compute_recommendations(
     seen: set[str] = set()
 
     mapping = {
-        FieldName.LATE_ENTRY: "wait for signal confirmation before entering — reduce entry delay",
-        FieldName.POOR_EXIT: "use trailing stops or take-profit targets to improve exit quality",
-        FieldName.BAD_RISK_REWARD: "filter out trades with R/R below 1.5:1",
-        FieldName.MISALIGNED_SIGNAL: "reject trades where execution direction contradicts signal direction",
-        FieldName.PREMATURE_ENTRY: "require at least 2 confirming indicators before entry",
+        str(
+            TradeTag.LATE_ENTRY
+        ): "wait for signal confirmation before entering — reduce entry delay",
+        str(
+            TradeTag.POOR_EXIT
+        ): "use trailing stops or take-profit targets to improve exit quality",
+        str(TradeTag.BAD_RISK_REWARD): "filter out trades with R/R below 1.5:1",
+        str(
+            TradeTag.MISALIGNED_SIGNAL
+        ): "reject trades where execution direction contradicts signal direction",
+        str(TradeTag.PREMATURE_ENTRY): "require at least 2 confirming indicators before entry",
+        str(
+            TradeTag.EARLY_EXIT
+        ): "enforce minimum hold time unless stop-loss is hit to avoid noise exits",
+        str(
+            TradeTag.ADVERSE_PRICE_MOVE
+        ): "tighten regime filter when directional move turns against position quickly",
+        str(
+            TradeTag.EXECUTION_DRAG
+        ): "audit slippage/fees and route sizing to reduce execution drag",
     }
 
     for cluster in mistake_clusters:
@@ -487,3 +586,24 @@ def aggregate_model_performance(evaluations: list[dict[str, Any]]) -> list[dict[
     ]
     rows.sort(key=lambda r: r[FieldName.TRADE_COUNT], reverse=True)
     return rows
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _price_move_percent(*, side: str | None, entry_price: Any, exit_price: Any) -> float | None:
+    entry = _safe_float(entry_price)
+    exit_ = _safe_float(exit_price)
+    if entry is None or exit_ is None or entry <= 0:
+        return None
+    raw = ((exit_ - entry) / entry) * 100.0
+    side_norm = str(side or "").strip().lower()
+    if side_norm in {"sell", "short"}:
+        return -raw
+    return raw

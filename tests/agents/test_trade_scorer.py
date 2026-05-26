@@ -6,6 +6,7 @@ from api.constants import FieldName
 from api.services.agents.trade_scorer import (
     aggregate_model_performance,
     compute_learning_metrics,
+    compute_recommendations,
     score_trade,
 )
 
@@ -241,3 +242,81 @@ def test_avg_return_is_mean_of_pnl_pct():
     ]
     result = compute_learning_metrics(evals)
     assert result[FieldName.AVG_RETURN] == pytest.approx(3.0, abs=0.001)
+
+
+def test_score_trade_adds_price_action_context_labels_for_losses():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-loss",
+            FieldName.SIDE: "sell",
+            FieldName.PNL: -50.0,
+            FieldName.PNL_PERCENT: -1.2,
+            FieldName.CONFIDENCE: 0.35,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 1.0,
+        }
+    )
+    assert "early_exit" in evaluation[FieldName.MISTAKES]
+    assert "adverse_price_move" in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_adds_price_action_context_labels_for_wins():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-win",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: 80.0,
+            FieldName.PNL_PERCENT: 1.5,
+            FieldName.CONFIDENCE: 0.85,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 15.0,
+        }
+    )
+    assert "patience_paid" in evaluation[FieldName.STRENGTHS]
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+
+
+def test_score_trade_marks_execution_drag_on_losing_trade():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-drag",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: -20.0,
+            FieldName.PNL_PERCENT: -1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 99.8,
+            FieldName.HOLDING_PERIOD_MINUTES: 6.0,
+            FieldName.CONFIDENCE: 0.45,
+        }
+    )
+    assert "execution_drag" in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_marks_clean_execution_on_profitable_trade():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-clean",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: 30.0,
+            FieldName.PNL_PERCENT: 0.5,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 100.55,
+            FieldName.HOLDING_PERIOD_MINUTES: 12.0,
+            FieldName.CONFIDENCE: 0.9,
+        }
+    )
+    assert "clean_execution" in evaluation[FieldName.STRENGTHS]
+
+
+def test_compute_recommendations_includes_new_context_mistake_guidance():
+    recs = compute_recommendations(
+        [
+            {FieldName.TYPE: "execution_drag", FieldName.FREQUENCY: 0.4},
+            {FieldName.TYPE: "early_exit", FieldName.FREQUENCY: 0.3},
+        ],
+        [],
+    )
+    assert any("execution drag" in r for r in recs)
+    assert any("minimum hold time" in r for r in recs)

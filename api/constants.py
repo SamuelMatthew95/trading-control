@@ -127,6 +127,27 @@ class GradeType(StrEnum):
     OVERALL = "overall"
 
 
+class TradeTag(StrEnum):
+    """Canonical deterministic scoring labels for mistakes and strengths."""
+
+    LATE_ENTRY = "late_entry"
+    POOR_EXIT = "poor_exit"
+    BAD_RISK_REWARD = "bad_risk_reward"
+    MISALIGNED_SIGNAL = "misaligned_signal"
+    PREMATURE_ENTRY = "premature_entry"
+    EARLY_EXIT = "early_exit"
+    ADVERSE_PRICE_MOVE = "adverse_price_move"
+    EXECUTION_DRAG = "execution_drag"
+    GOOD_ENTRY_TIMING = "good_entry_timing"
+    CLEAN_EXIT = "clean_exit"
+    GOOD_RISK_REWARD = "good_risk_reward"
+    TREND_ALIGNMENT = "trend_alignment"
+    PROFITABLE = "profitable"
+    PATIENCE_PAID = "patience_paid"
+    CAPTURED_DIRECTIONAL_MOVE = "captured_directional_move"
+    CLEAN_EXECUTION = "clean_execution"
+
+
 class StorageBackend(StrEnum):
     """Storage backend types for runtime state management."""
 
