@@ -677,7 +677,10 @@ export function DashboardView({ section }: { section: Section }) {
                   <p className={mutedClass}>{cell.label}</p>
                   <p className={cn('mt-1 text-sm font-mono tabular-nums font-semibold', cell.colorClass)}>{cell.value}</p>
                   {cell.label === 'Best Trade' && tinyBestTradeExplanation ? (
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p
+                      data-testid="best-trade-tiny-explanation"
+                      className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                    >
                       {tinyBestTradeExplanation}
                     </p>
                   ) : null}

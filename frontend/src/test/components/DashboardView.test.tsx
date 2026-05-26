@@ -110,8 +110,8 @@ describe('DashboardView — overview', () => {
 
     render(<DashboardView section="overview" />)
 
-    expect(screen.getByText(/tiny gains \(for example \+\$0.01\) are valid execution data\./i)).toBeInTheDocument()
-    expect(screen.getByText(/From API trade history aggregate;/i)).toBeInTheDocument()
+    expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/tiny gains \(for example \+\$0.01\) are valid execution data\./i)
+    expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/From API trade history aggregate;/i)
   })
 
   it('shows local closed-trade count when tiny best trade comes from fallback summary', () => {
@@ -128,7 +128,7 @@ describe('DashboardView — overview', () => {
 
     render(<DashboardView section="overview" />)
 
-    expect(screen.getByText(/From 2 closed trades;/i)).toBeInTheDocument()
+    expect(screen.getByTestId('best-trade-tiny-explanation')).toHaveTextContent(/From 2 closed trades;/i)
   })
 
   it('shows ticker symbols on overview when empty', () => {
