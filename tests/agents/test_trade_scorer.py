@@ -6,6 +6,7 @@ from api.constants import FieldName
 from api.services.agents.trade_scorer import (
     aggregate_model_performance,
     compute_learning_metrics,
+    compute_recommendations,
     score_trade,
 )
 
@@ -241,3 +242,211 @@ def test_avg_return_is_mean_of_pnl_pct():
     ]
     result = compute_learning_metrics(evals)
     assert result[FieldName.AVG_RETURN] == pytest.approx(3.0, abs=0.001)
+
+
+def test_score_trade_adds_price_action_context_labels_for_losses():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-loss",
+            FieldName.SIDE: "sell",
+            FieldName.PNL: -50.0,
+            FieldName.PNL_PERCENT: -1.2,
+            FieldName.CONFIDENCE: 0.35,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 1.0,
+        }
+    )
+    assert "early_exit" in evaluation[FieldName.MISTAKES]
+    assert "adverse_price_move" in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_adds_price_action_context_labels_for_wins():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-win",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: 80.0,
+            FieldName.PNL_PERCENT: 1.5,
+            FieldName.CONFIDENCE: 0.85,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 15.0,
+        }
+    )
+    assert "patience_paid" in evaluation[FieldName.STRENGTHS]
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+
+
+def test_score_trade_marks_execution_drag_on_losing_trade():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-drag",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: -20.0,
+            FieldName.PNL_PERCENT: -1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 99.8,
+            FieldName.HOLDING_PERIOD_MINUTES: 6.0,
+            FieldName.CONFIDENCE: 0.45,
+        }
+    )
+    assert "execution_drag" in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_marks_clean_execution_on_profitable_trade():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-clean",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: 30.0,
+            FieldName.PNL_PERCENT: 0.5,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 100.55,
+            FieldName.HOLDING_PERIOD_MINUTES: 12.0,
+            FieldName.CONFIDENCE: 0.9,
+        }
+    )
+    assert "clean_execution" in evaluation[FieldName.STRENGTHS]
+
+
+def test_compute_recommendations_includes_new_context_mistake_guidance():
+    recs = compute_recommendations(
+        [
+            {FieldName.TYPE: "execution_drag", FieldName.FREQUENCY: 0.4},
+            {FieldName.TYPE: "early_exit", FieldName.FREQUENCY: 0.3},
+        ],
+        [],
+    )
+    assert any("execution drag" in r for r in recs)
+    assert any("minimum hold time" in r for r in recs)
+
+
+def test_score_trade_no_price_context_does_not_emit_price_action_tags():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-no-price",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: -10.0,
+            FieldName.PNL_PERCENT: -0.2,
+            FieldName.CONFIDENCE: 0.6,
+            # no entry/exit price provided
+        }
+    )
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+    assert "captured_directional_move" not in evaluation[FieldName.STRENGTHS]
+
+
+def test_score_trade_short_side_directional_move_is_normalized():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-short-move",
+            FieldName.SIDE: "buy",  # buy-to-cover => closing a short
+            FieldName.PNL: 25.0,
+            FieldName.PNL_PERCENT: 0.8,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 99.0,  # favorable for short
+            FieldName.HOLDING_PERIOD_MINUTES: 8.0,
+            FieldName.CONFIDENCE: 0.7,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_long_close_side_sell_keeps_favorable_move_positive():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-long-close",
+            FieldName.SIDE: "sell",  # sell-to-close => closing a long
+            FieldName.PNL: 35.0,
+            FieldName.PNL_PERCENT: 0.7,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 9.0,
+            FieldName.CONFIDENCE: 0.75,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+
+
+def test_compute_recommendations_respects_frequency_threshold():
+    recs = compute_recommendations(
+        [{FieldName.TYPE: "execution_drag", FieldName.FREQUENCY: 0.10}],
+        [],
+    )
+    assert recs == []
+
+
+def test_score_trade_adds_system_context_tags_when_inputs_present():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-sys-tags",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: -30.0,
+            FieldName.PNL_PERCENT: -0.8,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 99.0,
+            FieldName.LATENCY_MS: 2500,
+            FieldName.SLIPPAGE_VARIANCE: 0.01,
+            FieldName.SPREAD_PCT: 0.4,
+            FieldName.REGIME: "trend",
+            FieldName.CURRENT_REGIME: "mean_reversion",
+            FieldName.RATE_LIMIT: True,
+            FieldName.DATA_INTEGRITY_ISSUE: True,
+        }
+    )
+    for tag in (
+        "signal_latency",
+        "fill_quality_poor",
+        "low_liquidity_skew",
+        "regime_shift",
+        "api_throttle_penalty",
+        "data_integrity_issue",
+    ):
+        assert tag in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_limits_mistake_tag_count_and_orders_by_priority():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-many-tags",
+            FieldName.SIDE: "sell",
+            FieldName.ACTION: "buy",
+            FieldName.PNL: -45.0,
+            FieldName.PNL_PERCENT: -2.0,
+            FieldName.CONFIDENCE: 0.2,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.5,
+            FieldName.HOLDING_PERIOD_MINUTES: 1.0,
+            FieldName.LATENCY_MS: 3000,
+            FieldName.SLIPPAGE_VARIANCE: 0.02,
+            FieldName.SPREAD_PCT: 0.5,
+            FieldName.REGIME: "trend",
+            FieldName.CURRENT_REGIME: "mean_reversion",
+            FieldName.RATE_LIMIT: True,
+            FieldName.DATA_INTEGRITY_ISSUE: True,
+        }
+    )
+    mistakes = evaluation[FieldName.MISTAKES]
+    assert len(mistakes) <= 6
+    assert mistakes[0] == "data_integrity_issue"
+
+
+def test_score_trade_reversion_luck_excludes_clean_execution():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-reversion",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: 5.0,
+            FieldName.PNL_PERCENT: 0.2,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.5,  # move=1.5, drift to pnl_pct creates reversion_luck
+            FieldName.HOLDING_PERIOD_MINUTES: 15.0,
+            FieldName.CONFIDENCE: 0.8,
+        }
+    )
+    strengths = evaluation[FieldName.STRENGTHS]
+    assert "reversion_luck" in strengths
+    assert "clean_execution" not in strengths
