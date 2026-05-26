@@ -439,6 +439,10 @@ export function DashboardView({ section }: { section: Section }) {
       worst_trade: Math.min(...closedPnls),
     }
   }, [orders])
+  const closedTradeCount = useMemo(
+    () => orders.filter((order) => isClosedTrade(order) && toFiniteNumber(order?.pnl) != null).length,
+    [orders],
+  )
 
   // The API summary is preferred ONLY if it actually carries data. In in-memory
   // mode the backend returns `{total_pnl: 0, win_rate: 0, ...}` even when the
@@ -455,6 +459,19 @@ export function DashboardView({ section }: { section: Section }) {
   const resolvedPerformanceSummary = apiSummaryHasSignal
     ? performanceSummary
     : (fallbackPerformanceSummary ?? performanceSummary)
+  const performanceSummarySource = apiSummaryHasSignal ? 'api' : (fallbackPerformanceSummary != null ? 'local_closed_trades' : 'none')
+  const hasTinyPositiveBestTrade = (() => {
+    const bestTrade = resolvedPerformanceSummary?.best_trade
+    if (!Number.isFinite(bestTrade)) return false
+    return bestTrade > 0 && bestTrade < 0.05
+  })()
+  const tinyBestTradeExplanation = (() => {
+    if (!hasTinyPositiveBestTrade) return null
+    if (performanceSummarySource === 'api') {
+      return 'From API trade history aggregate; tiny gains (for example +$0.01) are valid execution data.'
+    }
+    return `From ${closedTradeCount} closed trade${closedTradeCount === 1 ? '' : 's'}; tiny gains (for example +$0.01) are valid execution data.`
+  })()
 
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
@@ -659,6 +676,11 @@ export function DashboardView({ section }: { section: Section }) {
                 <div key={cell.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                   <p className={mutedClass}>{cell.label}</p>
                   <p className={cn('mt-1 text-sm font-mono tabular-nums font-semibold', cell.colorClass)}>{cell.value}</p>
+                  {cell.label === 'Best Trade' && tinyBestTradeExplanation ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {tinyBestTradeExplanation}
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>

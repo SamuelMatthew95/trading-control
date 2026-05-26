@@ -100,6 +100,37 @@ describe('DashboardView — overview', () => {
     expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
   })
 
+  it('explains tiny positive best trade values on overview', () => {
+    mockStore.performanceSummary = {
+      total_pnl: -5,
+      win_rate: 0.5,
+      best_trade: 0.01,
+      worst_trade: -6,
+    }
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText(/tiny gains \(for example \+\$0.01\) are valid execution data\./i)).toBeInTheDocument()
+    expect(screen.getByText(/From API trade history aggregate;/i)).toBeInTheDocument()
+  })
+
+  it('shows local closed-trade count when tiny best trade comes from fallback summary', () => {
+    mockStore.performanceSummary = {
+      total_pnl: 0,
+      win_rate: 0,
+      best_trade: 0,
+      worst_trade: 0,
+    }
+    mockStore.orders = [
+      { status: 'filled', pnl: 0.01 },
+      { status: 'closed', pnl: -1.23 },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText(/From 2 closed trades;/i)).toBeInTheDocument()
+  })
+
   it('shows ticker symbols on overview when empty', () => {
     render(<DashboardView section="overview" />)
     // When loading, shows skeletons instead of ticker symbols
