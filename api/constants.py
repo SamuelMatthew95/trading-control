@@ -146,6 +146,22 @@ class TradeTag(StrEnum):
     PATIENCE_PAID = "patience_paid"
     CAPTURED_DIRECTIONAL_MOVE = "captured_directional_move"
     CLEAN_EXECUTION = "clean_execution"
+    VOLATILITY_MISMATCH = "volatility_mismatch"
+    LOW_LIQUIDITY_SKEW = "low_liquidity_skew"
+    REGIME_SHIFT = "regime_shift"
+    NEWS_DRIVEN_NOISE = "news_driven_noise"
+    SIGNAL_LATENCY = "signal_latency"
+    FILL_QUALITY_POOR = "fill_quality_poor"
+    API_THROTTLE_PENALTY = "api_throttle_penalty"
+    DATA_INTEGRITY_ISSUE = "data_integrity_issue"
+    SIZE_ADJUSTMENT_ERROR = "size_adjustment_error"
+    CORRELATION_CLASH = "correlation_clash"
+    OVER_LEVERAGED = "over_leveraged"
+    EXCESSIVE_CHURNING = "excessive_churning"
+    REVERSION_LUCK = "reversion_luck"
+    TRAILING_STOP_CHOPPED = "trailing_stop_chopped"
+    FOMO_ENTRY = "fomo_entry"
+    AVOIDED_DRAWDOWN = "avoided_drawdown"
 
 
 class StorageBackend(StrEnum):

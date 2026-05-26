@@ -26,6 +26,9 @@ _CAPTURED_MOVE_PCT = 0.4
 _EXECUTION_DRAG_PCT = 0.5
 _CLEAN_EXECUTION_DRAG_PCT = 0.2
 _RECOMMENDATION_MIN_FREQUENCY = 0.15
+_HIGH_LATENCY_MS = 1200.0
+_HIGH_SLIPPAGE_VARIANCE = 0.005
+_HIGH_SPREAD_PCT = 0.25
 
 
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -158,6 +161,9 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
 
     mistakes = _classify_mistakes(entry_q, exit_q, rr_score, sig_align, pnl, context=context)
     strengths = _classify_strengths(entry_q, exit_q, rr_score, sig_align, pnl, context=context)
+    contextual_tags = _derive_contextual_system_tags(trade_data=trade_data, context=context)
+    mistakes = sorted(set(mistakes + contextual_tags[FieldName.MISTAKES]))
+    strengths = sorted(set(strengths + contextual_tags[FieldName.STRENGTHS]))
 
     return {
         FieldName.TRADE_EVAL_ID: str(trade_id),
@@ -303,6 +309,37 @@ def _build_trade_context(
     )
 
 
+def _derive_contextual_system_tags(
+    *, trade_data: dict[str, Any], context: TradeContext
+) -> dict[str, list[str]]:
+    mistakes: list[str] = []
+    strengths: list[str] = []
+    latency_ms = _safe_float(trade_data.get(FieldName.LATENCY_MS))
+    slip_var = _safe_float(trade_data.get(FieldName.SLIPPAGE_VARIANCE))
+    spread_pct = _safe_float(trade_data.get("spread_pct"))
+    current_regime = str(trade_data.get(FieldName.CURRENT_REGIME) or "").strip().lower()
+    signal_regime = str(trade_data.get(FieldName.REGIME) or "").strip().lower()
+    if latency_ms is not None and latency_ms >= _HIGH_LATENCY_MS:
+        mistakes.append(str(TradeTag.SIGNAL_LATENCY))
+    if slip_var is not None and slip_var >= _HIGH_SLIPPAGE_VARIANCE:
+        mistakes.append(str(TradeTag.FILL_QUALITY_POOR))
+    if spread_pct is not None and spread_pct >= _HIGH_SPREAD_PCT:
+        mistakes.append(str(TradeTag.LOW_LIQUIDITY_SKEW))
+    if current_regime and signal_regime and current_regime != signal_regime:
+        mistakes.append(str(TradeTag.REGIME_SHIFT))
+    if bool(trade_data.get(FieldName.RATE_LIMIT)):
+        mistakes.append(str(TradeTag.API_THROTTLE_PENALTY))
+    if bool(trade_data.get("data_integrity_issue")):
+        mistakes.append(str(TradeTag.DATA_INTEGRITY_ISSUE))
+    if (
+        context.pnl > 0
+        and context.adverse_excursion_pct is not None
+        and context.adverse_excursion_pct > 1.0
+    ):
+        strengths.append(str(TradeTag.REVERSION_LUCK))
+    return {FieldName.MISTAKES: sorted(set(mistakes)), FieldName.STRENGTHS: sorted(set(strengths))}
+
+
 # ---------------------------------------------------------------------------
 # Reflection quant helpers — operate on a list of evaluations
 # ---------------------------------------------------------------------------
@@ -414,6 +451,22 @@ def compute_recommendations(
         str(
             TradeTag.EXECUTION_DRAG
         ): "audit slippage/fees and route sizing to reduce execution drag",
+        str(
+            TradeTag.SIGNAL_LATENCY
+        ): "reduce decision-to-execution latency; enforce max stale-signal window",
+        str(
+            TradeTag.FILL_QUALITY_POOR
+        ): "route to higher-liquidity venues or use adaptive limit offsets",
+        str(TradeTag.LOW_LIQUIDITY_SKEW): "avoid thin-liquidity windows and widen spread guards",
+        str(
+            TradeTag.REGIME_SHIFT
+        ): "gate entries on regime confirmation to avoid stale strategy assumptions",
+        str(
+            TradeTag.API_THROTTLE_PENALTY
+        ): "add pre-emptive request budgeting and throttle-aware exit logic",
+        str(
+            TradeTag.DATA_INTEGRITY_ISSUE
+        ): "quarantine delayed/corrupt market data before signal generation",
     }
 
     for cluster in mistake_clusters:

@@ -360,3 +360,32 @@ def test_compute_recommendations_respects_frequency_threshold():
         [],
     )
     assert recs == []
+
+
+def test_score_trade_adds_system_context_tags_when_inputs_present():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-sys-tags",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: -30.0,
+            FieldName.PNL_PERCENT: -0.8,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 99.0,
+            FieldName.LATENCY_MS: 2500,
+            FieldName.SLIPPAGE_VARIANCE: 0.01,
+            "spread_pct": 0.4,
+            FieldName.REGIME: "trend",
+            FieldName.CURRENT_REGIME: "mean_reversion",
+            FieldName.RATE_LIMIT: True,
+            "data_integrity_issue": True,
+        }
+    )
+    for tag in (
+        "signal_latency",
+        "fill_quality_poor",
+        "low_liquidity_skew",
+        "regime_shift",
+        "api_throttle_penalty",
+        "data_integrity_issue",
+    ):
+        assert tag in evaluation[FieldName.MISTAKES]
