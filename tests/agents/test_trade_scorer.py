@@ -341,13 +341,30 @@ def test_score_trade_short_side_directional_move_is_normalized():
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-short-move",
-            FieldName.SIDE: "sell",
+            FieldName.SIDE: "buy",  # buy-to-cover => closing a short
             FieldName.PNL: 25.0,
             FieldName.PNL_PERCENT: 0.8,
             FieldName.ENTRY_PRICE: 100.0,
             FieldName.EXIT_PRICE: 99.0,  # favorable for short
             FieldName.HOLDING_PERIOD_MINUTES: 8.0,
             FieldName.CONFIDENCE: 0.7,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_long_close_side_sell_keeps_favorable_move_positive():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-long-close",
+            FieldName.SIDE: "sell",  # sell-to-close => closing a long
+            FieldName.PNL: 35.0,
+            FieldName.PNL_PERCENT: 0.7,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 9.0,
+            FieldName.CONFIDENCE: 0.75,
         }
     )
     assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]

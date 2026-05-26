@@ -708,6 +708,28 @@ def _price_move_percent(*, side: str | None, entry_price: Any, exit_price: Any) 
         return None
     raw = ((exit_ - entry) / entry) * 100.0
     side_norm = str(side or "").strip().lower()
-    if side_norm in {"sell", "short"}:
-        return -raw
-    return raw
+    direction_sign = _direction_sign_from_side_event(
+        side=side_norm,
+        has_exit_price=exit_ is not None,
+    )
+    return raw * direction_sign
+
+
+def _direction_sign_from_side_event(*, side: str, has_exit_price: bool) -> float:
+    """Infer PnL-direction sign from event side semantics.
+
+    Trade-completed events use execution order side:
+    - close LONG => side='sell' (favorable when price rises) => +1
+    - close SHORT => side='buy' (favorable when price falls) => -1
+    For explicit position semantics ('long'/'short'), map directly.
+    """
+    if side == "long":
+        return 1.0
+    if side == "short":
+        return -1.0
+    if has_exit_price and side == "sell":
+        return 1.0
+    if has_exit_price and side == "buy":
+        return -1.0
+    # Fallback for non-close/open-order events.
+    return -1.0 if side == "sell" else 1.0
