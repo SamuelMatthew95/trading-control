@@ -320,3 +320,18 @@ def test_compute_recommendations_includes_new_context_mistake_guidance():
     )
     assert any("execution drag" in r for r in recs)
     assert any("minimum hold time" in r for r in recs)
+
+
+def test_score_trade_no_price_context_does_not_emit_price_action_tags():
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-no-price",
+            FieldName.SIDE: "buy",
+            FieldName.PNL: -10.0,
+            FieldName.PNL_PERCENT: -0.2,
+            FieldName.CONFIDENCE: 0.6,
+            # no entry/exit price provided
+        }
+    )
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+    assert "captured_directional_move" not in evaluation[FieldName.STRENGTHS]

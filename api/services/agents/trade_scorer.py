@@ -282,24 +282,15 @@ def _build_trade_context(
     holding_minutes: Any,
 ) -> TradeContext:
     side_norm = str(side or "").strip().lower()
+    move_pct = _price_move_percent(side=side_norm, entry_price=entry_price, exit_price=exit_price)
     return TradeContext(
         side=side_norm,
         pnl=float(pnl or 0.0),
         pnl_pct=float(pnl_pct or 0.0),
         holding_minutes=_safe_float(holding_minutes),
-        move_pct=_price_move_percent(
-            side=side_norm, entry_price=entry_price, exit_price=exit_price
-        ),
-        adverse_excursion_pct=_safe_float(
-            abs(
-                float(pnl_pct or 0.0)
-                - (
-                    _price_move_percent(
-                        side=side_norm, entry_price=entry_price, exit_price=exit_price
-                    )
-                    or 0.0
-                )
-            )
+        move_pct=move_pct,
+        adverse_excursion_pct=(
+            _safe_float(abs(float(pnl_pct or 0.0) - move_pct)) if move_pct is not None else None
         ),
     )
 
