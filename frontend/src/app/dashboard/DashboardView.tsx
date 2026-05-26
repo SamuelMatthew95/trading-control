@@ -273,7 +273,7 @@ const PERFORMANCE_SOURCE_PREFIX: Record<PerformanceSummarySource, ((closedTradeC
 }
 
 function formatWinRatePercent(rate: number | null | undefined): string {
-  if (!Number.isFinite(rate)) return '--'
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) return '--'
   return `${(rate * 100).toFixed(1)}%`
 }
 
