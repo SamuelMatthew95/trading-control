@@ -424,25 +424,25 @@ export function DashboardView({ section }: { section: Section }) {
     }
   }, [orders, positions, systemMetrics, dashboardData])
 
-  const fallbackPerformanceSummary = useMemo(() => {
-    const closedPnls = orders
+  const closedTradePnls = useMemo(
+    () => orders
       .filter((order) => isClosedTrade(order))
       .map((order) => toFiniteNumber(order?.pnl))
-      .filter((pnl): pnl is number => pnl != null)
-    if (closedPnls.length === 0) return null
-    const total = closedPnls.reduce((sum, pnl) => sum + pnl, 0)
-    const wins = closedPnls.filter((pnl) => pnl > 0)
-    return {
-      total_pnl: total,
-      win_rate: wins.length / closedPnls.length,
-      best_trade: Math.max(...closedPnls),
-      worst_trade: Math.min(...closedPnls),
-    }
-  }, [orders])
-  const closedTradeCount = useMemo(
-    () => orders.filter((order) => isClosedTrade(order) && toFiniteNumber(order?.pnl) != null).length,
+      .filter((pnl): pnl is number => pnl != null),
     [orders],
   )
+  const fallbackPerformanceSummary = useMemo(() => {
+    if (closedTradePnls.length === 0) return null
+    const total = closedTradePnls.reduce((sum, pnl) => sum + pnl, 0)
+    const wins = closedTradePnls.filter((pnl) => pnl > 0)
+    return {
+      total_pnl: total,
+      win_rate: wins.length / closedTradePnls.length,
+      best_trade: Math.max(...closedTradePnls),
+      worst_trade: Math.min(...closedTradePnls),
+    }
+  }, [closedTradePnls])
+  const closedTradeCount = closedTradePnls.length
 
   // The API summary is preferred ONLY if it actually carries data. In in-memory
   // mode the backend returns `{total_pnl: 0, win_rate: 0, ...}` even when the
