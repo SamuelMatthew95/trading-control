@@ -373,11 +373,11 @@ def test_score_trade_adds_system_context_tags_when_inputs_present():
             FieldName.EXIT_PRICE: 99.0,
             FieldName.LATENCY_MS: 2500,
             FieldName.SLIPPAGE_VARIANCE: 0.01,
-            "spread_pct": 0.4,
+            FieldName.SPREAD_PCT: 0.4,
             FieldName.REGIME: "trend",
             FieldName.CURRENT_REGIME: "mean_reversion",
             FieldName.RATE_LIMIT: True,
-            "data_integrity_issue": True,
+            FieldName.DATA_INTEGRITY_ISSUE: True,
         }
     )
     for tag in (
@@ -405,11 +405,11 @@ def test_score_trade_limits_mistake_tag_count_and_orders_by_priority():
             FieldName.HOLDING_PERIOD_MINUTES: 1.0,
             FieldName.LATENCY_MS: 3000,
             FieldName.SLIPPAGE_VARIANCE: 0.02,
-            "spread_pct": 0.5,
+            FieldName.SPREAD_PCT: 0.5,
             FieldName.REGIME: "trend",
             FieldName.CURRENT_REGIME: "mean_reversion",
             FieldName.RATE_LIMIT: True,
-            "data_integrity_issue": True,
+            FieldName.DATA_INTEGRITY_ISSUE: True,
         }
     )
     mistakes = evaluation[FieldName.MISTAKES]

@@ -323,7 +323,7 @@ def _derive_contextual_system_tags(
     strengths: list[str] = []
     latency_ms = _safe_float(trade_data.get(FieldName.LATENCY_MS))
     slip_var = _safe_float(trade_data.get(FieldName.SLIPPAGE_VARIANCE))
-    spread_pct = _safe_float(trade_data.get("spread_pct"))
+    spread_pct = _safe_float(trade_data.get(FieldName.SPREAD_PCT))
     current_regime = str(trade_data.get(FieldName.CURRENT_REGIME) or "").strip().lower()
     signal_regime = str(trade_data.get(FieldName.REGIME) or "").strip().lower()
     if latency_ms is not None and latency_ms >= _HIGH_LATENCY_MS:
@@ -336,7 +336,7 @@ def _derive_contextual_system_tags(
         mistakes.append(str(TradeTag.REGIME_SHIFT))
     if bool(trade_data.get(FieldName.RATE_LIMIT)):
         mistakes.append(str(TradeTag.API_THROTTLE_PENALTY))
-    if bool(trade_data.get("data_integrity_issue")):
+    if bool(trade_data.get(FieldName.DATA_INTEGRITY_ISSUE)):
         mistakes.append(str(TradeTag.DATA_INTEGRITY_ISSUE))
     if (
         context.pnl > 0
