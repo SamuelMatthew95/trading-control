@@ -12,6 +12,8 @@ from typing import Any, NamedTuple
 from api.constants import (
     EXECUTION_DECISION_THRESHOLD,
     NO_ORDER_ACTIONS,
+    SIGNAL_CONFIDENCE_MIN_GATE,
+    SLIPPAGE_PCT_PER_SIDE,
     FieldName,
 )
 
@@ -138,4 +140,42 @@ def check_execution_gate(
         return f"gated:score:{final_score:.3f}"
     if not market_open:
         return "blocked:market_closed"
+    return None
+
+
+def check_confidence_gate(
+    signal_confidence: float,
+    side: str,
+    threshold: float = SIGNAL_CONFIDENCE_MIN_GATE,
+) -> str | None:
+    """Return gate reason string if signal confidence is below threshold.
+
+    Advisory actions (hold/reject/flat) bypass this gate — they don't trade.
+    Returns None if the trade may proceed.
+    """
+    if side in NO_ORDER_ACTIONS:
+        return None
+    if signal_confidence < threshold:
+        return f"gated:low_confidence:{signal_confidence:.3f}"
+    return None
+
+
+def check_net_ev_gate(
+    signal_confidence: float,
+    abs_pct_move: float,
+    slippage_pct: float = SLIPPAGE_PCT_PER_SIDE,
+) -> str | None:
+    """Return gate reason if net expected value after costs is negative.
+
+    Expected return is approximated as confidence × |pct_move| / 100.
+    Round-trip cost is 2 × slippage_pct.
+    Returns None if the trade has positive net expected value.
+    """
+    if abs_pct_move <= 0:
+        return None  # No price data — skip gate
+    expected_return = signal_confidence * (abs_pct_move / 100.0)
+    round_trip_cost = slippage_pct * 2
+    net_ev = expected_return - round_trip_cost
+    if net_ev < 0:
+        return f"gated:negative_net_ev:{net_ev:.5f}"
     return None
