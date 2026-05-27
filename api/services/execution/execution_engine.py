@@ -189,7 +189,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         symbol = parsed.symbol
         side = parsed.side
-        qty = parsed.qty
+        qty = await self._apply_kelly_sizing(data, parsed.qty, parsed.price)
         price = parsed.price
         strategy_id = parsed.strategy_id
         trace_id = parsed.trace_id
@@ -667,7 +667,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
         symbol = parsed.symbol
         side = parsed.side
-        qty = parsed.qty
+        qty = await self._apply_kelly_sizing(data, parsed.qty, parsed.price)
         price = parsed.price
         strategy_id = parsed.strategy_id
         trace_id = parsed.trace_id
@@ -1043,6 +1043,28 @@ class ExecutionEngine(BaseStreamConsumer):
         if len(store.equity_curve) > 1000:
             store.equity_curve = store.equity_curve[-1000:]
 
+    async def _apply_kelly_sizing(
+        self, data: dict[str, Any], nominal_qty: float, price: float
+    ) -> float:
+        """Convert SIZE_PCT (Kelly fraction) to absolute share count.
+
+        ReasoningAgent sets SIZE_PCT to the Kelly fraction of portfolio value.
+        The nominal QTY in the decision is a unit-count placeholder; this method
+        replaces it with a quantity derived from the Kelly fraction so that
+        high- and low-confidence decisions actually trade different sizes.
+        """
+        size_pct = float(data.get(FieldName.SIZE_PCT) or 0.0)
+        if size_pct <= 0 or price <= 0:
+            return nominal_qty
+        try:
+            portfolio_value = await self.broker.get_cash()
+            kelly_qty = (size_pct * portfolio_value) / price
+            if kelly_qty > 0:
+                return kelly_qty
+        except Exception:
+            log_structured("warning", "kelly_sizing_fallback_to_nominal_qty", exc_info=True)
+        return nominal_qty
+
     async def _check_pre_execution_gates(
         self,
         side: str,
@@ -1180,7 +1202,9 @@ class ExecutionEngine(BaseStreamConsumer):
             return None
         try:
             raw = await self.redis.lrange(REDIS_KEY_RECENT_OUTCOMES, 0, COOLING_OFF_WINDOW - 1)
-            outcomes = [float(v) for v in raw if v]
+            # LPUSH makes index 0 the newest; cooling_off_score treats the last
+            # element as most recent, so reverse to put oldest first.
+            outcomes = [float(v) for v in reversed(raw) if v]
             if is_cooling_off(outcomes, decay=COOLING_OFF_DECAY):
                 log_structured(
                     "info",
