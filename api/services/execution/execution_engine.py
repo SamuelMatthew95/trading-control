@@ -27,16 +27,25 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_EXECUTION,
+    COOLING_OFF_DECAY,
+    COOLING_OFF_WINDOW,
     EXECUTION_DECISION_THRESHOLD,
     EXECUTION_DECISION_THRESHOLD_MEMORY,
+    IN_FLIGHT_TTL_SECONDS,
     LARGE_ORDER_THRESHOLD,
+    NO_ORDER_ACTIONS,
     ORDER_DEDUP_TTL_SECONDS,
     ORDER_LOCK_TTL_SECONDS,
+    REDIS_KEY_IN_FLIGHT_ORDER,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_ORDER_DEDUP,
     REDIS_KEY_ORDER_LOCK,
+    REDIS_KEY_RECENT_OUTCOMES,
     REDIS_KEY_TRADING_PAUSED,
     REDIS_KEY_TRADING_PAUSED_REASON,
+    REDIS_RECENT_OUTCOMES_MAXLEN,
+    SIGNAL_CONFIDENCE_MIN_GATE,
+    SLIPPAGE_PCT_PER_SIDE,
     SOURCE_EXECUTION,
     STREAM_DECISIONS,
     STREAM_SELL_REJECTED,
@@ -58,7 +67,9 @@ from api.services.execution.decision_utils import (
     ParsedDecision as _ParsedDecision,
 )
 from api.services.execution.decision_utils import (
+    check_confidence_gate,
     check_execution_gate,
+    check_net_ev_gate,
     compute_execution_score,
     extract_decision_scores,
     parse_decision_fields,
@@ -78,6 +89,7 @@ from api.services.execution.position_math import (
     is_round_trip_close,
     reject_unmatched_sell,
 )
+from api.services.risk_filters import is_cooling_off
 
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
@@ -161,8 +173,17 @@ class ExecutionEngine(BaseStreamConsumer):
             qty=parsed.qty,
             trace_id=parsed.trace_id,
         )
+        _atr_raw = data.get(FieldName.ATR_REGIME_RATIO)
+        _atr_regime_ratio = float(_atr_raw) if _atr_raw not in (None, "") else None
+        _abs_pct_move = abs(float(data.get(FieldName.PCT) or 0.0))
         if await self._check_pre_execution_gates(
-            parsed.side, parsed.symbol, signal_confidence, reasoning_score, parsed.trace_id
+            parsed.side,
+            parsed.symbol,
+            signal_confidence,
+            reasoning_score,
+            parsed.trace_id,
+            atr_regime_ratio=_atr_regime_ratio,
+            abs_pct_move=_abs_pct_move,
         ):
             return
 
@@ -294,6 +315,7 @@ class ExecutionEngine(BaseStreamConsumer):
                 )
                 await session.flush()
 
+                await self.redis.set(REDIS_KEY_IN_FLIGHT_ORDER, "1", ex=IN_FLIGHT_TTL_SECONDS)
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
                 _db_broker_result = broker_result
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -330,6 +352,21 @@ class ExecutionEngine(BaseStreamConsumer):
                     },
                 )
                 await session.commit()
+                # Record realized PnL for cooling-off gate (best-effort)
+                _realized_pnl = compute_realized_pnl(prior_position, side, qty, fill_price)
+                if _realized_pnl != 0.0:
+                    try:
+                        await self.redis.lpush(REDIS_KEY_RECENT_OUTCOMES, str(_realized_pnl))
+                        await self.redis.ltrim(
+                            REDIS_KEY_RECENT_OUTCOMES, 0, REDIS_RECENT_OUTCOMES_MAXLEN - 1
+                        )
+                    except Exception:
+                        pass
+                # Clear the in-flight flag now that the outcome is recorded
+                try:
+                    await self.redis.delete(REDIS_KEY_IN_FLIGHT_ORDER)
+                except Exception:
+                    pass
             except Exception as exc:
                 await session.rollback()
                 _db_exception = exc
@@ -614,8 +651,17 @@ class ExecutionEngine(BaseStreamConsumer):
             qty=parsed.qty,
             trace_id=parsed.trace_id,
         )
+        _atr_raw2 = data.get(FieldName.ATR_REGIME_RATIO)
+        _atr_regime_ratio2 = float(_atr_raw2) if _atr_raw2 not in (None, "") else None
+        _abs_pct_move2 = abs(float(data.get(FieldName.PCT) or 0.0))
         if await self._check_pre_execution_gates(
-            parsed.side, parsed.symbol, signal_confidence, reasoning_score, parsed.trace_id
+            parsed.side,
+            parsed.symbol,
+            signal_confidence,
+            reasoning_score,
+            parsed.trace_id,
+            atr_regime_ratio=_atr_regime_ratio2,
+            abs_pct_move=_abs_pct_move2,
         ):
             return
 
@@ -718,6 +764,7 @@ class ExecutionEngine(BaseStreamConsumer):
             # Compute VWAP plan after oversell clamping so the slicing plan
             # reflects the actual executed quantity, not the requested qty.
             vwap_plan = self._build_vwap_plan(qty)
+            await self.redis.set(REDIS_KEY_IN_FLIGHT_ORDER, "1", ex=IN_FLIGHT_TTL_SECONDS)
             broker_result = await self.broker.place_order(symbol, side, qty, price)
             fill_price = float(broker_result[FieldName.FILL_PRICE])
             filled_at = datetime.now(timezone.utc)
@@ -816,6 +863,19 @@ class ExecutionEngine(BaseStreamConsumer):
                 realized_pnl=realized_pnl,
                 trace_id=trace_id,
             )
+            # Record realized PnL for cooling-off gate and clear in-flight flag
+            if realized_pnl != 0.0:
+                try:
+                    await self.redis.lpush(REDIS_KEY_RECENT_OUTCOMES, str(realized_pnl))
+                    await self.redis.ltrim(
+                        REDIS_KEY_RECENT_OUTCOMES, 0, REDIS_RECENT_OUTCOMES_MAXLEN - 1
+                    )
+                except Exception:
+                    pass
+            try:
+                await self.redis.delete(REDIS_KEY_IN_FLIGHT_ORDER)
+            except Exception:
+                pass
         finally:
             await self.redis.delete(lock_key)
 
@@ -990,8 +1050,11 @@ class ExecutionEngine(BaseStreamConsumer):
         signal_confidence: float,
         reasoning_score: float,
         trace_id: str,
+        *,
+        atr_regime_ratio: float | None = None,
+        abs_pct_move: float = 0.0,
     ) -> str | None:
-        """Delegate to the pure gate check, then log and write a heartbeat if blocked."""
+        """Run all pre-execution gates; return gate reason string or None to proceed."""
         final_score = compute_execution_score(signal_confidence, reasoning_score)
         market_open = self._is_market_open(symbol)
         threshold = (
@@ -1000,42 +1063,139 @@ class ExecutionEngine(BaseStreamConsumer):
             else EXECUTION_DECISION_THRESHOLD
         )
         gate = check_execution_gate(side, symbol, final_score, threshold, market_open)
-        if gate is None:
+        if gate is not None:
+            if gate.startswith("hold:"):
+                log_structured(
+                    "info",
+                    "execution_skipped_advisory_action",
+                    symbol=symbol,
+                    action=side,
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
+            elif gate.startswith("gated:score:"):
+                log_structured(
+                    "info",
+                    "execution_gated_score_below_threshold",
+                    symbol=symbol,
+                    final_score=round(final_score, 4),
+                    threshold=threshold,
+                    signal_confidence=round(signal_confidence, 4),
+                    reasoning_score=round(reasoning_score, 4),
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(
+                    symbol,
+                    f"gated:score score={final_score:.3f}<{threshold}",
+                    trace_id,
+                )
+            elif gate == "blocked:market_closed":
+                log_structured(
+                    "info",
+                    "execution_blocked_market_closed",
+                    symbol=symbol,
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
+            return gate
+
+        # In-flight gate: block new orders while another order is being processed.
+        # Prevents rapid signals from stacking before the fill + PnL are recorded.
+        if side not in NO_ORDER_ACTIONS:
+            try:
+                if await self.redis.get(REDIS_KEY_IN_FLIGHT_ORDER):
+                    log_structured(
+                        "info",
+                        "execution_gated_order_in_flight",
+                        symbol=symbol,
+                        trace_id=trace_id,
+                    )
+                    await self._write_idle_heartbeat(symbol, "gated:in_flight", trace_id)
+                    return "gated:in_flight"
+            except Exception:
+                pass  # Redis hiccup — do not block the trade
+
+        # Confidence gate: block trades below SIGNAL_CONFIDENCE_MIN_GATE
+        if side not in NO_ORDER_ACTIONS:
+            conf_gate = check_confidence_gate(signal_confidence, side, SIGNAL_CONFIDENCE_MIN_GATE)
+            if conf_gate is not None:
+                log_structured(
+                    "info",
+                    "execution_gated_low_confidence",
+                    symbol=symbol,
+                    signal_confidence=round(signal_confidence, 4),
+                    threshold=SIGNAL_CONFIDENCE_MIN_GATE,
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(
+                    symbol,
+                    f"gated:low_confidence sc={signal_confidence:.3f}<{SIGNAL_CONFIDENCE_MIN_GATE}",
+                    trace_id,
+                )
+                return conf_gate
+
+        # Regime filter: block trades in low-volatility/choppy markets
+        if atr_regime_ratio is not None and side not in NO_ORDER_ACTIONS:
+            if atr_regime_ratio < 1.0:
+                regime_gate = f"gated:choppy_regime:{atr_regime_ratio:.3f}"
+                log_structured(
+                    "info",
+                    "execution_gated_choppy_regime",
+                    symbol=symbol,
+                    atr_regime_ratio=round(atr_regime_ratio, 4),
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(
+                    symbol,
+                    f"gated:choppy_regime atr_ratio={atr_regime_ratio:.3f}",
+                    trace_id,
+                )
+                return regime_gate
+
+        # Net EV gate: block trades where costs exceed expected return
+        if abs_pct_move > 0 and side not in NO_ORDER_ACTIONS:
+            ev_gate = check_net_ev_gate(signal_confidence, abs_pct_move, SLIPPAGE_PCT_PER_SIDE)
+            if ev_gate is not None:
+                log_structured(
+                    "info",
+                    "execution_gated_negative_net_ev",
+                    symbol=symbol,
+                    signal_confidence=round(signal_confidence, 4),
+                    abs_pct_move=abs_pct_move,
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(symbol, ev_gate, trace_id)
+                return ev_gate
+
+        # Cooling-off gate: block trades after a streak of recent losses
+        cooling_gate = await self._check_cooling_off_gate(symbol, side, trace_id)
+        if cooling_gate is not None:
+            return cooling_gate
+
+        return None
+
+    async def _check_cooling_off_gate(self, symbol: str, side: str, trace_id: str) -> str | None:
+        """Block execution if recent trade outcomes are dominated by losses."""
+        if side in NO_ORDER_ACTIONS:
             return None
-        if gate.startswith("hold:"):
-            log_structured(
-                "info",
-                "execution_skipped_advisory_action",
-                symbol=symbol,
-                action=side,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(symbol, f"idle:hold action={side}", trace_id)
-        elif gate.startswith("gated:score:"):
-            log_structured(
-                "info",
-                "execution_gated_score_below_threshold",
-                symbol=symbol,
-                final_score=round(final_score, 4),
-                threshold=threshold,
-                signal_confidence=round(signal_confidence, 4),
-                reasoning_score=round(reasoning_score, 4),
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(
-                symbol,
-                f"gated:score score={final_score:.3f}<{threshold}",
-                trace_id,
-            )
-        elif gate == "blocked:market_closed":
-            log_structured(
-                "info",
-                "execution_blocked_market_closed",
-                symbol=symbol,
-                trace_id=trace_id,
-            )
-            await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
-        return gate
+        try:
+            raw = await self.redis.lrange(REDIS_KEY_RECENT_OUTCOMES, 0, COOLING_OFF_WINDOW - 1)
+            outcomes = [float(v) for v in raw if v]
+            if is_cooling_off(outcomes, decay=COOLING_OFF_DECAY):
+                log_structured(
+                    "info",
+                    "execution_gated_cooling_off",
+                    symbol=symbol,
+                    recent_outcomes=outcomes,
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(
+                    symbol, f"gated:cooling_off recent={outcomes}", trace_id
+                )
+                return "gated:cooling_off"
+        except Exception:
+            log_structured("warning", "cooling_off_check_failed", exc_info=True)
+        return None
 
     # -------------------------------------------------------------------------
     # Scheduling / clock helpers
