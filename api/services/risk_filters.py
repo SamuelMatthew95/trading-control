@@ -35,6 +35,8 @@ def compute_rsi(prices: Sequence[float], period: int = 14) -> float | None:
     avg_gain = sum(recent_gains) / period
     avg_loss = sum(recent_losses) / period
 
+    if avg_gain == 0.0 and avg_loss == 0.0:
+        return 50.0  # flat market — no gains or losses, neutral signal
     if avg_loss == 0.0:
         return 100.0
 

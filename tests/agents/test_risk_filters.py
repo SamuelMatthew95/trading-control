@@ -25,6 +25,13 @@ def test_rsi_insufficient_data() -> None:
     assert compute_rsi([100.0] * 5, period=14) is None
 
 
+def test_rsi_flat_prices_returns_50() -> None:
+    # 15 identical prices → avg_gain == avg_loss == 0 → neutral RSI, not overbought
+    prices = [100.0] * 16
+    rsi = compute_rsi(prices, period=14)
+    assert rsi == 50.0
+
+
 def test_rsi_all_gains_returns_100() -> None:
     prices = [float(i) for i in range(1, 20)]  # strictly increasing
     rsi = compute_rsi(prices, period=14)
