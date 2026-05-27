@@ -14,12 +14,16 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections import deque
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
 
 from api.constants import (
     AGENT_SIGNAL,
+    REGIME_ATR_AVG_PERIOD,
+    REGIME_ATR_PERIOD,
     SOURCE_SIGNAL,
     STREAM_MARKET_EVENTS,
     STREAM_SIGNALS,
@@ -43,6 +47,7 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat
 from api.services.agent_state import AgentStateRegistry
+from api.services.risk_filters import compute_atr_from_prices, compute_rsi
 
 AGENT_NAME = AGENT_SIGNAL
 
@@ -63,10 +68,85 @@ class SignalGenerator(BaseStreamConsumer):
         )
         self.total_events = 0
         self._agent_pool_id: str | None = None
+        # Rolling price history per symbol for technical indicators (RSI, ATR, regime)
+        self._price_history: dict[str, deque[float]] = {}
+        self._atr_history: dict[str, deque[float]] = {}
 
     # ------------------------------------------------------------------
     # Bootstrap
     # ------------------------------------------------------------------
+
+    async def _bootstrap_price_history(self, symbol: str) -> None:
+        """Pre-warm the price history buffer with 50 historical 1-min bars.
+
+        Called once per symbol on first tick. Runs in an executor so the
+        Alpaca SDK's synchronous HTTP call does not block the event loop.
+        Failures are silent — warmup is best-effort; live ticks fill the
+        buffer organically if Alpaca is unavailable.
+        """
+        from api.config import settings  # noqa: PLC0415
+
+        if not (settings.ALPACA_API_KEY and settings.ALPACA_SECRET_KEY):
+            return
+        try:
+            import asyncio  # noqa: PLC0415
+            from datetime import timedelta  # noqa: PLC0415
+            from functools import partial  # noqa: PLC0415
+
+            from alpaca.data.historical.crypto import CryptoHistoricalDataClient  # noqa: PLC0415
+            from alpaca.data.historical.stock import StockHistoricalDataClient  # noqa: PLC0415
+            from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest  # noqa: PLC0415
+            from alpaca.data.timeframe import TimeFrame  # noqa: PLC0415
+
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(hours=2)
+
+            is_crypto = "/" in symbol
+
+            def _fetch() -> list[float]:
+                if is_crypto:
+                    client = CryptoHistoricalDataClient(
+                        settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY
+                    )
+                    req = CryptoBarsRequest(
+                        symbol_or_symbols=symbol, timeframe=TimeFrame.Minute, start=start, end=end
+                    )
+                    bars = client.get_crypto_bars(req)
+                else:
+                    client = StockHistoricalDataClient(
+                        settings.ALPACA_API_KEY, settings.ALPACA_SECRET_KEY
+                    )
+                    req = StockBarsRequest(
+                        symbol_or_symbols=symbol,
+                        timeframe=TimeFrame.Minute,
+                        start=start,
+                        end=end,
+                    )
+                    bars = client.get_stock_bars(req)
+                rows = bars[symbol] if hasattr(bars, "__getitem__") else []
+                return [float(b.close) for b in rows][-50:]
+
+            loop = asyncio.get_running_loop()
+            close_prices = await asyncio.wait_for(
+                loop.run_in_executor(None, partial(_fetch)), timeout=10
+            )
+            for p in close_prices:
+                if p > 0:
+                    self._price_history[symbol].append(p)
+            if close_prices:
+                log_structured(
+                    "info",
+                    "signal_generator_price_history_bootstrapped",
+                    symbol=symbol,
+                    bars_loaded=len(close_prices),
+                )
+        except Exception:
+            log_structured(
+                "warning",
+                "signal_generator_price_history_bootstrap_failed",
+                symbol=symbol,
+                exc_info=True,
+            )
 
     async def _resolve_agent_pool_id(self) -> str | None:
         """Fetch agent_pool UUID once and cache it. Returns None in memory mode."""
@@ -110,6 +190,57 @@ class SignalGenerator(BaseStreamConsumer):
         if not symbol or price <= 0:
             return
 
+        # --- Update rolling price history and compute technical features -
+        if symbol not in self._price_history:
+            self._price_history[symbol] = deque(maxlen=50)
+            self._atr_history[symbol] = deque(maxlen=25)
+            # Warm up buffer with historical bars so RSI/ATR are ready from tick 1
+            await self._bootstrap_price_history(symbol)
+        self._price_history[symbol].append(price)
+
+        prices_list = list(self._price_history[symbol])
+        rsi = compute_rsi(prices_list, period=REGIME_ATR_PERIOD)
+        atr = compute_atr_from_prices(prices_list, period=REGIME_ATR_PERIOD)
+
+        if atr is not None:
+            self._atr_history[symbol].append(atr)
+
+        atr_regime_ratio: float | None = None
+        atr_hist = list(self._atr_history[symbol])
+        if atr is not None and len(atr_hist) >= 2:
+            window = min(REGIME_ATR_AVG_PERIOD, len(atr_hist))
+            avg_atr = sum(atr_hist[-window:]) / window
+            if avg_atr > 0:
+                atr_regime_ratio = round(atr / avg_atr, 4)
+
+        # Time-of-day encoding.
+        # Equities: US market hours only (14:30–21:00 UTC = 9:30–16:00 ET).
+        # Crypto:   24/7 — classify by session proximity (Asia/Europe/US).
+        hour_utc = datetime.now(timezone.utc).hour
+        is_crypto = "/" in (symbol or "")
+        if is_crypto:
+            # Crypto session windows (UTC)
+            if 14 <= hour_utc < 17:
+                time_of_day = "us_open"  # 9:30–12:00 ET (high US volume)
+            elif 17 <= hour_utc < 21:
+                time_of_day = "us_afternoon"  # 12:00–16:00+ ET
+            elif 0 <= hour_utc < 8:
+                time_of_day = "asia_session"  # Asia markets active
+            elif 8 <= hour_utc < 14:
+                time_of_day = "europe_session"  # European markets active
+            else:
+                time_of_day = "overnight"
+        else:
+            # Equity time-of-day based on US market structure
+            if 14 <= hour_utc < 16:
+                time_of_day = "market_open"  # 9:30–11:00 ET — volatile open
+            elif 16 <= hour_utc < 19:
+                time_of_day = "midday"  # 11:00–14:00 ET — lower volume
+            elif 19 <= hour_utc < 21:
+                time_of_day = "market_close"  # 14:00–16:00 ET — late session
+            else:
+                time_of_day = "after_hours"
+
         # --- Classify signal ---------------------------------------------
         abs_pct = abs(pct)
         direction = (
@@ -149,6 +280,10 @@ class SignalGenerator(BaseStreamConsumer):
             FieldName.TS: int(time.time()),
             FieldName.SOURCE: AGENT_NAME,
             FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.RSI: rsi,
+            FieldName.ATR: atr,
+            FieldName.ATR_REGIME_RATIO: atr_regime_ratio,
+            FieldName.TIME_OF_DAY: time_of_day,
         }
 
         # --- Begin run (dedup check + run start write) -------------------
