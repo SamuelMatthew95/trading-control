@@ -313,10 +313,11 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.REASONING_SCORE: round(scaled_reasoning, 6),
                 FieldName.SIGNAL_CONFIDENCE: round(scaled_signal, 6),
                 FieldName.WEIGHT_SCALE: round(weight_scale, 6),
-                # Order parameters forwarded for ExecutionEngine use
-                FieldName.QTY: max(
-                    float(data.get(FieldName.QTY, 1.0)), float(summary.get(FieldName.SIZE_PCT, 1.0))
-                ),
+                # Order parameters forwarded for ExecutionEngine use.
+                # QTY carries a nominal unit count; the execution engine converts
+                # SIZE_PCT (Kelly fraction) to an actual share count using live
+                # portfolio value, so QTY and SIZE_PCT must not be mixed here.
+                FieldName.QTY: float(data.get(FieldName.QTY) or 1.0),
                 FieldName.PRICE: float(
                     data.get(FieldName.PRICE, data.get(FieldName.LAST_PRICE, 0.0))
                 ),
