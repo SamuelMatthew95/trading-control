@@ -20,11 +20,14 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_REASONING,
+    KELLY_FRACTION_SCALE,
     LLM_FALLBACK_MODE_REJECT_SIGNAL,
     LLM_FALLBACK_MODE_USE_LAST_REFLECTION,
     LLM_TASK_PRICE_ANALYSIS,
     LLM_TASK_TRADE_EXECUTION,
     LLM_TIMEOUT_SECONDS,
+    MAX_RISK_PER_TRADE_PCT,
+    MIN_RR_RATIO,
     NO_ORDER_ACTIONS,
     REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
     REDIS_KEY_AGENT_SUSPENDED,
@@ -33,6 +36,7 @@ from api.constants import (
     REDIS_KEY_LLM_TOKENS,
     REDIS_KEY_SIGNAL_WEIGHT_SCALE,
     SOURCE_REASONING,
+    STOP_LOSS_PCT,
     STREAM_AGENT_LOGS,
     STREAM_DECISIONS,
     STREAM_RISK_ALERTS,
@@ -62,6 +66,7 @@ from api.services.agents.vector_helpers import (
 )
 from api.services.llm_router import active_model_label, call_llm_with_system
 from api.services.redis_store import get_redis_store
+from api.services.risk_filters import compute_dynamic_position_size
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -308,10 +313,11 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.REASONING_SCORE: round(scaled_reasoning, 6),
                 FieldName.SIGNAL_CONFIDENCE: round(scaled_signal, 6),
                 FieldName.WEIGHT_SCALE: round(weight_scale, 6),
-                # Order parameters forwarded for ExecutionEngine use
-                FieldName.QTY: max(
-                    float(data.get(FieldName.QTY, 1.0)), float(summary.get(FieldName.SIZE_PCT, 1.0))
-                ),
+                # Order parameters forwarded for ExecutionEngine use.
+                # QTY carries a nominal unit count; the execution engine converts
+                # SIZE_PCT (Kelly fraction) to an actual share count using live
+                # portfolio value, so QTY and SIZE_PCT must not be mixed here.
+                FieldName.QTY: float(data.get(FieldName.QTY) or 1.0),
                 FieldName.PRICE: float(
                     data.get(FieldName.PRICE, data.get(FieldName.LAST_PRICE, 0.0))
                 ),
@@ -326,9 +332,11 @@ class ReasoningAgent(BaseStreamConsumer):
                 # LLM cost of this decision (incl. self-critique). Travels with
                 # the trade so the learning loop can compute per-model net ROI.
                 FieldName.DECISION_COST_USD: cost_usd,
-                FieldName.SIZE_PCT: float(summary.get(FieldName.SIZE_PCT) or 0.01),
+                FieldName.SIZE_PCT: self._compute_kelly_position_size(summary),
                 FieldName.STOP_ATR_X: float(summary.get(FieldName.STOP_ATR_X) or 1.5),
-                FieldName.RR_RATIO: float(summary.get(FieldName.RR_RATIO) or 2.0),
+                FieldName.RR_RATIO: max(
+                    float(summary.get(FieldName.RR_RATIO) or MIN_RR_RATIO), MIN_RR_RATIO
+                ),
             },
         )
         log_structured(
@@ -371,6 +379,31 @@ class ReasoningAgent(BaseStreamConsumer):
         ).lower()
         source = str(summary.get(FieldName.SOURCE) or "").lower()
         return "fallback" in reasoning_summary or "fallback" in reason or source == "fallback"
+
+    def _compute_kelly_position_size(self, summary: dict) -> float:
+        """Compute Kelly-fraction position size capped at MAX_RISK_PER_TRADE_PCT.
+
+        Falls back to the LLM-suggested size_pct if Kelly produces zero
+        (e.g., negative-EV scenario already caught by confidence gate).
+        """
+        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
+        rr_ratio = max(float(summary.get(FieldName.RR_RATIO) or MIN_RR_RATIO), MIN_RR_RATIO)
+        stop_loss = STOP_LOSS_PCT  # 5% stop from constants
+        take_profit = stop_loss * rr_ratio  # enforce at least 2:1 R/R
+
+        kelly_size = compute_dynamic_position_size(
+            confidence=confidence,
+            stop_loss_pct=stop_loss,
+            take_profit_pct=take_profit,
+            kelly_scale=KELLY_FRACTION_SCALE,
+            max_risk_pct=MAX_RISK_PER_TRADE_PCT,
+        )
+        if kelly_size > 0:
+            return kelly_size
+
+        # Fallback: use LLM suggestion but cap it at max risk
+        llm_size = float(summary.get(FieldName.SIZE_PCT) or 0.01)
+        return min(llm_size, MAX_RISK_PER_TRADE_PCT)
 
     @staticmethod
     def _build_decision_payload(
@@ -814,6 +847,29 @@ class ReasoningAgent(BaseStreamConsumer):
             safe_decision[FieldName.RISK_FACTORS] = risk_factors
 
         return safe_decision
+
+    def _compute_kelly_position_size(self, summary: dict[str, Any]) -> float:
+        """Compute Kelly-fraction position size capped at MAX_RISK_PER_TRADE_PCT.
+
+        Falls back to the LLM-suggested size_pct if Kelly produces zero
+        (negative-EV scenario should already be caught by the confidence gate).
+        """
+        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
+        rr_ratio = max(float(summary.get(FieldName.RR_RATIO) or MIN_RR_RATIO), MIN_RR_RATIO)
+        take_profit = STOP_LOSS_PCT * rr_ratio
+
+        kelly_size = compute_dynamic_position_size(
+            confidence=confidence,
+            stop_loss_pct=STOP_LOSS_PCT,
+            take_profit_pct=take_profit,
+            kelly_scale=KELLY_FRACTION_SCALE,
+            max_risk_pct=MAX_RISK_PER_TRADE_PCT,
+        )
+        if kelly_size > 0:
+            return kelly_size
+
+        llm_size = float(summary.get(FieldName.SIZE_PCT) or 0.01)
+        return min(llm_size, MAX_RISK_PER_TRADE_PCT)
 
     def _ic_aligns(
         self, signal_direction: str, ic_weights: dict[str, float], decision: dict[str, Any]

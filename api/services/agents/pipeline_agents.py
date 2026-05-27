@@ -39,7 +39,6 @@ from api.constants import (
     SOURCE_GRADE,
     SOURCE_IC_UPDATER,
     SOURCE_NOTIFICATION,
-    SOURCE_REASONING,
     SOURCE_REFLECTION,
     SOURCE_STRATEGY_PROPOSER,
     STREAM_AGENT_GRADES,
@@ -225,7 +224,7 @@ class GradeAgent(MultiStreamAgent):
             FieldName.MSG_ID: str(uuid.uuid4()),
             FieldName.TYPE: "agent_grade",
             FieldName.SOURCE: SOURCE_GRADE,
-            FieldName.AGENT: SOURCE_REASONING,
+            FieldName.AGENT: AGENT_GRADE,
             "agent_name": AGENT_GRADE,
             FieldName.TRACE_ID: trace_id,
             "grade": grade,
@@ -235,7 +234,7 @@ class GradeAgent(MultiStreamAgent):
                 f"accuracy={accuracy:.3f}, ic={ic:.3f}, cost_eff={cost_eff:.3f}, "
                 f"latency={latency:.3f}, llm_health={llm_health:.3f}"
             ),
-            "score_pct": round(score * 100, 1),
+            FieldName.SCORE_PCT: round(score * 100, 1),
             FieldName.METRICS: {
                 FieldName.ACCURACY: round(accuracy, 4),
                 FieldName.IC: round(ic, 4),

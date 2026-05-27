@@ -273,6 +273,7 @@ class FieldName(StrEnum):
     ASSET_PRICE = "asset_price"
     AT = "at"
     ATR = "atr"
+    ATR_REGIME_RATIO = "atr_regime_ratio"
     AUTO_APPLIED = "auto_applied"
     AVAILABLE_MODELS = "available_models"
     AVG_COST = "avg_cost"
@@ -294,6 +295,7 @@ class FieldName(StrEnum):
     BID = "bid"
     BLOCKED_TOOLS = "blocked_tools"
     BLOCKS = "blocks"
+    BLOCKED_REASON = "blocked_reason"
     BODY = "body"
     BOTS = "bots"
     BOT_STATE = "bot_state"
@@ -521,6 +523,7 @@ class FieldName(StrEnum):
     KILL_SWITCH_ACTIVATED = "kill_switch_activated"
     KILL_SWITCH_ACTIVE = "kill_switch_active"
     KIND = "kind"
+    KELLY_SIZE = "kelly_size"
     LABEL = "label"
     LAG = "lag"
     LAG_MS = "lag_ms"
@@ -634,6 +637,7 @@ class FieldName(StrEnum):
     NEW_QUANTITY = "new_quantity"
     NEW_VALUE = "new_value"
     NEXT_TIMEFRAME = "next_timeframe"
+    NET_EV = "net_ev"
     NORM_RETURN = "norm_return"
     NOTE = "note"
     NOTIFICATIONS = "notifications"
@@ -783,6 +787,7 @@ class FieldName(StrEnum):
     RISK_STATE = "risk_state"
     ROLE = "role"
     RR_RATIO = "rr_ratio"
+    RSI = "rsi"
     RULES = "rules"
     RUN = "run"
     RUNNING = "running"
@@ -903,6 +908,7 @@ class FieldName(StrEnum):
     TIMEOUT_COUNT = "timeout_count"
     TIMESTAMP = "timestamp"
     TIME_IN_FORCE = "time_in_force"
+    TIME_OF_DAY = "time_of_day"
     TIME_OF_DAY_PATTERNS = "time_of_day_patterns"
     TIMING_SCORE = "timing_score"
     TITLE = "title"
@@ -961,6 +967,7 @@ class FieldName(StrEnum):
     VECTOR_METADATA = "vector_metadata"
     VETO = "veto"
     VOLUME = "volume"
+    VOLUME_RATIO = "volume_ratio"
     VWAP_PLAN = "vwap_plan"
     WARNING = "warning"
     WEIGHT = "weight"
@@ -1073,6 +1080,7 @@ REDIS_KEY_PAPER_POSITION: Final[str] = "paper:positions:{symbol}"
 REDIS_KEY_PAPER_ORDER: Final[str] = "paper:order:{broker_order_id}"
 REDIS_KEY_ORDER_LOCK: Final[str] = "order_lock:{symbol}"
 REDIS_KEY_ORDER_DEDUP: Final[str] = "order:dedup:{idempotency_key}"
+REDIS_KEY_IN_FLIGHT_ORDER: Final[str] = "execution:in_flight"
 ORDER_DEDUP_TTL_SECONDS: Final[int] = 86400  # 24h — covers any realistic replay window
 REDIS_KEY_LLM_TOKENS: Final[str] = "llm:tokens:{date}"
 REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
@@ -1121,6 +1129,9 @@ REDIS_KEY_NOTIFICATIONS_RECENT: Final[str] = "notifications:recent"
 REDIS_KEY_NOTIFICATIONS_READ: Final[str] = "notifications:read"
 REDIS_KEY_DECISIONS_RECENT: Final[str] = "decisions:recent"
 REDIS_KEY_LLM_METRICS: Final[str] = "llm:metrics"
+# Cooling-off: recent trade PnL outcomes (LPUSH, LTRIM cap COOLING_OFF_WINDOW+5)
+REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
+REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10
 REDIS_NOTIFICATIONS_MAX: Final[int] = 200
 REDIS_DECISIONS_MAX: Final[int] = 500
 
@@ -1186,6 +1197,7 @@ STREAMS: Final[tuple[str, ...]] = (
 # Default values
 DEFAULT_PAPER_CASH: Final[float] = 100_000.0
 ORDER_LOCK_TTL_SECONDS: Final[int] = 5
+IN_FLIGHT_TTL_SECONDS: Final[int] = 10  # Safety valve: clears if fill callback never runs
 WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key TTL
 REDIS_PRICES_TTL_SECONDS: Final[int] = 30  # How long price cache entries live
 REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
@@ -1240,7 +1252,7 @@ EXECUTION_DECISION_THRESHOLD: Final[float] = 0.55
 # Lower threshold used in memory mode — rule-based fallback signals produce composite_score=0.30,
 # yielding final_score≈0.36 which is below the production gate. This lets paper trades execute
 # so the trading dashboard shows real fills, positions, and equity-curve data.
-EXECUTION_DECISION_THRESHOLD_MEMORY: Final[float] = 0.30
+EXECUTION_DECISION_THRESHOLD_MEMORY: Final[float] = 0.55
 
 # Risk Guardian constants — position-level and portfolio-level risk limits
 # Close position if unrealized loss exceeds this fraction of entry price
@@ -1251,6 +1263,24 @@ TAKE_PROFIT_PCT: Final[float] = 0.10
 DAILY_LOSS_LIMIT_PCT: Final[float] = 0.02
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
+# Signal confidence gate — trades below this confidence are blocked pre-execution
+SIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.65
+# Kelly sizing — use quarter Kelly for conservatism
+KELLY_FRACTION_SCALE: Final[float] = 0.25
+# Maximum risk per trade as fraction of equity
+MAX_RISK_PER_TRADE_PCT: Final[float] = 0.015
+# Estimated slippage per side (0.05%)
+SLIPPAGE_PCT_PER_SIDE: Final[float] = 0.0005
+# ATR period for regime filter
+REGIME_ATR_PERIOD: Final[int] = 14
+# Period for ATR moving average in regime filter
+REGIME_ATR_AVG_PERIOD: Final[int] = 20
+# Number of recent trades to consider for cooling-off
+COOLING_OFF_WINDOW: Final[int] = 5
+# Exponential decay weight for cooling-off scoring
+COOLING_OFF_DECAY: Final[float] = 0.7
+# Minimum acceptable risk-reward ratio
+MIN_RR_RATIO: Final[float] = 2.0
 
 # LLM fallback modes
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"

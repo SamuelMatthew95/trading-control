@@ -278,6 +278,38 @@ async def get_learning_loop_payload() -> dict[str, Any]:
         log_structured("warning", "learning_loop_control_plane_read_failed", exc_info=True)
 
     if not is_db_available():
+        # Memory-mode fallback: pull latest grade + proposals from InMemoryStore.
+        store = get_runtime_store()
+        grades = store.get_grades(limit=1)
+        if grades:
+            g = grades[0]
+            out[FieldName.LATEST_GRADE] = {
+                FieldName.TRACE_ID: g.get(FieldName.TRACE_ID),
+                FieldName.GRADE: g.get(FieldName.GRADE),
+                FieldName.SCORE_PCT: g.get(FieldName.SCORE_PCT),
+                FieldName.METRICS: g.get(FieldName.METRICS, {}),
+                FieldName.FILLS_GRADED: g.get(FieldName.FILLS_GRADED),
+                FieldName.TIMESTAMP: g.get(FieldName.TIMESTAMP),
+            }
+        try:
+            from api.services.dashboard.proposals import _in_memory_proposals  # noqa: PLC0415
+
+            raw_proposals = _in_memory_proposals(limit=20)
+            out[FieldName.RECENT_PROPOSALS] = [
+                {
+                    FieldName.TRACE_ID: p.get(FieldName.TRACE_ID),
+                    FieldName.PROPOSAL_TYPE: p.get(FieldName.PROPOSAL_TYPE),
+                    FieldName.ACTION: p.get(FieldName.ACTION),
+                    FieldName.APPLIED: bool(p.get(FieldName.APPLIED, False)),
+                    FieldName.APPLIED_AT: p.get(FieldName.APPLIED_AT),
+                    FieldName.APPLIED_BY: p.get(FieldName.APPLIED_BY),
+                    FieldName.MESSAGE: p.get(FieldName.MESSAGE),
+                    FieldName.TIMESTAMP: p.get(FieldName.CREATED_AT),
+                }
+                for p in raw_proposals
+            ]
+        except Exception:
+            log_structured("warning", "learning_loop_memory_proposals_failed", exc_info=True)
         return out
 
     # 2. Latest grade — newest agent_logs row with log_type=LogType.GRADE.
