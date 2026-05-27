@@ -207,9 +207,8 @@ class SignalGenerator(BaseStreamConsumer):
 
         atr_regime_ratio: float | None = None
         atr_hist = list(self._atr_history[symbol])
-        if atr is not None and len(atr_hist) >= 2:
-            window = min(REGIME_ATR_AVG_PERIOD, len(atr_hist))
-            avg_atr = sum(atr_hist[-window:]) / window
+        if atr is not None and len(atr_hist) >= REGIME_ATR_AVG_PERIOD:
+            avg_atr = sum(atr_hist[-REGIME_ATR_AVG_PERIOD:]) / REGIME_ATR_AVG_PERIOD
             if avg_atr > 0:
                 atr_regime_ratio = round(atr / avg_atr, 4)
 
