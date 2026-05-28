@@ -9,6 +9,7 @@ from __future__ import annotations
 from api.constants import FieldName
 from backtest.data import synthetic_prices
 from backtest.engine import run_backtest
+from backtest.strategies import baseline_momentum, strong_only
 
 
 def test_backtest_runs_end_to_end_and_reuses_trade_scorer():
@@ -50,3 +51,34 @@ def test_realistic_volatility_almost_never_trades():
     assert result.trades == 0
     assert result.holds == bars - 1
     assert result.total_return_pct == 0.0
+
+
+def test_default_strategy_matches_explicit_baseline():
+    """The pluggable-strategy refactor must not change baseline behavior."""
+    prices = synthetic_prices(n=800, vol_pct=1.5, seed=1)
+    default_run = run_backtest(prices, slippage_seed=1)
+    explicit = run_backtest(prices, strategy=baseline_momentum, slippage_seed=1)
+    assert default_run.total_return_pct == explicit.total_return_pct
+    assert default_run.trades == explicit.trades
+
+
+def test_strong_only_trades_less_and_beats_baseline_across_seeds():
+    """A stricter strategy that stops chasing 1.5% noise should, on zero-edge
+    data, trade far less and therefore bleed far less to slippage. Checked
+    across 20 paired seeds so the win is structural, not luck."""
+    seeds = range(20)
+    base_returns: list[float] = []
+    strong_returns: list[float] = []
+    base_trades = 0
+    strong_trades = 0
+    for s in seeds:
+        prices = synthetic_prices(n=1500, vol_pct=1.5, seed=s)
+        base = run_backtest(prices, strategy=baseline_momentum, slippage_seed=s)
+        strong = run_backtest(prices, strategy=strong_only, slippage_seed=s)
+        base_returns.append(base.total_return_pct)
+        strong_returns.append(strong.total_return_pct)
+        base_trades += base.trades
+        strong_trades += strong.trades
+
+    assert strong_trades < base_trades
+    assert sum(strong_returns) / len(strong_returns) > sum(base_returns) / len(base_returns)
