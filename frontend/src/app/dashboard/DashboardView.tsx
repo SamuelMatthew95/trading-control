@@ -15,22 +15,20 @@ import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
+import { SystemDashboard } from '@/components/dashboard/system'
 import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
 import {
   agentCardBorderClass,
   agentCardDotClass,
   agentCardTextClass,
-  streamEventBadgeClass,
   systemStatusBadgeClass,
   agentStatusDotClass,
-  pipelineStatusTextClass,
   apiHealthBadgeClass,
   priceChangeTextClass,
   agentTierFromStatus,
   performancePnlColorClass,
 } from '@/lib/dashboard-helpers'
 import {
-  Brain,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
@@ -213,7 +211,6 @@ function PriceCardSkeleton() {
 // ── Timing thresholds ─────────────────────────────────────────────────────────
 
 const PRICE_FRESHNESS_MS = 60_000
-const PIPELINE_HEALTHY_LATENCY_MS = 15_000
 const AGENT_DATA_TIMEOUT_MS = 10_000
 
 function priceChangeText(change: number | null, hasData: boolean): string {
@@ -238,22 +235,6 @@ function formatDailyChange(change: number | null | undefined): string {
 function lastNotificationLabel(notifications: Array<{ timestamp?: string }>): string {
   const ts = parseTimestamp(notifications[0]?.timestamp)
   return ts ? `Last: ${ts.toLocaleTimeString()}` : 'No activity yet'
-}
-
-function resolveWsUrl(): string {
-  if (typeof window === 'undefined') return '—'
-  if (process.env.NEXT_PUBLIC_WS_URL) {
-    return process.env.NEXT_PUBLIC_WS_URL.replace(/^https?:\/\//, 'wss://').replace(/\/$/, '') + '/ws/dashboard'
-  }
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/^https?:\/\//, 'wss://') + '/ws/dashboard'
-  }
-  return window.location.host + '/ws/dashboard (same-origin)'
-}
-
-function formatLlmProviderName(provider: string): string {
-  if (!provider) return 'LLM'
-  return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
 type PerformanceSummarySource = 'api' | 'local_closed_trades' | 'none'
@@ -368,18 +349,6 @@ function PriceFreshnessStatus({
   return <StatusDot live={isLive} label={isLive ? 'Live' : 'Stale'} />
 }
 
-function PricesRestStatus({ priceCount, fetched }: { priceCount: number; fetched: boolean }) {
-  if (priceCount > 0) {
-    return (
-      <p className="mt-1 text-sm font-semibold text-emerald-500">● {priceCount} symbols</p>
-    )
-  }
-  if (fetched) {
-    return <p className="mt-1 text-sm font-semibold text-amber-500">● Fetched – poller offline?</p>
-  }
-  return <p className="mt-1 text-sm font-semibold text-slate-400">● Waiting…</p>
-}
-
 export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
@@ -425,40 +394,7 @@ export function DashboardView({ section }: { section: Section }) {
   // Once we've tried (success or failure) show real cards so the UI doesn't
   // get stuck in skeleton mode when the price poller hasn't run yet.
   const pricesLoading = !pricesFetched && Object.keys(prices).length === 0
-  const latestTickTs = streamStats['market_ticks']?.lastMessageTimestamp ?? null
-  const dataLatencyMs = latestTickTs ? Math.max(Date.now() - new Date(latestTickTs).getTime(), 0) : null
-  const wsLatencyMs = wsLastMessageTimestamp ? Math.max(Date.now() - new Date(wsLastMessageTimestamp).getTime(), 0) : null
-  const recentEventLatencyMs = recentEvents.length > 0 && recentEvents[0]?.timestamp
-    ? Math.max(Date.now() - new Date(recentEvents[0].timestamp).getTime(), 0)
-    : null
-  const effectiveLatencyMs = dataLatencyMs ?? wsLatencyMs ?? recentEventLatencyMs
-  const throughput = Number(wsDiagnostics?.messageRate ?? 0)
-  const pipelineStatus = !latestTickTs
-    ? 'Stalled'
-    : dataLatencyMs != null && dataLatencyMs < PIPELINE_HEALTHY_LATENCY_MS
-      ? 'Healthy'
-      : 'Degraded'
-  const signalsCount = streamStats['signals']?.count ?? 0
-  const ordersCount = streamStats['orders']?.count ?? 0
-  const executionsCount = streamStats['executions']?.count ?? 0
-  const pipelineWarning = signalsCount > 0 && ordersCount === 0
-  const hasMarketData = Boolean(
-    latestTickTs
-    || (streamStats['market_ticks']?.count ?? 0) > 0
-    || recentEvents.some((event) => event.stream === 'market_ticks' || event.stream === 'market_events'),
-  )
   const isInMemoryMode = String((dashboardData as Record<string, unknown> | null)?.mode ?? '').includes('in_memory')
-  const persistenceEnabled = Boolean(
-    isInMemoryMode || persistedCounts.length > 0 || persistedEvents.length > 0 || persistedLogs.length > 0 || apiHealth.eventHistory === 'ok',
-  )
-  const signalAgentRealtimeCount = agentStatuses.find((agent) => canonicalAgentKey(agent.name) === 'SIGNAL_AGENT')?.event_count ?? 0
-  const reasoningAgentStatus = agentStatuses.find((agent) => canonicalAgentKey(agent.name) === 'REASONING_AGENT')?.status ?? 'unknown'
-  const executionAgentStatus = agentStatuses.find((agent) => canonicalAgentKey(agent.name) === 'EXECUTION_ENGINE')?.status ?? 'unknown'
-  const realizedPnl = tradeFeed.reduce((sum, row) => sum + (row.pnl ?? 0), 0)
-  const unrealizedPnl = positions.reduce((sum, row) => sum + (toFiniteNumber((row as Record<string, unknown>).pnl) ?? 0), 0)
-  const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
-  const wins = tradeFeed.filter((row) => (row.pnl ?? 0) > 0).length
-  const pnlWinRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
   const baseSystemStatus = useSystemStatus()
   const systemStatus = systemFeedError ? 'error' : baseSystemStatus
 
@@ -1007,257 +943,40 @@ export function DashboardView({ section }: { section: Section }) {
       {section === 'proposals' && <ProposalsSection />}
 
       {section === 'system' && (
-        <div className="space-y-4">
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>System Health</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Data latency</p>
-                <p className="text-sm font-mono">{effectiveLatencyMs != null ? `${formatAgeFromMs(effectiveLatencyMs)} (${effectiveLatencyMs}ms)` : '--'}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Events/sec throughput</p>
-                <p className="text-sm font-mono">{throughput.toFixed(2)}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Pipeline status</p>
-                <p className={cn('text-sm font-semibold', pipelineStatusTextClass(pipelineStatus))}>{pipelineStatus}</p>
-              </div>
-            </div>
-          </div>
-
-          {pipelineWarning && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
-              Signals generated but no orders placed
-            </div>
-          )}
-          {!hasMarketData && (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
-              No market data received
-            </div>
-          )}
-          {hasMarketData && !latestTickTs && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
-              Market events are arriving via WebSocket, but market_ticks lag metrics are missing.
-            </div>
-          )}
-          {systemFeedError && (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400">
-              {systemFeedError}
-            </div>
-          )}
-          {!persistenceEnabled && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
-              Persistence appears disabled (no persisted events/logs). Agents/Learning views may show incomplete history.
-            </div>
-          )}
-          {llmAvailable === false && (
-            <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 p-3 text-sm text-blue-600 dark:text-blue-400">
-              <span className="font-semibold">Rule-based mode</span> — no{' '}
-              {formatLlmProviderName(llmProvider)} API key configured. Reasoning decisions use
-              signal direction only; set{' '}
-              {llmProvider ? `${llmProvider.toUpperCase()}_API_KEY` : 'an LLM API key'} to enable
-              AI-powered analysis.
-            </div>
-          )}
-
-          {/* ── Connection Diagnostics ── always visible so broken configs are obvious */}
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Connection Diagnostics</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>WebSocket</p>
-                <p className={cn('mt-1 text-sm font-semibold', wsConnected ? 'text-emerald-500' : 'text-rose-500')}>
-                  {wsConnected ? '● Connected' : '● Disconnected'}
-                </p>
-                <p className="mt-1 break-all text-[10px] font-mono text-slate-400">
-                  {resolveWsUrl()}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>API Base</p>
-                <p className="mt-1 break-all text-xs font-mono text-slate-700 dark:text-slate-300">
-                  {process.env.NEXT_PUBLIC_API_URL ?? '/api (fallback)'}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Prices / REST</p>
-                <PricesRestStatus priceCount={Object.keys(prices).length} fetched={pricesFetched} />
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Reconnect attempts</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsDiagnostics.reconnectAttempts}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Message rate</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{Number.isFinite(wsDiagnostics.messageRate) ? wsDiagnostics.messageRate.toFixed(2) : '0.00'} /sec</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Messages received</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{wsMessageCount}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Last message</p>
-                <p className="text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">{formatTimestamp(wsLastMessageTimestamp)}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={mutedClass}>Last error</p>
-                <p className="text-xs font-mono text-slate-700 dark:text-slate-300">{wsDiagnostics.lastError ?? 'None'}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>PnL Clarity</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Realized</p><p className="text-sm font-mono">{totalTrades === 0 ? '--' : signedUSD(realizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Unrealized</p><p className="text-sm font-mono">{positions.length === 0 ? '--' : signedUSD(unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Session</p><p className="text-sm font-mono">{totalTrades === 0 && positions.length === 0 ? '--' : signedUSD(realizedPnl + unrealizedPnl)}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Total (DB)</p><p className="text-sm font-mono">{resolvedPerformanceSummary ? signedUSD(resolvedPerformanceSummary.total_pnl) : '--'}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Trades</p><p className="text-sm font-mono">{totalTrades}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Win rate</p><p className="text-sm font-mono">{totalTrades === 0 ? '--' : `${pnlWinRate.toFixed(1)}% (${wins}/${totalTrades})`}</p></div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Handoff</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signals (stream)</p><p className="text-sm font-mono">{signalsCount}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Orders</p><p className="text-sm font-mono">{ordersCount}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Executions</p><p className="text-sm font-mono">{executionsCount}</p></div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><p className={mutedClass}>Signal Agent (RT)</p><p className="text-sm font-mono">{signalAgentRealtimeCount}</p></div>
-            </div>
-            <p className={cn(mutedClass, 'mt-2')}>
-              Reasoning: <span className="font-mono">{reasoningAgentStatus}</span> → Execution: <span className="font-mono">{executionAgentStatus}</span>
-            </p>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Pipeline Status</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {['market_ticks', 'signals', 'orders', 'executions', 'agent_logs', 'risk_alerts', 'notifications'].map((streamName) => {
-                const stat = streamStats[streamName] ?? { count: 0, lastMessageTimestamp: null }
-                const isLive = Boolean(stat.lastMessageTimestamp && Date.now() - new Date(stat.lastMessageTimestamp).getTime() < PRICE_FRESHNESS_MS)
-                return (
-                  <div key={streamName} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{streamName}</p>
-                      <span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-emerald-500' : 'bg-slate-500')} />
-                    </div>
-                    <p className="mt-1 text-lg font-mono tabular-nums text-slate-900 dark:text-slate-100">{stat.count}</p>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Recent Events</p>
-            {recentEvents.length === 0 ? (
-              <EmptyState message={wsConnected ? 'No websocket events yet' : 'Stream disconnected'} />
-            ) : (
-              <div className="space-y-2">
-                {recentEvents.map((event, index) => (
-                  <div key={`${event.stream ?? 'evt'}-${event.timestamp ?? ''}-${event.msgId !== 'n/a' ? (event.msgId ?? index) : index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <span
-                      className={cn('rounded px-2 py-0.5 text-xs font-semibold', streamEventBadgeClass(event.stream))}
-                    >
-                      {event.stream}
-                    </span>
-                    <span className="text-xs font-mono text-slate-500">{event.msgId && event.msgId !== 'n/a' ? event.msgId.slice(0, 10) : '--'}</span>
-                    <span className="text-xs font-mono text-slate-500">{formatTimestamp(event.timestamp)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Observability</p>
-            {agentStatuses.length === 0 ? (
-              <EmptyState message="No agent status yet" icon={Brain} />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead><tr className="text-left text-slate-500"><th className="pb-2">Agent</th><th>Status</th><th>Signals</th><th>Last action</th></tr></thead>
-                  <tbody>
-                    {agentStatuses.map((agent) => (
-                      <tr key={agent.name} className="border-t border-slate-200 dark:border-slate-800">
-                        <td className="py-2 font-semibold">{agent.name}</td>
-                        <td>{agent.status}</td>
-                        <td className="font-mono">{agent.event_count}</td>
-                        <td>{agent.last_event || '--'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Persisted Event History</p>
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={cn(mutedClass, 'mb-2')}>Processed counts by stream</p>
-                {persistedCounts.length === 0 ? (
-                  <p className={mutedClass}>{isInMemoryMode ? 'In-memory mode (no DB persistence)' : 'Persistence not enabled'}</p>
-                ) : (
-                  <div className="space-y-1">
-                    {persistedCounts.slice(0, 8).map((row) => (
-                      <div key={row.stream} className="flex items-center justify-between text-xs font-mono">
-                        <span className="text-slate-600 dark:text-slate-300">{row.stream}</span>
-                        <span className="text-slate-900 dark:text-slate-100">{row.processed_count}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                <p className={cn(mutedClass, 'mb-2')}>Latest persisted events</p>
-                {persistedEvents.length === 0 ? (
-                  <p className={mutedClass}>{isInMemoryMode ? 'In-memory mode (no DB persistence)' : 'Persistence not enabled'}</p>
-                ) : (
-                  <div className="space-y-1">
-                    {persistedEvents.slice(0, 8).map((evt) => (
-                      <div key={evt.id} className="flex items-center justify-between text-xs font-mono">
-                        <span className="text-slate-600 dark:text-slate-300">{sanitizeValue(evt.kind)}</span>
-                        <span className="text-slate-500">{formatTimestamp(evt.created_at)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className={cn(mutedClass, 'mb-2')}>Latest persisted agent logs</p>
-              {persistedLogs.length === 0 ? (
-                <p className={mutedClass}>{isInMemoryMode ? 'In-memory mode (no DB persistence)' : 'Persistence not enabled'}</p>
-              ) : (
-                <div className="space-y-1">
-                  {persistedLogs.slice(0, 10).map((log) => (
-                    <button
-                      key={log.id}
-                      type="button"
-                      className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-xs font-mono hover:bg-slate-100 dark:hover:bg-slate-800"
-                      onClick={() => log.trace_id && setActiveTraceId(log.trace_id)}
-                    >
-                      <span className="text-slate-600 dark:text-slate-300">{sanitizeValue(log.kind)}</span>
-                      <span className="text-slate-500">{formatTimestamp(log.created_at)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <SystemDashboard
+          wsConnected={wsConnected}
+          wsMessageCount={wsMessageCount}
+          wsLastMessageTimestamp={wsLastMessageTimestamp}
+          wsDiagnostics={wsDiagnostics}
+          streamStats={streamStats}
+          recentEvents={recentEvents}
+          agentStatuses={agentStatuses}
+          prices={prices}
+          positions={positions}
+          tradeFeed={tradeFeed}
+          pricesFetched={pricesFetched}
+          isInMemoryMode={isInMemoryMode}
+          resolvedPerformanceSummary={resolvedPerformanceSummary}
+          apiHealth={apiHealth}
+          systemFeedError={systemFeedError}
+          llmAvailable={llmAvailable}
+          llmProvider={llmProvider}
+          persistedCounts={persistedCounts}
+          persistedEvents={persistedEvents}
+          persistedLogs={persistedLogs}
+          setActiveTraceId={setActiveTraceId}
+        />
       )}
     </>
   )
 
+  // System page packs many side-by-side cards and benefits from extra width;
+  // other sections stay constrained for comfortable reading width.
+  const mainMaxWidthClass = section === 'system' ? 'max-w-screen-2xl' : 'max-w-7xl'
+
   return (
     <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
-      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+      <main className={cn('mx-auto space-y-4 px-4 py-5', mainMaxWidthClass)}>
         <div
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',

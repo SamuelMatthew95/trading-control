@@ -102,10 +102,32 @@ export function agentCardTextClass(status: string): string {
 // ---------------------------------------------------------------------------
 
 export function streamEventBadgeClass(stream: string | null | undefined): string {
-  if (stream === 'market_ticks') return 'bg-emerald-500/15 text-emerald-500'
-  if (stream === 'signals') return 'bg-slate-500/10 text-slate-500'
-  if (stream === 'orders') return 'bg-amber-500/15 text-amber-500'
-  return 'bg-slate-500/15 text-slate-500'
+  switch (stream) {
+    case 'market_ticks':
+    case 'market_events':
+      return 'bg-emerald-500/20 text-emerald-400'
+    case 'signals':
+      return 'bg-sky-500/20 text-sky-400'
+    case 'decisions':
+      return 'bg-violet-500/20 text-violet-300'
+    case 'orders':
+      return 'bg-amber-500/20 text-amber-400'
+    case 'executions':
+      return 'bg-orange-500/20 text-orange-400'
+    case 'risk_alerts':
+      return 'bg-rose-500/20 text-rose-400'
+    case 'notifications':
+      return 'bg-blue-500/20 text-blue-400'
+    case 'agent_logs':
+      return 'bg-slate-400/20 text-slate-300'
+    case 'system_metrics':
+      return 'bg-indigo-500/20 text-indigo-400'
+    case 'agent_grades':
+    case 'graded_decisions':
+      return 'bg-pink-500/20 text-pink-400'
+    default:
+      return 'bg-slate-500/20 text-slate-400'
+  }
 }
 
 export function systemStatusBadgeClass(status: string): string {

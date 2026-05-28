@@ -233,14 +233,35 @@ describe('streamEventBadgeClass', () => {
   it('returns emerald for market_ticks', () => {
     expect(streamEventBadgeClass('market_ticks')).toContain('emerald')
   })
-  it('returns slate for signals', () => {
-    expect(streamEventBadgeClass('signals')).toContain('slate')
+  it('returns emerald for market_events', () => {
+    expect(streamEventBadgeClass('market_events')).toContain('emerald')
+  })
+  it('returns sky for signals', () => {
+    expect(streamEventBadgeClass('signals')).toContain('sky')
+  })
+  it('returns violet for decisions', () => {
+    expect(streamEventBadgeClass('decisions')).toContain('violet')
   })
   it('returns amber for orders', () => {
     expect(streamEventBadgeClass('orders')).toContain('amber')
   })
+  it('returns orange for executions', () => {
+    expect(streamEventBadgeClass('executions')).toContain('orange')
+  })
+  it('returns rose for risk_alerts', () => {
+    expect(streamEventBadgeClass('risk_alerts')).toContain('rose')
+  })
+  it('returns blue for notifications', () => {
+    expect(streamEventBadgeClass('notifications')).toContain('blue')
+  })
+  it('returns indigo for system_metrics', () => {
+    expect(streamEventBadgeClass('system_metrics')).toContain('indigo')
+  })
+  it('returns pink for graded_decisions', () => {
+    expect(streamEventBadgeClass('graded_decisions')).toContain('pink')
+  })
   it('returns slate for unknown stream', () => {
-    expect(streamEventBadgeClass('executions')).toContain('slate')
+    expect(streamEventBadgeClass('mystery_stream')).toContain('slate')
   })
   it('returns slate for null', () => {
     expect(streamEventBadgeClass(null)).toContain('slate')
