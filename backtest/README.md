@@ -51,6 +51,10 @@ python -m backtest --bars 2000 --vol 0.1
 
 # Real historical data (requires ALPACA_API_KEY / ALPACA_SECRET_KEY)
 python -m backtest --symbol BTC/USD --bars 1000 --source alpaca
+
+# Run a specific strategy, or compare them all head-to-head
+python -m backtest --strategy confirmed_trend --vol 1.5
+python -m backtest --compare --vol 1.5
 ```
 
 ```python
@@ -78,7 +82,36 @@ dip), wins only a third of the time, and bleeds out through slippage. This is
 the baseline any future strategy change must beat **in the harness** before it
 goes anywhere near live capital.
 
+## Pluggable strategies
+
+The decision is a swappable `Strategy` (`backtest/strategies.py`) — a function
+from one bar of context to `"buy"` / `"sell"` / `"hold"`. `baseline_momentum`
+*is* the live `classify_signal`; the rest are hypotheses measured against it.
+`backtest/compare.py` runs them over identical seeded price paths and averages
+the results.
+
+```
+$ python -m backtest --compare --vol 1.5
+strategy               return%   trades   sharpe    win%
+--------------------------------------------------------
+confirmed_trend           5.71     24.0    0.589   43.3%
+strong_only              -6.05     35.0   -0.282   40.1%
+mean_reversion          -16.18    241.5   -0.175   62.0%
+baseline_momentum       -22.15    241.5   -0.347   36.8%
+```
+
+**How to read this honestly:** the data has no edge by construction, so the
+*only* lever is trading cost. The baseline's flaw is laid bare — it makes 241
+trades and bleeds −22% to slippage. Strategies that trade selectively (24–35
+trades) cut that loss by 70–100%. `confirmed_trend` edging *positive* here is
+**within sampling noise** on a zero-edge walk — it is evidence of *not
+over-trading*, **not** evidence of alpha. A genuinely profitable strategy can
+only be confirmed on **real market data** (`--source alpaca`). What this proves
+is the methodology: a change can now be measured before it ever risks capital.
+
 ## Tests
 
 `tests/integration/test_backtest_flow.py` (CI-gated): end-to-end run,
-determinism, and the reproduced "idle" failure mode.
+determinism, the reproduced "idle" failure mode, that the pluggable refactor
+preserves baseline behavior, and that a selective strategy beats the baseline
+across 20 paired seeds.
