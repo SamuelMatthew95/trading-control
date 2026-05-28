@@ -248,12 +248,13 @@ def test_score_trade_adds_price_action_context_labels_for_losses():
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-loss",
+            # Closing a long (side='sell') as price fell against it → adverse move.
             FieldName.SIDE: "sell",
             FieldName.PNL: -50.0,
             FieldName.PNL_PERCENT: -1.2,
             FieldName.CONFIDENCE: 0.35,
             FieldName.ENTRY_PRICE: 100.0,
-            FieldName.EXIT_PRICE: 101.0,
+            FieldName.EXIT_PRICE: 99.0,
             FieldName.HOLDING_PERIOD_MINUTES: 1.0,
         }
     )
@@ -265,7 +266,9 @@ def test_score_trade_adds_price_action_context_labels_for_wins():
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-win",
-            FieldName.SIDE: "buy",
+            # trade_completed carries the CLOSING order side: a long is closed
+            # with side='sell', favorable when the price rose (see fill_publisher).
+            FieldName.SIDE: "sell",
             FieldName.PNL: 80.0,
             FieldName.PNL_PERCENT: 1.5,
             FieldName.CONFIDENCE: 0.85,
@@ -298,7 +301,9 @@ def test_score_trade_marks_clean_execution_on_profitable_trade():
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-clean",
-            FieldName.SIDE: "buy",
+            # Clean small long close (side='sell'): realized pnl% tracks the price
+            # move closely → tiny adverse excursion → clean_execution.
+            FieldName.SIDE: "sell",
             FieldName.PNL: 30.0,
             FieldName.PNL_PERCENT: 0.5,
             FieldName.ENTRY_PRICE: 100.0,
