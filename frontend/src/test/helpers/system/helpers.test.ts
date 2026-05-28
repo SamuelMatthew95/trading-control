@@ -7,6 +7,7 @@ import {
   computePipeline,
   formatAgeFromMs,
   formatLlmProviderName,
+  formatRelativeTime,
   formatTimestamp,
   pipelineStatusTone,
   pnlColorClass,
@@ -36,6 +37,42 @@ describe('system/helpers', () => {
     it('formats hours', () => {
       expect(formatAgeFromMs(3_600_000)).toBe('1h')
       expect(formatAgeFromMs(36_000_000)).toBe('10h')
+    })
+  })
+
+  describe('formatRelativeTime', () => {
+    const FIXED_NOW = 1_780_000_000_000
+
+    it('returns -- for null/undefined/invalid input', () => {
+      expect(formatRelativeTime(null, () => FIXED_NOW)).toBe('--')
+      expect(formatRelativeTime(undefined, () => FIXED_NOW)).toBe('--')
+      expect(formatRelativeTime('', () => FIXED_NOW)).toBe('--')
+      expect(formatRelativeTime('not-a-date', () => FIXED_NOW)).toBe('--')
+    })
+
+    it('returns "just now" for sub-second ages', () => {
+      const ts = new Date(FIXED_NOW - 250).toISOString()
+      expect(formatRelativeTime(ts, () => FIXED_NOW)).toBe('just now')
+    })
+
+    it('returns "Xs ago" for second-scale ages', () => {
+      const ts = new Date(FIXED_NOW - 5_000).toISOString()
+      expect(formatRelativeTime(ts, () => FIXED_NOW)).toBe('5s ago')
+    })
+
+    it('returns "Xm ago" for minute-scale ages', () => {
+      const ts = new Date(FIXED_NOW - 3 * 60_000).toISOString()
+      expect(formatRelativeTime(ts, () => FIXED_NOW)).toBe('3m ago')
+    })
+
+    it('returns "Xh ago" for hour-scale ages', () => {
+      const ts = new Date(FIXED_NOW - 2 * 3_600_000).toISOString()
+      expect(formatRelativeTime(ts, () => FIXED_NOW)).toBe('2h ago')
+    })
+
+    it('clamps future timestamps to "just now"', () => {
+      const ts = new Date(FIXED_NOW + 5_000).toISOString()
+      expect(formatRelativeTime(ts, () => FIXED_NOW)).toBe('just now')
     })
   })
 

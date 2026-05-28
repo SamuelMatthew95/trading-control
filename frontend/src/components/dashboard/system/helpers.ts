@@ -38,6 +38,18 @@ export function formatAgeFromMs(ageMs: number | null): string {
   return `${hr}h`
 }
 
+export function formatRelativeTime(
+  value: string | null | undefined,
+  now: () => number = Date.now,
+): string {
+  if (!value) return '--'
+  const ts = new Date(value).getTime()
+  if (Number.isNaN(ts)) return '--'
+  const ageMs = Math.max(now() - ts, 0)
+  if (ageMs < 1000) return 'just now'
+  return `${formatAgeFromMs(ageMs)} ago`
+}
+
 export function resolveWsUrl(): string {
   if (typeof window === 'undefined') return '—'
   if (process.env.NEXT_PUBLIC_WS_URL) {
