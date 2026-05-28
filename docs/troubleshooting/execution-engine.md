@@ -73,3 +73,15 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** `_enforce_fallback_trade_guard` in `api/services/execution/execution_engine.py` now returns `False` immediately when `is_db_available()` is `False` — paper/memory mode has no live capital at risk so the fallback guard is irrelevant.
 
 **Regression test:** `tests/agents/test_execution_fallback_guard.py`
+
+---
+
+## Trade-scorer directional tags — `side` is the CLOSING order side, not position direction
+
+**Symptom:** `tests/agents/test_trade_scorer.py` had three failing tests (`..._for_wins`, `..._for_losses`, `..._marks_clean_execution...`): the scorer emitted the opposite price-action tag (e.g. `reversion_luck` instead of `clean_execution`, or no `adverse_price_move`).
+
+**Root cause:** `STREAM_TRADE_COMPLETED` is published by `fill_publisher.publish_fill_events` **only on `is_round_trip_close`**, and its `FieldName.SIDE` is the *closing* order side — closing a long is `side='sell'`, closing a short is `side='buy'`. `_direction_sign_from_side_event` in `trade_scorer.py` correctly implements this (sell→+1 favorable-when-price-rises, buy→−1 favorable-when-price-falls). Commit `fae9346` flipped the code to this contract and updated two tests, but three older fixtures were left using *open-position* semantics (`buy`=long). They became internally contradictory — e.g. a long closed with `side='sell'` but `exit > entry` (price rose, favorable) yet `pnl < 0` — so no consistent sign convention could satisfy them alongside the corrected tests.
+
+**Fix:** Corrected the three stale fixtures to realistic round-trip long closes (`side='sell'`): `for_wins` keeps the favorable up-move, `for_losses` flips `exit_price` to fall against the long, and `clean` tracks `pnl%` to the move. No production code changed — the scorer already matched the real event contract. Added comments at each fixture documenting the close-order convention.
+
+**Regression test:** `tests/agents/test_trade_scorer.py::test_score_trade_adds_price_action_context_labels_for_wins` (and the `_for_losses` / `_marks_clean_execution_on_profitable_trade` siblings)
