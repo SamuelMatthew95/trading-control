@@ -432,5 +432,3 @@ async def poll_prices() -> None:
 
     finally:
         await client.aclose()
-
-
