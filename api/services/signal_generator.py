@@ -51,6 +51,52 @@ from api.services.risk_filters import compute_atr_from_prices, compute_rsi
 
 AGENT_NAME = AGENT_SIGNAL
 
+# Signal classification thresholds — absolute single-bar percentage move.
+# These two numbers ARE the entire buy/sell/hold decision today, and they are
+# the primary knob the backtest harness exists to measure and tune. Promoted
+# out of process() so the live agent and backtest/ share one source of truth.
+STRONG_MOMENTUM_PCT = 3.0
+MOMENTUM_PCT = 1.5
+
+
+def classify_signal(
+    pct: float,
+) -> tuple[SignalType, SignalStrength, float, MarketDirection, str]:
+    """Classify a percentage price move into the full trading decision.
+
+    PURE — no IO, no state. Returns ``(signal_type, strength, score, direction,
+    action)``. This is the single source of truth for the buy/sell/hold call,
+    shared by the live ``SignalGenerator`` and the ``backtest`` harness so the
+    two can never silently diverge.
+
+    ``pct`` is the bar-to-bar percent change, exactly as PricePoller computes it
+    ((price - prev_price) / prev_price * 100).
+    """
+    abs_pct = abs(pct)
+    direction = (
+        MarketDirection.BULLISH
+        if pct > 0
+        else (MarketDirection.BEARISH if pct < 0 else MarketDirection.NEUTRAL)
+    )
+    if abs_pct >= STRONG_MOMENTUM_PCT:
+        signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
+    elif abs_pct >= MOMENTUM_PCT:
+        signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
+    else:
+        signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
+
+    # LOW strength == noise. Never trade direction off a sub-1.5% move — the
+    # score (0.30) is below the execution gate anyway, and emitting buy/sell
+    # here pollutes downstream agent logs and lets a generous LLM re-confidence
+    # the trade past the gate.
+    if strength == SignalStrength.LOW or direction == MarketDirection.NEUTRAL:
+        action = "hold"
+    elif direction == MarketDirection.BULLISH:
+        action = "buy"
+    else:
+        action = "sell"
+    return signal_type, strength, score, direction, action
+
 
 class SignalGenerator(BaseStreamConsumer):
     _heartbeat_agent_name = AGENT_SIGNAL
@@ -241,29 +287,8 @@ class SignalGenerator(BaseStreamConsumer):
                 time_of_day = "after_hours"
 
         # --- Classify signal ---------------------------------------------
-        abs_pct = abs(pct)
-        direction = (
-            MarketDirection.BULLISH
-            if pct > 0
-            else (MarketDirection.BEARISH if pct < 0 else MarketDirection.NEUTRAL)
-        )
-        if abs_pct >= 3.0:
-            signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
-        elif abs_pct >= 1.5:
-            signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
-        else:
-            signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
-
-        # LOW strength == noise. Never trade direction off a sub-1.5% move —
-        # the score (0.30) was below the execution gate anyway, but emitting
-        # action=buy/sell here pollutes downstream agent logs and lets a
-        # generous LLM re-confidence the trade past the gate.
-        if strength == SignalStrength.LOW or direction == MarketDirection.NEUTRAL:
-            action = "hold"
-        elif direction == MarketDirection.BULLISH:
-            action = "buy"
-        else:
-            action = "sell"
+        # Pure decision, shared with the backtest harness (see classify_signal).
+        signal_type, strength, score, direction, action = classify_signal(pct)
 
         signal_payload: dict[str, Any] = {
             FieldName.TYPE: signal_type.value,
