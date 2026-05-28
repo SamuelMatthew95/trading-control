@@ -16,7 +16,7 @@ from typing import Any
 
 from api.constants import DEFAULT_PAPER_CASH, FieldName
 from api.services.agents.trade_scorer import compute_learning_metrics, score_trade
-from api.services.signal_generator import classify_signal
+from backtest.strategies import Bar, Strategy, baseline_momentum
 
 # Mirrors api/services/execution/brokers/paper.py: fill = price * (1 ± slip),
 # slip drawn uniformly from this fractional range (0.01%–0.05%).
@@ -25,6 +25,14 @@ SLIPPAGE_MAX_PCT = 0.0005
 
 # Fraction of current equity deployed as notional on each new position.
 DEFAULT_POSITION_FRACTION = 0.95
+
+# Confidence stamped on every simulated trade for scoring. The headline metrics
+# (return, win rate, Sharpe, drawdown) are confidence-independent, so a constant
+# keeps strategy comparisons apples-to-apples.
+DEFAULT_CONFIDENCE = 0.6
+
+# Window of recent closes handed to each strategy as context.
+HISTORY_WINDOW = 64
 
 
 @dataclass
@@ -42,6 +50,7 @@ class BacktestResult:
     sharpe: float
     max_drawdown_pct: float
     avg_trade_pnl: float
+    strategy: str = ""
     metrics: dict[str, Any] = field(default_factory=dict)
     evaluations: list[dict[str, Any]] = field(default_factory=list)
     equity_curve: list[float] = field(default_factory=list)
@@ -50,7 +59,7 @@ class BacktestResult:
         """Human-readable one-block report."""
         return "\n".join(
             [
-                f"Backtest — {self.symbol}",
+                f"Backtest — {self.symbol}" + (f"  [{self.strategy}]" if self.strategy else ""),
                 f"  bars analysed   : {self.bars}",
                 f"  trades          : {self.trades}   (holds: {self.holds})",
                 f"  starting equity : ${self.starting_equity:,.2f}",
@@ -67,6 +76,8 @@ class BacktestResult:
 def run_backtest(
     prices: Sequence[float],
     *,
+    strategy: Strategy = baseline_momentum,
+    strategy_name: str = "",
     symbol: str = "SYNTHETIC",
     starting_equity: float = DEFAULT_PAPER_CASH,
     position_fraction: float = DEFAULT_POSITION_FRACTION,
@@ -129,8 +140,14 @@ def run_backtest(
         prev = float(prices[i - 1])
         cur = float(prices[i])
         pct = ((cur - prev) / prev * 100.0) if prev else 0.0
-
-        _signal_type, _strength, score, _direction, action = classify_signal(pct)
+        bar = Bar(
+            index=i,
+            price=cur,
+            prev_price=prev,
+            pct=pct,
+            history=[float(p) for p in prices[max(0, i - HISTORY_WINDOW) : i + 1]],
+        )
+        action = strategy(bar)
 
         if action == "hold":
             holds += 1
@@ -157,7 +174,7 @@ def run_backtest(
                 open_price = open_fill
                 open_qty = qty
                 open_bar = i
-                open_confidence = score / 100.0
+                open_confidence = DEFAULT_CONFIDENCE
 
         equity_curve.append(cash + position_qty * cur)
 
@@ -194,6 +211,7 @@ def run_backtest(
 
     return BacktestResult(
         symbol=symbol,
+        strategy=strategy_name,
         bars=n,
         trades=trades,
         holds=holds,
