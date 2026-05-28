@@ -4,9 +4,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from api.constants import (
+    STREAM_AGENT_GRADES,
+    STREAM_NOTIFICATIONS,
+    FieldName,
+    Severity,
+)
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
+from api.services.agents.grade_analytics import DIRECTION_DROP, build_self_correction
 from api.services.agents.pipeline_agents import GradeAgent
 from api.services.agents.scoring import normalize_ic as _normalize_ic
 from api.services.agents.scoring import score_to_grade as _score_to_grade
@@ -258,3 +265,95 @@ async def test_consecutive_low_grades_reset_on_good_grade(grade_agent):
     await grade_agent._take_grade_action("B", good_payload)
 
     assert grade_agent._consecutive_low_grades == 0
+
+
+# ---------------------------------------------------------------------------
+# Self-correction analytics wiring (anomaly detection + trajectory)
+# ---------------------------------------------------------------------------
+
+
+def _dim(accuracy=0.8, ic=0.6, cost=0.5, latency=0.8):
+    return {
+        FieldName.ACCURACY: accuracy,
+        FieldName.IC_NORMALIZED: ic,
+        FieldName.COST_NORMALIZED: cost,
+        FieldName.LATENCY_SCORE: latency,
+    }
+
+
+def test_self_correction_grows_history_and_excludes_current_grade(grade_agent):
+    """Each cycle is folded into history and judged against only the prior ones."""
+    for score in [0.80, 0.81, 0.79, 0.80, 0.82, 0.80]:
+        diagnostic = grade_agent._self_correction(score, _dim())
+        # While building the stable baseline nothing should fire.
+        assert diagnostic[FieldName.ANOMALY_DETECTED] is False
+
+    assert len(grade_agent._grade_score_history) == 6
+
+    # A sharp drop, attributed to accuracy, is flagged against the prior baseline.
+    drop = grade_agent._self_correction(0.30, _dim(accuracy=0.2))
+    assert drop[FieldName.ANOMALY_DETECTED] is True
+    assert drop[FieldName.DIRECTION] == DIRECTION_DROP
+    assert drop[FieldName.ATTRIBUTION][0][FieldName.DIMENSION] == FieldName.ACCURACY
+    assert len(grade_agent._grade_score_history) == 7
+
+
+@pytest.mark.asyncio
+async def test_emit_alert_publishes_notification_on_drop(grade_agent, mock_bus):
+    baseline = [0.80, 0.81, 0.79, 0.80, 0.82, 0.80]
+    diagnostic = build_self_correction(
+        baseline, 0.30, [_dim()] * len(baseline), _dim(accuracy=0.2), [*baseline, 0.30]
+    )
+    await grade_agent._emit_self_correction_alert(diagnostic, "trace-xyz")
+
+    notif_calls = [
+        call
+        for call in mock_bus.publish.call_args_list
+        if call.args and call.args[0] == STREAM_NOTIFICATIONS
+    ]
+    assert len(notif_calls) == 1
+    published = notif_calls[0].args[1]
+    assert published[FieldName.NOTIFICATION_TYPE] == "grade_self_correction"
+    assert published[FieldName.SEVERITY] == Severity.WARNING
+    assert FieldName.SELF_CORRECTION in published[FieldName.PAYLOAD]
+
+
+@pytest.mark.asyncio
+async def test_emit_alert_is_noop_when_healthy(grade_agent, mock_bus):
+    stable = [0.80] * 6
+    diagnostic = build_self_correction(
+        stable, 0.81, [_dim()] * len(stable), _dim(), [*stable, 0.81]
+    )
+    await grade_agent._emit_self_correction_alert(diagnostic, "trace-xyz")
+
+    notif_calls = [
+        call
+        for call in mock_bus.publish.call_args_list
+        if call.args and call.args[0] == STREAM_NOTIFICATIONS
+    ]
+    assert notif_calls == []
+
+
+@pytest.mark.asyncio
+@patch("api.redis_client.get_redis", new_callable=AsyncMock)
+@patch("api.services.agents.pipeline_agents._write_heartbeat", new_callable=AsyncMock)
+@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+async def test_grade_payload_embeds_self_correction(_hb, _redis, grade_agent, mock_bus):
+    """The published agent_grades payload carries the self-correction diagnostic."""
+    for _ in range(10):
+        grade_agent._pnl_buffer.append(1.0)
+        grade_agent._confidence_buffer.append(0.7)
+
+    await grade_agent._compute_and_publish_grade()
+
+    grade_calls = [
+        call
+        for call in mock_bus.publish.call_args_list
+        if call.args and call.args[0] == STREAM_AGENT_GRADES
+    ]
+    assert grade_calls, "expected an agent_grades publish"
+    payload = grade_calls[-1].args[1]
+    assert FieldName.SELF_CORRECTION in payload
+    diagnostic = payload[FieldName.SELF_CORRECTION]
+    assert FieldName.TRAJECTORY in diagnostic
+    assert FieldName.ATTRIBUTION in diagnostic
