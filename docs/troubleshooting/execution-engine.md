@@ -73,3 +73,13 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** `_enforce_fallback_trade_guard` in `api/services/execution/execution_engine.py` now returns `False` immediately when `is_db_available()` is `False` — paper/memory mode has no live capital at risk so the fallback guard is irrelevant.
 
 **Regression test:** `tests/agents/test_execution_fallback_guard.py`
+
+## trade_scorer price-move sign: "side" means the closing-order side, not the position side
+
+**Symptom:** Three `tests/agents/test_trade_scorer.py` cases failed (`clean_execution`, `captured_directional_move`, `adverse_price_move` tags missing). The failures were invisible in CI because CI runs only `tests/core`, `tests/api`, and `tests/integration` — never `tests/agents`.
+
+**Root cause:** `trade_scorer._direction_sign_from_side_event` orients the price move using the **closing-order side** convention the execution engine actually emits — a closed LONG is reported with `side="sell"` (the close order is opposite the open position; see `execution_engine.is_round_trip_close`). The three tests were authored with the opposite, intuitive "buy == long" convention, so their fixtures (e.g. a profitable long tagged `side="buy"`) were internally inconsistent with production data and the scorer flipped the move sign.
+
+**Fix:** Corrected the stale fixtures in `tests/agents/test_trade_scorer.py` to the production closing-order-side convention (profitable/losing longs use `side="sell"`) and added a comment block documenting the convention so it is not mis-applied again. No production code changed — the scorer was already correct for live trade-completed events; flipping it would have corrupted every live grade.
+
+**Regression test:** `tests/agents/test_trade_scorer.py::test_score_trade_marks_clean_execution_on_profitable_trade` (+ `_for_wins`, `_for_losses`)
