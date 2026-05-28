@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 
+from backtest.compare import compare_strategies, format_table
 from backtest.data import alpaca_prices, synthetic_prices
 from backtest.engine import run_backtest
+from backtest.strategies import STRATEGIES
 
 
 def main() -> None:
@@ -32,7 +34,24 @@ def main() -> None:
     parser.add_argument("--vol", type=float, default=0.8, help="synthetic per-bar volatility, %%")
     parser.add_argument("--drift", type=float, default=0.0, help="synthetic per-bar drift, %%")
     parser.add_argument("--seed", type=int, default=0, help="random seed (deterministic runs)")
+    parser.add_argument(
+        "--strategy",
+        choices=sorted(STRATEGIES),
+        default="baseline_momentum",
+        help="which strategy to run",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="compare all strategies across 20 seeds and exit",
+    )
     args = parser.parse_args()
+
+    if args.compare:
+        stats = compare_strategies(vol_pct=args.vol, n=args.bars)
+        print(f"\nStrategy comparison (mean over 20 synthetic seeds, vol={args.vol}%, drift=0):")
+        print(format_table(stats))
+        return
 
     prices: list[float] = []
     source_used = "synthetic"
@@ -48,7 +67,13 @@ def main() -> None:
             n=args.bars, vol_pct=args.vol, drift_pct=args.drift, seed=args.seed
         )
 
-    result = run_backtest(prices, symbol=args.symbol, slippage_seed=args.seed)
+    result = run_backtest(
+        prices,
+        strategy=STRATEGIES[args.strategy],
+        strategy_name=args.strategy,
+        symbol=args.symbol,
+        slippage_seed=args.seed,
+    )
 
     detail = f"  (vol={args.vol}% drift={args.drift}%)" if source_used == "synthetic" else ""
     print(f"\nData source: {source_used}{detail}")
