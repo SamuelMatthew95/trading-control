@@ -37,13 +37,18 @@ async def test_compare_returns_strategy_table(client):
     assert len(rows) == 4
     names = {r[FieldName.NAME] for r in rows}
     assert "baseline_momentum" in names
-    # Pre-sorted best-return-first.
-    returns = [r[FieldName.RETURN_PCT] for r in rows]
-    assert returns == sorted(returns, reverse=True)
-    # Every row carries the metrics the UI renders.
+    # Active (signal-producing) strategies rank first by return; inert
+    # "NO SIGNALS" strategies sort last so a 0-trade 0.00% never outranks one
+    # that actually traded.
+    active_returns = [r[FieldName.RETURN_PCT] for r in rows if r[FieldName.TRADE_COUNT] > 0]
+    assert active_returns == sorted(active_returns, reverse=True)
+    first_inert = next((i for i, r in enumerate(rows) if r[FieldName.TRADE_COUNT] == 0), len(rows))
+    assert all(rows[i][FieldName.TRADE_COUNT] > 0 for i in range(first_inert))
+    # Every row carries the metrics the UI renders, including the signal count.
     for r in rows:
         assert FieldName.RETURN_PCT in r
         assert FieldName.TRADE_COUNT in r
+        assert FieldName.SIGNALS in r
         assert FieldName.SHARPE_RATIO in r
         assert FieldName.WIN_RATE in r
 
@@ -52,7 +57,7 @@ async def test_compare_returns_strategy_table(client):
     assert data[FieldName.BASELINE] == "baseline_momentum"
     assert isinstance(data[FieldName.IS_DIFFERENT], bool)
     assert isinstance(data[FieldName.BEATS_BASELINE], bool)
-    assert data[FieldName.DECISION] in ("promote", "reject")
+    assert data[FieldName.DECISION] in ("promote", "reject", "insufficient_data")
     assert isinstance(data[FieldName.REASON], str) and data[FieldName.REASON]
 
 
