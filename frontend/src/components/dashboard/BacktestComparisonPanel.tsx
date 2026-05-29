@@ -20,6 +20,12 @@ interface BacktestCompareResponse {
   summary: string
   cached: boolean
   generated_at: string
+  candidate: string | null
+  baseline: string | null
+  is_different: boolean
+  beats_baseline: boolean
+  decision: string
+  reason: string
   strategies: StrategyRow[]
 }
 
@@ -82,6 +88,19 @@ export function BacktestComparisonPanel() {
 
       {!error && data && (
         <>
+          {data.candidate && (
+            <div
+              className={`mb-3 rounded-lg border p-2 ${
+                data.decision === 'promote' ? PROMOTE_BOX : REJECT_BOX
+              }`}
+            >
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">
+                Challenger: {data.candidate} — different {data.is_different ? '✓' : '✗'} · beats
+                baseline {data.beats_baseline ? '✓' : '✗'} → {data.decision.toUpperCase()}
+              </p>
+              <p className={`mt-0.5 ${MUTED}`}>{data.reason}</p>
+            </div>
+          )}
           <div className="overflow-x-auto rounded-lg border border-slate-300 dark:border-slate-800">
             <table className="w-full text-xs font-mono">
               <thead className="bg-slate-100 dark:bg-slate-800/90">
@@ -136,5 +155,8 @@ const MUTED = 'text-xs text-slate-500 dark:text-slate-400'
 const FOOT = 'text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500'
 const POS = 'text-emerald-600 dark:text-emerald-400'
 const NEG = 'text-rose-600 dark:text-rose-400'
+const PROMOTE_BOX =
+  'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40'
+const REJECT_BOX = 'border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40'
 const BTN =
   'rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
