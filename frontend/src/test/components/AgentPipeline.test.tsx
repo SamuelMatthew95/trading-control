@@ -15,13 +15,16 @@ const baseProps: AgentPipelineInput = {
 }
 
 describe('AgentPipeline', () => {
-  it('renders every stage label and agent name', () => {
+  it('renders every stage label and the canonical agent display names', () => {
     render(<AgentPipeline {...baseProps} />)
-    for (const label of ['Market', 'Signal', 'Reasoning', 'Execution', 'Grade', 'Learn']) {
+    for (const label of ['Market', 'Signal', 'Reasoning', 'Execution', 'Grade', 'IC Update', 'Reflection', 'Proposer']) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
-    expect(screen.getByText('SignalGenerator')).toBeInTheDocument()
-    expect(screen.getByText('ReasoningAgent')).toBeInTheDocument()
+    // Names match the Agent Status table (agentDisplayName), not class-style names.
+    expect(screen.getByText('Signal Agent')).toBeInTheDocument()
+    expect(screen.getByText('Reasoning Agent')).toBeInTheDocument()
+    expect(screen.getByText('Strategy Proposer')).toBeInTheDocument()
+    expect(screen.queryByText('SignalGenerator')).not.toBeInTheDocument()
   })
 
   it('shows reporting agents as Live and missing agents as Waiting', () => {
@@ -42,7 +45,7 @@ describe('AgentPipeline', () => {
     render(
       <AgentPipeline
         {...baseProps}
-        agents={[{ name: AGENT_REASONING, status: 'Live', realtimeCount: 0, persistedCount: 0, lastSeen: new Date() }]}
+        agents={[{ name: AGENT_REASONING, status: 'Live', realtimeCount: 3, persistedCount: 0, lastSeen: new Date() }]}
         decisionStats={{ total: 8, last_hour: { buys: 4, sells: 3, holds: 1 } }}
       />,
     )
