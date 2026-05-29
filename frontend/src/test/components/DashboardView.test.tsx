@@ -241,8 +241,9 @@ describe('DashboardView — agents', () => {
       }
     ]
     render(<DashboardView section="agents" />)
-    expect(screen.getByText('Signal Agent')).toBeInTheDocument()
-    // "Live" now appears both in the pipeline stage and the status table.
+    // "Signal Agent" and "Live" now appear in BOTH the pipeline and the status
+    // table — same label in both places, which is the point (uniform names).
+    expect(screen.getAllByText('Signal Agent').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Live').length).toBeGreaterThan(0)
     expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
