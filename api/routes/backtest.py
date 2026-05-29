@@ -21,11 +21,14 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.constants import FieldName
+from api.constants import REDIS_KEY_KILL_SWITCH, FieldName, StrategyStatus
 from api.observability import log_structured
+from api.redis_client import get_redis
+from api.services.strategy_registry import StrategyRegistry, get_strategy_registry
 from backtest.challenger import evaluate_from_stats
 from backtest.compare import compare_on_prices
 from backtest.data import alpaca_prices, synthetic_prices
+from backtest.strategies import STRATEGIES
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
@@ -118,3 +121,69 @@ async def compare(
     except Exception:
         log_structured("error", "backtest_compare_failed", symbol=symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="backtest comparison failed") from None
+
+
+_BASELINE_NAME = "baseline_momentum"
+_TO_LIVE_STAGES = (
+    StrategyStatus.BACKTESTED,
+    StrategyStatus.SHADOW,
+    StrategyStatus.CANARY,
+    StrategyStatus.LIVE,
+)
+
+
+def _seed_registry_if_empty() -> StrategyRegistry:
+    """Populate the registry once from the known strategies (idempotent).
+
+    Baseline is the current live signal; the others are backtested candidates.
+    This is a first, honest population so the lifecycle has real state to show;
+    wiring the StrategyProposer/challenger to register versions is the next step.
+    """
+    registry = get_strategy_registry()
+    if registry.versions():
+        return registry
+    base = registry.register({FieldName.STRATEGY: _BASELINE_NAME})
+    for stage in _TO_LIVE_STAGES:
+        registry.transition(base.version_id, stage)
+    for name in STRATEGIES:
+        if name == _BASELINE_NAME:
+            continue
+        candidate = registry.register({FieldName.STRATEGY: name})
+        registry.transition(candidate.version_id, StrategyStatus.BACKTESTED)
+    return registry
+
+
+async def _breaker_tripped() -> bool:
+    """Best-effort read of the kill switch — the circuit breaker's live state."""
+    try:
+        redis = await get_redis()
+        value = await redis.get(REDIS_KEY_KILL_SWITCH)
+        return value in ("1", b"1")
+    except Exception:
+        return False
+
+
+@router.get("/strategies")
+async def strategies() -> dict[str, Any]:
+    """List every strategy version and its lifecycle stage, for the dashboard.
+
+    Each version advances proposed -> backtested -> shadow -> canary -> live ->
+    retired (one stage at a time, enforced by the registry). The circuit-breaker
+    (kill-switch) state is included so the UI can show when trading is halted.
+    """
+    registry = _seed_registry_if_empty()
+    rows = [
+        {
+            FieldName.ID: sv.version_id,
+            FieldName.NAME: sv.config.get(FieldName.STRATEGY, ""),
+            FieldName.VERSION: sv.version,
+            FieldName.STATUS: (rec.status.value if (rec := registry.get(sv.version_id)) else ""),
+        }
+        for sv in registry.versions()
+    ]
+    rows.sort(key=lambda r: r[FieldName.VERSION])
+    return {
+        FieldName.MODE: "registry",
+        FieldName.STRATEGIES: rows,
+        FieldName.CIRCUIT_BREAKER_ACTIVE: await _breaker_tripped(),
+    }
