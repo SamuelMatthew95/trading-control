@@ -71,3 +71,19 @@ async def test_compare_is_cached_on_second_call(client):
     assert second[FieldName.CACHED] is True
     # Same inputs => identical table, served from cache rather than recomputed.
     assert first[FieldName.STRATEGIES] == second[FieldName.STRATEGIES]
+
+
+@pytest.mark.asyncio
+async def test_strategies_lists_lifecycle_states(client):
+    from api.services.strategy_registry import StrategyRegistry, set_strategy_registry
+
+    set_strategy_registry(StrategyRegistry())  # isolate from other tests
+    resp = await client.get("/backtest/strategies")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data[FieldName.MODE] == "registry"
+    assert FieldName.CIRCUIT_BREAKER_ACTIVE in data
+    by_name = {r[FieldName.NAME]: r for r in data[FieldName.STRATEGIES]}
+    # Baseline is seeded live; candidates are seeded as backtested (not promoted).
+    assert by_name["baseline_momentum"][FieldName.STATUS] == "live"
+    assert by_name["strong_only"][FieldName.STATUS] == "backtested"
