@@ -81,6 +81,10 @@ from api.services.agents.db_helpers import (
     write_agent_log,
     write_grade_to_db,
 )
+from api.services.agents.grade_analytics import (
+    build_self_correction,
+    is_actionable,
+)
 from api.services.agents.notification_payloads import (
     build_trade_notification,
 )
@@ -142,6 +146,12 @@ class GradeAgent(MultiStreamAgent):
         # only ratchet up when *new* 429s appear, not just because old ones are
         # still inside the 5-minute sliding window.
         self._last_rl_count_at_adjustment: int = 0
+        # Rolling (composite_score, dimension_vector) history feeding the
+        # self-correction analytics — grade anomaly detection + trajectory.
+        self._grade_score_history: deque[tuple[float, dict[str, Any]]] = deque(maxlen=50)
+        # Edge-trigger latch: alert once when the diagnostic enters a drop/decay
+        # state, stay quiet until it recovers (avoids per-cycle notification spam).
+        self._self_correction_active: bool = False
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -220,6 +230,14 @@ class GradeAgent(MultiStreamAgent):
         )
         grade = score_to_grade(score)
 
+        dimension_vector = {
+            FieldName.ACCURACY: round(accuracy, 4),
+            FieldName.IC_NORMALIZED: round(ic_norm, 4),
+            FieldName.COST_NORMALIZED: round(cost_norm, 4),
+            FieldName.LATENCY_SCORE: round(latency, 4),
+        }
+        self_correction = self._self_correction(score, dimension_vector)
+
         payload = {
             FieldName.MSG_ID: str(uuid.uuid4()),
             FieldName.TYPE: "agent_grade",
@@ -253,6 +271,7 @@ class GradeAgent(MultiStreamAgent):
                 ),
             },
             FieldName.FILLS_GRADED: self._fills,
+            FieldName.SELF_CORRECTION: self_correction,
             FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
         }
 
@@ -269,8 +288,14 @@ class GradeAgent(MultiStreamAgent):
         )
 
         await write_agent_log(trace_id, LogType.GRADE, payload)
-        await write_grade_to_db(trace_id, payload[FieldName.SCORE_PCT], payload[FieldName.METRICS])
+        await write_grade_to_db(
+            trace_id,
+            payload[FieldName.SCORE_PCT],
+            payload[FieldName.METRICS],
+            self_correction=self_correction,
+        )
         await self._take_grade_action(grade, payload)
+        await self._emit_self_correction_alert(self_correction, trace_id)
         await self._adjust_llm_call_rate(llm_snap)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
@@ -326,6 +351,71 @@ class GradeAgent(MultiStreamAgent):
                 )
         except Exception:
             log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
+
+    def _self_correction(self, score: float, dimension_vector: dict[str, Any]) -> dict[str, Any]:
+        """Build the self-correction diagnostic, then fold this cycle into history.
+
+        The current grade is compared against the *prior* cycles (so it is never
+        part of its own baseline); the trajectory uses the full recent window
+        including this cycle.
+        """
+        baseline_scores = [s for s, _ in self._grade_score_history]
+        baseline_vectors = [v for _, v in self._grade_score_history]
+        recent_scores = [*baseline_scores, score]
+        diagnostic = build_self_correction(
+            baseline_scores,
+            score,
+            baseline_vectors,
+            dimension_vector,
+            recent_scores,
+        )
+        self._grade_score_history.append((score, dimension_vector))
+        return diagnostic
+
+    async def _emit_self_correction_alert(
+        self, self_correction: dict[str, Any], trace_id: str
+    ) -> None:
+        """Edge-triggered alert on a grade drop or decaying trend.
+
+        Fires a single notification when the diagnostic first becomes actionable
+        (entering drop/decay) and stays silent until it recovers — no per-cycle
+        spam. Surfaces a degrading trajectory *before* the hard D/F gates in
+        ``_take_grade_action`` retire the agent. The full diagnostic always
+        rides along in the grade payload regardless; this is only the push
+        alert. Positive spikes are never paged on.
+        """
+        if not is_actionable(self_correction):
+            # Recovered (or never tripped) — reset so the next entry re-fires.
+            self._self_correction_active = False
+            return
+        if self._self_correction_active:
+            # Already alerted for this episode — don't re-page every cycle.
+            return
+        self._self_correction_active = True
+        log_structured(
+            "warning",
+            "grade_self_correction",
+            anomaly=self_correction[FieldName.ANOMALY_DETECTED],
+            direction=self_correction[FieldName.DIRECTION],
+            z_score=self_correction[FieldName.Z_SCORE],
+            trace_id=trace_id,
+        )
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_GRADE,
+                FieldName.TYPE: "notification",
+                FieldName.SEVERITY: Severity.WARNING,
+                FieldName.NOTIFICATION_TYPE: "grade_self_correction",
+                FieldName.MESSAGE: self_correction[FieldName.MESSAGE],
+                FieldName.PAYLOAD: {
+                    FieldName.SELF_CORRECTION: self_correction,
+                    FieldName.TRACE_ID: trace_id,
+                },
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     def _win_rate(self, lookback_n: int) -> float:
         recent = list(self._pnl_buffer)[-lookback_n:]

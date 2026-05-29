@@ -91,6 +91,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
                     "score": payload.get(FieldName.SCORE),
                     "score_pct": payload.get(FieldName.SCORE_PCT),
                     "metrics": payload.get(FieldName.METRICS, {}),
+                    "self_correction": payload.get(FieldName.SELF_CORRECTION, {}),
                     FieldName.FILLS_GRADED: payload.get(FieldName.FILLS_GRADED),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
@@ -118,6 +119,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
                             "score": score,
                             "score_pct": round(score, 2) if score is not None else None,
                             "metrics": metrics,
+                            "self_correction": metrics.get(FieldName.SELF_CORRECTION, {}),
                             FieldName.FILLS_GRADED: metrics.get(FieldName.FILLS_GRADED),
                             "timestamp": row[3].isoformat() if row[3] else None,
                         }
@@ -288,6 +290,7 @@ async def get_learning_loop_payload() -> dict[str, Any]:
                 FieldName.GRADE: g.get(FieldName.GRADE),
                 FieldName.SCORE_PCT: g.get(FieldName.SCORE_PCT),
                 FieldName.METRICS: g.get(FieldName.METRICS, {}),
+                FieldName.SELF_CORRECTION: g.get(FieldName.SELF_CORRECTION, {}),
                 FieldName.FILLS_GRADED: g.get(FieldName.FILLS_GRADED),
                 FieldName.TIMESTAMP: g.get(FieldName.TIMESTAMP),
             }
@@ -335,6 +338,7 @@ async def get_learning_loop_payload() -> dict[str, Any]:
                     "grade": payload.get(FieldName.GRADE),
                     "score_pct": payload.get(FieldName.SCORE_PCT),
                     "metrics": payload.get(FieldName.METRICS, {}),
+                    "self_correction": payload.get(FieldName.SELF_CORRECTION, {}),
                     FieldName.FILLS_GRADED: payload.get(FieldName.FILLS_GRADED),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }

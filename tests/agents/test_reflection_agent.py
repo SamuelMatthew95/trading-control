@@ -11,8 +11,6 @@ from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agents.pipeline_agents import ReflectionAgent
 
-pytestmark = pytest.mark.asyncio
-
 # ---------------------------------------------------------------------------
 # Shared mock helpers
 # ---------------------------------------------------------------------------

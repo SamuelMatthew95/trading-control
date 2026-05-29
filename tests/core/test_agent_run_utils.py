@@ -22,6 +22,8 @@ from api.core.models import AgentRun
 
 
 class TestAgentRun(AgentRun):
+    __test__ = False  # mock subclass of AgentRun, not a pytest test case
+
     def __init__(self, task_id=None, decision_json=None, trace_json=None, **kwargs):
         # Provide safe defaults to prevent None.encode() errors
         if decision_json is None:
