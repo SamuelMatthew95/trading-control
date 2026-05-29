@@ -1711,7 +1711,8 @@ class ChallengerAgent(MultiStreamAgent):
                 "content": {
                     "description": (
                         f"Challenger {self._challenger_id} completed {self._fills} fills. "
-                        f"Win rate: {win_rate:.0%}, Total PnL: {total_pnl:+.2f}"
+                        f"Win rate: {win_rate:.0%}, Total PnL: {total_pnl:+.2f}."
+                        f"{self._backtest_verdict()}"
                     ),
                     "confidence": win_rate,
                 },
@@ -1726,3 +1727,36 @@ class ChallengerAgent(MultiStreamAgent):
             win_rate=win_rate,
         )
         await self.stop()
+
+    def _backtest_verdict(self) -> str:
+        """Judge this challenger's configured strategy in the backtest harness.
+
+        Differentiation and merit are decided offline (the same harness the
+        dashboard uses), so the retirement summary carries a real promote/retire
+        recommendation rather than only a live win rate. Returns "" when no
+        strategy is configured or the harness is unavailable.
+        """
+        strategy_name = str(self._config.get(FieldName.STRATEGY) or "")
+        if not strategy_name:
+            return ""
+        try:
+            from backtest.challenger import evaluate_from_stats  # noqa: PLC0415
+            from backtest.compare import compare_on_prices  # noqa: PLC0415
+            from backtest.data import synthetic_prices  # noqa: PLC0415
+            from backtest.strategies import STRATEGIES  # noqa: PLC0415
+
+            baseline = "baseline_momentum"
+            if strategy_name not in STRATEGIES or baseline not in STRATEGIES:
+                return ""
+            prices = synthetic_prices(n=1500, vol_pct=1.5, seed=1)
+            stats = compare_on_prices(
+                prices,
+                {strategy_name: STRATEGIES[strategy_name], baseline: STRATEGIES[baseline]},
+            )
+            verdict = evaluate_from_stats(stats, baseline=baseline)
+            if verdict is None:
+                return ""
+            return f" Backtest verdict: {verdict.decision.upper()} — {verdict.reason}"
+        except Exception:
+            log_structured("warning", "challenger_backtest_verdict_failed", exc_info=True)
+            return ""
