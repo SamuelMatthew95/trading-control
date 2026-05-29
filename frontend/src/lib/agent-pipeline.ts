@@ -33,6 +33,15 @@ export interface PipelineAgentLike {
   lastSeen: Date | null
 }
 
+/**
+ * The dashboard's reconciled per-agent rollup (heartbeats + logs + lifecycle
+ * rows). Shared by the Agents view and its pipeline so both agree on shape.
+ */
+export interface AgentSummary extends PipelineAgentLike {
+  tier: 'active' | 'challenger' | 'inactive'
+  source: 'realtime' | 'persisted' | 'hybrid'
+}
+
 export type StageTone = 'live' | 'stale' | 'error' | 'idle' | 'none'
 
 export type PipelineStageKey = 'market' | 'signal' | 'reasoning' | 'execution' | 'grade' | 'learn'
