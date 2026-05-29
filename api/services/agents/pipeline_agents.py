@@ -1625,8 +1625,10 @@ class ChallengerAgent(MultiStreamAgent):
         self._fills = 0
         self._pnl_buffer: deque[float] = deque(maxlen=100)
         self._grade_history: list[dict[str, Any]] = []
+        self._lifecycle_registered = False
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        self._ensure_lifecycle_registered()
         if stream == STREAM_TRADE_PERFORMANCE:
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
@@ -1760,3 +1762,27 @@ class ChallengerAgent(MultiStreamAgent):
         except Exception:
             log_structured("warning", "challenger_backtest_verdict_failed", exc_info=True)
             return ""
+
+    def _ensure_lifecycle_registered(self) -> None:
+        """Register this challenger's strategy in the lifecycle registry once.
+
+        A running challenger is a SHADOW-stage strategy — it consumes the live
+        stream and is graded but places no orders — so it shows up on the
+        dashboard's Strategy Lifecycle panel. Best-effort; never blocks process.
+        """
+        if self._lifecycle_registered:
+            return
+        self._lifecycle_registered = True
+        strategy_name = str(self._config.get(FieldName.STRATEGY) or "")
+        if not strategy_name:
+            return
+        try:
+            from api.constants import StrategyStatus  # noqa: PLC0415
+            from api.services.strategy_registry import get_strategy_registry  # noqa: PLC0415
+
+            registry = get_strategy_registry()
+            version = registry.register({FieldName.STRATEGY: strategy_name})
+            registry.transition(version.version_id, StrategyStatus.BACKTESTED)
+            registry.transition(version.version_id, StrategyStatus.SHADOW)
+        except Exception:
+            log_structured("warning", "challenger_lifecycle_register_failed", exc_info=True)
