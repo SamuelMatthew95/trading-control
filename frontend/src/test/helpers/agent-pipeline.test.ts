@@ -14,6 +14,7 @@ import {
   AGENT_REASONING,
   AGENT_SIGNAL,
   AGENT_STRATEGY_PROPOSER,
+  agentDisplayName,
 } from '@/constants/agents'
 
 function agent(
@@ -41,7 +42,7 @@ const EMPTY_INPUT: AgentPipelineInput = {
 }
 
 describe('buildPipelineStages', () => {
-  it('returns one view per stage definition, in pipeline order', () => {
+  it('returns one view per stage definition, in pipeline order (market + 7 agents)', () => {
     const stages = buildPipelineStages(EMPTY_INPUT)
     expect(stages.map((s) => s.key)).toEqual(PIPELINE_STAGE_DEFS.map((d) => d.key))
     expect(stages.map((s) => s.key)).toEqual([
@@ -50,8 +51,23 @@ describe('buildPipelineStages', () => {
       'reasoning',
       'execution',
       'grade',
-      'learn',
+      'ic',
+      'reflection',
+      'proposer',
     ])
+  })
+
+  it('labels every agent stage via the shared agentDisplayName (uniform with the table)', () => {
+    const stages = buildPipelineStages(EMPTY_INPUT)
+    expect(stage(stages, 'signal').agent).toBe(agentDisplayName(AGENT_SIGNAL))
+    expect(stage(stages, 'signal').agent).toBe('Signal Agent')
+    expect(stage(stages, 'reasoning').agent).toBe('Reasoning Agent')
+    expect(stage(stages, 'execution').agent).toBe('Execution Engine')
+    expect(stage(stages, 'grade').agent).toBe('Grade Agent')
+    expect(stage(stages, 'ic').agent).toBe(agentDisplayName(AGENT_IC_UPDATER))
+    expect(stage(stages, 'proposer').agent).toBe('Strategy Proposer')
+    // The market source has no agent — it shows its infra label.
+    expect(stage(stages, 'market').agent).toBe('Price Poller')
   })
 
   it('defaults every stage to a zeroed, "none" state when nothing reports', () => {
@@ -68,7 +84,7 @@ describe('buildPipelineStages', () => {
     expect(stage(stages, 'signal').tone).toBe('live')
   })
 
-  it('sums realtime + persisted events for a stage', () => {
+  it('sums realtime + persisted events for a stage count', () => {
     const stages = buildPipelineStages({ ...EMPTY_INPUT, agents: [agent(AGENT_GRADE, 'Live', 7, 5)] })
     expect(stage(stages, 'grade').count).toBe(12)
   })
@@ -88,19 +104,14 @@ describe('buildPipelineStages', () => {
     expect(stage(idle, 'market').tone).toBe('idle')
   })
 
-  it('prefers decisionStats.total for the reasoning count and shows a buy/sell fact', () => {
+  it('counts reasoning by heartbeat events and surfaces a buy/sell fact from decision stats', () => {
     const stages = buildPipelineStages({
       ...EMPTY_INPUT,
       agents: [agent(AGENT_REASONING, 'Live', 3)],
       decisionStats: { total: 8, last_hour: { buys: 4, sells: 3, holds: 1 } },
     })
-    expect(stage(stages, 'reasoning').count).toBe(8)
+    expect(stage(stages, 'reasoning').count).toBe(3)
     expect(stage(stages, 'reasoning').fact).toBe('4 buy · 3 sell')
-  })
-
-  it('falls back to reasoning heartbeat events when decisionStats is absent', () => {
-    const stages = buildPipelineStages({ ...EMPTY_INPUT, agents: [agent(AGENT_REASONING, 'Stale', 5)] })
-    expect(stage(stages, 'reasoning').count).toBe(5)
   })
 
   it('does not throw on a partial decisionStats object (transient {} mid-fetch)', () => {
@@ -110,19 +121,21 @@ describe('buildPipelineStages', () => {
     expect(stage(stages, 'reasoning').count).toBe(0)
   })
 
-  it('aggregates the three learning agents into the learn stage and surfaces proposals', () => {
+  it('shows each learning agent as its own stage with the proposer surfacing proposal count', () => {
     const stages = buildPipelineStages({
       ...EMPTY_INPUT,
-      agents: [agent(AGENT_IC_UPDATER, 'Idle', 2), agent(AGENT_STRATEGY_PROPOSER, 'Live', 1, 1)],
+      agents: [agent(AGENT_IC_UPDATER, 'Idle', 2), agent(AGENT_STRATEGY_PROPOSER, 'Live', 1)],
       proposalsCount: 3,
     })
-    expect(stage(stages, 'learn').count).toBe(4)
-    expect(stage(stages, 'learn').tone).toBe('live')
-    expect(stage(stages, 'learn').fact).toBe('3 proposals')
+    expect(stage(stages, 'ic').count).toBe(2)
+    expect(stage(stages, 'ic').tone).toBe('idle')
+    expect(stage(stages, 'proposer').count).toBe(1)
+    expect(stage(stages, 'proposer').tone).toBe('live')
+    expect(stage(stages, 'proposer').fact).toBe('3 proposals')
   })
 
   it('singularizes the proposal fact for exactly one proposal', () => {
     const stages = buildPipelineStages({ ...EMPTY_INPUT, proposalsCount: 1 })
-    expect(stage(stages, 'learn').fact).toBe('1 proposal')
+    expect(stage(stages, 'proposer').fact).toBe('1 proposal')
   })
 })
