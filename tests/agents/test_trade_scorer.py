@@ -2,7 +2,7 @@
 
 import pytest
 
-from api.constants import FieldName
+from api.constants import FieldName, PositionSide
 from api.services.agents.trade_scorer import (
     aggregate_model_performance,
     compute_learning_metrics,
@@ -455,3 +455,42 @@ def test_score_trade_reversion_luck_excludes_clean_execution():
     strengths = evaluation[FieldName.STRENGTHS]
     assert "reversion_luck" in strengths
     assert "clean_execution" not in strengths
+
+
+def test_score_trade_explicit_position_side_overrides_order_side():
+    # Order side 'buy' alone reads as closing a short (price up = adverse), but an
+    # explicit position_side='long' must flip the move to favorable (captured).
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-pos-long",
+            FieldName.SIDE: "buy",
+            FieldName.POSITION_SIDE: PositionSide.LONG,
+            FieldName.PNL: 50.0,
+            FieldName.PNL_PERCENT: 1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 12.0,
+            FieldName.CONFIDENCE: 0.8,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_without_position_side_falls_back_to_order_side():
+    # No position_side → close-order semantics: 'sell' closes a long, price rising
+    # is favorable → captured (proves the fallback path is unchanged).
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-pos-fallback",
+            FieldName.SIDE: "sell",
+            FieldName.PNL: 40.0,
+            FieldName.PNL_PERCENT: 1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 12.0,
+            FieldName.CONFIDENCE: 0.8,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
