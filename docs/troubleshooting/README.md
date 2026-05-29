@@ -10,6 +10,7 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [ci-cd.md](ci-cd.md) | CI lint failures, ruff version pinning, GitHub Actions config |
 | [frontend.md](frontend.md) | Dashboard UI bugs: stat tiles, P&L display, win-rate fallback |
 | [lm-studio.md](lm-studio.md) | LM Studio / LM Link local inference: startup, timeout, fallback, secrets |
+| [backtest.md](backtest.md) | Strategy-comparison harness: eligibility gates, NO SIGNALS vs 0.00, verdict honesty |
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 
