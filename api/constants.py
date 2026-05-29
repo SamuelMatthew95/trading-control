@@ -921,6 +921,7 @@ class FieldName(StrEnum):
     THRESHOLD = "threshold"
     TID = "tid"
     TIMEFRAME = "timeframe"
+    TIMEFRAMES = "timeframes"
     TIMEOUT = "timeout"
     TIMEOUTS = "timeouts"
     TIMEOUT_COUNT = "timeout_count"
