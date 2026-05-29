@@ -47,6 +47,14 @@ async def test_compare_returns_strategy_table(client):
         assert FieldName.SHARPE_RATIO in r
         assert FieldName.WIN_RATE in r
 
+    # Challenger verdict (best candidate vs baseline) is folded into /compare.
+    assert data[FieldName.CANDIDATE] is not None
+    assert data[FieldName.BASELINE] == "baseline_momentum"
+    assert isinstance(data[FieldName.IS_DIFFERENT], bool)
+    assert isinstance(data[FieldName.BEATS_BASELINE], bool)
+    assert data[FieldName.DECISION] in ("promote", "reject")
+    assert isinstance(data[FieldName.REASON], str) and data[FieldName.REASON]
+
 
 @pytest.mark.asyncio
 async def test_compare_rejects_out_of_range_bars(client):
