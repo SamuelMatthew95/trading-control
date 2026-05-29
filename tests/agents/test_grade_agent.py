@@ -357,3 +357,29 @@ async def test_grade_payload_embeds_self_correction(_hb, _redis, grade_agent, mo
     diagnostic = payload[FieldName.SELF_CORRECTION]
     assert FieldName.TRAJECTORY in diagnostic
     assert FieldName.ATTRIBUTION in diagnostic
+
+
+@pytest.mark.asyncio
+async def test_self_correction_alert_is_edge_triggered(grade_agent, mock_bus):
+    """Alert fires once on entering drop/decay, stays quiet until recovery."""
+    baseline = [0.80, 0.81, 0.79, 0.80, 0.82, 0.80]
+    drop = build_self_correction(
+        baseline, 0.30, [_dim()] * len(baseline), _dim(accuracy=0.2), [*baseline, 0.30]
+    )
+    healthy = build_self_correction([0.80] * 6, 0.81, [_dim()] * 6, _dim(), [0.80] * 6 + [0.81])
+
+    def notif_count():
+        return sum(
+            1
+            for call in mock_bus.publish.call_args_list
+            if call.args and call.args[0] == STREAM_NOTIFICATIONS
+        )
+
+    await grade_agent._emit_self_correction_alert(drop, "t1")
+    assert notif_count() == 1  # entered drop → one alert
+    await grade_agent._emit_self_correction_alert(drop, "t2")
+    assert notif_count() == 1  # still in drop → no re-page
+    await grade_agent._emit_self_correction_alert(healthy, "t3")
+    assert notif_count() == 1  # recovered → latch resets, no alert
+    await grade_agent._emit_self_correction_alert(drop, "t4")
+    assert notif_count() == 2  # new episode after recovery → fires again
