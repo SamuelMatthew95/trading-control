@@ -35,10 +35,11 @@ export function BacktestComparisonPanel() {
   const [loading, setLoading] = useState(false)
   const cancelled = useRef(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true)
     try {
-      const result = await apiFetch<BacktestCompareResponse>('/backtest/compare')
+      const path = force ? '/backtest/compare?force=true' : '/backtest/compare'
+      const result = await apiFetch<BacktestCompareResponse>(path)
       if (!cancelled.current) {
         setData(result)
         setError(null)
@@ -67,8 +68,8 @@ export function BacktestComparisonPanel() {
     <div className={CARD}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className={LABEL}>Backtest — Strategy Comparison</p>
-        <button type="button" onClick={() => void load()} disabled={loading} className={BTN}>
-          {loading ? 'Running…' : 'Refresh'}
+        <button type="button" onClick={() => void load(true)} disabled={loading} className={BTN}>
+          {loading ? 'Running…' : 'Run now'}
         </button>
       </div>
       <p className={`mb-3 ${MUTED}`}>
