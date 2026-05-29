@@ -1023,6 +1023,23 @@ class MarketDirection(StrEnum):
     NEUTRAL = "neutral"
 
 
+class StrategyStatus(StrEnum):
+    """Lifecycle stage of a strategy version in the evolution pipeline.
+
+    A version advances exactly one stage at a time and can never skip ahead, so
+    nothing reaches live production without passing every risk-containment gate.
+    RETIRED is terminal and reachable from any stage (a strategy can always be
+    pulled).
+    """
+
+    PROPOSED = "proposed"
+    BACKTESTED = "backtested"
+    SHADOW = "shadow"
+    CANARY = "canary"
+    LIVE = "live"
+    RETIRED = "retired"
+
+
 # ---------------------------------------------------------------------------
 # Agent identity constants — single source of truth for all agent names.
 # These must match the Redis heartbeat keys written by each agent.
@@ -1276,6 +1293,13 @@ SIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.65
 KELLY_FRACTION_SCALE: Final[float] = 0.25
 # Maximum risk per trade as fraction of equity
 MAX_RISK_PER_TRADE_PCT: Final[float] = 0.015
+
+# Circuit breaker — live-strategy trip thresholds. Breaching any one trips the
+# breaker: kill switch ON + roll the live strategy back to its previous version.
+CIRCUIT_BREAKER_MAX_DRAWDOWN_PCT: Final[float] = 0.15
+CIRCUIT_BREAKER_MAX_CONSECUTIVE_FAILURES: Final[int] = 5
+CIRCUIT_BREAKER_MAX_DIVERGENCE: Final[float] = 0.5
+CIRCUIT_BREAKER_MAX_LATENCY_MS: Final[float] = 5000.0
 # Estimated slippage per side (0.05%)
 SLIPPAGE_PCT_PER_SIDE: Final[float] = 0.0005
 # ATR period for regime filter
