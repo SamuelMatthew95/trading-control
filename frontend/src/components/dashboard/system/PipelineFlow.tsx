@@ -2,6 +2,8 @@
 
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 
+import { AGENT_REASONING } from '@/constants/agents'
+
 import { PipelineStage } from './PipelineStage'
 import { canonicalAgentKey } from './helpers'
 import type { StageStatus } from './types'
@@ -32,7 +34,7 @@ export function PipelineFlow(props: PipelineFlowProps) {
   } = props
 
   const reasoningAgent = agentStatuses.find(
-    (a) => canonicalAgentKey(a.name) === 'REASONING_AGENT',
+    (a) => canonicalAgentKey(a.name) === AGENT_REASONING,
   )
 
   return (
