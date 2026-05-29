@@ -15,7 +15,9 @@ import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
+import { AgentPipeline } from '@/components/dashboard/AgentPipeline'
 import { SystemDashboard } from '@/components/dashboard/system'
+import { AGENT_IC_UPDATER, AGENT_REASONING, canonicalAgentKey } from '@/constants/agents'
 import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
 import {
   agentCardBorderClass,
@@ -84,7 +86,7 @@ type PerformanceCell = {
 
 function displayAgentName(rawName: string): string {
   const canonical = canonicalAgentKey(rawName)
-  if (canonical === 'IC_UPDATER') return 'Indicator Cache Updater'
+  if (canonical === AGENT_IC_UPDATER) return 'Indicator Cache Updater'
   return rawName
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
@@ -98,7 +100,7 @@ const AGENT_LIVE_THRESHOLD_MS = 10_000
 const AGENT_STALE_THRESHOLD_MS = 120_000
 // Per-agent overrides: Reasoning Agent can take 60-90s per LLM call.
 const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
-  REASONING_AGENT: 90_000,
+  [AGENT_REASONING]: 90_000,
 }
 const getLiveThresholdMs = (agentKey: string): number =>
   AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
@@ -146,10 +148,6 @@ function parseHeartbeatTimestamp(status: AgentStatus): Date | null {
   if (fromEpochField) return fromEpochField
   // Backward compatibility for older payloads that (incorrectly) used last_event as a timestamp.
   return parseTimestamp(status.last_event)
-}
-
-function canonicalAgentKey(name: string): string {
-  return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
 }
 
 function formatAgentSource(source: AgentSummary['source']): string {
@@ -235,6 +233,22 @@ function formatDailyChange(change: number | null | undefined): string {
 function lastNotificationLabel(notifications: Array<{ timestamp?: string }>): string {
   const ts = parseTimestamp(notifications[0]?.timestamp)
   return ts ? `Last: ${ts.toLocaleTimeString()}` : 'No activity yet'
+}
+
+// "Recent" = within the window. The stored list is a capped backlog (max 200),
+// so its raw length is a poor headline metric — a freshly opened app shows 200
+// even when nothing new happened. Count only what actually arrived recently.
+const NOTIFICATION_RECENT_WINDOW_MS = 3_600_000 // 1 hour
+
+function countRecentNotifications(
+  notifications: Array<{ timestamp?: string }>,
+  windowMs: number,
+): number {
+  const cutoff = Date.now() - windowMs
+  return notifications.reduce((count, item) => {
+    const ts = parseTimestamp(item.timestamp)
+    return ts && ts.getTime() >= cutoff ? count + 1 : count
+  }, 0)
 }
 
 type PerformanceSummarySource = 'api' | 'local_closed_trades' | 'none'
@@ -357,6 +371,7 @@ export function DashboardView({ section }: { section: Section }) {
     positions = [],
     systemMetrics = [],
     notifications = [],
+    proposals = [],
     tradeFeed = [],
     agentInstances = [],
     performanceSummary,
@@ -597,6 +612,33 @@ export function DashboardView({ section }: { section: Section }) {
     [prices]
   )
 
+  // ── Agents section: contextualized metrics (replace raw counters) ───────────
+  const liveAgentCount = useMemo(
+    () => realAgents.filter((agent) => agent.status === 'Live').length,
+    [realAgents],
+  )
+  const recentNotificationCount = useMemo(
+    () => countRecentNotifications(notifications, NOTIFICATION_RECENT_WINDOW_MS),
+    [notifications],
+  )
+  const marketLive = useMemo(() => {
+    const ts =
+      streamStats?.['market_ticks']?.lastMessageTimestamp ??
+      streamStats?.['market_events']?.lastMessageTimestamp ??
+      null
+    const parsed = parseTimestamp(ts)
+    if (parsed) return Date.now() - parsed.getTime() < PRICE_FRESHNESS_MS
+    return marketTickCount > 0 && wsConnected
+  }, [streamStats, marketTickCount, wsConnected])
+  // `decisionStats` may transiently be a partial `{}` while the first poll lands.
+  const decisionHour = decisionStats?.last_hour
+  const decisionsLastHour = decisionHour
+    ? decisionHour.buys + decisionHour.sells + decisionHour.holds
+    : null
+  const decisionBreakdown = decisionHour
+    ? `${decisionHour.buys} buy · ${decisionHour.sells} sell · ${decisionHour.holds} hold`
+    : 'No decision data yet'
+
   const contentBySection = (
     <>
       {section === 'overview' && (
@@ -765,25 +807,35 @@ export function DashboardView({ section }: { section: Section }) {
 
       {section === 'agents' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <AgentPipeline
+            agents={realAgents}
+            marketTickCount={marketTickCount}
+            lastMarketSymbol={lastMarketSymbol}
+            marketLive={marketLive}
+            decisionStats={decisionStats}
+            proposalsCount={proposals.length}
+          />
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className={cardClass}>
-              <p className={sectionTitleClass}>Market Ticks</p>
+              <p className={sectionTitleClass}>Agents Online</p>
+              <p className={valueClass}>{sanitizeValue(liveAgentCount)}</p>
+              <p className={mutedClass}>{realAgents.length} reporting · live = heartbeat &lt; 10s</p>
+            </div>
+            <div className={cardClass}>
+              <p className={sectionTitleClass}>Market Data</p>
               <p className={valueClass}>{sanitizeValue(marketTickCount)}</p>
-              <p className={mutedClass}>Last symbol: {lastMarketSymbol ?? '--'}</p>
+              <p className={mutedClass}>{lastMarketSymbol ?? '—'} · {marketLive ? 'streaming' : 'idle'}</p>
             </div>
             <div className={cardClass}>
-              <p className={sectionTitleClass}>Active Agents</p>
-              <p className={valueClass}>{sanitizeValue(realAgents.filter((agent) => agent.status === 'Live').length)}</p>
-              <p className={mutedClass}>Live heartbeat &lt; 10s</p>
+              <p className={sectionTitleClass}>Decisions · 1h</p>
+              <p className={valueClass}>{sanitizeValue(decisionsLastHour)}</p>
+              <p className={mutedClass}>{decisionBreakdown}</p>
             </div>
             <div className={cardClass}>
-              <p className={sectionTitleClass}>Pipeline Events</p>
-              <p className={valueClass}>{sanitizeValue(agentLogs.length)}</p>
-              <p className={mutedClass}>Processed events (runtime)</p>
-            </div>
-            <div className={cardClass}>
-              <p className={sectionTitleClass}>Notifications</p>
-              <p className={valueClass}>{sanitizeValue(notifications.length)}</p>
+              <p className={sectionTitleClass}>Notifications · 1h</p>
+              <p className={valueClass}>{sanitizeValue(recentNotificationCount)}</p>
+              <p className={mutedClass}>{notifications.length} stored (max 200)</p>
               <p className={mutedClass}>{lastNotificationLabel(notifications)}</p>
             </div>
           </div>
@@ -791,60 +843,8 @@ export function DashboardView({ section }: { section: Section }) {
           <LLMHealthPanel />
 
           <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-2')}>System Diagnostics</p>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span
-                className={cn(
-                  'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
-                  isInMemoryMode
-                    ? 'bg-amber-400/10 text-amber-500'
-                    : 'bg-emerald-500/10 text-emerald-500',
-                )}
-              >
-                <span
-                  className={cn(
-                    'inline-block h-2 w-2 rounded-full',
-                    isInMemoryMode ? 'bg-amber-400' : 'bg-emerald-500',
-                  )}
-                />
-                {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <p className={mutedClass}>
-                Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
-                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
-              </p>
-              <p className={mutedClass}>
-                Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
-                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
-              </p>
-              <p className={mutedClass}>
-                Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
-                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
-              </p>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {[
-                { label: 'dashboard/state', value: apiHealth.dashboardState },
-                { label: 'agent-instances', value: apiHealth.agentInstances },
-                { label: 'history/events', value: apiHealth.eventHistory },
-              ].map((apiRow) => (
-                <span
-                  key={apiRow.label}
-                  className={cn(
-                    'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                    apiHealthBadgeClass(apiRow.value),
-                  )}
-                >
-                  {apiRow.label}: {apiRow.value}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <p className={cn(sectionTitleClass, 'mb-3')}>Agent Status</p>
+            <p className={sectionTitleClass}>Agent Status</p>
+            <p className={cn(mutedClass, 'mb-3')}>Live heartbeat detail for every agent in the pipeline above.</p>
             <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead>
@@ -935,6 +935,60 @@ export function DashboardView({ section }: { section: Section }) {
           <RecentDecisionsPanel stats={decisionStats} recent={recentDecisions} />
 
           <NotificationFeed notifications={notifications} wsConnected={wsConnected} />
+
+          <div className={cardClass}>
+            <p className={sectionTitleClass}>System Diagnostics</p>
+            <p className={cn(mutedClass, 'mb-2')}>Data-wiring health — where these numbers come from. For debugging.</p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
+                  isInMemoryMode
+                    ? 'bg-amber-400/10 text-amber-500'
+                    : 'bg-emerald-500/10 text-emerald-500',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block h-2 w-2 rounded-full',
+                    isInMemoryMode ? 'bg-amber-400' : 'bg-emerald-500',
+                  )}
+                />
+                {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <p className={mutedClass}>
+                Heartbeats (in-memory/Redis): <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
+                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
+              </p>
+              <p className={mutedClass}>
+                Lifecycle rows (DB): <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
+                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
+              </p>
+              <p className={mutedClass}>
+                Agent logs (DB/WS): <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
+                <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
+              </p>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {[
+                { label: 'dashboard/state', value: apiHealth.dashboardState },
+                { label: 'agent-instances', value: apiHealth.agentInstances },
+                { label: 'history/events', value: apiHealth.eventHistory },
+              ].map((apiRow) => (
+                <span
+                  key={apiRow.label}
+                  className={cn(
+                    'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    apiHealthBadgeClass(apiRow.value),
+                  )}
+                >
+                  {apiRow.label}: {apiRow.value}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
