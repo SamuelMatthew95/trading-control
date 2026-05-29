@@ -51,8 +51,8 @@ def evaluate_from_stats(
 ) -> ChallengerVerdict | None:
     """Pick the best non-baseline candidate and judge it against the baseline.
 
-    ``stats`` is the output of ``compare_on_prices`` / ``compare_strategies`` —
-    this reuses those numbers, so no backtest is re-run. Returns ``None`` when
+    ``stats`` is the output of ``compare_on_prices`` — this reuses those
+    numbers, so no backtest is re-run. Returns ``None`` when
     the baseline or any candidate is missing.
     """
     by_name = {s.name: s for s in stats}
