@@ -19,8 +19,6 @@ from api.workers.price_poller import (
     publish_to_redis,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture
 async def redis():

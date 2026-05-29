@@ -125,6 +125,10 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
     confidence = trade_data.get(FieldName.CONFIDENCE) or trade_data.get(FieldName.SIGNAL_CONFIDENCE)
     side = trade_data.get(FieldName.SIDE)
     action = trade_data.get(FieldName.ACTION)
+    # Explicit position direction (PositionSide 'long'/'short') wins over the
+    # closing order side for directional-move classification when a producer
+    # supplies it; otherwise we infer direction from the order side below.
+    position_side = trade_data.get(FieldName.POSITION_SIDE)
     symbol = trade_data.get(FieldName.SYMBOL)
     trade_id = (
         trade_data.get(FieldName.TRADE_ID)
@@ -153,6 +157,7 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
 
     context = _build_trade_context(
         side=side,
+        position_side=position_side,
         pnl=pnl,
         pnl_pct=pnl_pct,
         entry_price=entry_price,
@@ -301,9 +306,15 @@ def _build_trade_context(
     entry_price: Any,
     exit_price: Any,
     holding_minutes: Any,
+    position_side: str | None = None,
 ) -> TradeContext:
     side_norm = str(side or "").strip().lower()
-    move_pct = _price_move_percent(side=side_norm, entry_price=entry_price, exit_price=exit_price)
+    # Prefer an explicit position direction ('long'/'short') when present;
+    # otherwise infer from the closing order side (close long => 'sell').
+    direction_key = str(position_side or "").strip().lower() or side_norm
+    move_pct = _price_move_percent(
+        side=direction_key, entry_price=entry_price, exit_price=exit_price
+    )
     return TradeContext(
         side=side_norm,
         pnl=float(pnl or 0.0),

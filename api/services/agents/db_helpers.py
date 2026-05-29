@@ -122,11 +122,19 @@ async def write_agent_log(
         )
 
 
-async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, Any]) -> None:
+async def write_grade_to_db(
+    trace_id: str,
+    score_pct: float,
+    metrics: dict[str, Any],
+    self_correction: dict[str, Any] | None = None,
+) -> None:
     """Insert a row into agent_grades.
 
     Memory mode: writes to InMemoryStore grade_history.
     DB mode: INSERT into agent_grades table.
+
+    ``self_correction`` is the grade self-correction diagnostic; it is mirrored
+    into the in-memory grade record so the dashboard surfaces it without a DB.
     """
     if not is_db_available():
         get_runtime_store().add_grade(
@@ -136,6 +144,7 @@ async def write_grade_to_db(trace_id: str, score_pct: float, metrics: dict[str, 
                 "score": score_pct,
                 "score_pct": round(score_pct, 2) if score_pct is not None else None,
                 "metrics": metrics,
+                "self_correction": self_correction or {},
                 FieldName.FILLS_GRADED: metrics.get(FieldName.FILLS_GRADED),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }

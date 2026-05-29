@@ -11,15 +11,10 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from api.constants import AGENT_EXECUTION, AGENT_REASONING, AGENT_SIGNAL
 from api.events.bus import EventBus
 from api.events.consumer import _IDLE_HEARTBEAT_INTERVAL, BaseStreamConsumer
 from api.events.dlq import DLQManager
-
-pytestmark = pytest.mark.asyncio
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete subclass for testing (abstract ABC cannot be instantiated)

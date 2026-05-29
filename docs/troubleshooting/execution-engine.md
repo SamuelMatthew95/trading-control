@@ -74,12 +74,14 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 
 **Regression test:** `tests/agents/test_execution_fallback_guard.py`
 
-## trade_scorer price-move sign: "side" means the closing-order side, not the position side
+---
 
-**Symptom:** Three `tests/agents/test_trade_scorer.py` cases failed (`clean_execution`, `captured_directional_move`, `adverse_price_move` tags missing). The failures were invisible in CI because CI runs only `tests/core`, `tests/api`, and `tests/integration` — never `tests/agents`.
+## Trade-scorer directional tags — `side` is the CLOSING order side, not position direction
 
-**Root cause:** `trade_scorer._direction_sign_from_side_event` orients the price move using the **closing-order side** convention the execution engine actually emits — a closed LONG is reported with `side="sell"` (the close order is opposite the open position; see `execution_engine.is_round_trip_close`). The three tests were authored with the opposite, intuitive "buy == long" convention, so their fixtures (e.g. a profitable long tagged `side="buy"`) were internally inconsistent with production data and the scorer flipped the move sign.
+**Symptom:** `tests/agents/test_trade_scorer.py` had three failing tests (`..._for_wins`, `..._for_losses`, `..._marks_clean_execution...`): the scorer emitted the opposite price-action tag (e.g. `reversion_luck` instead of `clean_execution`, or no `adverse_price_move`).
 
-**Fix:** Corrected the stale fixtures in `tests/agents/test_trade_scorer.py` to the production closing-order-side convention (profitable/losing longs use `side="sell"`) and added a comment block documenting the convention so it is not mis-applied again. No production code changed — the scorer was already correct for live trade-completed events; flipping it would have corrupted every live grade.
+**Root cause:** `STREAM_TRADE_COMPLETED` is published by `fill_publisher.publish_fill_events` **only on `is_round_trip_close`**, and its `FieldName.SIDE` is the *closing* order side — closing a long is `side='sell'`, closing a short is `side='buy'`. `_direction_sign_from_side_event` in `trade_scorer.py` correctly implements this (sell→+1 favorable-when-price-rises, buy→−1 favorable-when-price-falls). Commit `fae9346` flipped the code to this contract and updated two tests, but three older fixtures were left using *open-position* semantics (`buy`=long). They became internally contradictory — e.g. a long closed with `side='sell'` but `exit > entry` (price rose, favorable) yet `pnl < 0` — so no consistent sign convention could satisfy them alongside the corrected tests.
 
-**Regression test:** `tests/agents/test_trade_scorer.py::test_score_trade_marks_clean_execution_on_profitable_trade` (+ `_for_wins`, `_for_losses`)
+**Fix:** Corrected the three stale fixtures to realistic round-trip long closes (`side='sell'`): `for_wins` keeps the favorable up-move, `for_losses` flips `exit_price` to fall against the long, and `clean` tracks `pnl%` to the move. No production code changed — the scorer already matched the real event contract. Added comments at each fixture documenting the close-order convention.
+
+**Regression test:** `tests/agents/test_trade_scorer.py::test_score_trade_adds_price_action_context_labels_for_wins` (and the `_for_losses` / `_marks_clean_execution_on_profitable_trade` siblings)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from api.constants import FieldName
+from api.constants import FieldName, PositionSide
 from api.services.agents.trade_scorer import (
     aggregate_model_performance,
     compute_learning_metrics,
@@ -244,17 +244,11 @@ def test_avg_return_is_mean_of_pnl_pct():
     assert result[FieldName.AVG_RETURN] == pytest.approx(3.0, abs=0.001)
 
 
-# trade_scorer uses the production "closing-order side" convention: a closed
-# LONG is reported with side="sell" (the close order), favorable when price
-# rose; a closed SHORT with side="buy", favorable when price fell. The
-# execution engine emits side this way (see execution_engine.is_round_trip_close
-# — a close order is opposite the open position), so these fixtures mirror real
-# trade-completed events rather than an intuitive but wrong "buy == long" read.
 def test_score_trade_adds_price_action_context_labels_for_losses():
-    # Long closed at a loss after ~1 min: price fell below entry (adverse move).
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-loss",
+            # Closing a long (side='sell') as price fell against it → adverse move.
             FieldName.SIDE: "sell",
             FieldName.PNL: -50.0,
             FieldName.PNL_PERCENT: -1.2,
@@ -269,10 +263,11 @@ def test_score_trade_adds_price_action_context_labels_for_losses():
 
 
 def test_score_trade_adds_price_action_context_labels_for_wins():
-    # Long held 15 min and closed for profit, capturing a +1% up move.
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-win",
+            # trade_completed carries the CLOSING order side: a long is closed
+            # with side='sell', favorable when the price rose (see fill_publisher).
             FieldName.SIDE: "sell",
             FieldName.PNL: 80.0,
             FieldName.PNL_PERCENT: 1.5,
@@ -287,11 +282,10 @@ def test_score_trade_adds_price_action_context_labels_for_wins():
 
 
 def test_score_trade_marks_execution_drag_on_losing_trade():
-    # Long closed at a loss; realized P&L is worse than the price move implies.
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-drag",
-            FieldName.SIDE: "sell",
+            FieldName.SIDE: "buy",
             FieldName.PNL: -20.0,
             FieldName.PNL_PERCENT: -1.0,
             FieldName.ENTRY_PRICE: 100.0,
@@ -304,10 +298,11 @@ def test_score_trade_marks_execution_drag_on_losing_trade():
 
 
 def test_score_trade_marks_clean_execution_on_profitable_trade():
-    # Long closed for a small clean profit; realized P&L tracks the price move.
     evaluation = score_trade(
         {
             FieldName.TRADE_ID: "t-clean",
+            # Clean small long close (side='sell'): realized pnl% tracks the price
+            # move closely → tiny adverse excursion → clean_execution.
             FieldName.SIDE: "sell",
             FieldName.PNL: 30.0,
             FieldName.PNL_PERCENT: 0.5,
@@ -460,3 +455,42 @@ def test_score_trade_reversion_luck_excludes_clean_execution():
     strengths = evaluation[FieldName.STRENGTHS]
     assert "reversion_luck" in strengths
     assert "clean_execution" not in strengths
+
+
+def test_score_trade_explicit_position_side_overrides_order_side():
+    # Order side 'buy' alone reads as closing a short (price up = adverse), but an
+    # explicit position_side='long' must flip the move to favorable (captured).
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-pos-long",
+            FieldName.SIDE: "buy",
+            FieldName.POSITION_SIDE: PositionSide.LONG,
+            FieldName.PNL: 50.0,
+            FieldName.PNL_PERCENT: 1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 12.0,
+            FieldName.CONFIDENCE: 0.8,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
+
+
+def test_score_trade_without_position_side_falls_back_to_order_side():
+    # No position_side → close-order semantics: 'sell' closes a long, price rising
+    # is favorable → captured (proves the fallback path is unchanged).
+    evaluation = score_trade(
+        {
+            FieldName.TRADE_ID: "t-pos-fallback",
+            FieldName.SIDE: "sell",
+            FieldName.PNL: 40.0,
+            FieldName.PNL_PERCENT: 1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 101.0,
+            FieldName.HOLDING_PERIOD_MINUTES: 12.0,
+            FieldName.CONFIDENCE: 0.8,
+        }
+    )
+    assert "captured_directional_move" in evaluation[FieldName.STRENGTHS]
+    assert "adverse_price_move" not in evaluation[FieldName.MISTAKES]
