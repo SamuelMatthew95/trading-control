@@ -64,9 +64,16 @@ trading cost on signals with no edge.
 ## Try it
 
 ```bash
-python -m backtest --compare --vol 1.5      # all strategies, head to head
-python -m backtest --strategy strong_only    # run a single strategy
-curl localhost:8000/backtest/compare | jq    # the exact API the dashboard uses
+# The API the dashboard uses (real data on Render, synthetic locally):
+curl localhost:8000/backtest/compare | jq
+```
+
+```python
+# Ad-hoc, in Python:
+from backtest.compare import compare_on_prices
+from backtest.data import synthetic_prices
+for s in compare_on_prices(synthetic_prices(n=1500, vol_pct=1.5)):
+    print(s.name, s.mean_return_pct)
 ```
 
 Harness internals: [`backtest/README.md`](../backtest/README.md).
