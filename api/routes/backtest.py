@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.constants import FieldName
 from api.observability import log_structured
+from backtest.challenger import evaluate_from_stats
 from backtest.compare import compare_on_prices
 from backtest.data import alpaca_prices, synthetic_prices
 
@@ -95,6 +96,7 @@ async def compare(
             }
             for s in sorted(stats, key=lambda x: x.mean_return_pct, reverse=True)
         ]
+        verdict = evaluate_from_stats(stats)
         payload = {
             FieldName.MODE: "analysis",
             FieldName.SOURCE: source,
@@ -103,6 +105,12 @@ async def compare(
             FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
             FieldName.SUMMARY: _summary(source),
             FieldName.STRATEGIES: strategies,
+            FieldName.CANDIDATE: verdict.candidate if verdict else None,
+            FieldName.BASELINE: verdict.baseline if verdict else None,
+            FieldName.IS_DIFFERENT: verdict.is_different if verdict else False,
+            FieldName.BEATS_BASELINE: verdict.beats_baseline if verdict else False,
+            FieldName.DECISION: verdict.decision if verdict else "reject",
+            FieldName.REASON: verdict.reason if verdict else "no candidate available",
             FieldName.CACHED: False,
         }
         _cache[key] = (now, payload)
