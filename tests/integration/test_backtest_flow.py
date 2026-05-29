@@ -7,8 +7,8 @@ signal decision to the production trade scorer — a genuine cross-module flow).
 from __future__ import annotations
 
 from api.constants import FieldName
-from backtest.challenger import PROMOTE, REJECT, evaluate_from_stats
-from backtest.compare import StrategyStats
+from backtest.challenger import INSUFFICIENT_DATA, PROMOTE, REJECT, evaluate_from_stats
+from backtest.compare import StrategyStats, compare_on_prices
 from backtest.data import synthetic_prices
 from backtest.engine import run_backtest
 from backtest.strategies import baseline_momentum, strong_only
@@ -117,3 +117,39 @@ def test_challenger_rejects_different_but_worse():
     assert verdict.is_different is True
     assert verdict.beats_baseline is False
     assert verdict.decision == REJECT
+
+
+def test_challenger_insufficient_data_on_realistic_low_trade_counts():
+    """Reproduces the live BTC/USD panel: at 1-minute cadence the magnitude
+    strategies barely trade, so a promote/reject verdict would be statistical
+    noise. The eligibility gate must return INSUFFICIENT_DATA, not a REJECT that
+    reads like a real comparison ("behaves identically … nothing to promote")."""
+    stats = [
+        StrategyStats("baseline_momentum", 0.0, 0.0, 0.0, 0.0),
+        StrategyStats("strong_only", 0.0, 0.0, 0.0, 0.0),
+        StrategyStats("mean_reversion", 0.0, 0.0, 0.0, 0.0),
+        StrategyStats("confirmed_trend", -0.52, 9.0, -3.675, 0.4444),
+    ]
+    verdict = evaluate_from_stats(stats)
+    assert verdict is not None
+    assert verdict.decision == INSUFFICIENT_DATA
+    assert "trades" in verdict.reason.lower()
+
+
+def test_realistic_volatility_yields_insufficient_data_verdict():
+    """End-to-end: at realistic ~0.1% per-bar vol the baseline never crosses the
+    1.5% trigger, so the challenger verdict is INSUFFICIENT_DATA — the gate fires
+    on the exact regime that produced the live '0 trades' panel."""
+    prices = synthetic_prices(n=2000, vol_pct=0.1, seed=3)
+    verdict = evaluate_from_stats(compare_on_prices(prices))
+    assert verdict is not None
+    assert verdict.decision == INSUFFICIENT_DATA
+
+
+def test_compare_on_prices_exposes_signal_counts():
+    """Per-strategy signal counts are surfaced so a 0-trade strategy is
+    classifiable as inactive-by-calibration, not a silent pipeline failure."""
+    prices = synthetic_prices(n=800, vol_pct=1.5, seed=1)
+    by_name = {s.name: s for s in compare_on_prices(prices)}
+    # confirmed_trend is direction-only and fires regardless of volatility.
+    assert by_name["confirmed_trend"].mean_signals > 0
