@@ -140,16 +140,49 @@ class NewAgent:
 
 ## Implemented agents
 
-| Agent | File | Status |
-|---|---|---|
-| SignalGenerator | `api/services/signal_generator.py` | ✅ Implemented |
-| ReasoningAgent | `api/services/agents/reasoning_agent.py` | ✅ Implemented |
-| GradeAgent | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
-| ICUpdater | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
-| ReflectionAgent | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
-| StrategyProposer | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
-| NotificationAgent | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
-| HistoryAgent | — | 🚧 Planned |
+The **runtime name** is the canonical identity (heartbeat keys, `agent_logs`,
+`/dashboard/state`). It is defined once in `api/constants.py` and never written
+as a raw string — see "Canonical agent names" below.
+
+| Class | Runtime name (`AGENT_*`) | File | Status |
+|---|---|---|---|
+| SignalGenerator | `SIGNAL_AGENT` | `api/services/signal_generator.py` | ✅ Implemented |
+| ReasoningAgent | `REASONING_AGENT` | `api/services/agents/reasoning_agent.py` | ✅ Implemented |
+| ExecutionEngine | `EXECUTION_ENGINE` | `api/services/execution/execution_engine.py` | ✅ Implemented |
+| GradeAgent | `GRADE_AGENT` | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
+| ICUpdater | `IC_UPDATER` | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
+| ReflectionAgent | `REFLECTION_AGENT` | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
+| StrategyProposer | `STRATEGY_PROPOSER` | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
+| NotificationAgent | `NOTIFICATION_AGENT` | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
+| ChallengerAgent | `CHALLENGER_AGENT` | `api/services/agents/pipeline_agents.py` | ✅ Implemented |
+| ProposalApplier | `PROPOSAL_APPLIER` | `api/services/agents/proposal_applier.py` | ✅ Implemented |
+| HistoryAgent | — | — | 🚧 Planned |
+
+`ALL_AGENT_NAMES` in `api/constants.py` is the ordered tuple of the 10 runtime
+names above (HistoryAgent excluded until implemented).
+
+## Canonical agent names (single source of truth)
+
+Agent identity is one SCREAMING_SNAKE_CASE string per agent, used for Redis
+heartbeat keys (`agent:status:{name}`), `agent_logs.agent_name`, and the
+`/dashboard/state` `agent_statuses`.
+
+- **Backend** — defined once in `api/constants.py` (`AGENT_SIGNAL = "SIGNAL_AGENT"`,
+  …) and collected in `ALL_AGENT_NAMES`. Never write the raw string; import the
+  constant. (The `AGENT_PROMPTS` keys in `multi_agent_orchestrator.py` —
+  `CONSENSUS_AGENT`, `RISK_AGENT`, `SIZING_AGENT` — are internal prompt roles for
+  that planner, **not** pipeline agents, and are intentionally separate.)
+- **Frontend** — `frontend/src/constants/agents.ts` mirrors `ALL_AGENT_NAMES`
+  exactly and must stay in sync. The dashboard imports these constants; it never
+  hardcodes an agent name.
+- **Display** — `agentDisplayName()` (in `constants/agents.ts`) is the *only*
+  place a runtime name becomes a UI label (`SIGNAL_AGENT` → "Signal Agent"). Both
+  the Agent Pipeline diagram and the Agent Status table use it, so the same agent
+  always reads the same way in every panel.
+
+When you add an agent: add the `AGENT_*` constant and `ALL_AGENT_NAMES` entry in
+`api/constants.py`, mirror both in `frontend/src/constants/agents.ts`, and add a
+row to the table above.
 
 ## Grade scoring formula
 
