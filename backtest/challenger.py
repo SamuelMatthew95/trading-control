@@ -24,9 +24,15 @@ BASELINE_STRATEGY = "baseline_momentum"
 # A candidate must beat the baseline return by at least this many points (on the
 # same data) before it is worth promoting over the incumbent.
 DEFAULT_PROMOTE_MARGIN_PCT = 1.0
+# A promote/reject verdict computed on a handful of trades is statistical noise —
+# a Sharpe on 9 trades says nothing. Require at least this many trades on BOTH the
+# baseline and the candidate before trusting a comparison; below it the verdict is
+# INSUFFICIENT_DATA, which is distinct from a real REJECT.
+MIN_TRADES_FOR_VERDICT = 30
 
 PROMOTE = "promote"
 REJECT = "reject"
+INSUFFICIENT_DATA = "insufficient_data"
 
 
 @dataclass(frozen=True)
@@ -37,7 +43,7 @@ class ChallengerVerdict:
     baseline: str
     is_different: bool
     beats_baseline: bool
-    decision: str  # PROMOTE | REJECT
+    decision: str  # PROMOTE | REJECT | INSUFFICIENT_DATA
     reason: str
     candidate_stats: StrategyStats
     baseline_stats: StrategyStats
@@ -48,6 +54,7 @@ def evaluate_from_stats(
     *,
     baseline: str = BASELINE_STRATEGY,
     margin_pct: float = DEFAULT_PROMOTE_MARGIN_PCT,
+    min_trades: float = MIN_TRADES_FOR_VERDICT,
 ) -> ChallengerVerdict | None:
     """Pick the best non-baseline candidate and judge it against the baseline.
 
@@ -69,7 +76,16 @@ def evaluate_from_stats(
     )
     beats_baseline = best.mean_return_pct > base.mean_return_pct + margin_pct
 
-    if is_different and beats_baseline:
+    # Statistical eligibility gate — a 0-trade strategy is not "risk-efficient",
+    # and a Sharpe on a few trades is noise. Refuse to rank/promote on it.
+    if base.mean_trades < min_trades or best.mean_trades < min_trades:
+        decision = INSUFFICIENT_DATA
+        reason = (
+            f"Not enough trades to judge {best.name} vs {baseline} "
+            f"({baseline}={base.mean_trades:.0f}, {best.name}={best.mean_trades:.0f}; "
+            f"need >= {min_trades:.0f} each). A verdict on this few trades is noise."
+        )
+    elif is_different and beats_baseline:
         decision = PROMOTE
         reason = (
             f"{best.name} is different from {baseline} and beats it "
