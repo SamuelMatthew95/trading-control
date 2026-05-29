@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { BacktestComparisonPanel } from '@/components/dashboard/BacktestComparisonPanel'
+import { DistributionPanel } from '@/components/dashboard/DistributionPanel'
 import { StrategyLifecyclePanel } from '@/components/dashboard/StrategyLifecyclePanel'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
@@ -944,6 +945,7 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-6">
           <LearningDashboard />
           <BacktestComparisonPanel />
+          <DistributionPanel />
           <StrategyLifecyclePanel />
         </div>
       )}
