@@ -23,6 +23,7 @@ class StrategyStats:
     mean_trades: float
     mean_sharpe: float
     mean_win_rate: float
+    mean_signals: float = 0.0  # non-hold decisions: separates "inactive" from "no fills"
 
 
 def compare_on_prices(
@@ -43,6 +44,7 @@ def compare_on_prices(
                 mean_trades=float(res.trades),
                 mean_sharpe=round(res.sharpe, 3),
                 mean_win_rate=round(res.win_rate, 4),
+                mean_signals=float(res.signals),
             )
         )
     return out
