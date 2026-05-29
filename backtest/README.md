@@ -109,6 +109,30 @@ over-trading*, **not** evidence of alpha. A genuinely profitable strategy can
 only be confirmed on **real market data** (`--source alpaca`). What this proves
 is the methodology: a change can now be measured before it ever risks capital.
 
+## API + dashboard UI
+
+The harness is exposed as an **on-demand, cached** endpoint — not a one-off
+script and not a constant re-run:
+
+- `GET /backtest/compare?symbol=BTC/USD&bars=750` (`api/routes/backtest.py`)
+  runs the comparison and returns JSON. On the deployed backend (Render) it
+  fetches **real Alpaca history**; locally / in CI it falls back to a
+  deterministic synthetic series and says so via `source` (`alpaca` |
+  `synthetic`).
+- Results are **memoized per `(symbol, bars)`** for 10 minutes, so polling the
+  panel or reloading the page does not recompute the backtest or re-hit the
+  rate-limited data API. The `cached` flag tells you which you got.
+- The dashboard's **Backtest — Strategy Comparison** panel
+  (`frontend/src/components/dashboard/BacktestComparisonPanel.tsx`) lives in the
+  Learning section and fetches once on mount, with a manual Refresh button — no
+  timer.
+
+**Why it's integrated, not an island:** the endpoint calls the *same*
+`classify_signal` the live SignalGenerator agent uses and the *same*
+`trade_scorer` the GradeAgent uses. Change the signal and both the live agents
+and this panel move together — one source of truth, so the backtest measures
+exactly what the agents do.
+
 ## Tests
 
 `tests/integration/test_backtest_flow.py` (CI-gated): end-to-end run,
