@@ -705,6 +705,7 @@ class FieldName(StrEnum):
     POSITION_EXISTS = "position_exists"
     POSITION_ID = "position_id"
     POSITION_QUANTITY = "position_quantity"
+    POSITION_SIDE = "position_side"
     POSITION_SIZE = "position_size"
     POSTGRES = "postgres"
     PREMATURE_ENTRY = "premature_entry"
