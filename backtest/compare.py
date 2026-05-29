@@ -64,6 +64,34 @@ def compare_strategies(
     ]
 
 
+def compare_on_prices(
+    prices: Sequence[float],
+    strategies: dict[str, Strategy] | None = None,
+    *,
+    slippage_seed: int = 1,
+) -> list[StrategyStats]:
+    """Run every strategy ONCE over a single (real) price series.
+
+    Used for real-market backtests where there is one historical path rather
+    than many synthetic seeds. Returns the same StrategyStats shape as
+    ``compare_strategies`` so callers (and the API) are source-agnostic.
+    """
+    strategies = strategies or STRATEGIES
+    out: list[StrategyStats] = []
+    for name, strat in strategies.items():
+        res = run_backtest(prices, strategy=strat, strategy_name=name, slippage_seed=slippage_seed)
+        out.append(
+            StrategyStats(
+                name=name,
+                mean_return_pct=round(res.total_return_pct, 2),
+                mean_trades=float(res.trades),
+                mean_sharpe=round(res.sharpe, 3),
+                mean_win_rate=round(res.win_rate, 4),
+            )
+        )
+    return out
+
+
 def format_table(stats: list[StrategyStats]) -> str:
     """Render the comparison as a fixed-width table, best return first."""
     rows = sorted(stats, key=lambda s: s.mean_return_pct, reverse=True)
