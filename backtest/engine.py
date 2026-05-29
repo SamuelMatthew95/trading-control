@@ -43,6 +43,7 @@ class BacktestResult:
     bars: int
     trades: int
     holds: int
+    signals: int
     starting_equity: float
     final_equity: float
     total_return_pct: float
@@ -62,6 +63,7 @@ class BacktestResult:
                 f"Backtest — {self.symbol}" + (f"  [{self.strategy}]" if self.strategy else ""),
                 f"  bars analysed   : {self.bars}",
                 f"  trades          : {self.trades}   (holds: {self.holds})",
+                f"  signals         : {self.signals}   (non-hold decisions)",
                 f"  starting equity : ${self.starting_equity:,.2f}",
                 f"  final equity    : ${self.final_equity:,.2f}",
                 f"  total return    : {self.total_return_pct:+.2f}%",
@@ -108,6 +110,7 @@ def run_backtest(
     evaluations: list[dict[str, Any]] = []
     equity_curve: list[float] = []
     holds = 0
+    signals = 0  # non-hold strategy outputs (threshold hits), distinct from fills
 
     def _fill(price: float, signed_delta: float) -> float:
         """Slipped fill price — buys slip up, sells slip down (like PaperBroker)."""
@@ -152,6 +155,7 @@ def run_backtest(
         if action == "hold":
             holds += 1
         else:
+            signals += 1
             target_dir = 1 if action == "buy" else -1
             if target_dir == open_dir:
                 holds += 1  # already positioned this way — no pyramiding
@@ -215,6 +219,7 @@ def run_backtest(
         bars=n,
         trades=trades,
         holds=holds,
+        signals=signals,
         starting_equity=starting_equity,
         final_equity=final_equity,
         total_return_pct=total_return_pct,
