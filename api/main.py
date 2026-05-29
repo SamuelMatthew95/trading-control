@@ -76,6 +76,8 @@ from api.services.redis_store import set_redis_store
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
 from api.workers.price_poller import poll_prices
+from backtest.challenger import BASELINE_STRATEGY
+from backtest.strategies import STRATEGIES
 
 configure_logging(settings.LOG_LEVEL)
 
@@ -299,7 +301,21 @@ async def lifespan(app: FastAPI):
             reflection_agent,
             StrategyProposer(event_bus, dlq_manager, agent_state=agent_state),
             NotificationAgent(event_bus, dlq_manager, redis_client, agent_state=agent_state),
-            ChallengerAgent(event_bus, dlq_manager, agent_state=agent_state),
+            # One shadow ChallengerAgent per candidate strategy: each consumes the
+            # live execution / trade_performance streams, is graded, and places NO
+            # orders — it registers at SHADOW in the lifecycle. This is how the
+            # non-baseline strategies get "hooked up" without skipping straight to
+            # live; see backtest/README.md (Shadow lifecycle).
+            *[
+                ChallengerAgent(
+                    event_bus,
+                    dlq_manager,
+                    challenger_config={FieldName.STRATEGY: _strategy_name},
+                    agent_state=agent_state,
+                )
+                for _strategy_name in STRATEGIES
+                if _strategy_name != BASELINE_STRATEGY
+            ],
             # ProposalApplier closes the learning loop — it consumes
             # STREAM_PROPOSALS (written by GradeAgent / ReflectionAgent /
             # StrategyProposer) and applies the actions to Redis control-plane

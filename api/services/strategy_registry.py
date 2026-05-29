@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from api.constants import StrategyStatus
+from api.constants import FieldName, StrategyStatus
 
 # Allowed forward transitions. RETIRED is terminal and reachable from any stage
 # (a strategy can always be pulled).
@@ -101,6 +101,20 @@ class StrategyRegistry:
 
     def versions(self) -> list[StrategyVersion]:
         return [r.strategy for r in self._records.values()]
+
+    def find_by_strategy(self, strategy_name: str) -> StrategyRecord | None:
+        """Return the highest-version record for a strategy name, or None.
+
+        Keeps lifecycle registration idempotent across the two producers that
+        both want a candidate registered exactly once: the route's startup
+        seeder and the shadow ChallengerAgents.
+        """
+        matches = [
+            rec
+            for rec in self._records.values()
+            if rec.strategy.config.get(FieldName.STRATEGY) == strategy_name
+        ]
+        return max(matches, key=lambda r: r.strategy.version) if matches else None
 
     def transition(self, version_id: str, to_status: StrategyStatus) -> StrategyVersion:
         """Advance a version exactly one stage. Raises InvalidTransitionError on a skip."""

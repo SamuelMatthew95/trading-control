@@ -136,9 +136,67 @@ script and not a constant re-run:
 and this panel move together — one source of truth, so the backtest measures
 exactly what the agents do.
 
+## Shadow lifecycle — candidates run, but place no orders
+
+A strategy must not jump straight to live. The lifecycle enforces it:
+
+```
+proposed → backtested → shadow → canary → live
+```
+
+`baseline_momentum` is the one **live** signal (it *is* `classify_signal`). The
+other strategies are wired into **shadow**: at startup `api/main.py` spawns one
+`ChallengerAgent` per non-baseline strategy in `STRATEGIES`. A shadow challenger:
+
+- consumes the live `executions` / `trade_performance` streams,
+- is graded under its own `instance_id`,
+- **places no orders**, and
+- registers itself at `SHADOW` in the `StrategyRegistry`
+  (`api/services/strategy_registry.py`) so it shows on the dashboard's Strategy
+  Lifecycle panel.
+
+Registration is **eager** (on `ChallengerAgent.start()`, not on the first fill)
+and **idempotent** (`registry.find_by_strategy`), so a candidate appears in
+shadow as soon as the app boots — even while the pipeline is idle — and the route
+seeder (`_ensure_registry_seeded`) and the challengers never double-register.
+Promotion shadow → canary → live stays a deliberate, gated step; nothing skips it.
+
+## Distribution telemetry — calibration as evidence
+
+`GET /backtest/distribution?symbol=BTC/USD&bars=750` (`backtest/distribution.py`)
+answers *"is a 1.5% single-bar trigger even reachable on this timeframe?"* For
+each timeframe (1/5/15/60 base-bar multiples) it reports the distribution of
+`|per-bar move|` and where the live `MOMENTUM_PCT` / `STRONG_MOMENTUM_PCT`
+thresholds fall in it:
+
+```
+timeframe   p50     p95     p99     1.5% → percentile   1.5% → hit_rate
+1-bar       0.04%   0.18%   0.31%   p99.7               0.3%
+60-bar      0.31%   1.42%   2.65%   p82.0               18%
+```
+
+This makes mis-calibration *visible* — "1.5% is a p99.7 event on 1-minute bars"
+becomes a number, not a hunch — and is the groundwork for volatility-normalized
+triggering (`move > k·rolling_σ`), for which the report already surfaces a
+rolling-sigma summary per timeframe. Cached per `(symbol, bars)` like `/compare`.
+
+The dashboard's **Move Distribution — Threshold Calibration** panel
+(`frontend/src/components/dashboard/DistributionPanel.tsx`, Learning section)
+renders it: per-timeframe `|move|` percentiles and each live trigger's tail
+percentile + fire rate, with deep-tail (≥ p99) triggers flagged in red so an
+unreachable threshold is obvious at a glance.
+
 ## Tests
 
-`tests/integration/test_backtest_flow.py` (CI-gated): end-to-end run,
-determinism, the reproduced "idle" failure mode, that the pluggable refactor
-preserves baseline behavior, and that a selective strategy beats the baseline
-across 20 paired seeds.
+- `tests/integration/test_backtest_flow.py` (CI-gated): end-to-end run,
+  determinism, the reproduced "idle" failure mode, the pluggable refactor
+  preserving baseline behavior, a selective strategy beating the baseline across
+  20 paired seeds, and the `INSUFFICIENT_DATA` eligibility gate.
+- `tests/integration/test_distribution.py` (CI-gated): the move-distribution
+  telemetry — percentiles, threshold percentile / hit-rate, and that coarser
+  timeframes shift the thresholds to lower percentiles.
+- `tests/agents/test_challenger_agent.py`: shadow registration is eager and
+  idempotent (exactly one lifecycle entry per strategy).
+- `tests/core/test_strategy_registry.py`: `find_by_strategy` lookup.
+- `tests/api/test_backtest_route.py`: `/compare`, `/distribution`, and the
+  lifecycle states (`baseline_momentum` live, candidates shadow).

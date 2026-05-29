@@ -8,6 +8,7 @@ interface StrategyRow {
   name: string
   return_pct: number
   trade_count: number
+  signals: number
   sharpe_ratio: number
   win_rate: number
 }
@@ -92,12 +93,17 @@ export function BacktestComparisonPanel() {
           {data.candidate && (
             <div
               className={`mb-3 rounded-lg border p-2 ${
-                data.decision === 'promote' ? PROMOTE_BOX : REJECT_BOX
+                data.decision === 'promote'
+                  ? PROMOTE_BOX
+                  : data.decision === 'insufficient_data'
+                    ? INSUFFICIENT_BOX
+                    : REJECT_BOX
               }`}
             >
               <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">
                 Challenger: {data.candidate} — different {data.is_different ? '✓' : '✗'} · beats
-                baseline {data.beats_baseline ? '✓' : '✗'} → {data.decision.toUpperCase()}
+                baseline {data.beats_baseline ? '✓' : '✗'} →{' '}
+                {data.decision.replace(/_/g, ' ').toUpperCase()}
               </p>
               <p className={`mt-0.5 ${MUTED}`}>{data.reason}</p>
             </div>
@@ -114,26 +120,53 @@ export function BacktestComparisonPanel() {
                 </tr>
               </thead>
               <tbody>
-                {data.strategies.map((s) => (
-                  <tr key={s.name} className="border-t border-slate-200 dark:border-slate-800">
-                    <td className="p-2 font-semibold text-slate-900 dark:text-slate-100">
-                      {s.name}
-                    </td>
-                    <td className={`p-2 text-right ${s.return_pct >= 0 ? POS : NEG}`}>
-                      {s.return_pct >= 0 ? '+' : ''}
-                      {s.return_pct.toFixed(2)}%
-                    </td>
-                    <td className="p-2 text-right text-slate-600 dark:text-slate-300">
-                      {Math.round(s.trade_count)}
-                    </td>
-                    <td className="p-2 text-right text-slate-600 dark:text-slate-300">
-                      {s.sharpe_ratio.toFixed(2)}
-                    </td>
-                    <td className="p-2 text-right text-slate-600 dark:text-slate-300">
-                      {(s.win_rate * 100).toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
+                {data.strategies.map((s) => {
+                  // signals === 0 means the strategy never crossed its trigger on
+                  // this data: "no signals", not a measured 0.00% — show it as such
+                  // and don't dress inert metrics up as real numbers.
+                  const inert = s.signals === 0
+                  return (
+                    <tr
+                      key={s.name}
+                      className={`border-t border-slate-200 dark:border-slate-800 ${
+                        inert ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <td className="p-2 font-semibold text-slate-900 dark:text-slate-100">
+                        {s.name}
+                        {inert && (
+                          <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                            no signals
+                          </span>
+                        )}
+                      </td>
+                      {inert ? (
+                        <>
+                          <td className={`p-2 text-right ${MUTED}`}>—</td>
+                          <td className="p-2 text-right text-slate-600 dark:text-slate-300">0</td>
+                          <td className={`p-2 text-right ${MUTED}`}>—</td>
+                          <td className={`p-2 text-right ${MUTED}`}>—</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className={`p-2 text-right ${s.return_pct >= 0 ? POS : NEG}`}>
+                            {s.return_pct >= 0 ? '+' : ''}
+                            {s.return_pct.toFixed(2)}%
+                          </td>
+                          <td className="p-2 text-right text-slate-600 dark:text-slate-300">
+                            {Math.round(s.trade_count)}
+                          </td>
+                          <td className="p-2 text-right text-slate-600 dark:text-slate-300">
+                            {s.sharpe_ratio.toFixed(2)}
+                          </td>
+                          <td className="p-2 text-right text-slate-600 dark:text-slate-300">
+                            {(s.win_rate * 100).toFixed(1)}%
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -159,5 +192,7 @@ const NEG = 'text-rose-600 dark:text-rose-400'
 const PROMOTE_BOX =
   'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40'
 const REJECT_BOX = 'border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40'
+const INSUFFICIENT_BOX =
+  'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
 const BTN =
   'rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
