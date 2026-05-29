@@ -14,9 +14,6 @@ import pytest
 from api.constants import EXECUTION_DECISION_THRESHOLD
 from api.services.execution.execution_engine import ExecutionEngine
 
-pytestmark = pytest.mark.asyncio
-
-
 # ---------------------------------------------------------------------------
 # Fixture — minimal ExecutionEngine instance (no DB, no Redis needed)
 # ---------------------------------------------------------------------------
