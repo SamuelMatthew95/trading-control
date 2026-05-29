@@ -149,6 +149,9 @@ class GradeAgent(MultiStreamAgent):
         # Rolling (composite_score, dimension_vector) history feeding the
         # self-correction analytics — grade anomaly detection + trajectory.
         self._grade_score_history: deque[tuple[float, dict[str, Any]]] = deque(maxlen=50)
+        # Edge-trigger latch: alert once when the diagnostic enters a drop/decay
+        # state, stay quiet until it recovers (avoids per-cycle notification spam).
+        self._self_correction_active: bool = False
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -285,7 +288,12 @@ class GradeAgent(MultiStreamAgent):
         )
 
         await write_agent_log(trace_id, LogType.GRADE, payload)
-        await write_grade_to_db(trace_id, payload[FieldName.SCORE_PCT], payload[FieldName.METRICS])
+        await write_grade_to_db(
+            trace_id,
+            payload[FieldName.SCORE_PCT],
+            payload[FieldName.METRICS],
+            self_correction=self_correction,
+        )
         await self._take_grade_action(grade, payload)
         await self._emit_self_correction_alert(self_correction, trace_id)
         await self._adjust_llm_call_rate(llm_snap)
@@ -367,14 +375,23 @@ class GradeAgent(MultiStreamAgent):
     async def _emit_self_correction_alert(
         self, self_correction: dict[str, Any], trace_id: str
     ) -> None:
-        """Publish a high-visibility notification on a grade drop or decaying trend.
+        """Edge-triggered alert on a grade drop or decaying trend.
 
-        This is the proactive-intervention path: surface a degrading trajectory
-        *before* the hard D/F gates in ``_take_grade_action`` retire the agent.
-        Positive spikes are recorded in the grade payload but never paged on.
+        Fires a single notification when the diagnostic first becomes actionable
+        (entering drop/decay) and stays silent until it recovers — no per-cycle
+        spam. Surfaces a degrading trajectory *before* the hard D/F gates in
+        ``_take_grade_action`` retire the agent. The full diagnostic always
+        rides along in the grade payload regardless; this is only the push
+        alert. Positive spikes are never paged on.
         """
         if not is_actionable(self_correction):
+            # Recovered (or never tripped) — reset so the next entry re-fires.
+            self._self_correction_active = False
             return
+        if self._self_correction_active:
+            # Already alerted for this episode — don't re-page every cycle.
+            return
+        self._self_correction_active = True
         log_structured(
             "warning",
             "grade_self_correction",
