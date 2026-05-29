@@ -72,6 +72,7 @@ export const API_ENDPOINTS = {
   DASHBOARD_AGENT_INSTANCES: "/dashboard/agent-instances",
   DASHBOARD_PERFORMANCE_TRENDS: "/dashboard/performance-trends",
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
+  DASHBOARD_CHALLENGERS: "/dashboard/challengers",
   
   // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
