@@ -30,6 +30,7 @@ from api.observability import (
 from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.analyze import router as analyze_router
+from api.routes.backtest import router as backtest_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.decisions import router as decisions_router
 from api.routes.dlq import router as dlq_router
@@ -410,6 +411,8 @@ app.include_router(llm_health_router, prefix="/api")
 # whether NEXT_PUBLIC_API_URL includes "/api" or not (matches health_router pattern)
 app.include_router(dashboard_v2_router)
 app.include_router(dashboard_v2_router, prefix="/api")
+app.include_router(backtest_router)
+app.include_router(backtest_router, prefix="/api")
 app.include_router(learning_router)
 app.include_router(learning_router, prefix="/api")
 # Redis-backed REST persistence — required for in-memory mode UI hydration
