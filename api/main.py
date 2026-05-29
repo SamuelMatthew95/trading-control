@@ -31,6 +31,7 @@ from api.redis_client import close_redis, get_redis
 from api.redis_inspector import router as debug_redis_router
 from api.routes.analyze import router as analyze_router
 from api.routes.backtest import router as backtest_router
+from api.routes.backtest import run_backtest_refresh_loop
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.decisions import router as decisions_router
 from api.routes.dlq import router as dlq_router
@@ -275,6 +276,12 @@ async def lifespan(app: FastAPI):
         keep_alive_task = asyncio.create_task(_keep_alive(), name="keep-alive")
         app.state.keep_alive_task = keep_alive_task
 
+        # Backtest dashboard: warm the cache on boot, then refresh it hourly.
+        backtest_refresh_task = asyncio.create_task(
+            run_backtest_refresh_loop(), name="backtest-refresh"
+        )
+        app.state.backtest_refresh_task = backtest_refresh_task
+
         grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
         reflection_agent = ReflectionAgent(event_bus, dlq_manager, agent_state=agent_state)
         # Inject grader reference so reflection can read the live eval buffer for
@@ -359,7 +366,7 @@ async def lifespan(app: FastAPI):
         )
         raise
     finally:
-        for task_name in ("poller_task", "keep_alive_task"):
+        for task_name in ("poller_task", "keep_alive_task", "backtest_refresh_task"):
             task = getattr(app.state, task_name, None)
             if task is not None:
                 task.cancel()
