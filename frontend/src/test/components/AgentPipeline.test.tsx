@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+
+import { AgentPipeline } from '@/components/dashboard/AgentPipeline'
+import type { AgentPipelineInput } from '@/lib/agent-pipeline'
+import { AGENT_REASONING, AGENT_SIGNAL } from '@/constants/agents'
+
+const baseProps: AgentPipelineInput = {
+  agents: [],
+  marketTickCount: 0,
+  lastMarketSymbol: null,
+  marketLive: false,
+  decisionStats: null,
+  proposalsCount: 0,
+}
+
+describe('AgentPipeline', () => {
+  it('renders every stage label and agent name', () => {
+    render(<AgentPipeline {...baseProps} />)
+    for (const label of ['Market', 'Signal', 'Reasoning', 'Execution', 'Grade', 'Learn']) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+    expect(screen.getByText('SignalGenerator')).toBeInTheDocument()
+    expect(screen.getByText('ReasoningAgent')).toBeInTheDocument()
+  })
+
+  it('shows reporting agents as Live and missing agents as Waiting', () => {
+    render(
+      <AgentPipeline
+        {...baseProps}
+        agents={[{ name: AGENT_SIGNAL, status: 'Live', realtimeCount: 12, persistedCount: 0, lastSeen: new Date() }]}
+        marketLive
+        marketTickCount={60}
+      />,
+    )
+    expect(screen.getAllByText('Live').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Waiting').length).toBeGreaterThan(0)
+    expect(screen.getByText('12')).toBeInTheDocument()
+  })
+
+  it('renders a decision breakdown fact when decision stats are present', () => {
+    render(
+      <AgentPipeline
+        {...baseProps}
+        agents={[{ name: AGENT_REASONING, status: 'Live', realtimeCount: 0, persistedCount: 0, lastSeen: new Date() }]}
+        decisionStats={{ total: 8, last_hour: { buys: 4, sells: 3, holds: 1 } }}
+      />,
+    )
+    expect(screen.getByText('4 buy · 3 sell')).toBeInTheDocument()
+  })
+
+  it('never renders NaN, even with a partial decisionStats object', () => {
+    render(<AgentPipeline {...baseProps} decisionStats={{}} />)
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument()
+  })
+})
