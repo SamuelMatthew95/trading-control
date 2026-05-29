@@ -118,7 +118,7 @@ def distribution_report(
                 "timeframe_bars": tf,
                 "sample_size": len(moves),
                 "abs_pct": {
-                    **percentiles(moves, (50, 95, 99, 99.9)),
+                    **percentiles(moves, (50, 90, 95, 99, 99.9)),
                     "max": round(max(moves), 6) if moves else 0.0,
                 },
                 "rolling_sigma": (
