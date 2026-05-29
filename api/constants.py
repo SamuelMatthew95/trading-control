@@ -973,6 +973,7 @@ class FieldName(StrEnum):
     VALUE = "value"
     VECTOR_METADATA = "vector_metadata"
     VETO = "veto"
+    VERSION = "version"
     VOLUME = "volume"
     VOLUME_RATIO = "volume_ratio"
     VWAP_PLAN = "vwap_plan"
