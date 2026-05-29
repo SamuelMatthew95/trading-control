@@ -30,10 +30,12 @@ from api.constants import (
 )
 from api.observability import log_structured
 from api.redis_client import get_redis
+from api.services.signal_generator import MOMENTUM_PCT, STRONG_MOMENTUM_PCT
 from api.services.strategy_registry import StrategyRegistry, get_strategy_registry
 from backtest.challenger import INSUFFICIENT_DATA, evaluate_from_stats
 from backtest.compare import compare_on_prices
 from backtest.data import alpaca_prices, synthetic_prices
+from backtest.distribution import distribution_report
 from backtest.strategies import STRATEGIES
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -52,6 +54,11 @@ _DEFAULT_BARS = 750
 # than re-hitting the rate-limited Alpaca data API — on every dashboard poll.
 _CACHE_TTL_SECONDS = 600
 _cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+
+# Base-bar multiples to resample to for the move-distribution telemetry: a base
+# of 1-minute bars yields 1/5/15/60-minute views of the same series.
+_DISTRIBUTION_TIMEFRAMES = (1, 5, 15, 60)
+_dist_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
 
 
 def _summary(source: str, *, active: int, total: int, decision: str) -> str:
@@ -74,18 +81,27 @@ def _summary(source: str, *, active: int, total: int, decision: str) -> str:
     return " ".join(bits)
 
 
+def _load_prices(symbol: str, bars: int) -> tuple[list[float], str]:
+    """Real Alpaca history when reachable, deterministic synthetic otherwise.
+
+    Shared by /compare and /distribution so both measure the identical series.
+    Returns ``(prices, source)`` where source is ``"alpaca"`` or ``"synthetic"``.
+    """
+    prices = alpaca_prices(symbol, bars=bars)
+    if len(prices) < _MIN_REAL_BARS:
+        return synthetic_prices(
+            n=bars, vol_pct=_SYNTHETIC_VOL_PCT, seed=_SYNTHETIC_SEED
+        ), "synthetic"
+    return list(prices), "alpaca"
+
+
 def _compute_compare(symbol: str, bars: int) -> dict[str, Any]:
     """Run the strategy comparison + challenger verdict over price history.
 
     Real Alpaca data when available (deployed backend), deterministic synthetic
     otherwise. Pure compute — caching and HTTP concerns live in the callers.
     """
-    prices = alpaca_prices(symbol, bars=bars)
-    source = "alpaca"
-    if len(prices) < _MIN_REAL_BARS:
-        prices = synthetic_prices(n=bars, vol_pct=_SYNTHETIC_VOL_PCT, seed=_SYNTHETIC_SEED)
-        source = "synthetic"
-
+    prices, source = _load_prices(symbol, bars)
     stats = compare_on_prices(prices)
     verdict = evaluate_from_stats(stats)
     decision = verdict.decision if verdict else "reject"
@@ -170,6 +186,52 @@ async def run_backtest_refresh_loop() -> None:
         await asyncio.sleep(BACKTEST_REFRESH_INTERVAL_SECONDS)
 
 
+def _compute_distribution(symbol: str, bars: int) -> dict[str, Any]:
+    """Per-timeframe distribution of actual moves vs the live signal thresholds."""
+    prices, source = _load_prices(symbol, bars)
+    report = distribution_report(
+        prices,
+        timeframes=_DISTRIBUTION_TIMEFRAMES,
+        thresholds=(MOMENTUM_PCT, STRONG_MOMENTUM_PCT),
+    )
+    return {
+        FieldName.MODE: "distribution",
+        FieldName.SOURCE: source,
+        FieldName.SYMBOL: symbol,
+        FieldName.BARS: len(prices),
+        FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMEFRAMES: report,
+        FieldName.CACHED: False,
+    }
+
+
+@router.get("/distribution")
+async def distribution(
+    symbol: str = Query(default="BTC/USD", description="symbol to analyze"),
+    bars: int = Query(default=750, ge=_MIN_REAL_BARS, le=5000),
+    force: bool = Query(default=False, description="bypass the cache and recompute now"),
+) -> dict[str, Any]:
+    """Where the live MOMENTUM_PCT / STRONG_MOMENTUM_PCT triggers fall in the
+    distribution of actual per-bar moves, per timeframe — calibration as evidence
+    rather than a magic number, e.g. "1.5% is a p99.7 event on 1-minute bars".
+    Cached per ``(symbol, bars)`` like /compare; ``force=true`` recomputes now.
+    """
+    key = (symbol, bars)
+    now = time.time()
+    hit = _dist_cache.get(key)
+    if not force and hit is not None and (now - hit[0]) < _CACHE_TTL_SECONDS:
+        cached_payload = dict(hit[1])
+        cached_payload[FieldName.CACHED] = True
+        return cached_payload
+    try:
+        payload = _compute_distribution(symbol, bars)
+    except Exception:
+        log_structured("error", "backtest_distribution_failed", symbol=symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="distribution computation failed") from None
+    _dist_cache[key] = (now, payload)
+    return payload
+
+
 _BASELINE_NAME = "baseline_momentum"
 _TO_LIVE_STAGES = (
     StrategyStatus.BACKTESTED,
@@ -179,24 +241,25 @@ _TO_LIVE_STAGES = (
 )
 
 
-def _seed_registry_if_empty() -> StrategyRegistry:
-    """Populate the registry once from the known strategies (idempotent).
+def _ensure_registry_seeded() -> StrategyRegistry:
+    """Idempotently seed the lifecycle: baseline LIVE, candidates SHADOW.
 
-    Baseline is the current live signal; the others are backtested candidates.
-    This is a first, honest population so the lifecycle has real state to show;
-    wiring the StrategyProposer/challenger to register versions is the next step.
+    Candidates sit at SHADOW (not BACKTESTED) because a shadow ChallengerAgent is
+    auto-spawned for each at startup — they run on the live streams, are graded,
+    and place no orders. Idempotent via ``find_by_strategy`` so it agrees with the
+    challengers' own registration no matter which runs first.
     """
     registry = get_strategy_registry()
-    if registry.versions():
-        return registry
-    base = registry.register({FieldName.STRATEGY: _BASELINE_NAME})
-    for stage in _TO_LIVE_STAGES:
-        registry.transition(base.version_id, stage)
+    if registry.find_by_strategy(_BASELINE_NAME) is None:
+        base = registry.register({FieldName.STRATEGY: _BASELINE_NAME})
+        for stage in _TO_LIVE_STAGES:
+            registry.transition(base.version_id, stage)
     for name in STRATEGIES:
-        if name == _BASELINE_NAME:
+        if name == _BASELINE_NAME or registry.find_by_strategy(name) is not None:
             continue
         candidate = registry.register({FieldName.STRATEGY: name})
         registry.transition(candidate.version_id, StrategyStatus.BACKTESTED)
+        registry.transition(candidate.version_id, StrategyStatus.SHADOW)
     return registry
 
 
@@ -218,7 +281,7 @@ async def strategies() -> dict[str, Any]:
     retired (one stage at a time, enforced by the registry). The circuit-breaker
     (kill-switch) state is included so the UI can show when trading is halted.
     """
-    registry = _seed_registry_if_empty()
+    registry = _ensure_registry_seeded()
     rows = [
         {
             FieldName.ID: sv.version_id,
