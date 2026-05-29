@@ -15,6 +15,7 @@ import type { ApiHealth, DecisionStats } from '@/hooks/useRestPoll'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { cn } from '@/lib/utils'
 import { formatTimeAgo, formatTimestamp, parseTimestampMs, sanitizeValue } from '@/lib/formatters'
+import { countRecentNotifications, lastNotificationLabel } from '@/lib/notification-metrics'
 import { agentDisplayName } from '@/constants/agents'
 import { STREAM_MARKET_EVENTS, STREAM_MARKET_TICKS } from '@/constants/streams'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
@@ -74,22 +75,6 @@ function formatUptime(seconds: number): string {
 function formatWiringAge(ageMs: number | null): string {
   const age = formatAgeFromMs(ageMs)
   return age === '--' ? 'No recent timestamp' : `last ${age} ago`
-}
-
-function lastNotificationLabel(notifications: Array<{ timestamp?: string }>): string {
-  const ms = parseTimestampMs(notifications[0]?.timestamp)
-  return ms != null ? `Last: ${new Date(ms).toLocaleTimeString()}` : 'No activity yet'
-}
-
-// "Recent" = within the window. The stored list is a capped backlog (max 200),
-// so its raw length is a poor headline metric — a freshly opened app shows 200
-// even when nothing new happened. Count only what actually arrived recently.
-function countRecentNotifications(notifications: Array<{ timestamp?: string }>, windowMs: number): number {
-  const cutoff = Date.now() - windowMs
-  return notifications.reduce((count, item) => {
-    const ms = parseTimestampMs(item.timestamp)
-    return ms != null && ms >= cutoff ? count + 1 : count
-  }, 0)
 }
 
 function EmptyState({ message }: { message: string }) {
