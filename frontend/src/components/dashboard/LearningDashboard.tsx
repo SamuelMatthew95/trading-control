@@ -55,6 +55,22 @@ interface LearningMetrics {
   min_required_sample_size?: number
 }
 
+interface SelfCorrection {
+  anomaly_detected?: boolean
+  z_score?: number
+  direction?: string
+  baseline_mean?: number
+  baseline_std?: number
+  baseline_samples?: number
+  trajectory?: { slope?: number; direction?: string; decaying?: boolean }
+  attribution?: { dimension: string; delta: number }[]
+  message?: string
+}
+
+interface LearningLoopResponse {
+  latest_grade?: { self_correction?: SelfCorrection | null } | null
+}
+
 interface MistakeCluster {
   type: string
   frequency: number
@@ -418,7 +434,13 @@ function TradeTablePanel({
 // Panel: Agent Performance Dashboard
 // ---------------------------------------------------------------------------
 
-function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null }) {
+function AgentPerformancePanel({
+  metrics,
+  selfCorrection,
+}: {
+  metrics: LearningMetrics | null
+  selfCorrection: SelfCorrection | null
+}) {
   if (!metrics) {
     return (
       <Panel title="Agent Performance">
@@ -494,6 +516,35 @@ function AgentPerformancePanel({ metrics }: { metrics: LearningMetrics | null })
           {isUnreliable ? '—' : `${trendIcon(metrics.score_trend)} ${metrics.score_trend}`}
         </span>
       </div>
+      {selfCorrection &&
+      (selfCorrection.baseline_samples != null || selfCorrection.trajectory != null) ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
+          <span className="text-xs text-slate-500">Self-correction:</span>
+          <span
+            className={`text-xs font-mono font-bold ${
+              selfCorrection.trajectory?.direction === 'decaying'
+                ? 'text-rose-500'
+                : selfCorrection.trajectory?.direction === 'improving'
+                  ? 'text-emerald-500'
+                  : 'text-slate-400'
+            }`}
+          >
+            trend: {selfCorrection.trajectory?.direction ?? '--'}
+          </span>
+          {selfCorrection.anomaly_detected ? (
+            <span
+              className={`text-xs font-mono font-bold ${
+                selfCorrection.direction === 'negative_drop' ? 'text-rose-500' : 'text-amber-500'
+              }`}
+            >
+              {selfCorrection.direction} (z=
+              {selfCorrection.z_score != null ? selfCorrection.z_score.toFixed(2) : '--'})
+            </span>
+          ) : (
+            <span className="text-xs font-mono text-slate-400">no anomaly</span>
+          )}
+        </div>
+      ) : null}
     </Panel>
   )
 }
@@ -822,6 +873,7 @@ export function LearningDashboard() {
   const [pipeline, setPipeline] = useState<PipelineStatus | null>(null)
   const [selectedTrade, setSelectedTrade] = useState<TradeEvaluation | null>(null)
   const [modelPerf, setModelPerf] = useState<ModelPerformance[]>([])
+  const [selfCorrection, setSelfCorrection] = useState<SelfCorrection | null>(null)
   const [lastRefresh, setLastRefresh] = useState<string>('')
   const [errors, setErrors] = useState<string[]>([])
   const cancelRef = useRef(false)
@@ -837,13 +889,14 @@ export function LearningDashboard() {
       }
     }
 
-    const [t, m, r, s, p, mp] = await Promise.all([
+    const [t, m, r, s, p, mp, ll] = await Promise.all([
       safe(() => apiFetch<TradesResponse>(API_ENDPOINTS.LEARNING_TRADES + '?limit=50')),
       safe(() => apiFetch<LearningMetrics>(API_ENDPOINTS.LEARNING_METRICS)),
       safe(() => apiFetch<ReflectionsResponse>(API_ENDPOINTS.LEARNING_REFLECTIONS_V2 + '?limit=5')),
       safe(() => apiFetch<StrategiesResponse>(API_ENDPOINTS.LEARNING_STRATEGIES + '?limit=10')),
       safe(() => apiFetch<PipelineStatus>(API_ENDPOINTS.LEARNING_PIPELINE_STATUS)),
       safe(() => apiFetch<ModelPerformanceResponse>(API_ENDPOINTS.LEARNING_MODEL_PERFORMANCE)),
+      safe(() => apiFetch<LearningLoopResponse>(API_ENDPOINTS.LEARNING_LOOP)),
     ])
 
     if (cancelRef.current) return
@@ -854,6 +907,7 @@ export function LearningDashboard() {
     if (s) { setStrategies(s.strategies); setStrategiesTotal(s.total); setStrategiesMode(s.mode) }
     if (p) setPipeline(p)
     if (mp) setModelPerf(mp.models)
+    if (ll) setSelfCorrection(ll.latest_grade?.self_correction ?? null)
     setErrors(errs)
     setLastRefresh(new Date().toLocaleTimeString())
   }, [])
@@ -902,7 +956,7 @@ export function LearningDashboard() {
         {/* Row 1: Performance + Pipeline */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            <AgentPerformancePanel metrics={metrics} />
+            <AgentPerformancePanel metrics={metrics} selfCorrection={selfCorrection} />
           </div>
           <PipelineStatusPanel status={pipeline} />
         </div>
