@@ -76,3 +76,19 @@ def test_retired_is_terminal():
     reg.transition(sv.version_id, StrategyStatus.RETIRED)
     with pytest.raises(InvalidTransitionError):
         reg.transition(sv.version_id, StrategyStatus.BACKTESTED)
+
+
+def test_find_by_strategy_returns_latest_or_none():
+    """find_by_strategy backs idempotent shadow registration: no match -> None,
+    otherwise the highest-version record for that strategy name."""
+    reg = StrategyRegistry()
+    assert reg.find_by_strategy("strong_only") is None
+
+    v1 = reg.register({"strategy": "strong_only"})
+    assert reg.find_by_strategy("strong_only").strategy.version_id == v1.version_id
+
+    v2 = reg.register({"strategy": "strong_only"})  # a newer version wins
+    assert reg.find_by_strategy("strong_only").strategy.version_id == v2.version_id
+
+    reg.register({"a": 1})  # unrelated config never matches a strategy name
+    assert reg.find_by_strategy("mean_reversion") is None
