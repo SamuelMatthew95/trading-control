@@ -123,8 +123,12 @@ script and not a constant re-run:
   rate-limited data API. The `cached` flag tells you which you got.
 - The dashboard's **Backtest — Strategy Comparison** panel
   (`frontend/src/components/dashboard/BacktestComparisonPanel.tsx`) lives in the
-  Learning section and fetches once on mount, with a manual Refresh button — no
-  timer.
+  Learning section and fetches once on mount, with a **Run now** button that
+  forces a fresh recompute (`?force=true`, bypassing the cache).
+- A background loop (`run_backtest_refresh_loop`, started in `api/main.py`)
+  warms the cache on boot and **refreshes it every hour**
+  (`BACKTEST_REFRESH_INTERVAL_SECONDS`) so the panel shows fresh real-data
+  results without anyone clicking.
 
 **Why it's integrated, not an island:** the endpoint calls the *same*
 `classify_signal` the live SignalGenerator agent uses and the *same*
