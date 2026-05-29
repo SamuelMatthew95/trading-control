@@ -100,3 +100,22 @@ export function formatTimeAgo(v: string | Date | null | undefined): string {
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+/**
+ * Render a value for display, collapsing missing/invalid input to '--' so the
+ * UI never shows `null`, `undefined`, `NaN`, or an empty string.
+ */
+export function sanitizeValue(value: string | number | boolean | null | undefined): string {
+  if (value === undefined || value === null || value === '') return '--'
+  if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return '--'
+  if (typeof value === 'boolean') return value ? 'True' : 'False'
+  return String(value)
+}
+
+/** Format a timestamp as a local clock time ("3:45:01 PM"); '--' when missing/invalid. */
+export function formatTimestamp(value?: string | null): string {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--'
+  return date.toLocaleTimeString()
+}

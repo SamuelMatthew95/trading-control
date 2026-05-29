@@ -74,9 +74,9 @@ export function formatLlmProviderName(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
-export function canonicalAgentKey(name: string): string {
-  return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
-}
+// Single source of truth lives in constants/agents — re-exported here so
+// existing `./helpers` importers keep working.
+export { canonicalAgentKey } from '@/constants/agents'
 
 export function pnlColorClass(value: number, isEmpty: boolean): string {
   if (isEmpty) return 'text-slate-500 dark:text-slate-400'

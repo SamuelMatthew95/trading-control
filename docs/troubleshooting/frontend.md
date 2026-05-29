@@ -117,3 +117,22 @@ runs on WS connect instead.
 
 **Regression test:** No automated test (React hook interval logic); verified by
 checking that `POLL_SLOW_MS` branch is unreachable when `wsConnected=true`.
+
+## Notifications tile showed the capped backlog (200) as if it were new activity
+
+**Symptom:** On a freshly opened dashboard the Agents page "Notifications" tile
+read `200` even though nothing had just happened and the feed looked idle. The
+number never reflected "what's happening now".
+
+**Root cause:** The tile rendered `notifications.length`. The store hydrates the
+Redis `notifications:recent` backlog and caps it at 200 (`useCodexStore`), so the
+length is the stored-history size, not recent activity — it pins at 200 on any
+established session.
+
+**Fix:** `components/dashboard/agents/AgentsDashboard.tsx` now shows
+`countRecentNotifications(notifications, 1h)` as the headline ("Notifications · 1h")
+with `N stored (max 200)` and the last-activity time as secondary context. The
+recent-count + last-activity helpers live in `frontend/src/lib/notification-metrics.ts`.
+
+**Regression test:** `frontend/src/test/helpers/notification-metrics.test.ts` —
+`countRecentNotifications` counts only in-window items, not the full backlog.

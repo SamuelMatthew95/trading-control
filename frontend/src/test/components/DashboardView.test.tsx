@@ -206,16 +206,22 @@ describe('DashboardView — agents', () => {
     mockStore.wsConnected = false
     mockStore.agentStatuses = []
     mockStore.notifications = []
+    mockStore.agentLogs = []
+    mockStore.agentInstances = []
+    mockStore.orders = []
+    mockStore.proposals = []
+    mockStore.marketTickCount = 0
+    mockStore.lastMarketSymbol = null
   })
 
   it('renders without crashing when store is empty', () => {
     expect(() => render(<DashboardView section="agents" />)).not.toThrow()
   })
 
-  it('shows empty state when no agent wiring data is available', () => {
+  it('shows the pipeline, KPIs, diagnostics and empty state when no agent wiring data is available', () => {
     render(<DashboardView section="agents" />)
-    expect(screen.getByText(/Active Agents/i)).toBeInTheDocument()
-    expect(screen.getByText(/Live heartbeat < 10s/i)).toBeInTheDocument()
+    expect(screen.getByText(/Agent Pipeline/i)).toBeInTheDocument()
+    expect(screen.getByText(/Agents Online/i)).toBeInTheDocument()
     expect(screen.getByText(/System Diagnostics/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
     expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
@@ -235,8 +241,10 @@ describe('DashboardView — agents', () => {
       }
     ]
     render(<DashboardView section="agents" />)
-    expect(screen.getByText('Signal Agent')).toBeInTheDocument()
-    expect(screen.getByText('Live')).toBeInTheDocument()
+    // "Signal Agent" and "Live" now appear in BOTH the pipeline and the status
+    // table — same label in both places, which is the point (uniform names).
+    expect(screen.getAllByText('Signal Agent').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Live').length).toBeGreaterThan(0)
     expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
 
