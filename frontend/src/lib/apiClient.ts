@@ -73,6 +73,7 @@ export const API_ENDPOINTS = {
   DASHBOARD_PERFORMANCE_TRENDS: "/dashboard/performance-trends",
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
   DASHBOARD_CHALLENGERS: "/dashboard/challengers",
+  DASHBOARD_TOOLS: "/dashboard/tools",
   
   // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
