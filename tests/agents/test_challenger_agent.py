@@ -107,3 +107,47 @@ async def test_retire_summary_includes_instance_id(mock_bus, mock_dlq):
     assert proposal_calls, "expected challenger to publish a retirement proposal"
     payload = proposal_calls[0].args[1]
     assert payload["instance_id"] == agent._challenger_id
+
+
+def test_eager_shadow_registration_is_idempotent(mock_bus, mock_dlq):
+    """Two challengers for the same strategy register exactly one SHADOW entry."""
+    from api.constants import StrategyStatus
+    from api.services.strategy_registry import (
+        StrategyRegistry,
+        get_strategy_registry,
+        set_strategy_registry,
+    )
+
+    set_strategy_registry(StrategyRegistry())
+    a = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+    b = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+    a._ensure_lifecycle_registered()
+    b._ensure_lifecycle_registered()  # must not double-register
+
+    reg = get_strategy_registry()
+    matches = [v for v in reg.versions() if v.config.get("strategy") == "strong_only"]
+    assert len(matches) == 1
+    assert reg.status(matches[0].version_id) == StrategyStatus.SHADOW
+
+
+@pytest.mark.asyncio
+async def test_start_registers_shadow_eagerly(mock_bus, mock_dlq, monkeypatch):
+    """start() registers the strategy at SHADOW before any fill arrives, so an
+    auto-spawned shadow challenger shows on the lifecycle panel immediately."""
+    from api.constants import StrategyStatus
+    from api.services.strategy_registry import (
+        StrategyRegistry,
+        get_strategy_registry,
+        set_strategy_registry,
+    )
+
+    set_strategy_registry(StrategyRegistry())
+    agent = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "confirmed_trend"})
+    # Neutralize the base-class stream/consumer setup — assert only eager registration.
+    monkeypatch.setattr(type(agent).__bases__[0], "start", AsyncMock())
+    await agent.start()
+
+    reg = get_strategy_registry()
+    match = [v for v in reg.versions() if v.config.get("strategy") == "confirmed_trend"]
+    assert len(match) == 1
+    assert reg.status(match[0].version_id) == StrategyStatus.SHADOW
