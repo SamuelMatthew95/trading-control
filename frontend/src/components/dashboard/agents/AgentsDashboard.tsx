@@ -23,6 +23,7 @@ import { agentStatusDotClass, apiHealthBadgeClass } from '@/lib/dashboard-helper
 import { formatAgeFromMs } from '@/components/dashboard/system/helpers'
 import { AgentPipeline } from '@/components/dashboard/AgentPipeline'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
+import { LearningLoopPanel } from '@/components/dashboard/LearningLoopPanel'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { KpiCard } from './KpiCard'
@@ -170,6 +171,8 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
       </div>
 
       <LLMHealthPanel />
+
+      <LearningLoopPanel />
 
       <div className={cardClass}>
         <p className={sectionTitleClass}>Agent Status</p>
