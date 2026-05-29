@@ -1314,6 +1314,9 @@ CIRCUIT_BREAKER_MAX_DRAWDOWN_PCT: Final[float] = 0.15
 CIRCUIT_BREAKER_MAX_CONSECUTIVE_FAILURES: Final[int] = 5
 CIRCUIT_BREAKER_MAX_DIVERGENCE: Final[float] = 0.5
 CIRCUIT_BREAKER_MAX_LATENCY_MS: Final[float] = 5000.0
+
+# Backtest dashboard cache — how often the background loop recomputes it.
+BACKTEST_REFRESH_INTERVAL_SECONDS: Final[int] = 3600
 # Estimated slippage per side (0.05%)
 SLIPPAGE_PCT_PER_SIDE: Final[float] = 0.0005
 # ATR period for regime filter
