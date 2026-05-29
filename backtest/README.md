@@ -180,6 +180,12 @@ becomes a number, not a hunch — and is the groundwork for volatility-normalize
 triggering (`move > k·rolling_σ`), for which the report already surfaces a
 rolling-sigma summary per timeframe. Cached per `(symbol, bars)` like `/compare`.
 
+The dashboard's **Move Distribution — Threshold Calibration** panel
+(`frontend/src/components/dashboard/DistributionPanel.tsx`, Learning section)
+renders it: per-timeframe `|move|` percentiles and each live trigger's tail
+percentile + fire rate, with deep-tail (≥ p99) triggers flagged in red so an
+unreachable threshold is obvious at a glance.
+
 ## Tests
 
 - `tests/integration/test_backtest_flow.py` (CI-gated): end-to-end run,
