@@ -15,13 +15,19 @@ what the live agents do.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.constants import REDIS_KEY_KILL_SWITCH, FieldName, StrategyStatus
+from api.constants import (
+    BACKTEST_REFRESH_INTERVAL_SECONDS,
+    REDIS_KEY_KILL_SWITCH,
+    FieldName,
+    StrategyStatus,
+)
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.services.strategy_registry import StrategyRegistry, get_strategy_registry
@@ -38,6 +44,8 @@ router = APIRouter(prefix="/backtest", tags=["backtest"])
 _MIN_REAL_BARS = 50
 _SYNTHETIC_VOL_PCT = 1.5
 _SYNTHETIC_SEED = 1
+_DEFAULT_SYMBOL = "BTC/USD"
+_DEFAULT_BARS = 750
 
 # A backtest over fixed history is deterministic, so we memoize per
 # (symbol, bars) for this long rather than recomputing — and, crucially, rather
@@ -60,67 +68,93 @@ def _summary(source: str) -> str:
     )
 
 
+def _compute_compare(symbol: str, bars: int) -> dict[str, Any]:
+    """Run the strategy comparison + challenger verdict over price history.
+
+    Real Alpaca data when available (deployed backend), deterministic synthetic
+    otherwise. Pure compute — caching and HTTP concerns live in the callers.
+    """
+    prices = alpaca_prices(symbol, bars=bars)
+    source = "alpaca"
+    if len(prices) < _MIN_REAL_BARS:
+        prices = synthetic_prices(n=bars, vol_pct=_SYNTHETIC_VOL_PCT, seed=_SYNTHETIC_SEED)
+        source = "synthetic"
+
+    stats = compare_on_prices(prices)
+    strategies = [
+        {
+            FieldName.NAME: s.name,
+            FieldName.RETURN_PCT: s.mean_return_pct,
+            FieldName.TRADE_COUNT: s.mean_trades,
+            FieldName.SHARPE_RATIO: s.mean_sharpe,
+            FieldName.WIN_RATE: s.mean_win_rate,
+        }
+        for s in sorted(stats, key=lambda x: x.mean_return_pct, reverse=True)
+    ]
+    verdict = evaluate_from_stats(stats)
+    return {
+        FieldName.MODE: "analysis",
+        FieldName.SOURCE: source,
+        FieldName.SYMBOL: symbol,
+        FieldName.BARS: len(prices),
+        FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
+        FieldName.SUMMARY: _summary(source),
+        FieldName.STRATEGIES: strategies,
+        FieldName.CANDIDATE: verdict.candidate if verdict else None,
+        FieldName.BASELINE: verdict.baseline if verdict else None,
+        FieldName.IS_DIFFERENT: verdict.is_different if verdict else False,
+        FieldName.BEATS_BASELINE: verdict.beats_baseline if verdict else False,
+        FieldName.DECISION: verdict.decision if verdict else "reject",
+        FieldName.REASON: verdict.reason if verdict else "no candidate available",
+        FieldName.CACHED: False,
+    }
+
+
 @router.get("/compare")
 async def compare(
     symbol: str = Query(default="BTC/USD", description="symbol to backtest"),
     bars: int = Query(default=750, ge=_MIN_REAL_BARS, le=5000),
+    force: bool = Query(default=False, description="bypass the cache and recompute now"),
 ) -> dict[str, Any]:
     """Compare the live signal against candidate strategies over price history.
 
-    Returns one row per strategy (return %, trades, Sharpe, win rate), the data
-    source actually used (``alpaca`` or ``synthetic``), a plain-language
-    interpretation, and a ``cached`` flag. Strategies are pre-sorted
-    best-return-first. Identical ``(symbol, bars)`` requests are served from a
-    short-lived cache instead of recomputing.
+    Cached per ``(symbol, bars)`` for ``_CACHE_TTL_SECONDS``; pass ``force=true``
+    (the dashboard's Refresh button) to bypass the cache and recompute now.
     """
     key = (symbol, bars)
     now = time.time()
     hit = _cache.get(key)
-    if hit is not None and (now - hit[0]) < _CACHE_TTL_SECONDS:
+    if not force and hit is not None and (now - hit[0]) < _CACHE_TTL_SECONDS:
         cached_payload = dict(hit[1])
         cached_payload[FieldName.CACHED] = True
         return cached_payload
-
     try:
-        prices = alpaca_prices(symbol, bars=bars)
-        source = "alpaca"
-        if len(prices) < _MIN_REAL_BARS:
-            prices = synthetic_prices(n=bars, vol_pct=_SYNTHETIC_VOL_PCT, seed=_SYNTHETIC_SEED)
-            source = "synthetic"
-
-        stats = compare_on_prices(prices)
-        strategies = [
-            {
-                FieldName.NAME: s.name,
-                FieldName.RETURN_PCT: s.mean_return_pct,
-                FieldName.TRADE_COUNT: s.mean_trades,
-                FieldName.SHARPE_RATIO: s.mean_sharpe,
-                FieldName.WIN_RATE: s.mean_win_rate,
-            }
-            for s in sorted(stats, key=lambda x: x.mean_return_pct, reverse=True)
-        ]
-        verdict = evaluate_from_stats(stats)
-        payload = {
-            FieldName.MODE: "analysis",
-            FieldName.SOURCE: source,
-            FieldName.SYMBOL: symbol,
-            FieldName.BARS: len(prices),
-            FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
-            FieldName.SUMMARY: _summary(source),
-            FieldName.STRATEGIES: strategies,
-            FieldName.CANDIDATE: verdict.candidate if verdict else None,
-            FieldName.BASELINE: verdict.baseline if verdict else None,
-            FieldName.IS_DIFFERENT: verdict.is_different if verdict else False,
-            FieldName.BEATS_BASELINE: verdict.beats_baseline if verdict else False,
-            FieldName.DECISION: verdict.decision if verdict else "reject",
-            FieldName.REASON: verdict.reason if verdict else "no candidate available",
-            FieldName.CACHED: False,
-        }
-        _cache[key] = (now, payload)
-        return payload
+        payload = _compute_compare(symbol, bars)
     except Exception:
         log_structured("error", "backtest_compare_failed", symbol=symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="backtest comparison failed") from None
+    _cache[key] = (now, payload)
+    return payload
+
+
+async def refresh_compare_cache(symbol: str = _DEFAULT_SYMBOL, bars: int = _DEFAULT_BARS) -> None:
+    """Recompute and cache the comparison — used by the hourly background refresh."""
+    try:
+        payload = _compute_compare(symbol, bars)
+        _cache[(symbol, bars)] = (time.time(), payload)
+        log_structured(
+            "info", "backtest_cache_refreshed", symbol=symbol, source=payload[FieldName.SOURCE]
+        )
+    except Exception:
+        log_structured("warning", "backtest_cache_refresh_failed", symbol=symbol, exc_info=True)
+
+
+async def run_backtest_refresh_loop() -> None:
+    """Background loop: warm the backtest cache on start, then refresh every hour
+    so the dashboard shows fresh real-data results without anyone clicking."""
+    while True:
+        await refresh_compare_cache()
+        await asyncio.sleep(BACKTEST_REFRESH_INTERVAL_SECONDS)
 
 
 _BASELINE_NAME = "baseline_momentum"
