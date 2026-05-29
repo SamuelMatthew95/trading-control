@@ -8,8 +8,23 @@ from typing import Any
 import aiohttp
 
 from api.config import settings
-from api.constants import FieldName, OrderSide, OrderStatus, PositionSide
+from api.constants import (
+    ALPACA_HTTP_CONNECT_TIMEOUT_SECONDS,
+    ALPACA_HTTP_READ_TIMEOUT_SECONDS,
+    FieldName,
+    OrderSide,
+    OrderStatus,
+    PositionSide,
+)
 from api.observability import log_structured
+
+# Shared timeout for all aiohttp sessions — prevents indefinite blocking on
+# Alpaca order endpoints when the upstream is slow or the connection is stale.
+_AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(
+    connect=float(ALPACA_HTTP_CONNECT_TIMEOUT_SECONDS),
+    sock_read=float(ALPACA_HTTP_READ_TIMEOUT_SECONDS),
+    total=60.0,  # hard cap per request including retries
+)
 
 
 class AlpacaBroker:
@@ -50,7 +65,7 @@ class AlpacaBroker:
             qty=qty,
         )
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=_AIOHTTP_TIMEOUT) as session:
             async with session.post(
                 f"{self.base_url}/v2/orders",
                 headers=self.headers,
@@ -83,7 +98,7 @@ class AlpacaBroker:
         status = "pending"
         for attempt in range(10):
             await asyncio.sleep(0.5)  # Order fill polling - allowed
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=_AIOHTTP_TIMEOUT) as session:
                 async with session.get(
                     f"{self.base_url}/v2/orders/{broker_order_id}",
                     headers=self.headers,

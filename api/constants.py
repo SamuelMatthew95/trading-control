@@ -1337,6 +1337,17 @@ LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
 LLM_FALLBACK_MODE_USE_LAST_REFLECTION: Final[str] = "use_last_reflection"
 LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
 
+# Alpaca HTTP transport hardening — price_poller fetch layer
+# Root cause addressed: SSLZeroReturnError(6) from stale keepalive reuse under Render NAT.
+# keepalive_expiry (20 s) intentionally below Render NAT idle timeout (~60 s) so connections
+# are preemptively closed rather than silently dropped server-side.
+ALPACA_DATA_BASE_URL: Final[str] = "https://data.alpaca.markets"
+ALPACA_HTTP_CONNECT_TIMEOUT_SECONDS: Final[int] = 5  # TCP + TLS handshake budget per attempt
+ALPACA_HTTP_READ_TIMEOUT_SECONDS: Final[int] = 10  # response read budget per attempt
+ALPACA_HTTP_KEEPALIVE_EXPIRY_SECONDS: Final[float] = 20.0  # drop idle conns before NAT does
+ALPACA_CIRCUIT_BREAKER_THRESHOLD: Final[int] = 5  # consecutive failures to open circuit
+ALPACA_CIRCUIT_BREAKER_RESET_SECONDS: Final[int] = 60  # seconds before circuit auto-closes
+
 # LM Studio provider identifier — used in provider fields of inference responses
 LM_STUDIO_PROVIDER: Final[str] = "lmstudio"
 
