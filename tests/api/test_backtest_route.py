@@ -98,6 +98,29 @@ async def test_strategies_lists_lifecycle_states(client):
     assert data[FieldName.MODE] == "registry"
     assert FieldName.CIRCUIT_BREAKER_ACTIVE in data
     by_name = {r[FieldName.NAME]: r for r in data[FieldName.STRATEGIES]}
-    # Baseline is seeded live; candidates are seeded as backtested (not promoted).
+    # Baseline is seeded live; candidates run in shadow (a ChallengerAgent each).
     assert by_name["baseline_momentum"][FieldName.STATUS] == "live"
-    assert by_name["strong_only"][FieldName.STATUS] == "backtested"
+    assert by_name["strong_only"][FieldName.STATUS] == "shadow"
+    assert by_name["confirmed_trend"][FieldName.STATUS] == "shadow"
+
+
+@pytest.mark.asyncio
+async def test_distribution_endpoint_returns_per_timeframe_stats(client):
+    resp = await client.get("/backtest/distribution?bars=400")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data[FieldName.MODE] == "distribution"
+    assert data[FieldName.SOURCE] == "synthetic"  # no Alpaca network in CI
+    assert data[FieldName.BARS] == 400
+
+    blocks = data[FieldName.TIMEFRAMES]
+    assert isinstance(blocks, list) and blocks
+    for b in blocks:
+        assert {"p50", "p95", "p99"} <= set(b["abs_pct"])
+        for t in b["thresholds"]:
+            assert 0.0 <= t["percentile"] <= 100.0
+            assert 0.0 <= t["hit_rate"] <= 1.0
+    # Coarser timeframes accumulate bigger moves than the 1-bar view.
+    by_tf = {b["timeframe_bars"]: b for b in blocks}
+    assert by_tf[max(by_tf)]["abs_pct"]["p99"] >= by_tf[1]["abs_pct"]["p99"]
