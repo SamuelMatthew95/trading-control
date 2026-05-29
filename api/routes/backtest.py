@@ -31,7 +31,7 @@ from api.constants import (
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.services.strategy_registry import StrategyRegistry, get_strategy_registry
-from backtest.challenger import evaluate_from_stats
+from backtest.challenger import INSUFFICIENT_DATA, evaluate_from_stats
 from backtest.compare import compare_on_prices
 from backtest.data import alpaca_prices, synthetic_prices
 from backtest.strategies import STRATEGIES
@@ -54,18 +54,24 @@ _CACHE_TTL_SECONDS = 600
 _cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
 
 
-def _summary(source: str) -> str:
-    """Honest one-line interpretation that depends on the data source."""
-    if source == "alpaca":
-        return (
-            "Ranked by return on real Alpaca history. The live baseline over-trades; "
-            "selective strategies trade less. A positive return here is genuine edge."
+def _summary(source: str, *, active: int, total: int, decision: str) -> str:
+    """Interpretation derived from the numbers — never a hardcoded claim about how
+    often a strategy trades. Those narratives drift from reality (a footer once read
+    "the baseline over-trades" while the table showed 0 trades); see
+    docs/troubleshooting/backtest.md."""
+    src = "real Alpaca history" if source == "alpaca" else "synthetic, zero-edge data"
+    bits = [f"Ranked by return on {src}."]
+    inactive = total - active
+    if inactive:
+        bits.append(
+            f"{inactive}/{total} strategies never crossed the signal threshold on this "
+            "data (NO SIGNALS) and are not ranked."
         )
-    return (
-        "Ranked by return on synthetic, zero-edge data (no real-data network access here). "
-        "The only lever is trading cost: the baseline over-trades and bleeds to slippage while "
-        "selective strategies lose less. Real edge needs real data — runs on the deployed backend."
-    )
+    if decision == INSUFFICIENT_DATA:
+        bits.append("Too few trades to judge a challenger — verdict is INSUFFICIENT DATA.")
+    elif source == "synthetic":
+        bits.append("On synthetic zero-edge data the only lever is trading cost.")
+    return " ".join(bits)
 
 
 def _compute_compare(symbol: str, bars: int) -> dict[str, Any]:
@@ -81,30 +87,37 @@ def _compute_compare(symbol: str, bars: int) -> dict[str, Any]:
         source = "synthetic"
 
     stats = compare_on_prices(prices)
+    verdict = evaluate_from_stats(stats)
+    decision = verdict.decision if verdict else "reject"
+    active = sum(1 for s in stats if s.mean_signals > 0)
+    # Active (signal-producing) strategies first, ranked by return; inert
+    # "NO SIGNALS" strategies sort last so a 0-trade 0.00% never outranks a
+    # strategy that actually traded.
+    ordered = sorted(stats, key=lambda x: (x.mean_signals > 0, x.mean_return_pct), reverse=True)
     strategies = [
         {
             FieldName.NAME: s.name,
             FieldName.RETURN_PCT: s.mean_return_pct,
             FieldName.TRADE_COUNT: s.mean_trades,
+            FieldName.SIGNALS: s.mean_signals,
             FieldName.SHARPE_RATIO: s.mean_sharpe,
             FieldName.WIN_RATE: s.mean_win_rate,
         }
-        for s in sorted(stats, key=lambda x: x.mean_return_pct, reverse=True)
+        for s in ordered
     ]
-    verdict = evaluate_from_stats(stats)
     return {
         FieldName.MODE: "analysis",
         FieldName.SOURCE: source,
         FieldName.SYMBOL: symbol,
         FieldName.BARS: len(prices),
         FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
-        FieldName.SUMMARY: _summary(source),
+        FieldName.SUMMARY: _summary(source, active=active, total=len(stats), decision=decision),
         FieldName.STRATEGIES: strategies,
         FieldName.CANDIDATE: verdict.candidate if verdict else None,
         FieldName.BASELINE: verdict.baseline if verdict else None,
         FieldName.IS_DIFFERENT: verdict.is_different if verdict else False,
         FieldName.BEATS_BASELINE: verdict.beats_baseline if verdict else False,
-        FieldName.DECISION: verdict.decision if verdict else "reject",
+        FieldName.DECISION: decision,
         FieldName.REASON: verdict.reason if verdict else "no candidate available",
         FieldName.CACHED: False,
     }
