@@ -851,6 +851,7 @@ class FieldName(StrEnum):
     SIZING = "sizing"
     SKIPPED_BY_MEMORY_GUARD = "skipped_by_memory_guard"
     SLACK = "slack"
+    SLIPPAGE_BPS = "slippage_bps"
     SLIPPAGE_VARIANCE = "slippage_variance"
     SLOPE = "slope"
     SNIPPET = "snippet"
@@ -1166,6 +1167,23 @@ SIGNAL_WEIGHT_SCALE_MIN: Final[float] = (
 SIGNAL_WEIGHT_REDUCTION_FACTOR: Final[float] = 0.7  # one Grade C → 30% reduction
 AGENT_SUSPEND_TTL_SECONDS: Final[int] = 86_400  # 24h cooling-off; auto-recover
 LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
+
+# ---------------------------------------------------------------------------
+# Regression gate — hard thresholds a challenger must clear before promotion.
+# These are deterministic and non-negotiable: a candidate is rejected if it is
+# worse than the champion on ANY gate beyond these tolerances. No exceptions.
+# ---------------------------------------------------------------------------
+# Candidate Sharpe may be at most this far BELOW the champion's.
+REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
+# Candidate max-drawdown may be at most this many percentage-points WORSE
+# (drawdown is stored negative, so "worse" = more negative).
+REGRESSION_MAX_DRAWDOWN_DELTA_PCT: Final[float] = 1.0
+# Candidate false-positive rate may exceed the champion's by at most this much.
+REGRESSION_MAX_FALSE_POSITIVE_DELTA: Final[float] = 0.05
+# Candidate average slippage may exceed the champion's by at most this many bps.
+REGRESSION_MAX_SLIPPAGE_DELTA_BPS: Final[float] = 2.0
+# A replay needs at least this many trades to be considered statistically valid.
+REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
