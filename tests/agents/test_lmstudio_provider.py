@@ -65,8 +65,6 @@ from api.services.lmstudio_provider import (
     validate_lm_studio_config,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture(autouse=True)
 def _reset_lm_health():
