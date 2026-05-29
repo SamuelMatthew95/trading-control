@@ -6,8 +6,10 @@ get_learning_loop_payload expose it for the Self-Correction dashboard card.
 """
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from api.constants import FieldName
+from api.main import app
 from api.services.agents.db_helpers import write_grade_to_db
 from api.services.dashboard.learning import (
     get_grade_history_payload,
@@ -68,3 +70,20 @@ async def test_grade_without_self_correction_defaults_to_empty():
     grades = payload[FieldName.GRADES]
     assert grades
     assert grades[0][FieldName.SELF_CORRECTION] == {}
+
+
+@pytest.mark.asyncio
+async def test_learning_loop_route_serves_self_correction():
+    """End-to-end: GET /dashboard/learning/loop returns the diagnostic the card reads."""
+    await write_grade_to_db(
+        "trace-route", 62.0, {FieldName.ACCURACY: 0.5}, self_correction=_DIAGNOSTIC
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
+        resp = await client.get("/dashboard/learning/loop")
+
+    assert resp.status_code == 200
+    latest = resp.json()[FieldName.LATEST_GRADE]
+    assert latest is not None
+    assert latest[FieldName.SELF_CORRECTION][FieldName.DIRECTION] == "negative_drop"
+    assert latest[FieldName.SELF_CORRECTION][FieldName.TRAJECTORY][FieldName.DECAYING] is True
