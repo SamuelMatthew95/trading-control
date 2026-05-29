@@ -38,3 +38,17 @@ export type AgentName = (typeof ALL_AGENT_NAMES)[number]
 export function canonicalAgentKey(name: string): string {
   return name.trim().toUpperCase().replace(/[\s-]+/g, '_')
 }
+
+/**
+ * Human-readable label for an agent name. Title-cases the SCREAMING_SNAKE_CASE
+ * key, with a friendlier expansion for the IC updater.
+ */
+export function agentDisplayName(rawName: string): string {
+  if (canonicalAgentKey(rawName) === AGENT_IC_UPDATER) return 'Indicator Cache Updater'
+  return rawName
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+}
