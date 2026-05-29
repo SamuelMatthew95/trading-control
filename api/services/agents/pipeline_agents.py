@@ -1717,6 +1717,17 @@ class ChallengerAgent(MultiStreamAgent):
         self._grade_history: list[dict[str, Any]] = []
         self._lifecycle_registered = False
 
+    async def start(self) -> None:
+        """Begin consuming streams AND register at SHADOW immediately.
+
+        Eager registration (rather than waiting for the first fill in
+        ``process``) means an auto-spawned shadow challenger appears on the
+        lifecycle panel as soon as the app starts, even before any live trade
+        flows — which matters when the pipeline is idle.
+        """
+        await super().start()
+        self._ensure_lifecycle_registered()
+
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         self._ensure_lifecycle_registered()
         if stream == STREAM_TRADE_PERFORMANCE:
@@ -1871,6 +1882,8 @@ class ChallengerAgent(MultiStreamAgent):
             from api.services.strategy_registry import get_strategy_registry  # noqa: PLC0415
 
             registry = get_strategy_registry()
+            if registry.find_by_strategy(strategy_name) is not None:
+                return  # already in the lifecycle (startup seeder, or another instance)
             version = registry.register({FieldName.STRATEGY: strategy_name})
             registry.transition(version.version_id, StrategyStatus.BACKTESTED)
             registry.transition(version.version_id, StrategyStatus.SHADOW)
