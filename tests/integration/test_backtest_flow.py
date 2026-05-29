@@ -7,6 +7,8 @@ signal decision to the production trade scorer — a genuine cross-module flow).
 from __future__ import annotations
 
 from api.constants import FieldName
+from backtest.challenger import PROMOTE, REJECT, evaluate_from_stats
+from backtest.compare import StrategyStats
 from backtest.data import synthetic_prices
 from backtest.engine import run_backtest
 from backtest.strategies import baseline_momentum, strong_only
@@ -82,3 +84,36 @@ def test_strong_only_trades_less_and_beats_baseline_across_seeds():
 
     assert strong_trades < base_trades
     assert sum(strong_returns) / len(strong_returns) > sum(base_returns) / len(base_returns)
+
+
+def test_challenger_rejects_identical_strategy():
+    """A candidate that behaves identically to the baseline cannot be promoted."""
+    base = StrategyStats("baseline_momentum", -20.0, 240.0, -0.3, 0.37)
+    clone = StrategyStats("clone", -20.0, 240.0, -0.3, 0.37)
+    verdict = evaluate_from_stats([base, clone])
+    assert verdict is not None
+    assert verdict.is_different is False
+    assert verdict.decision == REJECT
+
+
+def test_challenger_promotes_different_and_better():
+    """Different AND better than baseline => promote."""
+    base = StrategyStats("baseline_momentum", -20.0, 240.0, -0.3, 0.37)
+    good = StrategyStats("strong_only", -5.0, 35.0, -0.1, 0.40)
+    verdict = evaluate_from_stats([base, good])
+    assert verdict is not None
+    assert verdict.candidate == "strong_only"
+    assert verdict.is_different is True
+    assert verdict.beats_baseline is True
+    assert verdict.decision == PROMOTE
+
+
+def test_challenger_rejects_different_but_worse():
+    """Different but does not beat the baseline => reject (no false promotion)."""
+    base = StrategyStats("baseline_momentum", -5.0, 35.0, -0.1, 0.40)
+    worse = StrategyStats("mean_reversion", -16.0, 240.0, -0.2, 0.62)
+    verdict = evaluate_from_stats([base, worse])
+    assert verdict is not None
+    assert verdict.is_different is True
+    assert verdict.beats_baseline is False
+    assert verdict.decision == REJECT
