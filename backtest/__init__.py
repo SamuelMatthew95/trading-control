@@ -19,9 +19,12 @@ It lives outside ``api/`` on purpose: this is research tooling, not
 request-path code, so it is exempt from the FieldName/guardrail ceremony that
 governs the live service.
 
-Run it::
+Use it via the API (``GET /backtest/compare``) or directly in Python::
 
-    python -m backtest --symbol BTC/USD --bars 1000 --vol 0.8
+    from backtest import run_backtest
+    from backtest.data import synthetic_prices
+
+    result = run_backtest(synthetic_prices(n=1000))
 """
 
 from backtest.engine import BacktestResult, run_backtest
