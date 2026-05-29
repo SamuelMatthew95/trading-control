@@ -1055,6 +1055,22 @@ class StrategyStatus(StrEnum):
     RETIRED = "retired"
 
 
+class ToolPhase(StrEnum):
+    """DAG phase a runtime tool belongs to.
+
+    The Tool Registry exposes only the tools whose phase matches the current
+    reasoning node, so the LLM never sees the full catalog at once (the Runtime
+    Tool Governance directive). Phases run perception → memory → risk →
+    execution, with optimization tools available to the offline challenger.
+    """
+
+    PERCEPTION = "perception"
+    MEMORY = "memory"
+    RISK = "risk"
+    EXECUTION = "execution"
+    OPTIMIZATION = "optimization"
+
+
 # ---------------------------------------------------------------------------
 # Agent identity constants — single source of truth for all agent names.
 # These must match the Redis heartbeat keys written by each agent.
