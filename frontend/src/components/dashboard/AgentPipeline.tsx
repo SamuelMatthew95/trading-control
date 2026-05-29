@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, type ComponentType } from 'react'
-import { Activity, Brain, ChevronRight, Gauge, Radio, Workflow, Zap } from 'lucide-react'
+import { Activity, Brain, ChevronRight, FileSearch, Gauge, Radio, Settings2, Workflow, Zap } from 'lucide-react'
 
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 import { cn } from '@/lib/utils'
@@ -21,7 +21,9 @@ const STAGE_ICONS: Record<PipelineStageKey, ComponentType<{ className?: string }
   reasoning: Brain,
   execution: Zap,
   grade: Gauge,
-  learn: Workflow,
+  ic: Settings2,
+  reflection: FileSearch,
+  proposer: Workflow,
 }
 
 const TONE_STYLES: Record<StageTone, { dot: string; text: string; ring: string; label: string }> = {
