@@ -41,6 +41,7 @@ from api.routes.llm_health import router as llm_health_router
 from api.routes.monitoring import router as monitoring_router
 from api.routes.notifications import router as notifications_router
 from api.routes.system import router as system_router
+from api.routes.tools import router as tools_router
 from api.routes.trades import router as trades_router
 from api.routes.ws import router as ws_router
 from api.runtime_state import (
@@ -451,6 +452,8 @@ app.include_router(monitoring_router)
 app.include_router(monitoring_router, prefix="/api")
 app.include_router(analyze_router)
 app.include_router(analyze_router, prefix="/api")
+app.include_router(tools_router)
+app.include_router(tools_router, prefix="/api")
 app.include_router(ws_router)
 app.mount("/mcp", mcp_app)
 
