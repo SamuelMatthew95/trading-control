@@ -74,6 +74,15 @@ async def test_compare_is_cached_on_second_call(client):
 
 
 @pytest.mark.asyncio
+async def test_compare_force_bypasses_cache(client):
+    """The on-demand Run-now button passes force=true to recompute, never cached."""
+    first = (await client.get("/backtest/compare?bars=430")).json()
+    forced = (await client.get("/backtest/compare?bars=430&force=true")).json()
+    assert first[FieldName.CACHED] is False
+    assert forced[FieldName.CACHED] is False  # force always recomputes
+
+
+@pytest.mark.asyncio
 async def test_strategies_lists_lifecycle_states(client):
     from api.services.strategy_registry import StrategyRegistry, set_strategy_registry
 
