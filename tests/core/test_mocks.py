@@ -207,6 +207,8 @@ class FakeSessionFactory:
 
 
 class TestAgentRun(AgentRun):
+    __test__ = False  # mock subclass of AgentRun, not a pytest test case
+
     """
     Backward-compatible AgentRun subclass for test compatibility.
 
