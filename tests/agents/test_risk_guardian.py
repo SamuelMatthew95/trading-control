@@ -62,6 +62,38 @@ def _make_position(
     }
 
 
+async def test_circuit_breaker_trips_on_severe_drawdown():
+    """A drawdown past the breaker threshold flips the kill switch (fail-closed)."""
+    from api.services.strategy_registry import StrategyRegistry, set_strategy_registry
+
+    set_strategy_registry(StrategyRegistry())
+    redis = _make_redis()
+    guardian = RiskGuardian(_make_bus(), redis)
+
+    async def _severe() -> float:
+        return 0.99
+
+    guardian._portfolio_drawdown_pct = _severe
+    await guardian._check_circuit_breaker()
+    redis.set.assert_any_call(REDIS_KEY_KILL_SWITCH, "1")
+
+
+async def test_circuit_breaker_quiet_when_healthy():
+    """No kill-switch write when drawdown is within limits."""
+    from api.services.strategy_registry import StrategyRegistry, set_strategy_registry
+
+    set_strategy_registry(StrategyRegistry())
+    redis = _make_redis()
+    guardian = RiskGuardian(_make_bus(), redis)
+
+    async def _flat() -> float:
+        return 0.0
+
+    guardian._portfolio_drawdown_pct = _flat
+    await guardian._check_circuit_breaker()
+    assert all(c.args[0] != REDIS_KEY_KILL_SWITCH for c in redis.set.call_args_list)
+
+
 class _FakeSession:
     def __init__(self, positions=None, daily_pnl=0.0):
         self._positions = positions or []

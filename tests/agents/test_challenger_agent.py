@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.constants import STREAM_AGENT_GRADES, STREAM_PROPOSALS
+from api.constants import STREAM_AGENT_GRADES, STREAM_EXECUTIONS, STREAM_PROPOSALS
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agents.pipeline_agents import ChallengerAgent
@@ -27,6 +27,46 @@ def mock_dlq():
     dlq = MagicMock(spec=DLQManager)
     dlq.push = AsyncMock()
     return dlq
+
+
+@pytest.mark.asyncio
+async def test_challenger_registers_in_lifecycle(mock_bus, mock_dlq):
+    """A running challenger with a strategy config appears in the registry at SHADOW."""
+    from api.constants import StrategyStatus
+    from api.services.strategy_registry import (
+        StrategyRegistry,
+        get_strategy_registry,
+        set_strategy_registry,
+    )
+
+    set_strategy_registry(StrategyRegistry())
+    agent = ChallengerAgent(
+        mock_bus,
+        mock_dlq,
+        challenger_config={"strategy": "strong_only", "grade_every": 100},
+        max_fills=100,
+    )
+    await agent.process(STREAM_EXECUTIONS, "1-0", {})
+
+    registry = get_strategy_registry()
+    match = [v for v in registry.versions() if v.config.get("strategy") == "strong_only"]
+    assert len(match) == 1
+    assert registry.status(match[0].version_id) == StrategyStatus.SHADOW
+
+
+@pytest.mark.asyncio
+async def test_challenger_without_strategy_does_not_register(mock_bus, mock_dlq):
+    """A challenger with no strategy in its config registers nothing."""
+    from api.services.strategy_registry import (
+        StrategyRegistry,
+        get_strategy_registry,
+        set_strategy_registry,
+    )
+
+    set_strategy_registry(StrategyRegistry())
+    agent = ChallengerAgent(mock_bus, mock_dlq, max_fills=100)
+    await agent.process(STREAM_EXECUTIONS, "1-0", {})
+    assert get_strategy_registry().versions() == []
 
 
 def test_challenger_assigns_instance_id_in_init(mock_bus, mock_dlq):

@@ -290,10 +290,13 @@ class FieldName(StrEnum):
     BACKLOG = "backlog"
     BADGES = "badges"
     BAD_RISK_REWARD = "bad_risk_reward"
+    BARS = "bars"
+    BASELINE = "baseline"
     BASE_URL_HOST = "base_url_host"
     BASELINE_MEAN = "baseline_mean"
     BASELINE_SAMPLES = "baseline_samples"
     BASELINE_STD = "baseline_std"
+    BEATS_BASELINE = "beats_baseline"
     BEST_HOURS = "best_hours"
     BEST_TRADE = "best_trade"
     BIAS = "bias"
@@ -310,7 +313,9 @@ class FieldName(StrEnum):
     BUYS = "buys"
     BY_SEVERITY = "by_severity"
     BY_STREAM = "by_stream"
+    CACHED = "cached"
     CACHED_UNTIL_EPOCH = "cached_until_epoch"
+    CANDIDATE = "candidate"
     CASH = "cash"
     CHALLENGERS = "challengers"
     CHALLENGER_CONFIG = "challenger_config"
@@ -465,6 +470,7 @@ class FieldName(StrEnum):
     FREQUENCY = "frequency"
     FRESH_SYMBOLS = "fresh_symbols"
     GEMINI = "gemini"
+    GENERATED_AT = "generated_at"
     GRADE = "grade"
     GRADED_AT = "graded_at"
     GRADED_DECISIONS = "graded_decisions"
@@ -521,6 +527,7 @@ class FieldName(StrEnum):
     IN_AGENT_LOGS = "in_agent_logs"
     IN_AGENT_RUNS = "in_agent_runs"
     IN_TRADE_LIFECYCLE = "in_trade_lifecycle"
+    IS_DIFFERENT = "is_different"
     IS_STALE = "is_stale"
     ITEMS = "items"
     ITERATION = "iteration"
@@ -978,6 +985,7 @@ class FieldName(StrEnum):
     VALUE = "value"
     VECTOR_METADATA = "vector_metadata"
     VETO = "veto"
+    VERSION = "version"
     VOLUME = "volume"
     VOLUME_RATIO = "volume_ratio"
     VWAP_PLAN = "vwap_plan"
@@ -1027,6 +1035,23 @@ class MarketDirection(StrEnum):
     BULLISH = "bullish"
     BEARISH = "bearish"
     NEUTRAL = "neutral"
+
+
+class StrategyStatus(StrEnum):
+    """Lifecycle stage of a strategy version in the evolution pipeline.
+
+    A version advances exactly one stage at a time and can never skip ahead, so
+    nothing reaches live production without passing every risk-containment gate.
+    RETIRED is terminal and reachable from any stage (a strategy can always be
+    pulled).
+    """
+
+    PROPOSED = "proposed"
+    BACKTESTED = "backtested"
+    SHADOW = "shadow"
+    CANARY = "canary"
+    LIVE = "live"
+    RETIRED = "retired"
 
 
 # ---------------------------------------------------------------------------
@@ -1282,6 +1307,16 @@ SIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.65
 KELLY_FRACTION_SCALE: Final[float] = 0.25
 # Maximum risk per trade as fraction of equity
 MAX_RISK_PER_TRADE_PCT: Final[float] = 0.015
+
+# Circuit breaker — live-strategy trip thresholds. Breaching any one trips the
+# breaker: kill switch ON + roll the live strategy back to its previous version.
+CIRCUIT_BREAKER_MAX_DRAWDOWN_PCT: Final[float] = 0.15
+CIRCUIT_BREAKER_MAX_CONSECUTIVE_FAILURES: Final[int] = 5
+CIRCUIT_BREAKER_MAX_DIVERGENCE: Final[float] = 0.5
+CIRCUIT_BREAKER_MAX_LATENCY_MS: Final[float] = 5000.0
+
+# Backtest dashboard cache — how often the background loop recomputes it.
+BACKTEST_REFRESH_INTERVAL_SECONDS: Final[int] = 3600
 # Estimated slippage per side (0.05%)
 SLIPPAGE_PCT_PER_SIDE: Final[float] = 0.0005
 # ATR period for regime filter

@@ -8,6 +8,8 @@ import { useRestPoll } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
+import { BacktestComparisonPanel } from '@/components/dashboard/BacktestComparisonPanel'
+import { StrategyLifecyclePanel } from '@/components/dashboard/StrategyLifecyclePanel'
 import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
@@ -938,7 +940,13 @@ export function DashboardView({ section }: { section: Section }) {
         </div>
       )}
 
-      {section === 'learning' && <LearningDashboard />}
+      {section === 'learning' && (
+        <div className="space-y-6">
+          <LearningDashboard />
+          <BacktestComparisonPanel />
+          <StrategyLifecyclePanel />
+        </div>
+      )}
 
       {section === 'proposals' && <ProposalsSection />}
 
