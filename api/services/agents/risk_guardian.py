@@ -44,6 +44,7 @@ from api.constants import (
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.observability import log_structured
+from api.services.circuit_breaker import BreakerInputs, CircuitBreaker
 
 
 class RiskGuardian:
@@ -57,6 +58,9 @@ class RiskGuardian:
     def __init__(self, bus: EventBus, redis_client: Any) -> None:
         self.bus = bus
         self.redis = redis_client
+        # Hard backstop: a severe-drawdown circuit breaker that fails closed
+        # (kill switch + strategy rollback). Looser than the daily-loss limit.
+        self._breaker = CircuitBreaker(redis_client)
         self._running = False
         self._task: asyncio.Task[None] | None = None
         # Position cache: avoid a full DB scan on every check interval.
@@ -94,6 +98,7 @@ class RiskGuardian:
             try:
                 await self._check_positions()
                 await self._check_daily_loss()
+                await self._check_circuit_breaker()
                 log_structured("debug", "risk_guardian_scan_complete")
             except asyncio.CancelledError:
                 raise
@@ -252,6 +257,32 @@ class RiskGuardian:
                 )
             except Exception:
                 log_structured("error", "risk_guardian_kill_switch_failed", exc_info=True)
+
+    async def _portfolio_drawdown_pct(self) -> float:
+        """Today's realized loss as a fraction of paper capital (0.0 if flat/up)."""
+        try:
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    text(
+                        "SELECT COALESCE(SUM(pnl), 0) AS daily_pnl "
+                        "FROM trade_performance WHERE created_at >= :today"
+                    ),
+                    {FieldName.TODAY: date.today().isoformat()},
+                )
+                daily_pnl = float(result.scalar() or 0)
+        except Exception:
+            return 0.0
+        if daily_pnl >= 0 or DEFAULT_PAPER_CASH <= 0:
+            return 0.0
+        return -daily_pnl / DEFAULT_PAPER_CASH
+
+    async def _check_circuit_breaker(self) -> None:
+        """Severe-drawdown backstop: trips the breaker (kill switch + strategy
+        rollback) past CIRCUIT_BREAKER_MAX_DRAWDOWN_PCT. This is a last line of
+        defense well below the daily-loss limit, and unlike the daily-loss check
+        it also rolls the live strategy back to its previous version.
+        """
+        await self._breaker.check(BreakerInputs(drawdown_pct=await self._portfolio_drawdown_pct()))
 
     # ------------------------------------------------------------------
     # Helpers
