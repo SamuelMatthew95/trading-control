@@ -40,6 +40,7 @@ from api.routes.learning import router as learning_router
 from api.routes.llm_health import router as llm_health_router
 from api.routes.monitoring import router as monitoring_router
 from api.routes.notifications import router as notifications_router
+from api.routes.promotion import router as promotion_router
 from api.routes.system import router as system_router
 from api.routes.tools import router as tools_router
 from api.routes.trades import router as trades_router
@@ -454,6 +455,8 @@ app.include_router(analyze_router)
 app.include_router(analyze_router, prefix="/api")
 app.include_router(tools_router)
 app.include_router(tools_router, prefix="/api")
+app.include_router(promotion_router)
+app.include_router(promotion_router, prefix="/api")
 app.include_router(ws_router)
 app.mount("/mcp", mcp_app)
 
