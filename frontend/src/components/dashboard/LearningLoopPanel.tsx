@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS, gradeColor } from '@/lib/grade-colors'
+import { agentDisplayName } from '@/constants/agents'
 
 type LatestGrade = {
   trace_id: string
@@ -49,12 +50,21 @@ type LearningLoopState = {
   timestamp: string
 }
 
+// A shadow ChallengerAgent (GET /dashboard/challengers).
+type ChallengerInfo = {
+  challenger_id: string
+  fills: number
+  max_fills: number
+  running: boolean
+}
+
 
 const fmtUSD = (n: number): string =>
   (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 export function LearningLoopPanel() {
   const [state, setState] = useState<LearningLoopState | null>(null)
+  const [challengers, setChallengers] = useState<ChallengerInfo[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -68,6 +78,15 @@ export function LearningLoopPanel() {
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'fetch_failed')
+      }
+      // Challenger list is best-effort — its absence must not blank the panel.
+      try {
+        const ch = await apiFetch<{ challengers: ChallengerInfo[] }>(
+          API_ENDPOINTS.DASHBOARD_CHALLENGERS,
+        )
+        if (!cancelled) setChallengers(ch.challengers ?? [])
+      } catch {
+        // non-fatal
       }
     }
     load()
@@ -143,6 +162,25 @@ export function LearningLoopPanel() {
           <p className="text-xs text-slate-500">applied / pending</p>
         </div>
       </div>
+
+      {/* Suspended agents (control-plane effect) — only when any are suspended */}
+      {cp && cp.suspended_agents.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Suspended Agents
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {cp.suspended_agents.map((s) => (
+              <span
+                key={s.agent_name}
+                className="rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-xs font-mono text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400"
+              >
+                {agentDisplayName(s.agent_name)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Proposals list */}
       <div className="mb-4">
@@ -234,6 +272,37 @@ export function LearningLoopPanel() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Challenger shadows */}
+      <div className="mt-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Challenger Shadows
+        </p>
+        {challengers.length === 0 ? (
+          <p className="text-xs text-slate-500">No shadow challengers running.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {challengers.map((c) => (
+              <div
+                key={c.challenger_id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-800"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${c.running ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                  />
+                  <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300">
+                    challenger {c.challenger_id}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                  {c.fills}/{c.max_fills} fills
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </div>
