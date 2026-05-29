@@ -45,3 +45,15 @@
 **Fix:** Updated the test to import and patch `api.services.dashboard.flow` for both `is_db_available` and `AsyncSessionFactory`. (`tests/agents/test_pipeline_handoff.py:385`)
 
 **Regression test:** `tests/agents/test_pipeline_handoff.py::test_flow_status_not_degraded_when_db_available`
+
+---
+
+## Applied proposals show as "pending" on the agents dashboard in memory mode
+
+**Symptom:** On the live (memory-mode) deployment, the Learning Loop panel / `GET /dashboard/learning/loop` reported every proposal as `applied=false` even after ProposalApplier had acted on it and changed `signal_weight_scale` / paused trading. The DB-mode path showed the correct `applied`/`applied_at`.
+
+**Root cause:** `get_learning_loop_payload()`'s memory branch maps `_in_memory_proposals(...)`, but that helper never copied the ProposalApplier's `applied` / `applied_at` / `applied_by` / `message` fields off the log payload — so `p.get(FieldName.APPLIED, False)` always fell through to `False`.
+
+**Fix:** `_in_memory_proposals` (`api/services/dashboard/proposals.py`) now carries `FieldName.APPLIED`, `APPLIED_AT`, `APPLIED_BY`, and `MESSAGE` through from the stored log payload, matching the DB path's `recent_proposals` shape.
+
+**Regression test:** `tests/api/test_learning_loop_control_plane.py::test_recent_proposals_carry_applied_flag_in_memory_mode`

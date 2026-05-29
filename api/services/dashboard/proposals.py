@@ -51,6 +51,15 @@ def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
                 "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
                 "confidence": payload.get(FieldName.CONFIDENCE),
                 "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
+                # ProposalApplier writes these onto the log payload after it acts
+                # on a proposal. Carry them through so memory-mode consumers
+                # (get_learning_loop_payload) can distinguish applied vs pending
+                # exactly like the DB path does — otherwise everything in
+                # memory mode reads back as applied=False.
+                FieldName.APPLIED: bool(payload.get(FieldName.APPLIED, False)),
+                FieldName.APPLIED_AT: payload.get(FieldName.APPLIED_AT),
+                FieldName.APPLIED_BY: payload.get(FieldName.APPLIED_BY),
+                FieldName.MESSAGE: payload.get(FieldName.MESSAGE),
                 "timestamp": timestamp,
             }
         )
