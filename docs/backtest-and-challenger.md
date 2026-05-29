@@ -61,11 +61,40 @@ trading cost on signals with no edge.
   network allowlist blocks Alpaca). The only signal here is "trades less, loses
   less" — never mistake it for alpha.
 
+## Safe evolution: lifecycle + circuit breaker
+
+A strategy never graduates straight to production. It is a **versioned,
+immutable** record in the registry (`api/services/strategy_registry.py`) that
+advances one stage at a time and **cannot skip**:
+
+```
+proposed → backtested → shadow → canary → live → retired
+```
+
+- Exactly one version is `live`; promoting a new one supersedes the incumbent.
+- `rollback()` restores the previous live version.
+- The **circuit breaker** (`api/services/circuit_breaker.py`) trips on a
+  drawdown / failure / divergence / latency breach — it flips the existing kill
+  switch and rolls back. Fail-closed.
+
+### See it on the dashboard (Learning section)
+
+- **Backtest — Strategy Comparison** + challenger verdict — `GET /backtest/compare`.
+- **Strategy Lifecycle** — every version and its stage, plus a "circuit breaker
+  tripped" badge — `GET /backtest/strategies`.
+
+> Status: the registry is seeded from the known strategies (baseline `live`, the
+> rest `backtested`). Wiring the StrategyProposer/challenger to register versions,
+> and calling the breaker inside the live execution loop, are the next steps.
+
 ## Try it
 
 ```bash
 # The API the dashboard uses (real data on Render, synthetic locally):
 curl localhost:8000/backtest/compare | jq
+
+# Strategy lifecycle stages + circuit-breaker state:
+curl localhost:8000/backtest/strategies | jq
 ```
 
 ```python
