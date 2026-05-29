@@ -93,6 +93,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/redis_client.py",
         "api/redis_inspector.py",
         "api/routes/analyze.py",
+        "api/routes/backtest.py",
         "api/routes/dashboard.py",
         "api/routes/dashboard_v2.py",
         "api/routes/decisions.py",
