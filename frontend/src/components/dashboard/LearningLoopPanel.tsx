@@ -5,11 +5,24 @@ import { useEffect, useState } from 'react'
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS, gradeColor } from '@/lib/grade-colors'
 
+type SelfCorrection = {
+  anomaly_detected?: boolean
+  z_score?: number
+  direction?: string
+  baseline_mean?: number
+  baseline_std?: number
+  baseline_samples?: number
+  trajectory?: { slope?: number; direction?: string; decaying?: boolean }
+  attribution?: { dimension: string; delta: number }[]
+  message?: string
+}
+
 type LatestGrade = {
   trace_id: string
   grade: string | null
   score_pct: number | null
   metrics: Record<string, number>
+  self_correction?: SelfCorrection | null
   fills_graded: number | null
   timestamp: string | null
 }
@@ -53,6 +66,13 @@ type LearningLoopState = {
 const fmtUSD = (n: number): string =>
   (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
+const trajectoryTone = (direction?: string): string =>
+  direction === 'decaying'
+    ? 'bg-rose-500/10 text-rose-500'
+    : direction === 'improving'
+      ? 'bg-emerald-500/10 text-emerald-500'
+      : 'bg-slate-500/10 text-slate-500'
+
 export function LearningLoopPanel() {
   const [state, setState] = useState<LearningLoopState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -80,6 +100,8 @@ export function LearningLoopPanel() {
 
   const cp = state?.control_plane ?? null
   const grade = state?.latest_grade ?? null
+  const sc = grade?.self_correction ?? null
+  const hasSelfCorrection = Boolean(sc && (sc.baseline_samples != null || sc.trajectory != null))
   const proposals = state?.recent_proposals ?? []
   const attribution = state?.loss_attribution ?? []
   const appliedCount = proposals.filter((p) => p.applied).length
@@ -142,6 +164,62 @@ export function LearningLoopPanel() {
           </p>
           <p className="text-xs text-slate-500">applied / pending</p>
         </div>
+      </div>
+
+      {/* Self-correction diagnostic — grade anomaly detection + trajectory */}
+      <div className="mb-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Self-Correction
+        </p>
+        {hasSelfCorrection && sc ? (
+          <div className="rounded-lg border border-slate-300 p-3 dark:border-slate-800">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded px-2 py-0.5 text-xs font-mono font-bold ${trajectoryTone(sc.trajectory?.direction)}`}
+              >
+                trend: {sc.trajectory?.direction ?? '--'}
+              </span>
+              {sc.anomaly_detected ? (
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-mono font-bold ${sc.direction === 'negative_drop' ? 'bg-rose-500/10 text-rose-500' : 'bg-amber-500/10 text-amber-500'}`}
+                >
+                  {sc.direction} (z={sc.z_score != null ? sc.z_score.toFixed(2) : '--'})
+                </span>
+              ) : (
+                <span className="rounded px-2 py-0.5 text-xs font-mono text-slate-500">
+                  no anomaly
+                </span>
+              )}
+              <span className="text-xs font-mono text-slate-500">
+                μ={sc.baseline_mean != null ? sc.baseline_mean.toFixed(3) : '--'}±
+                {sc.baseline_std != null ? sc.baseline_std.toFixed(3) : '--'} (n=
+                {sc.baseline_samples ?? 0})
+              </span>
+            </div>
+            {sc.attribution && sc.attribution.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {sc.attribution.slice(0, 4).map((a) => (
+                  <span
+                    key={a.dimension}
+                    className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  >
+                    {a.dimension} {a.delta >= 0 ? '+' : ''}
+                    {a.delta.toFixed(3)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {sc.message ? (
+              <p className="mt-2 text-xs text-slate-500" title={sc.message}>
+                {sc.message}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Calibrating — diagnostics appear after a few grade cycles.
+          </p>
+        )}
       </div>
 
       {/* Proposals list */}
