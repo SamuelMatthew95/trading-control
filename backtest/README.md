@@ -42,29 +42,28 @@ deterministic for a given `slippage_seed`, which is what makes it testable.
 
 ## Usage
 
-```bash
-# Synthetic data (always available, no credentials needed)
-python -m backtest --symbol BTC/USD --bars 2000 --vol 0.8
-
-# Realistic per-minute volatility — reproduces the "idle / 0 trades" mode
-python -m backtest --bars 2000 --vol 0.1
-
-# Real historical data (requires ALPACA_API_KEY / ALPACA_SECRET_KEY)
-python -m backtest --symbol BTC/USD --bars 1000 --source alpaca
-
-# Run a specific strategy, or compare them all head-to-head
-python -m backtest --strategy confirmed_trend --vol 1.5
-python -m backtest --compare --vol 1.5
-```
+The single entrypoint is the API (`GET /backtest/compare`, see below). For
+tests and ad-hoc use there is a small Python surface:
 
 ```python
 from backtest import run_backtest
+from backtest.compare import compare_on_prices
 from backtest.data import synthetic_prices
 
-result = run_backtest(synthetic_prices(n=2000, vol_pct=1.5, seed=1))
-print(result.summary())
+prices = synthetic_prices(n=2000, vol_pct=1.5, seed=1)
+
+# One strategy
+result = run_backtest(prices)
 print(result.total_return_pct, result.sharpe, result.win_rate)
+
+# All strategies, head to head on the same series
+for s in compare_on_prices(prices):
+    print(s.name, s.mean_return_pct, s.mean_trades)
 ```
+
+Real Alpaca history is used automatically when `ALPACA_API_KEY` /
+`ALPACA_SECRET_KEY` are set (i.e. on the deployed backend); otherwise the
+harness falls back to a deterministic synthetic series.
 
 ## What it revealed
 
@@ -87,11 +86,10 @@ goes anywhere near live capital.
 The decision is a swappable `Strategy` (`backtest/strategies.py`) — a function
 from one bar of context to `"buy"` / `"sell"` / `"hold"`. `baseline_momentum`
 *is* the live `classify_signal`; the rest are hypotheses measured against it.
-`backtest/compare.py` runs them over identical seeded price paths and averages
-the results.
+`backtest/compare.py` runs them over the same price series. Representative
+result (synthetic, zero-edge, mean over 20 seeds):
 
 ```
-$ python -m backtest --compare --vol 1.5
 strategy               return%   trades   sharpe    win%
 --------------------------------------------------------
 confirmed_trend           5.71     24.0    0.589   43.3%
@@ -106,7 +104,8 @@ trades and bleeds −22% to slippage. Strategies that trade selectively (24–35
 trades) cut that loss by 70–100%. `confirmed_trend` edging *positive* here is
 **within sampling noise** on a zero-edge walk — it is evidence of *not
 over-trading*, **not** evidence of alpha. A genuinely profitable strategy can
-only be confirmed on **real market data** (`--source alpaca`). What this proves
+only be confirmed on **real market data** (`source=alpaca`, on the deployed
+backend). What this proves
 is the methodology: a change can now be measured before it ever risks capital.
 
 ## API + dashboard UI
