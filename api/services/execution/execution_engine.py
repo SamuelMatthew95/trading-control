@@ -19,7 +19,6 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -89,6 +88,7 @@ from api.services.execution.position_math import (
     is_round_trip_close,
     reject_unmatched_sell,
 )
+from api.services.market_status import get_market_status
 from api.services.risk_filters import is_cooling_off
 
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
@@ -1268,26 +1268,14 @@ class ExecutionEngine(BaseStreamConsumer):
     def _is_market_open(self, symbol: str) -> bool:
         """Return True if trading is currently allowed for this symbol.
 
-        Crypto assets (symbols containing '/') trade 24/7.
-        Equities are restricted to regular US market hours: 9:30–16:00 ET, Mon–Fri.
-        Falls back to True on any error so the gate never silently blocks crypto.
+        Delegates to the centralized MarketStatusService (holiday- and
+        early-close-aware) so every stock subsystem shares one clock. Crypto
+        trades 24/7; equities follow the regular NYSE/NASDAQ session. Paper mode
+        stays always-open so the simulator is testable outside market hours.
         """
         if settings.BROKER_MODE.lower() == "paper" or settings.ALPACA_PAPER:
             return True
-        if "/" in symbol:
-            return True
-
-        try:
-            et_tz = ZoneInfo("America/New_York")
-            now_et = datetime.now(et_tz)
-            if now_et.weekday() >= 5:
-                return False
-            market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-            market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
-            return market_open <= now_et < market_close
-        except Exception:
-            log_structured("warning", "market_clock_check_failed", exc_info=True)
-            return True
+        return get_market_status().is_symbol_open(symbol)
 
     # -------------------------------------------------------------------------
     # Backward-compat delegates — thin wrappers so existing tests don't break
