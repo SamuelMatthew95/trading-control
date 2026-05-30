@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from api.services.tool_registry import ToolMetadata, get_tool_registry
+from api.services.tool_registry import ToolMetadata, ToolSuggestion, get_tool_registry
 
 router = APIRouter(prefix="/dashboard", tags=["tools"])
 
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/dashboard", tags=["tools"])
 class ToolRegistryResponse(BaseModel):
     tools: list[ToolMetadata]
     capability_graph: dict[str, list[str]]
+    suggestions: list[ToolSuggestion]
     count: int
 
 
@@ -28,5 +29,9 @@ async def get_tools() -> ToolRegistryResponse:
     return ToolRegistryResponse(
         tools=tools,
         capability_graph=registry.capability_graph(),
+        # Read-only governance advice (which tools to keep/drop from the
+        # reasoning prompt) — the operator approves; the registry never
+        # self-mutates here.
+        suggestions=registry.suggest_tool_changes(),
         count=len(tools),
     )
