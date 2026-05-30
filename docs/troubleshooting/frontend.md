@@ -136,3 +136,26 @@ recent-count + last-activity helpers live in `frontend/src/lib/notification-metr
 
 **Regression test:** `frontend/src/test/helpers/notification-metrics.test.ts` —
 `countRecentNotifications` counts only in-window items, not the full backlog.
+
+## RECENT DECISIONS stat line read like a broken total (last-hour next to all-time)
+
+**Symptom:** The Agents page "Recent Decisions" header showed
+`Buys: 0  Sells: 0  Holds: 14  Total: 500`. Operators read it as one tally and
+reported the count as wrong/corrupt — `0 + 0 + 14` plainly does not equal `500`.
+
+**Root cause:** The breakdown figures and the total come from *different time
+windows* but were rendered side by side with no labels. In
+`api/services/redis_store.py::decision_stats`, `buys`/`sells`/`holds` count only
+decisions newer than `now - 3600` (last hour), while `total` is the length of
+the whole `decisions:recent` list (LTRIM-capped at 500). An established session
+pins `total` at the 500 cap regardless of recent activity, so the two figures
+are unrelated and were never meant to sum.
+
+**Fix:** `components/dashboard/RecentDecisionsPanel.tsx` now labels the windows
+explicitly — a `last 1h` tag in front of Buys/Sells/Holds and an `all-time` tag
+(plus a hover title noting the 500 cap and that it won't equal
+Buys + Sells + Holds) in front of Total. No data/API change; the figures were
+already correct, only the presentation was ambiguous.
+
+**Regression test:** `frontend/src/test/components/RecentDecisionsPanel.test.tsx`
+— `labels the last-hour breakdown and the all-time total as distinct windows`.
