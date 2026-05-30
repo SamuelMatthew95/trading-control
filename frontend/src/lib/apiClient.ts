@@ -74,6 +74,7 @@ export const API_ENDPOINTS = {
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
   DASHBOARD_CHALLENGERS: "/dashboard/challengers",
   DASHBOARD_TOOLS: "/dashboard/tools",
+  DASHBOARD_PROMPT_OS: "/dashboard/prompt-os",
   
   // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
