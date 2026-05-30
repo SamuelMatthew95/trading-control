@@ -1046,6 +1046,21 @@ class MarketDirection(StrEnum):
     NEUTRAL = "neutral"
 
 
+class MarketState(StrEnum):
+    """Current state of the US equity cash session (NYSE / NASDAQ).
+
+    The single vocabulary every stock subsystem uses to gate work. Crypto is
+    24/7 and never CLOSED; these states describe equities only. ``MarketStatusService``
+    in ``api/services/market_status.py`` is the sole producer.
+    """
+
+    OPEN = "open"  # Regular session — polling, signals, execution allowed
+    PREMARKET = "premarket"  # 04:00–09:30 ET — session-adjacent, equities gated
+    AFTER_HOURS = "after_hours"  # 16:00–20:00 ET (or early-close→20:00) — gated
+    CLOSED = "closed"  # Overnight / weekend — fully dark
+    HOLIDAY = "holiday"  # Exchange holiday — fully dark for the whole day
+
+
 class StrategyStatus(StrEnum):
     """Lifecycle stage of a strategy version in the evolution pipeline.
 
