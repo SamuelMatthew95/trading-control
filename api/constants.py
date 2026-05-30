@@ -320,6 +320,13 @@ class FieldName(StrEnum):
     CHALLENGERS = "challengers"
     CHALLENGER_CONFIG = "challenger_config"
     CHALLENGER_ID = "challenger_id"
+    # Forward-looking challenger-config overrides surfaced by the reasoning
+    # cockpit: a challenger MAY carry a prompt variant and/or a tool-name
+    # override list in its config to differ from the champion. Absent today
+    # (challengers differ by params only) but read so the UI lights up the
+    # moment a producer starts setting them.
+    PROMPT_VARIANT = "prompt_variant"
+    TOOL_OVERRIDES = "tool_overrides"
     CHANGE = "change"
     CHANGE_AMT = "change_amt"
     CHANGE_PCT = "change_pct"
@@ -851,6 +858,7 @@ class FieldName(StrEnum):
     SIZING = "sizing"
     SKIPPED_BY_MEMORY_GUARD = "skipped_by_memory_guard"
     SLACK = "slack"
+    SLIPPAGE_BPS = "slippage_bps"
     SLIPPAGE_VARIANCE = "slippage_variance"
     SLOPE = "slope"
     SNIPPET = "snippet"
@@ -1055,6 +1063,53 @@ class StrategyStatus(StrEnum):
     RETIRED = "retired"
 
 
+class ToolPhase(StrEnum):
+    """DAG phase a runtime tool belongs to.
+
+    The Tool Registry exposes only the tools whose phase matches the current
+    reasoning node, so the LLM never sees the full catalog at once (the Runtime
+    Tool Governance directive). Phases run perception → memory → risk →
+    execution, with optimization tools available to the offline challenger.
+    """
+
+    PERCEPTION = "perception"
+    MEMORY = "memory"
+    RISK = "risk"
+    EXECUTION = "execution"
+    OPTIMIZATION = "optimization"
+
+
+# ---------------------------------------------------------------------------
+# Runtime tool identities + state-flag gates (Tool Registry contract)
+# ---------------------------------------------------------------------------
+# Tool names and gating flags are a cross-module contract: the Tool Registry
+# seeds the catalog with these names (api/services/tool_registry.py) and the
+# ReasoningAgent records telemetry against the SAME names when it exercises a
+# tool. A literal typo on either side would silently mis-attribute telemetry,
+# so both sides import from here.
+
+TOOL_STREAM_CONFLUENCE = "get_stream_confluence_metrics"
+TOOL_MACRO_REGIME = "fetch_macro_regime"
+TOOL_SECTOR_CORRELATION = "scan_sector_correlation"
+TOOL_QUERY_SIMILAR_TRADES = "query_similar_trades"
+TOOL_GET_IC_WEIGHTS = "get_ic_weights"
+TOOL_RISK_CAGE = "evaluate_risk_cage"
+TOOL_VWAP_EXECUTION = "calculate_vwap_execution"
+TOOL_BRACKET_ORDER = "execute_bracket_order"
+TOOL_REPLAY_REGRESSION = "replay_regression_check"
+
+# State-flag gates a tool requires before it becomes eligible at a node.
+TOOL_FLAG_CONFLUENCE_LOADED = "confluence_loaded"
+TOOL_FLAG_RISK_APPROVED = "risk_approved"
+TOOL_FLAG_THESIS_COMMITTED = "thesis_committed"
+
+# The reasoning DAG node reasons over perception + memory and discards any
+# tool whose alpha attribution is negative, so the buy/sell LLM only ever sees
+# the governed, positive-edge subset (never the full catalog).
+REASONING_NODE = "reasoning"
+REASONING_TOOL_MIN_ALPHA = 0.0
+
+
 # ---------------------------------------------------------------------------
 # Agent identity constants — single source of truth for all agent names.
 # These must match the Redis heartbeat keys written by each agent.
@@ -1150,6 +1205,23 @@ SIGNAL_WEIGHT_SCALE_MIN: Final[float] = (
 SIGNAL_WEIGHT_REDUCTION_FACTOR: Final[float] = 0.7  # one Grade C → 30% reduction
 AGENT_SUSPEND_TTL_SECONDS: Final[int] = 86_400  # 24h cooling-off; auto-recover
 LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
+
+# ---------------------------------------------------------------------------
+# Regression gate — hard thresholds a challenger must clear before promotion.
+# These are deterministic and non-negotiable: a candidate is rejected if it is
+# worse than the champion on ANY gate beyond these tolerances. No exceptions.
+# ---------------------------------------------------------------------------
+# Candidate Sharpe may be at most this far BELOW the champion's.
+REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
+# Candidate max-drawdown may be at most this many percentage-points WORSE
+# (drawdown is stored negative, so "worse" = more negative).
+REGRESSION_MAX_DRAWDOWN_DELTA_PCT: Final[float] = 1.0
+# Candidate false-positive rate may exceed the champion's by at most this much.
+REGRESSION_MAX_FALSE_POSITIVE_DELTA: Final[float] = 0.05
+# Candidate average slippage may exceed the champion's by at most this many bps.
+REGRESSION_MAX_SLIPPAGE_DELTA_BPS: Final[float] = 2.0
+# A replay needs at least this many trades to be considered statistically valid.
+REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"

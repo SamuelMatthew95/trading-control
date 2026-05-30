@@ -10,6 +10,7 @@ import pytest_asyncio
 from api.core.writer.safe_writer import SafeWriter
 from api.in_memory_store import InMemoryStore
 from api.runtime_state import set_db_available, set_runtime_store
+from api.services.tool_registry import set_tool_registry
 
 os.environ.setdefault("ENABLE_SIGNAL_SCHEDULER", "false")
 
@@ -23,9 +24,14 @@ def _reset_runtime_state():
     Without this, tests that call agent process() methods (e.g. signal_generator)
     leave events in the global InMemoryStore, causing unrelated resilience tests
     that expect an empty store to fail non-deterministically based on test order.
+
+    The Tool Registry is reset for the same reason: ReasoningAgent.process() now
+    records tool telemetry into the process-wide registry, so a stale singleton
+    would otherwise leak call counts / latency into the next test's assertions.
     """
     set_runtime_store(InMemoryStore())
     set_db_available(False)
+    set_tool_registry(None)
 
 
 @pytest_asyncio.fixture

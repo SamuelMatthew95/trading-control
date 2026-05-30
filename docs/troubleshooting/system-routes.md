@@ -45,3 +45,41 @@
 **Fix:** Updated the test to import and patch `api.services.dashboard.flow` for both `is_db_available` and `AsyncSessionFactory`. (`tests/agents/test_pipeline_handoff.py:385`)
 
 **Regression test:** `tests/agents/test_pipeline_handoff.py::test_flow_status_not_degraded_when_db_available`
+
+---
+
+## Applied proposals show as "pending" on the agents dashboard in memory mode
+
+**Symptom:** On the live (memory-mode) deployment, the Learning Loop panel / `GET /dashboard/learning/loop` reported every proposal as `applied=false` even after ProposalApplier had acted on it and changed `signal_weight_scale` / paused trading. The DB-mode path showed the correct `applied`/`applied_at`.
+
+**Root cause:** `get_learning_loop_payload()`'s memory branch maps `_in_memory_proposals(...)`, but that helper never copied the ProposalApplier's `applied` / `applied_at` / `applied_by` / `message` fields off the log payload — so `p.get(FieldName.APPLIED, False)` always fell through to `False`.
+
+**Fix:** `_in_memory_proposals` (`api/services/dashboard/proposals.py`) now carries `FieldName.APPLIED`, `APPLIED_AT`, `APPLIED_BY`, and `MESSAGE` through from the stored log payload, matching the DB path's `recent_proposals` shape.
+
+**Regression test:** `tests/api/test_learning_loop_control_plane.py::test_recent_proposals_carry_applied_flag_in_memory_mode`
+
+---
+
+## Prompt-OS built but the buy/sell LLM never used it (tools, constitution, telemetry all dead)
+
+**Symptom:** The `/dashboard/tools` Tool Governance panel rendered the seeded catalog, but every tool's `call_count` stayed `0` forever and the constitution / node-scoped tool selection had no effect on real decisions. The ReasoningAgent — the LLM that actually decides buy/sell — was emitting decisions with the static `ADAPTIVE_TRADING_SYSTEM_PROMPT`, so the Prompt-OS (constitution + Tool Registry + prompt assembly) was scaffolding wired to nothing.
+
+**Root cause:** `ReasoningAgent._call_llm()` passed `ADAPTIVE_TRADING_SYSTEM_PROMPT` directly to `call_llm_with_system()`. Nothing in the agent imported `build_runtime_prompt`, `get_tool_registry`, or `SYSTEM_CONSTITUTION_PROMPT` — the only callers of those were the read-only route and the tests.
+
+**Fix:** `ReasoningAgent` now assembles its decision system prompt via `_assemble_decision_prompt()` — `SYSTEM_CONSTITUTION_PROMPT` (immutable Layer 1) + ONLY the perception/memory tools the registry deems eligible for the reasoning node (negative-alpha tools filtered by `REASONING_TOOL_MIN_ALPHA`) + a compact regime/portfolio summary + `DECISION_OUTPUT_CONTRACT`. It records real telemetry (`record_call`) for the `get_ic_weights` and `query_similar_trades` tools it exercises, so the panel and dead-tool suggestions reflect live usage. Tool names/flags are shared constants in `api/constants.py` so the registry and the agent can never drift. `record_call`'s `realized_pnl` is now optional so decision-time calls update latency/reliability without dragging the seeded alpha prior to zero. The `/dashboard/tools` response gained a `suggestions` block (`ToolRegistry.suggest_tool_changes()`) — read-only "which tools to keep/drop from the prompt" advice the operator approves — rendered in `ToolGovernancePanel`.
+
+**Operator check:** After a few decisions, `GET /dashboard/tools` shows `call_count > 0` for `get_ic_weights` / `query_similar_trades`, and `suggestions` lists at least the negative-alpha `scan_sector_correlation` disable hint.
+
+**Regression tests:** `tests/agents/test_reasoning_agent.py::test_call_llm_assembles_tool_governed_prompt`, `tests/agents/test_reasoning_agent.py::test_process_records_tool_telemetry`, `tests/api/test_tool_registry.py::test_tools_endpoint_returns_suggestions`
+
+---
+
+## Strategy proposals existed but were unreachable in the UI
+
+**Symptom:** `ProposalsSection` (voteable approve/reject proposals) only rendered under `DashboardView section="proposals"`, but there was no nav entry and no `/dashboard/proposals` page route, so operators could never reach it. Proposals flowed all the way to `/dashboard/state` (DB and memory mode both include `FieldName.PROPOSALS` via `dashboard_fallback_snapshot()`) but had nowhere to surface.
+
+**Root cause:** Missing `frontend/src/app/dashboard/proposals/page.tsx` and a missing `NAV` entry in `frontend/src/app/dashboard/layout.tsx`.
+
+**Fix:** Added the `proposals/page.tsx` route (renders `<DashboardView section="proposals" />`) and a "Proposals" nav link, so the existing data path now has a visible destination.
+
+**Operator check:** `/dashboard/proposals` loads and shows pending proposals with Approve/Reject buttons; empty state reads "No proposals yet — they arrive from the ReflectionAgent".

@@ -8,10 +8,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.config import settings
+from api.constants import TOOL_GET_IC_WEIGHTS, TOOL_QUERY_SIMILAR_TRADES
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
-from api.services.agents.prompts import ADAPTIVE_TRADING_SYSTEM_PROMPT
+from api.services.agents.prompts import (
+    DECISION_OUTPUT_CONTRACT,
+    SYSTEM_CONSTITUTION_PROMPT,
+)
 from api.services.agents.reasoning_agent import ReasoningAgent
+from api.services.tool_registry import get_tool_registry
 
 pytestmark = pytest.mark.asyncio
 
@@ -433,7 +438,11 @@ async def test_publishes_to_agent_logs(
 
 
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
-async def test_call_llm_uses_adaptive_system_prompt(mock_call_llm_with_system, agent):
+async def test_call_llm_assembles_tool_governed_prompt(mock_call_llm_with_system, agent):
+    """The decision call uses the Prompt-OS runtime prompt — immutable
+    constitution + ONLY the node-scoped, positive-alpha tools + the output
+    contract — instead of the static adaptive prompt. This is what makes the
+    buy/sell LLM actually 'use tools'."""
     mock_call_llm_with_system.return_value = ('{"action":"buy","confidence":0.9}', 42, 0.001)
     decision, tokens, cost = await agent._call_llm(
         data={"symbol": "BTC/USD", "composite_score": 0.8},
@@ -444,7 +453,42 @@ async def test_call_llm_uses_adaptive_system_prompt(mock_call_llm_with_system, a
     assert decision["action"] == "buy"
     assert tokens == 42
     assert cost == 0.001
-    assert mock_call_llm_with_system.call_args.args[1] == ADAPTIVE_TRADING_SYSTEM_PROMPT
+
+    system_prompt = mock_call_llm_with_system.call_args.args[1]
+    # Immutable constitution is the root layer, with the output contract appended.
+    assert SYSTEM_CONSTITUTION_PROMPT in system_prompt
+    assert DECISION_OUTPUT_CONTRACT in system_prompt
+    # Eligible perception + memory tools are exposed to the LLM...
+    assert "query_similar_trades" in system_prompt
+    assert "get_ic_weights" in system_prompt
+    # ...while negative-alpha and downstream-execution tools are NOT.
+    assert "scan_sector_correlation" not in system_prompt
+    assert "execute_bracket_order" not in system_prompt
+
+
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.reasoning_agent.search_vector_memory")
+@patch("api.services.agents.reasoning_agent.embed_text")
+async def test_process_records_tool_telemetry(
+    mock_embed, mock_search, mock_call_llm, agent, mock_redis
+):
+    """A full decision exercises the registry's memory tools and folds their
+    real latency + reliability into telemetry. This is the live feedback loop
+    behind the governance panel — proof the buy/sell LLM actually uses tools."""
+    mock_embed.return_value = [0.1] * 1536
+    mock_search.return_value = []
+    mock_call_llm.return_value = (json.dumps(_valid_summary("buy")), 100, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    await agent.process(_make_signal("buy"))
+
+    reg = get_tool_registry()
+    ic_tool = reg.get(TOOL_GET_IC_WEIGHTS)
+    mem_tool = reg.get(TOOL_QUERY_SIMILAR_TRADES)
+    assert ic_tool.call_count >= 1
+    assert mem_tool.call_count >= 1
+    assert ic_tool.success_count >= 1
+    assert mem_tool.success_count >= 1
 
 
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
