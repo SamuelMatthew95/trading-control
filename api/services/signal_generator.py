@@ -20,6 +20,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from api.config import settings
 from api.constants import (
     AGENT_SIGNAL,
     REGIME_ATR_AVG_PERIOD,
@@ -47,6 +48,7 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.agent_heartbeat import write_heartbeat
 from api.services.agent_state import AgentStateRegistry
+from api.services.market_status import get_market_status
 from api.services.risk_filters import compute_atr_from_prices, compute_rsi
 
 AGENT_NAME = AGENT_SIGNAL
@@ -117,6 +119,11 @@ class SignalGenerator(BaseStreamConsumer):
         # Rolling price history per symbol for technical indicators (RSI, ATR, regime)
         self._price_history: dict[str, deque[float]] = {}
         self._atr_history: dict[str, deque[float]] = {}
+        # Per-symbol counter of consecutive sub-threshold ("noise") ticks since
+        # the last published signal — drives the publish throttle (see
+        # _should_publish). Seeded lazily so the first tick of any symbol always
+        # publishes.
+        self._ticks_since_signal: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Bootstrap
@@ -130,9 +137,17 @@ class SignalGenerator(BaseStreamConsumer):
         Failures are silent — warmup is best-effort; live ticks fill the
         buffer organically if Alpaca is unavailable.
         """
-        from api.config import settings  # noqa: PLC0415
-
         if not (settings.ALPACA_API_KEY and settings.ALPACA_SECRET_KEY):
+            return
+        # Equities only have fetchable recent bars during a live session; calling
+        # the historical bars endpoint overnight just burns an Alpaca request and
+        # (for SIP-gated data) returns a 403. Crypto is 24/7 so always allowed.
+        if "/" not in symbol and not get_market_status().is_open():
+            log_structured(
+                "debug",
+                "signal_generator_bootstrap_skipped_market_closed",
+                symbol=symbol,
+            )
             return
         try:
             import asyncio  # noqa: PLC0415
@@ -213,6 +228,33 @@ class SignalGenerator(BaseStreamConsumer):
             log_structured("warning", f"[{AGENT_NAME}] agent_pool_lookup_failed", exc_info=True)
         return self._agent_pool_id
 
+    def _should_publish(self, symbol: str, strength: SignalStrength) -> bool:
+        """Decide whether this tick emits a downstream signal (throttle).
+
+        Every tick used to publish a signal AND write events/grades/runs/logs
+        AND wake the reasoning→LLM cascade — ~one full cascade per symbol per
+        poll, around the clock. Indicator history is still updated on every tick
+        (callers do that before calling this), but a signal is only published
+        when it carries a tradeable move (strength != LOW) or, for the
+        sub-threshold "noise floor", once every ``SIGNAL_EVERY_N_TICKS`` ticks
+        as a liveness heartbeat. This drops noise-signal volume ~Nx without ever
+        suppressing a momentum signal.
+
+        The first tick of any symbol always publishes (the counter seeds at the
+        threshold) so warmup and downstream wiring see data immediately.
+        """
+        every_n = max(1, settings.SIGNAL_EVERY_N_TICKS)
+        if strength != SignalStrength.LOW:
+            self._ticks_since_signal[symbol] = 0
+            return True
+        # Absent symbol seeds at every_n so its first tick is immediately "due".
+        count = self._ticks_since_signal.get(symbol, every_n) + 1
+        if count >= every_n:
+            self._ticks_since_signal[symbol] = 0
+            return True
+        self._ticks_since_signal[symbol] = count
+        return False
+
     # ------------------------------------------------------------------
     # Main processing loop
     # ------------------------------------------------------------------
@@ -289,6 +331,20 @@ class SignalGenerator(BaseStreamConsumer):
         # --- Classify signal ---------------------------------------------
         # Pure decision, shared with the backtest harness (see classify_signal).
         signal_type, strength, score, direction, action = classify_signal(pct)
+
+        # --- Throttle the sub-threshold noise floor ----------------------
+        # Indicator history is already warm (updated above); only the expensive
+        # downstream work (publish + events/grades/runs/logs + reasoning→LLM)
+        # is gated. A throttled tick still heartbeats so the dashboard keeps the
+        # agent ACTIVE rather than aging it to STALE during a flat market.
+        if not self._should_publish(symbol, strength):
+            await write_heartbeat(
+                self.bus.redis,
+                AGENT_NAME,
+                f"throttled {symbol} {pct:+.2f}%",
+                event_count=self.total_events,
+            )
+            return
 
         signal_payload: dict[str, Any] = {
             FieldName.TYPE: signal_type.value,

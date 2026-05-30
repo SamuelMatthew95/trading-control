@@ -30,6 +30,7 @@ import json
 import ssl
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import httpx
@@ -55,6 +56,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
+from api.services.market_status import get_market_status
 
 SYMBOLS = {
     FieldName.CRYPTO: ["BTC/USD", "ETH/USD", "SOL/USD"],
@@ -62,8 +64,6 @@ SYMBOLS = {
 }
 
 ALL_SYMBOLS = SYMBOLS[FieldName.CRYPTO] + SYMBOLS[FieldName.STOCKS]
-
-_POLL_INTERVAL = 5  # seconds between cycles
 
 
 def _create_alpaca_client() -> httpx.AsyncClient:
@@ -158,21 +158,50 @@ async def _fetch_stocks(client: httpx.AsyncClient, symbols: list[str]) -> dict[s
     return prices
 
 
-async def build_symbol_payload(redis_client, symbol: str, current_price: float) -> dict:
-    """Compute change/pct from cached previous price, return full payload."""
-    prev_raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
-    prev_data = json.loads(prev_raw) if prev_raw else None
+def _compute_symbol_payload(symbol: str, current_price: float, prev_data: dict | None) -> dict:
+    """Pure: build a price payload, deriving change/pct from a prior snapshot."""
     prev_price = float(prev_data[FieldName.PRICE]) if prev_data else None
     change = round(current_price - prev_price, 4) if prev_price else 0.0
     pct = round((change / prev_price) * 100, 4) if prev_price else 0.0
     return {
         FieldName.SYMBOL: symbol,
         FieldName.PRICE: current_price,
-        "change": change,
+        FieldName.CHANGE: change,
         FieldName.PCT: pct,
         FieldName.TS: int(time.time()),
         FieldName.TRACE_ID: str(uuid.uuid4()),
     }
+
+
+async def build_symbol_payload(redis_client, symbol: str, current_price: float) -> dict:
+    """Single-symbol payload (one GET).
+
+    Retained for direct callers/tests; the poll loop uses the batched
+    build_symbol_payloads() so a cycle is one MGET, not one GET per symbol.
+    """
+    prev_raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
+    prev_data = json.loads(prev_raw) if prev_raw else None
+    return _compute_symbol_payload(symbol, current_price, prev_data)
+
+
+async def build_symbol_payloads(redis_client, prices: dict[str, float]) -> list[dict]:
+    """Batched payload build for a whole poll cycle.
+
+    Replaces the per-symbol GET — an N+1 against Redis that drove the connection
+    pool to exhaustion under load (incident: ConnectionError 'Too many
+    connections', build_symbol_payload → ConnectionPool.get_connection) — with a
+    SINGLE MGET round-trip for every symbol's previous snapshot.
+    """
+    if not prices:
+        return []
+    symbols = list(prices.keys())
+    keys = [REDIS_KEY_PRICES.format(symbol=s) for s in symbols]
+    prev_raws = await redis_client.mget(keys)
+    payloads: list[dict] = []
+    for symbol, prev_raw in zip(symbols, prev_raws, strict=False):
+        prev_data = json.loads(prev_raw) if prev_raw else None
+        payloads.append(_compute_symbol_payload(symbol, prices[symbol], prev_data))
+    return payloads
 
 
 async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
@@ -291,8 +320,177 @@ async def flush_to_db(payloads: list[dict]) -> None:
         log_structured("error", "price_poller_db_flush_failed", symbols=symbols, exc_info=True)
 
 
+def _due_asset_classes(
+    now: float,
+    last_fetch: dict[str, float],
+    crypto_interval: float,
+    stock_interval: float,
+    stocks_open: bool,
+) -> list[str]:
+    """Asset classes due to fetch this cycle.
+
+    Crypto polls on its own interval 24/7. Stocks poll on their interval ONLY
+    while the equity session is open — when closed they are never due, so the
+    poller issues zero stock Alpaca/Redis traffic overnight, on weekends, and on
+    exchange holidays.
+    """
+    due: list[str] = []
+    if now - last_fetch[FieldName.CRYPTO] >= crypto_interval:
+        due.append(FieldName.CRYPTO)
+    if stocks_open and now - last_fetch[FieldName.STOCKS] >= stock_interval:
+        due.append(FieldName.STOCKS)
+    return due
+
+
+def _open_circuit(consecutive_failures: int) -> float:
+    """Log + return the monotonic deadline until which polling is suspended."""
+    log_structured(
+        "error",
+        "alpaca_circuit_breaker_open",
+        consecutive_failures=consecutive_failures,
+        cooldown_seconds=ALPACA_CIRCUIT_BREAKER_RESET_SECONDS,
+    )
+    return time.monotonic() + ALPACA_CIRCUIT_BREAKER_RESET_SECONDS
+
+
+@dataclass
+class _PollerState:
+    """Mutable state carried across poll cycles (client + circuit breaker)."""
+
+    client: httpx.AsyncClient
+    consecutive_failures: int = 0
+    circuit_open_until: float = 0.0
+    last_fetch: dict[str, float] = field(
+        default_factory=lambda: {FieldName.CRYPTO: 0.0, FieldName.STOCKS: 0.0}
+    )
+
+
+async def _run_poll_cycle(
+    state: _PollerState,
+    redis_client,
+    market_status,
+    crypto_interval: float,
+    stock_interval: float,
+) -> None:
+    """Run exactly one poll cycle. Linear, no internal sleeps — the driver paces.
+
+    Returns early (does no work) when the circuit breaker is open or nothing is
+    due. All cross-cycle state lives on ``state`` so this is directly testable.
+    """
+    now = time.monotonic()
+
+    if now < state.circuit_open_until:
+        log_structured(
+            "warning",
+            "alpaca_circuit_open_skipping_poll",
+            remaining_seconds=round(state.circuit_open_until - now, 1),
+        )
+        return
+
+    # Stocks are skipped entirely when the equity session is closed: no Alpaca
+    # call, no Redis write, no broadcast, no overnight SIP 403s.
+    due = _due_asset_classes(
+        now, state.last_fetch, crypto_interval, stock_interval, market_status.is_open()
+    )
+    if not due:
+        return
+
+    fetch_for = {
+        FieldName.CRYPTO: lambda: _fetch_crypto(state.client, SYMBOLS[FieldName.CRYPTO]),
+        FieldName.STOCKS: lambda: _fetch_stocks(state.client, SYMBOLS[FieldName.STOCKS]),
+    }
+    cycle_start = time.perf_counter()
+    results = await asyncio.gather(*[fetch_for[label]() for label in due], return_exceptions=True)
+    results_by_label = dict(zip(due, results, strict=False))
+
+    # --- Error triage: detect SSL EOF specifically ---
+    ssl_eof_seen = False
+    for label, result in results_by_label.items():
+        if not isinstance(result, Exception):
+            continue
+        if _is_ssl_eof(result):
+            ssl_eof_seen = True
+            log_structured(
+                "error",
+                "alpaca_ssl_eof_detected",
+                asset_class=label,
+                consecutive_failures=state.consecutive_failures + 1,
+            )
+        elif isinstance(result, httpx.TimeoutException):
+            log_structured("warning", f"alpaca_{label}_timeout")
+        else:
+            log_structured(
+                "error", f"alpaca_{label}_fetch_failed", error_type=type(result).__name__
+            )
+
+    if ssl_eof_seen:
+        state.consecutive_failures += 1
+        # Recreate the client to evict poisoned connections — a fresh client has
+        # clean TCP sockets, fixing the SSLZeroReturnError(6) EOF. last_fetch is
+        # intentionally NOT advanced so the class retries on the next cycle.
+        await state.client.aclose()
+        state.client = _create_alpaca_client()
+        log_structured(
+            "warning",
+            "alpaca_ssl_eof_client_recreated",
+            consecutive_failures=state.consecutive_failures,
+        )
+        if state.consecutive_failures >= ALPACA_CIRCUIT_BREAKER_THRESHOLD:
+            state.circuit_open_until = _open_circuit(state.consecutive_failures)
+        return
+
+    # Attempt recorded — wait the full interval before retrying each class (no
+    # tight retry loop on a persistent failure like a 403).
+    for label in due:
+        state.last_fetch[label] = now
+
+    # Every attempted fetch failed → count toward the circuit breaker.
+    if all(isinstance(r, Exception) for r in results):
+        state.consecutive_failures += 1
+        if state.consecutive_failures >= ALPACA_CIRCUIT_BREAKER_THRESHOLD:
+            state.circuit_open_until = _open_circuit(state.consecutive_failures)
+
+    # Build the price map from whichever fetches succeeded (partial results OK).
+    all_prices: dict[str, float] = {}
+    for result in results_by_label.values():
+        if not isinstance(result, Exception):
+            all_prices.update(result)
+
+    if not all_prices:
+        log_structured("warning", "price_poller_no_prices_fetched")
+        return
+
+    state.consecutive_failures = 0  # any success resets the counter
+
+    # ONE Redis MGET for all previous snapshots (was an N+1 of per-symbol GETs).
+    payloads = await build_symbol_payloads(redis_client, all_prices)
+    await asyncio.gather(
+        publish_to_redis(redis_client, payloads),
+        flush_to_db(payloads),
+    )
+    await redis_client.set(
+        REDIS_KEY_WORKER_HEARTBEAT,
+        datetime.now(timezone.utc).isoformat(),
+        ex=WORKER_HEARTBEAT_TTL_SECONDS,
+    )
+    log_structured(
+        "info",
+        "price_poller_cycle_complete",
+        symbols=len(all_prices),
+        asset_classes=",".join(due),
+        duration_ms=round((time.perf_counter() - cycle_start) * 1000),
+    )
+
+
 async def poll_prices() -> None:
-    """Main price polling loop — runs for the lifetime of the app."""
+    """Run the price poller for the lifetime of the app.
+
+    Thin driver: tick at ``base_interval``, run one cycle, repeat — cancellation
+    by the lifespan stops it. Cadence is per asset class
+    (CRYPTO_POLL_INTERVAL_SECONDS / STOCK_POLL_INTERVAL_SECONDS); stock fetches
+    are gated behind the MarketStatusService, so the equity path goes fully idle
+    overnight/weekends/holidays while crypto keeps polling 24/7.
+    """
     if not settings.ALPACA_API_KEY or not settings.ALPACA_SECRET_KEY:
         log_structured(
             "error",
@@ -302,133 +500,29 @@ async def poll_prices() -> None:
         return
 
     redis_client = await get_redis()
-    client = _create_alpaca_client()
-    consecutive_failures = 0
-    circuit_open_until = 0.0
+    market_status = get_market_status()
+    state = _PollerState(client=_create_alpaca_client())
+
+    crypto_interval = float(settings.CRYPTO_POLL_INTERVAL_SECONDS)
+    stock_interval = float(settings.STOCK_POLL_INTERVAL_SECONDS)
+    base_interval = max(1.0, min(crypto_interval, stock_interval))
 
     log_structured(
-        "info", "price_poller_started", symbols=len(ALL_SYMBOLS), interval_secs=_POLL_INTERVAL
+        "info",
+        "price_poller_started",
+        crypto_interval_secs=crypto_interval,
+        stock_interval_secs=stock_interval,
+        base_interval_secs=base_interval,
     )
 
     try:
         while True:
-            # --- Circuit breaker check ---
-            now = time.monotonic()
-            if now < circuit_open_until:
-                remaining = round(circuit_open_until - now, 1)
-                log_structured(
-                    "warning",
-                    "alpaca_circuit_open_skipping_poll",
-                    remaining_seconds=remaining,
-                )
-                await asyncio.sleep(_POLL_INTERVAL)
-                continue
-
-            cycle_start = time.perf_counter()
             try:
-                # Fetch both asset classes concurrently — native async, no thread executor
-                crypto_prices, stock_prices = await asyncio.gather(
-                    _fetch_crypto(client, SYMBOLS[FieldName.CRYPTO]),
-                    _fetch_stocks(client, SYMBOLS[FieldName.STOCKS]),
-                    return_exceptions=True,
+                await _run_poll_cycle(
+                    state, redis_client, market_status, crypto_interval, stock_interval
                 )
-
-                # --- Error triage: detect SSL EOF specifically ---
-                ssl_eof_seen = False
-                for label, result in (("crypto", crypto_prices), ("stocks", stock_prices)):
-                    if not isinstance(result, Exception):
-                        continue
-                    if _is_ssl_eof(result):
-                        ssl_eof_seen = True
-                        log_structured(
-                            "error",
-                            "alpaca_ssl_eof_detected",
-                            asset_class=label,
-                            consecutive_failures=consecutive_failures + 1,
-                        )
-                    elif isinstance(result, httpx.TimeoutException):
-                        log_structured("warning", f"alpaca_{label}_timeout")
-                    else:
-                        log_structured("error", f"alpaca_{label}_fetch_failed", exc_info=True)
-
-                if ssl_eof_seen:
-                    consecutive_failures += 1
-                    # Close and recreate client to evict poisoned connections from the pool.
-                    # This is the primary fix: a new client starts with a fresh connection pool,
-                    # eliminating any stale TCP sockets that caused the EOF.
-                    await client.aclose()
-                    client = _create_alpaca_client()
-                    log_structured(
-                        "warning",
-                        "alpaca_ssl_eof_client_recreated",
-                        consecutive_failures=consecutive_failures,
-                    )
-                    if consecutive_failures >= ALPACA_CIRCUIT_BREAKER_THRESHOLD:
-                        circuit_open_until = time.monotonic() + ALPACA_CIRCUIT_BREAKER_RESET_SECONDS
-                        log_structured(
-                            "error",
-                            "alpaca_circuit_breaker_open",
-                            consecutive_failures=consecutive_failures,
-                            cooldown_seconds=ALPACA_CIRCUIT_BREAKER_RESET_SECONDS,
-                        )
-                    await asyncio.sleep(_POLL_INTERVAL)
-                    continue
-
-                # Non-SSL errors still count toward circuit breaker
-                if isinstance(crypto_prices, Exception) and isinstance(stock_prices, Exception):
-                    consecutive_failures += 1
-                    if consecutive_failures >= ALPACA_CIRCUIT_BREAKER_THRESHOLD:
-                        circuit_open_until = time.monotonic() + ALPACA_CIRCUIT_BREAKER_RESET_SECONDS
-                        log_structured(
-                            "error",
-                            "alpaca_circuit_breaker_open",
-                            consecutive_failures=consecutive_failures,
-                            cooldown_seconds=ALPACA_CIRCUIT_BREAKER_RESET_SECONDS,
-                        )
-
-                # Build price map from whichever fetches succeeded (partial results OK)
-                all_prices: dict[str, float] = {}
-                if not isinstance(crypto_prices, Exception):
-                    all_prices.update(crypto_prices)
-                if not isinstance(stock_prices, Exception):
-                    all_prices.update(stock_prices)
-
-                if all_prices:
-                    consecutive_failures = 0  # any success resets the counter
-
-                    payloads = await asyncio.gather(
-                        *[
-                            build_symbol_payload(redis_client, sym, price)
-                            for sym, price in all_prices.items()
-                        ]
-                    )
-
-                    await asyncio.gather(
-                        publish_to_redis(redis_client, payloads),
-                        flush_to_db(payloads),
-                    )
-
-                    await redis_client.set(
-                        REDIS_KEY_WORKER_HEARTBEAT,
-                        datetime.now(timezone.utc).isoformat(),
-                        ex=WORKER_HEARTBEAT_TTL_SECONDS,
-                    )
-
-                    elapsed_ms = round((time.perf_counter() - cycle_start) * 1000)
-                    log_structured(
-                        "info",
-                        "price_poller_cycle_complete",
-                        symbols=len(all_prices),
-                        total=len(ALL_SYMBOLS),
-                        duration_ms=elapsed_ms,
-                    )
-                else:
-                    log_structured("warning", "price_poller_no_prices_fetched")
-
             except Exception:
                 log_structured("error", "price_poller_cycle_error", exc_info=True)
-
-            await asyncio.sleep(_POLL_INTERVAL)
-
+            await asyncio.sleep(base_interval)
     finally:
-        await client.aclose()
+        await state.client.aclose()
