@@ -73,6 +73,26 @@ ADAPTIVE_TRADING_SYSTEM_PROMPT = (
     "to preserve capital. Prioritize moving quickly from reasoning to final JSON output."
 )
 
+# ---------------------------------------------------------------------------
+# Decision output contract — appended beneath the dynamically-assembled runtime
+# prompt (constitution + node-scoped tools) so the buy/sell LLM still emits the
+# strict JSON shape the parser depends on. Kept separate from the constitution
+# (which is immutable law) and from the tool list (which is governed per node).
+# ---------------------------------------------------------------------------
+
+DECISION_OUTPUT_CONTRACT = (
+    "OUTPUT CONTRACT: Return ONLY a single valid JSON object — no markdown, no code "
+    "fences, no prose before or after. The response must start with { and end with }. "
+    "Required keys: action (one of: buy, sell, hold, reject), confidence (0.0-1.0), "
+    "primary_edge (string, under 20 words), risk_factors (list of strings, each under "
+    "20 words), size_pct, stop_atr_x, rr_ratio. "
+    "Empty-state handling: if risk_state is empty, assume baseline volatility and do not "
+    "stall; if ic_weights is empty, treat factors as equal-weight; if similar_trades is "
+    "empty, lean on composite_score and halve size_pct to preserve capital. "
+    "Position sizing, exposure, and drawdown limits are advisory only — the deterministic "
+    "backend risk cage has the final say and you cannot override it."
+)
+
 REASONING_CRITIQUE_PROMPT = (
     "You are a conservative trading risk critic. You receive a proposed trading decision "
     "along with current IC weights and market risk state. "
