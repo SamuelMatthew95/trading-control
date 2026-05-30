@@ -14,6 +14,20 @@ const mockApiFetch = apiFetch as unknown as ReturnType<typeof vi.fn>
 const REGISTRY = {
   count: 3,
   capability_graph: { get_stream_confluence_metrics: ['calculate_vwap_execution'] },
+  suggestions: [
+    {
+      tool: 'scan_sector_correlation',
+      action: 'disable',
+      severity: 'warning',
+      reason: 'negative alpha (-0.20) — drop from the prompt',
+    },
+    {
+      tool: 'calculate_vwap_execution',
+      action: 'prioritize',
+      severity: 'info',
+      reason: 'highest alpha (+0.80) — keep at the top of the prompt',
+    },
+  ],
   tools: [
     {
       name: 'get_stream_confluence_metrics',
@@ -66,7 +80,8 @@ describe('ToolGovernancePanel', () => {
     // Gate on data-dependent content (a tool name only appears after the fetch).
     expect(await screen.findByText('get_stream_confluence_metrics')).toBeInTheDocument()
     expect(screen.getByText(/Tool Governance/)).toBeInTheDocument()
-    expect(screen.getByText('scan_sector_correlation')).toBeInTheDocument()
+    // Appears both as a phase-list row and in the suggestions block.
+    expect(screen.getAllByText('scan_sector_correlation').length).toBeGreaterThan(0)
     // DAG phase headers.
     expect(screen.getByText('perception')).toBeInTheDocument()
     expect(screen.getByText('execution')).toBeInTheDocument()
@@ -75,6 +90,16 @@ describe('ToolGovernancePanel', () => {
     expect(container.textContent).toContain('unlocks calculate_vwap_execution')
     expect(container.textContent).toContain('requires: risk_approved')
     expect(container.textContent).toContain('42ms')
+  })
+
+  it('renders runtime tool suggestions (which tools to keep/drop)', async () => {
+    mockApiFetch.mockResolvedValue(REGISTRY)
+    const { container } = render(<ToolGovernancePanel />)
+
+    expect(await screen.findByText('Runtime Suggestions')).toBeInTheDocument()
+    expect(container.textContent).toContain('disable')
+    expect(container.textContent).toContain('prioritize')
+    expect(container.textContent).toContain('negative alpha')
   })
 
   it('degrades gracefully on fetch failure', async () => {
