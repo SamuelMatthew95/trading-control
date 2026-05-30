@@ -35,6 +35,7 @@ from api.services.dashboard.learning import (
     update_proposal_status_payload,
 )
 from api.services.dashboard.pnl import get_paired_pnl_payload, get_pnl_payload
+from api.services.dashboard.prompt_os import get_prompt_os_payload
 from api.services.dashboard.proposals import (
     approve_proposal_payload,
     list_proposals_payload,
@@ -222,6 +223,14 @@ async def spawn_challenger(
 async def list_challengers(request: Request) -> dict[str, Any]:
     agents: list[Any] = getattr(request.app.state, "agents", [])
     return await list_challengers_payload(agents)
+
+
+@router.get("/prompt-os")
+async def get_prompt_os(request: Request) -> dict[str, Any]:
+    """Live Reasoning: the live prompt + active tools, each challenger's diff
+    vs the live strategy, and what the pending proposals change."""
+    agents: list[Any] = getattr(request.app.state, "agents", [])
+    return await get_prompt_os_payload(agents)
 
 
 @router.get("/kill-switch")
