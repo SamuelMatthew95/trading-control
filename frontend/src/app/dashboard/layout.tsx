@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Settings2, Menu, BarChart3, Activity } from 'lucide-react'
+import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Lightbulb, Settings2, Menu, BarChart3, Activity } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -28,6 +28,7 @@ const NAV = [
   { href: '/dashboard/trading', label: 'Trading', Icon: CandlestickChart },
   { href: '/dashboard/agents', label: 'Agents', Icon: Bot },
   { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
+  { href: '/dashboard/proposals', label: 'Proposals', Icon: Lightbulb },
   { href: '/dashboard/system', label: 'System', Icon: Settings2 },
 ]
 
