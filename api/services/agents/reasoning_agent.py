@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -30,6 +31,8 @@ from api.constants import (
     MIN_RR_RATIO,
     NO_ORDER_ACTIONS,
     REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
+    REASONING_NODE,
+    REASONING_TOOL_MIN_ALPHA,
     REDIS_KEY_AGENT_SUSPENDED,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
@@ -42,8 +45,12 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
+    TOOL_FLAG_CONFLUENCE_LOADED,
+    TOOL_GET_IC_WEIGHTS,
+    TOOL_QUERY_SIMILAR_TRADES,
     AgentAction,
     FieldName,
+    ToolPhase,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -57,6 +64,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
 from api.services.agents.prompts import (
     ADAPTIVE_TRADING_SYSTEM_PROMPT,
+    DECISION_OUTPUT_CONTRACT,
     REASONING_CRITIQUE_PROMPT,
 )
 from api.services.agents.vector_helpers import (
@@ -65,8 +73,10 @@ from api.services.agents.vector_helpers import (
     search_vector_memory,
 )
 from api.services.llm_router import active_model_label, call_llm_with_system
+from api.services.prompt_assembly import build_runtime_prompt
 from api.services.redis_store import get_redis_store
 from api.services.risk_filters import compute_dynamic_position_size
+from api.services.tool_registry import ToolMetadata, get_tool_registry
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -129,11 +139,22 @@ class ReasoningAgent(BaseStreamConsumer):
         signal_summary = self._build_signal_summary(data)
         embedding = await embed_text(signal_summary)
 
+        search_t0 = time.monotonic()
+        search_ok = False
         try:
             similar_trades = await search_vector_memory(embedding)
+            search_ok = True
         except Exception:
             log_structured("warning", "vector_memory_search_failed", exc_info=True)
             similar_trades = []
+        # The reasoning node just exercised the memory-recall tool — fold its
+        # real latency + reliability into the Tool Registry so the governance
+        # panel and dead-tool suggestions reflect live usage, not just priors.
+        self._record_tool(
+            TOOL_QUERY_SIMILAR_TRADES,
+            latency_ms=(time.monotonic() - search_t0) * 1000,
+            success=search_ok,
+        )
 
         # --- LLM decision (enriched with gathered context) ---------------
         fallback_reason: str | None = None
@@ -568,13 +589,23 @@ class ReasoningAgent(BaseStreamConsumer):
         """
         context: dict[str, Any] = {}
 
-        # Fetch live IC factor weights from Redis (written by ICUpdater)
+        # Fetch live IC factor weights from Redis (written by ICUpdater). This is
+        # the reasoning node's MEMORY tool `get_ic_weights`; time it and record
+        # the call so its telemetry is live in the governance panel.
+        ic_t0 = time.monotonic()
+        ic_ok = False
         try:
             ic_raw = await self.redis.get(REDIS_KEY_IC_WEIGHTS)
             if ic_raw:
                 context[FieldName.IC_WEIGHTS] = json.loads(ic_raw)
+            ic_ok = True
         except Exception:
             log_structured("warning", "reasoning_ic_weights_fetch_failed", exc_info=True)
+        self._record_tool(
+            TOOL_GET_IC_WEIGHTS,
+            latency_ms=(time.monotonic() - ic_t0) * 1000,
+            success=ic_ok,
+        )
 
         # Derive risk state from the signal itself
         context[FieldName.RISK_STATE] = {
@@ -591,6 +622,102 @@ class ReasoningAgent(BaseStreamConsumer):
             signal_type=context[FieldName.RISK_STATE][FieldName.SIGNAL_TYPE],
         )
         return context
+
+    # ------------------------------------------------------------------
+    # Prompt-OS: tool-governed runtime prompt assembly + tool telemetry
+    # ------------------------------------------------------------------
+
+    def _record_tool(self, name: str, *, latency_ms: float, success: bool) -> None:
+        """Fold one reasoning-node tool invocation into the Tool Registry.
+
+        Best-effort and outcome-agnostic: telemetry must never break a trading
+        decision, and realized PnL is unknown at decision time, so alpha
+        attribution stays at its prior until the grade loop reports an outcome.
+        """
+        try:
+            get_tool_registry().record_call(name, latency_ms=latency_ms, success=success)
+        except Exception:
+            log_structured("warning", "tool_telemetry_record_failed", tool=name, exc_info=True)
+
+    @staticmethod
+    def _reasoning_state_flags(data: dict[str, Any], context: dict[str, Any]) -> set[str]:
+        """State flags satisfied at the reasoning node — gate which tools unlock.
+
+        The signal carries cross-stream confluence (composite_score), so the
+        confluence-dependent tools become eligible. Risk-approval and
+        thesis-commit flags belong to the downstream execution node and are
+        never set here, so execution tools can never leak into reasoning.
+        """
+        flags: set[str] = set()
+        if data.get(FieldName.COMPOSITE_SCORE) is not None or context.get(FieldName.IC_WEIGHTS):
+            flags.add(TOOL_FLAG_CONFLUENCE_LOADED)
+        return flags
+
+    def _select_reasoning_tools(
+        self, data: dict[str, Any], context: dict[str, Any]
+    ) -> list[ToolMetadata]:
+        """The eligible perception + memory tools the buy/sell LLM may see.
+
+        Negative-alpha tools are filtered (REASONING_TOOL_MIN_ALPHA) so dead
+        weight like a negative-edge sector scan never reaches the prompt — even
+        while it stays registered for the operator's attribution view.
+        """
+        flags = self._reasoning_state_flags(data, context)
+        registry = get_tool_registry()
+        tools = registry.select_tools(
+            ToolPhase.PERCEPTION,
+            available_state_flags=flags,
+            min_alpha=REASONING_TOOL_MIN_ALPHA,
+        )
+        tools += registry.select_tools(
+            ToolPhase.MEMORY,
+            available_state_flags=flags,
+            min_alpha=REASONING_TOOL_MIN_ALPHA,
+        )
+        return tools
+
+    @staticmethod
+    def _reasoning_regime(context: dict[str, Any]) -> str:
+        risk_state = context.get(FieldName.RISK_STATE) or {}
+        return str(risk_state.get(FieldName.SIGNAL_STRENGTH) or "unknown").lower()
+
+    def _assemble_decision_prompt(
+        self,
+        data: dict[str, Any],
+        context: dict[str, Any],
+        similar_trades: list[dict[str, Any]],
+    ) -> str:
+        """Constitution + node-scoped tools + compact context + output contract.
+
+        Falls back to the static adaptive prompt if assembly ever raises, so a
+        registry hiccup can never block a decision.
+        """
+        try:
+            active_tools = self._select_reasoning_tools(data, context)
+            risk_state = context.get(FieldName.RISK_STATE) or {}
+            ic_weights = context.get(FieldName.IC_WEIGHTS) or {}
+            portfolio_summary = (
+                f"score={risk_state.get(FieldName.COMPOSITE_SCORE, 'n/a')} "
+                f"momentum={risk_state.get(FieldName.MOMENTUM_PCT, 'n/a')} "
+                f"strength={risk_state.get(FieldName.SIGNAL_STRENGTH, 'NORMAL')}"
+            )
+            telemetry_summary = (
+                f"ic_factors={sorted(ic_weights)[:5] or 'none'}; "
+                f"similar_trades={len(similar_trades)} recalled"
+            )
+            runtime_prompt = build_runtime_prompt(
+                node=REASONING_NODE,
+                active_tools=active_tools,
+                regime=self._reasoning_regime(context),
+                portfolio_summary=portfolio_summary,
+                telemetry_summary=telemetry_summary,
+            )
+            return f"{runtime_prompt}\n\n{DECISION_OUTPUT_CONTRACT}"
+        except Exception:
+            log_structured(
+                "warning", "reasoning_prompt_assembly_failed_using_static", exc_info=True
+            )
+            return ADAPTIVE_TRADING_SYSTEM_PROMPT
 
     async def _self_critique(
         self,
@@ -737,6 +864,11 @@ class ReasoningAgent(BaseStreamConsumer):
             },
             default=str,
         )
+        # Dynamic runtime prompt (Prompt-OS): immutable constitution + ONLY the
+        # node-scoped tools the registry deems eligible + compact context, with
+        # the JSON output contract appended. This is what makes the buy/sell LLM
+        # actually "use tools" — it sees the governed subset, never the catalog.
+        system_prompt = self._assemble_decision_prompt(data, context or {}, similar_trades_payload)
         log_structured(
             "debug",
             "llm_prompt_sent",
@@ -745,11 +877,11 @@ class ReasoningAgent(BaseStreamConsumer):
             task_type=task_type,
             prompt_chars=len(prompt),
             prompt_preview=prompt[:400],
-            system_prompt_preview=ADAPTIVE_TRADING_SYSTEM_PROMPT[:200],
+            system_prompt_preview=system_prompt[:200],
         )
         meta: dict[str, Any] = {}
         raw_text, tokens, cost_usd = await call_llm_with_system(
-            prompt, ADAPTIVE_TRADING_SYSTEM_PROMPT, trace_id, task_type=task_type, result_meta=meta
+            prompt, system_prompt, trace_id, task_type=task_type, result_meta=meta
         )
         # Record the provider:model actually used (incl. lmstudio→cloud fallback)
         # so model attribution stays accurate, not just the configured default.
