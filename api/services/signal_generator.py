@@ -15,6 +15,7 @@ import json
 import time
 import uuid
 from collections import deque
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -53,16 +54,66 @@ from api.services.risk_filters import compute_atr_from_prices, compute_rsi
 
 AGENT_NAME = AGENT_SIGNAL
 
-# Signal classification thresholds — absolute single-bar percentage move.
-# These two numbers ARE the entire buy/sell/hold decision today, and they are
-# the primary knob the backtest harness exists to measure and tune. Promoted
-# out of process() so the live agent and backtest/ share one source of truth.
+# Signal classification — when is a price move "significant" enough to trade?
+#
+# Two regimes share the same score tiers (80/55/30) and action logic:
+#
+#   1. Volatility-normalized (PREFERRED): a move is significant when it exceeds
+#      ``k * sigma``, where ``sigma`` is the rolling stdev of recent percent
+#      returns. This self-calibrates to the bar timeframe, so the trigger fires
+#      sensibly on 5-second ticks AND minute bars. Used whenever the caller can
+#      supply a trustworthy ``sigma`` (>= SIGMA_MIN_SAMPLES returns).
+#
+#   2. Fixed-percentage (FALLBACK / warmup): the legacy absolute thresholds.
+#      Kept for the warmup window before enough returns exist to estimate
+#      volatility, and for callers that pass no ``sigma``. NOTE: on tick / 1-min
+#      data, per-bar moves are ~0.01–0.3% — far below these — so this regime
+#      almost never fires, which is precisely why regime 1 exists.
+#
+# These numbers ARE the buy/sell/hold decision and are the primary knob the
+# backtest harness measures and tunes. Promoted out of process() so the live
+# agent and backtest/ share one source of truth.
 STRONG_MOMENTUM_PCT = 3.0
 MOMENTUM_PCT = 1.5
+# Volatility-normalized trigger multipliers (in units of rolling sigma).
+STRONG_MOMENTUM_SIGMA = 2.5
+MOMENTUM_SIGMA = 1.5
+# Minimum number of percent-returns before a volatility estimate is trusted;
+# below this the fixed-percentage fallback is used (warmup).
+SIGMA_MIN_SAMPLES = 20
+# Volatility floor (percent). Below this the market is treated as too flat to
+# normalize against, so we fall back to the fixed thresholds rather than amplify
+# microscopic noise into huge z-scores.
+SIGMA_FLOOR_PCT = 0.02
+
+
+def compute_return_sigma(
+    prices: Sequence[float], min_samples: int = SIGMA_MIN_SAMPLES
+) -> float | None:
+    """Rolling volatility: population stdev of consecutive percent-returns.
+
+    Returns the stdev in the SAME units as ``pct`` (percent), or ``None`` when
+    there are fewer than ``min_samples`` usable returns — the caller then falls
+    back to the fixed-percentage thresholds (warmup behaviour). PURE — no IO.
+    """
+    if not prices or len(prices) < min_samples + 1:
+        return None
+    returns: list[float] = []
+    for i in range(1, len(prices)):
+        prev = prices[i - 1]
+        if prev:
+            returns.append((prices[i] - prev) / prev * 100.0)
+    if len(returns) < min_samples:
+        return None
+    mean = sum(returns) / len(returns)
+    variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+    return variance**0.5
 
 
 def classify_signal(
     pct: float,
+    *,
+    sigma: float | None = None,
 ) -> tuple[SignalType, SignalStrength, float, MarketDirection, str]:
     """Classify a percentage price move into the full trading decision.
 
@@ -73,6 +124,12 @@ def classify_signal(
 
     ``pct`` is the bar-to-bar percent change, exactly as PricePoller computes it
     ((price - prev_price) / prev_price * 100).
+
+    ``sigma`` is the rolling volatility (stdev of recent percent-returns, same
+    units as ``pct``) from :func:`compute_return_sigma`. When supplied and at or
+    above ``SIGMA_FLOOR_PCT`` the move is graded by its z-score (``|pct| /
+    sigma``) against the ``*_SIGMA`` multipliers; otherwise the fixed ``*_PCT``
+    thresholds are used (warmup / no volatility info).
     """
     abs_pct = abs(pct)
     direction = (
@@ -80,14 +137,23 @@ def classify_signal(
         if pct > 0
         else (MarketDirection.BEARISH if pct < 0 else MarketDirection.NEUTRAL)
     )
-    if abs_pct >= STRONG_MOMENTUM_PCT:
+    if sigma is not None and sigma >= SIGMA_FLOOR_PCT:
+        # Volatility-normalized: how many sigma is this move?
+        z = abs_pct / sigma
+        if z >= STRONG_MOMENTUM_SIGMA:
+            signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
+        elif z >= MOMENTUM_SIGMA:
+            signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
+        else:
+            signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
+    elif abs_pct >= STRONG_MOMENTUM_PCT:
         signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
     elif abs_pct >= MOMENTUM_PCT:
         signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
     else:
         signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
 
-    # LOW strength == noise. Never trade direction off a sub-1.5% move — the
+    # LOW strength == noise. Never trade direction off a sub-threshold move — the
     # score (0.30) is below the execution gate anyway, and emitting buy/sell
     # here pollutes downstream agent logs and lets a generous LLM re-confidence
     # the trade past the gate.
@@ -330,7 +396,12 @@ class SignalGenerator(BaseStreamConsumer):
 
         # --- Classify signal ---------------------------------------------
         # Pure decision, shared with the backtest harness (see classify_signal).
-        signal_type, strength, score, direction, action = classify_signal(pct)
+        # Grade the move against rolling return volatility so the trigger
+        # self-calibrates to the live tick cadence instead of a fixed % that
+        # never fires on sub-percent per-tick moves. Falls back to the fixed
+        # thresholds during warmup (compute_return_sigma returns None).
+        sigma = compute_return_sigma(prices_list)
+        signal_type, strength, score, direction, action = classify_signal(pct, sigma=sigma)
 
         # --- Throttle the sub-threshold noise floor ----------------------
         # Indicator history is already warm (updated above); only the expensive
