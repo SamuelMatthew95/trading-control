@@ -21,9 +21,18 @@ interface Tool {
   unlocks: string[]
 }
 
+// Mirrors api.services.tool_registry.ToolSuggestion serialization.
+interface Suggestion {
+  tool: string
+  action: string
+  severity: string
+  reason: string
+}
+
 interface ToolRegistryResponse {
   tools: Tool[]
   capability_graph: Record<string, string[]>
+  suggestions: Suggestion[]
   count: number
 }
 
@@ -34,6 +43,42 @@ function alphaClass(alpha: number): string {
   if (alpha > 0.001) return 'text-emerald-600 dark:text-emerald-400'
   if (alpha < -0.001) return 'text-rose-600 dark:text-rose-400'
   return 'text-slate-500 dark:text-slate-400'
+}
+
+function actionBadgeClass(action: string): string {
+  if (action === 'disable') return 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+  if (action === 'prioritize') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+  return 'bg-slate-500/15 text-slate-500 dark:text-slate-400'
+}
+
+function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg border px-3 py-1.5',
+        suggestion.severity === 'warning'
+          ? 'border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20'
+          : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20',
+      )}
+    >
+      <span
+        className={cn(
+          'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+          actionBadgeClass(suggestion.action),
+        )}
+      >
+        {suggestion.action}
+      </span>
+      <div className="min-w-0">
+        <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
+          {suggestion.tool}
+        </span>
+        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+          {suggestion.reason}
+        </p>
+      </div>
+    </div>
+  )
 }
 
 function ToolRow({ tool }: { tool: Tool }) {
@@ -113,6 +158,7 @@ export function ToolGovernancePanel() {
   }, [])
 
   const tools = data?.tools ?? []
+  const suggestions = data?.suggestions ?? []
   const enabledCount = tools.filter((t) => t.enabled).length
   const byPhase = PHASE_ORDER.map((phase) => ({
     phase,
@@ -135,6 +181,17 @@ export function ToolGovernancePanel() {
         Tools exposed per DAG phase — the LLM only ever sees the eligible subset. α = realized
         alpha attribution.
       </p>
+
+      {suggestions.length > 0 && (
+        <div className="mb-3 space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Runtime Suggestions
+          </p>
+          {suggestions.map((s, i) => (
+            <SuggestionRow key={`${s.tool}-${s.action}-${i}`} suggestion={s} />
+          ))}
+        </div>
+      )}
 
       {tools.length === 0 ? (
         <p className="text-xs text-slate-500">No tools registered.</p>
