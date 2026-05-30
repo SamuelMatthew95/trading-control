@@ -145,6 +145,51 @@ async def test_tools_endpoint_returns_attribution(registry: ToolRegistry):
     assert "get_stream_confluence_metrics" in body["capability_graph"]
 
 
+def test_record_call_without_pnl_preserves_alpha_prior():
+    """Decision-time calls (no realized PnL) update latency/reliability but must
+    NOT drag the alpha prior toward zero — outcome attribution comes later."""
+    reg = ToolRegistry()
+    reg.register(ToolMetadata(name="t", phase=ToolPhase.MEMORY, alpha_score=0.5))
+    reg.record_call("t", latency_ms=20.0, success=True)  # no realized_pnl
+    tool = reg.get("t")
+    assert tool.call_count == 1
+    assert tool.alpha_score == 0.5  # prior untouched
+    assert tool.latency_ms == 20.0  # latency telemetry is live
+    assert tool.failure_rate == 0.0
+
+
+def test_suggest_tool_changes_flags_negative_alpha_and_top_performer(registry: ToolRegistry):
+    suggestions = registry.suggest_tool_changes()
+    by_tool = {(s.tool, s.action) for s in suggestions}
+    # Negative-alpha sector scan is suggested for removal from the prompt.
+    assert ("scan_sector_correlation", "disable") in by_tool
+    # Highest-alpha tool is highlighted to keep at the top of the prompt.
+    assert ("calculate_vwap_execution", "prioritize") in by_tool
+
+
+def test_suggest_tool_changes_flags_unreliable_tool():
+    reg = ToolRegistry()
+    reg.register(ToolMetadata(name="flaky", phase=ToolPhase.MEMORY, alpha_score=0.3))
+    for _ in range(25):
+        reg.record_call("flaky", latency_ms=10.0, success=False)
+    actions = {(s.tool, s.action) for s in reg.suggest_tool_changes(min_calls=20)}
+    assert ("flaky", "disable") in actions
+
+
+@pytest.mark.asyncio
+async def test_tools_endpoint_returns_suggestions(registry: ToolRegistry):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
+        resp = await client.get("/dashboard/tools")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "suggestions" in body
+    # Seeded catalog always yields at least the negative-alpha disable hint.
+    actions = {(s["tool"], s["action"]) for s in body["suggestions"]}
+    assert ("scan_sector_correlation", "disable") in actions
+
+
 def test_get_tool_registry_seeds_defaults():
     set_tool_registry(None)
     reg = get_tool_registry()
