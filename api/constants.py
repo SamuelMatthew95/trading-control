@@ -1073,6 +1073,37 @@ class ToolPhase(StrEnum):
 
 
 # ---------------------------------------------------------------------------
+# Runtime tool identities + state-flag gates (Tool Registry contract)
+# ---------------------------------------------------------------------------
+# Tool names and gating flags are a cross-module contract: the Tool Registry
+# seeds the catalog with these names (api/services/tool_registry.py) and the
+# ReasoningAgent records telemetry against the SAME names when it exercises a
+# tool. A literal typo on either side would silently mis-attribute telemetry,
+# so both sides import from here.
+
+TOOL_STREAM_CONFLUENCE = "get_stream_confluence_metrics"
+TOOL_MACRO_REGIME = "fetch_macro_regime"
+TOOL_SECTOR_CORRELATION = "scan_sector_correlation"
+TOOL_QUERY_SIMILAR_TRADES = "query_similar_trades"
+TOOL_GET_IC_WEIGHTS = "get_ic_weights"
+TOOL_RISK_CAGE = "evaluate_risk_cage"
+TOOL_VWAP_EXECUTION = "calculate_vwap_execution"
+TOOL_BRACKET_ORDER = "execute_bracket_order"
+TOOL_REPLAY_REGRESSION = "replay_regression_check"
+
+# State-flag gates a tool requires before it becomes eligible at a node.
+TOOL_FLAG_CONFLUENCE_LOADED = "confluence_loaded"
+TOOL_FLAG_RISK_APPROVED = "risk_approved"
+TOOL_FLAG_THESIS_COMMITTED = "thesis_committed"
+
+# The reasoning DAG node reasons over perception + memory and discards any
+# tool whose alpha attribution is negative, so the buy/sell LLM only ever sees
+# the governed, positive-edge subset (never the full catalog).
+REASONING_NODE = "reasoning"
+REASONING_TOOL_MIN_ALPHA = 0.0
+
+
+# ---------------------------------------------------------------------------
 # Agent identity constants — single source of truth for all agent names.
 # These must match the Redis heartbeat keys written by each agent.
 # ---------------------------------------------------------------------------
