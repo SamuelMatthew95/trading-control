@@ -273,6 +273,8 @@ How the dashboard is hydrated on load / reconnect:
 | `notifications` (REST catch-up) | Redis list `notifications:recent` (cap 200) | `GET /notifications` |
 | `decisions` (REST catch-up) | Redis list `decisions:recent` (cap 500) | `GET /decisions` |
 | `llm_metrics` (durable) | Redis hash `llm:metrics` | `GET /llm/health` (`redis_metrics` block) |
+| `tools` + `suggestions` | in-process `ToolRegistry` (seeded catalog; telemetry from `ReasoningAgent`) | `GET /dashboard/tools` → `ToolGovernancePanel` |
+| `proposals` (voteable) | `agent_logs WHERE log_type='proposal'` / memory `event_history` | `/dashboard/state` → `/dashboard/proposals` page |
 
 REST hydration endpoint: `GET /dashboard/state`
 Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_agent_constants.py`
