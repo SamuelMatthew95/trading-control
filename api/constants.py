@@ -320,6 +320,13 @@ class FieldName(StrEnum):
     CHALLENGERS = "challengers"
     CHALLENGER_CONFIG = "challenger_config"
     CHALLENGER_ID = "challenger_id"
+    # Forward-looking challenger-config overrides surfaced by the reasoning
+    # cockpit: a challenger MAY carry a prompt variant and/or a tool-name
+    # override list in its config to differ from the champion. Absent today
+    # (challengers differ by params only) but read so the UI lights up the
+    # moment a producer starts setting them.
+    PROMPT_VARIANT = "prompt_variant"
+    TOOL_OVERRIDES = "tool_overrides"
     CHANGE = "change"
     CHANGE_AMT = "change_amt"
     CHANGE_PCT = "change_pct"
