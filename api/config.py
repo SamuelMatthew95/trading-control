@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     MARKET_DATA_PROVIDER: str = "alpaca"
     MARKET_TICK_INTERVAL_SECONDS: float = 10.0
 
+    # Price-poller cadence — separate per asset class. Crypto polls 24/7; the
+    # stock interval only applies while the NYSE/NASDAQ session is open (the
+    # MarketStatusService gates stock fetches otherwise, so stocks go idle
+    # overnight/weekends/holidays). Raising these reduces Alpaca + Redis load.
+    CRYPTO_POLL_INTERVAL_SECONDS: float = 30.0
+    STOCK_POLL_INTERVAL_SECONDS: float = 60.0
+
     # Agent trigger thresholds
     SIGNAL_EVERY_N_TICKS: int = 10
     GRADE_EVERY_N_FILLS: int = 5
