@@ -15,7 +15,21 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from api.constants import ToolPhase
+from api.constants import (
+    TOOL_BRACKET_ORDER,
+    TOOL_FLAG_CONFLUENCE_LOADED,
+    TOOL_FLAG_RISK_APPROVED,
+    TOOL_FLAG_THESIS_COMMITTED,
+    TOOL_GET_IC_WEIGHTS,
+    TOOL_MACRO_REGIME,
+    TOOL_QUERY_SIMILAR_TRADES,
+    TOOL_REPLAY_REGRESSION,
+    TOOL_RISK_CAGE,
+    TOOL_SECTOR_CORRELATION,
+    TOOL_STREAM_CONFLUENCE,
+    TOOL_VWAP_EXECUTION,
+    ToolPhase,
+)
 
 # Exponential-moving-average weight for telemetry updates. Recent calls matter
 # more, but a single outlier can't swing a tool's score wholesale.
@@ -45,6 +59,20 @@ class ToolMetadata(BaseModel):
     # Capability graph: tools this one unlocks once it has run successfully.
     unlocks: list[str] = Field(default_factory=list)
     cache_ttl: int | None = None
+
+
+class ToolSuggestion(BaseModel):
+    """A non-binding governance hint about one tool, surfaced to the operator.
+
+    The registry never mutates state to produce these — they are advice the UI
+    renders ("which tools to keep, which to drop from the reasoning prompt") and
+    the human approves. ``action`` is one of: disable, prioritize, review.
+    """
+
+    tool: str
+    action: str
+    severity: str  # info | warning
+    reason: str
 
 
 def _ema(prev: float, sample: float, *, count: int) -> float:
@@ -115,16 +143,25 @@ class ToolRegistry:
         *,
         latency_ms: float,
         success: bool,
-        realized_pnl: float = 0.0,
+        realized_pnl: float | None = None,
     ) -> ToolMetadata | None:
-        """Fold one tool invocation into the tool's EMA telemetry."""
+        """Fold one tool invocation into the tool's EMA telemetry.
+
+        ``realized_pnl`` is optional because the buy/sell LLM exercises a tool
+        (and learns its latency + reliability) at *decision* time, long before
+        the trade's outcome is known. Pass it only from an outcome-aware caller
+        (e.g. the grade loop); when omitted, the seeded alpha prior is left
+        intact so a stream of zero-PnL decision-time calls can't drag attribution
+        to zero.
+        """
         tool = self._tools.get(name)
         if tool is None:
             return None
         tool.latency_ms = _ema(tool.latency_ms, latency_ms, count=tool.call_count)
         failure_sample = 0.0 if success else 1.0
         tool.failure_rate = _ema(tool.failure_rate, failure_sample, count=tool.call_count)
-        tool.alpha_score = _ema(tool.alpha_score, realized_pnl, count=tool.call_count)
+        if realized_pnl is not None:
+            tool.alpha_score = _ema(tool.alpha_score, realized_pnl, count=tool.call_count)
         tool.call_count += 1
         if success:
             tool.success_count += 1
@@ -157,20 +194,90 @@ class ToolRegistry:
         """All tools, ranked by realized alpha — the attribution panel feed."""
         return sorted(self._tools.values(), key=lambda t: (-t.alpha_score, t.name))
 
+    def suggest_tool_changes(
+        self,
+        *,
+        min_calls: int = 20,
+        max_failure_rate: float = 0.5,
+    ) -> list[ToolSuggestion]:
+        """Read-only governance advice: which tools to drop, keep, or review.
+
+        This is the suggestion feed the operator UI renders — the system telling
+        a human which tools are pulling weight in the reasoning prompt and which
+        are dead weight. It mutates nothing (unlike :meth:`disable_dead_tools`);
+        the human stays in the loop. Logic, in priority order per tool:
+
+        * negative alpha            -> disable (drop from the prompt)
+        * proven unreliable         -> disable (failure rate high over enough calls)
+        * registered but unused     -> review (only once other tools are active)
+
+        Plus a single ``prioritize`` hint for the highest-alpha enabled tool.
+        """
+        suggestions: list[ToolSuggestion] = []
+        total_calls = sum(t.call_count for t in self._tools.values())
+        for tool in sorted(self._tools.values(), key=lambda t: (-t.alpha_score, t.name)):
+            if not tool.enabled:
+                continue
+            if tool.alpha_score < 0:
+                suggestions.append(
+                    ToolSuggestion(
+                        tool=tool.name,
+                        action="disable",
+                        severity="warning",
+                        reason=f"negative alpha ({tool.alpha_score:+.2f}) — drop from the prompt",
+                    )
+                )
+            elif tool.call_count >= min_calls and tool.failure_rate > max_failure_rate:
+                suggestions.append(
+                    ToolSuggestion(
+                        tool=tool.name,
+                        action="disable",
+                        severity="warning",
+                        reason=(
+                            f"failure rate {tool.failure_rate:.0%} over {tool.call_count} calls"
+                        ),
+                    )
+                )
+            elif total_calls > 0 and tool.call_count == 0:
+                suggestions.append(
+                    ToolSuggestion(
+                        tool=tool.name,
+                        action="review",
+                        severity="info",
+                        reason="registered but never exercised by the reasoning node",
+                    )
+                )
+
+        top = max(
+            (t for t in self._tools.values() if t.enabled and t.alpha_score > 0),
+            key=lambda t: t.alpha_score,
+            default=None,
+        )
+        if top is not None:
+            suggestions.append(
+                ToolSuggestion(
+                    tool=top.name,
+                    action="prioritize",
+                    severity="info",
+                    reason=f"highest alpha ({top.alpha_score:+.2f}) — keep at the top of the prompt",
+                )
+            )
+        return suggestions
+
 
 def default_tools() -> list[ToolMetadata]:
     """Seed catalog. Priors are illustrative until live telemetry overwrites them."""
     return [
         ToolMetadata(
-            name="get_stream_confluence_metrics",
+            name=TOOL_STREAM_CONFLUENCE,
             phase=ToolPhase.PERCEPTION,
             description="Cross-stream signal confluence for the symbol.",
             alpha_score=0.6,
             latency_ms=42.0,
-            unlocks=["scan_sector_correlation", "calculate_vwap_execution"],
+            unlocks=[TOOL_SECTOR_CORRELATION, TOOL_VWAP_EXECUTION],
         ),
         ToolMetadata(
-            name="fetch_macro_regime",
+            name=TOOL_MACRO_REGIME,
             phase=ToolPhase.PERCEPTION,
             description="Current macro regime (risk-on / risk-off / neutral).",
             alpha_score=0.4,
@@ -178,22 +285,22 @@ def default_tools() -> list[ToolMetadata]:
             cache_ttl=300,
         ),
         ToolMetadata(
-            name="scan_sector_correlation",
+            name=TOOL_SECTOR_CORRELATION,
             phase=ToolPhase.PERCEPTION,
             description="Sector-correlation scan. Flagged as low/negative alpha.",
             alpha_score=-0.2,
             latency_ms=120.0,
-            required_state_flags=["confluence_loaded"],
+            required_state_flags=[TOOL_FLAG_CONFLUENCE_LOADED],
         ),
         ToolMetadata(
-            name="query_similar_trades",
+            name=TOOL_QUERY_SIMILAR_TRADES,
             phase=ToolPhase.MEMORY,
             description="Vector-memory recall of similar historical setups.",
             alpha_score=0.5,
             latency_ms=60.0,
         ),
         ToolMetadata(
-            name="get_ic_weights",
+            name=TOOL_GET_IC_WEIGHTS,
             phase=ToolPhase.MEMORY,
             description="Current factor IC weights from Redis.",
             alpha_score=0.3,
@@ -201,30 +308,30 @@ def default_tools() -> list[ToolMetadata]:
             cache_ttl=90000,
         ),
         ToolMetadata(
-            name="evaluate_risk_cage",
+            name=TOOL_RISK_CAGE,
             phase=ToolPhase.RISK,
             description="Deterministic risk cage: sizing, exposure, drawdown gates.",
             alpha_score=0.0,
             latency_ms=5.0,
         ),
         ToolMetadata(
-            name="calculate_vwap_execution",
+            name=TOOL_VWAP_EXECUTION,
             phase=ToolPhase.EXECUTION,
             description="VWAP execution plan to minimize slippage.",
             alpha_score=0.8,
             latency_ms=30.0,
-            required_state_flags=["risk_approved"],
+            required_state_flags=[TOOL_FLAG_RISK_APPROVED],
         ),
         ToolMetadata(
-            name="execute_bracket_order",
+            name=TOOL_BRACKET_ORDER,
             phase=ToolPhase.EXECUTION,
             description="Place a bracket order. Gated on risk + committed thesis.",
             alpha_score=0.0,
             latency_ms=200.0,
-            required_state_flags=["risk_approved", "thesis_committed"],
+            required_state_flags=[TOOL_FLAG_RISK_APPROVED, TOOL_FLAG_THESIS_COMMITTED],
         ),
         ToolMetadata(
-            name="replay_regression_check",
+            name=TOOL_REPLAY_REGRESSION,
             phase=ToolPhase.OPTIMIZATION,
             description="Replay a candidate config against history (challenger only).",
             alpha_score=0.0,
