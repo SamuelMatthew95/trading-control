@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import json
 import ssl
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import fakeredis
 import httpx
 import pytest
 
+from api.constants import FieldName
 from api.workers.price_poller import (
     _create_alpaca_client,
+    _due_asset_classes,
     _fetch_crypto,
     _fetch_stocks,
     _is_ssl_eof,
+    _PollerState,
+    _run_poll_cycle,
     build_symbol_payload,
+    build_symbol_payloads,
     flush_to_db,
     publish_to_redis,
 )
@@ -417,3 +423,151 @@ async def test_flush_to_db_handles_db_error_gracefully():
     with patch("api.workers.price_poller.AsyncSessionFactory", side_effect=RuntimeError("db down")):
         # Should not raise
         await flush_to_db(payloads)
+
+
+# ---------------------------------------------------------------------------
+# _due_asset_classes — per-class cadence + market-hours gating (pure)
+# ---------------------------------------------------------------------------
+
+
+def test_due_classes_crypto_only_when_market_closed():
+    due = _due_asset_classes(
+        now=1000.0,
+        last_fetch={FieldName.CRYPTO: 0.0, FieldName.STOCKS: 0.0},
+        crypto_interval=30,
+        stock_interval=60,
+        stocks_open=False,
+    )
+    assert due == [FieldName.CRYPTO]  # zero stock work overnight
+
+
+def test_due_classes_both_when_open_and_due():
+    due = _due_asset_classes(
+        1000.0, {FieldName.CRYPTO: 0.0, FieldName.STOCKS: 0.0}, 30, 60, stocks_open=True
+    )
+    assert set(due) == {FieldName.CRYPTO, FieldName.STOCKS}
+
+
+def test_due_classes_respects_interval():
+    # Both fetched 5s ago — neither interval has elapsed.
+    due = _due_asset_classes(
+        10.0, {FieldName.CRYPTO: 5.0, FieldName.STOCKS: 5.0}, 30, 60, stocks_open=True
+    )
+    assert due == []
+
+
+def test_due_classes_crypto_due_stock_not_yet():
+    # Crypto interval (30s) elapsed, stock interval (60s) not.
+    due = _due_asset_classes(
+        40.0, {FieldName.CRYPTO: 0.0, FieldName.STOCKS: 0.0}, 30, 60, stocks_open=True
+    )
+    assert due == [FieldName.CRYPTO]
+
+
+# ---------------------------------------------------------------------------
+# build_symbol_payloads — single MGET (the N+1 fix)
+# ---------------------------------------------------------------------------
+
+
+async def test_build_symbol_payloads_computes_change_from_prev(redis):
+    await redis.set(
+        "prices:BTC/USD", json.dumps({"price": 40000.0, "change": 0, "pct": 0, "ts": 0})
+    )
+    payloads = await build_symbol_payloads(redis, {"BTC/USD": 42000.0, "ETH/USD": 3000.0})
+    by_symbol = {p["symbol"]: p for p in payloads}
+    assert by_symbol["BTC/USD"]["change"] == 2000.0
+    assert by_symbol["ETH/USD"]["change"] == 0.0  # no prior snapshot
+
+
+async def test_build_symbol_payloads_uses_one_mget(redis, monkeypatch):
+    """All previous snapshots are read in a SINGLE round-trip, not one GET each."""
+    calls = {"mget": 0, "get": 0}
+    orig_mget = redis.mget
+    orig_get = redis.get
+
+    async def spy_mget(keys, *a):
+        calls["mget"] += 1
+        return await orig_mget(keys, *a)
+
+    async def spy_get(key, *a):
+        calls["get"] += 1
+        return await orig_get(key, *a)
+
+    monkeypatch.setattr(redis, "mget", spy_mget)
+    monkeypatch.setattr(redis, "get", spy_get)
+    await build_symbol_payloads(redis, {"BTC/USD": 1.0, "ETH/USD": 2.0, "SOL/USD": 3.0})
+    assert calls["mget"] == 1
+    assert calls["get"] == 0  # never a per-symbol GET
+
+
+async def test_build_symbol_payloads_empty_returns_empty(redis):
+    assert await build_symbol_payloads(redis, {}) == []
+
+
+# ---------------------------------------------------------------------------
+# _run_poll_cycle — market-hours gating end-to-end
+# ---------------------------------------------------------------------------
+
+
+def _market(is_open: bool) -> MagicMock:
+    m = MagicMock()
+    m.is_open.return_value = is_open
+    return m
+
+
+async def test_run_poll_cycle_skips_stocks_when_market_closed(redis, monkeypatch):
+    crypto_mock = AsyncMock(return_value={"BTC/USD": 50000.0})
+    stock_mock = AsyncMock(return_value={"AAPL": 180.0})
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
+    monkeypatch.setattr("api.workers.price_poller._fetch_stocks", stock_mock)
+
+    state = _PollerState(client=MagicMock())
+    await _run_poll_cycle(state, redis, _market(False), crypto_interval=30, stock_interval=60)
+
+    crypto_mock.assert_awaited_once()
+    stock_mock.assert_not_awaited()  # zero stock Alpaca calls when closed
+    assert await redis.get("prices:BTC/USD") is not None
+    assert await redis.get("prices:AAPL") is None  # zero stock Redis writes
+
+
+async def test_run_poll_cycle_fetches_both_when_open(redis, monkeypatch):
+    crypto_mock = AsyncMock(return_value={"BTC/USD": 50000.0})
+    stock_mock = AsyncMock(return_value={"AAPL": 180.0})
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
+    monkeypatch.setattr("api.workers.price_poller._fetch_stocks", stock_mock)
+
+    state = _PollerState(client=MagicMock())
+    await _run_poll_cycle(state, redis, _market(True), crypto_interval=30, stock_interval=60)
+
+    crypto_mock.assert_awaited_once()
+    stock_mock.assert_awaited_once()
+    assert await redis.get("prices:BTC/USD") is not None
+    assert await redis.get("prices:AAPL") is not None
+
+
+async def test_run_poll_cycle_circuit_open_does_no_work(redis, monkeypatch):
+    crypto_mock = AsyncMock(return_value={"BTC/USD": 50000.0})
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
+    # Circuit open far into the future → cycle returns immediately.
+    state = _PollerState(client=MagicMock(), circuit_open_until=time.monotonic() + 999)
+    await _run_poll_cycle(state, redis, _market(True), 30, 60)
+    crypto_mock.assert_not_awaited()
+
+
+async def test_run_poll_cycle_recreates_client_on_ssl_eof(redis, monkeypatch):
+    ssl_exc = ssl.SSLZeroReturnError(6, "EOF")
+    httpx_exc = httpx.ConnectError("SSL EOF")
+    httpx_exc.__cause__ = ssl_exc
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", AsyncMock(side_effect=httpx_exc))
+    new_client = MagicMock()
+    monkeypatch.setattr(
+        "api.workers.price_poller._create_alpaca_client", MagicMock(return_value=new_client)
+    )
+    old_client = AsyncMock()
+    state = _PollerState(client=old_client)
+    await _run_poll_cycle(state, redis, _market(False), 30, 60)
+    old_client.aclose.assert_awaited_once()  # poisoned client evicted
+    assert state.client is new_client
+    assert state.consecutive_failures == 1
+    # last_fetch NOT advanced → retries next cycle
+    assert state.last_fetch[FieldName.CRYPTO] == 0.0
