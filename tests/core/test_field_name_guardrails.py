@@ -104,6 +104,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/dashboard/flow.py",
         "api/services/dashboard/learning.py",
         "api/services/dashboard/pnl.py",
+        "api/services/dashboard/prompt_os.py",
         "api/services/dashboard/proposals.py",
         "api/services/dashboard/state.py",
         "api/services/dashboard/system.py",
