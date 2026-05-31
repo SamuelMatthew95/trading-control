@@ -51,7 +51,8 @@ All traffic to Tailscale peers must go through the proxy that tailscaled
 exposes.  The recommended approach:
 
   1. Start tailscaled with --outbound-http-proxy-listen=localhost:1055
-     (and optionally --socks5-server=localhost:1055 for other clients).
+     (and optionally --socks5-server=localhost:1056 for other clients — a
+     SEPARATE port from the HTTP proxy so HTTP CONNECT never hits SOCKS).
   2. Set LM_STUDIO_PROXY_URL=http://127.0.0.1:1055 so _make_client() passes
      it as an explicit HTTP CONNECT proxy to httpx.
   3. Set LM_STUDIO_HOST=<tailscale-ip-of-mac> (e.g. 100.112.224.78) and
