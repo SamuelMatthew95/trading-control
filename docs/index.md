@@ -19,6 +19,7 @@ If you're new to the repo, read in this order:
 | File | Coverage |
 |---|---|
 | [architecture.md](architecture.md) | Agent pipeline, stream chain, persistence guarantees, schema context |
+| [learning-loop.md](learning-loop.md) | End-to-end buy→sell→grade→learn→propose→GitOps-PR loop; fan-out, shadow trading, param evolution |
 | [development-guide.md](development-guide.md) | Local setup, env variables, runbook commands, coding expectations |
 | [testing.md](testing.md) | Suite structure, mocking patterns, CI parity expectations |
 | [deployment-guide.md](deployment-guide.md) | Render/Vercel deployment + production smoke checks |
