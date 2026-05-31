@@ -136,7 +136,54 @@ class InMemoryStore:
             FieldName.CURRENT_PRICE: current_price,
             FieldName.UNREALIZED_PNL: unrealized,
             FieldName.PNL: unrealized,
+            FieldName.PNL_PERCENT: self._position_pnl_percent(p, unrealized),
         }
+
+    def _position_pnl_percent(
+        self, position: dict[str, Any], unrealized: float | None
+    ) -> float | None:
+        """Percent return on cost basis for one position; ``None`` when not derivable."""
+        if unrealized is None:
+            return None
+        qty = abs(
+            self._safe_float(position.get(FieldName.QTY))
+            or self._safe_float(position.get(FieldName.QUANTITY))
+            or 0.0
+        )
+        avg_cost = self._safe_float(
+            position.get(FieldName.AVG_COST, position.get(FieldName.AVG_ENTRY_PRICE))
+        )
+        if avg_cost is None or qty <= 0:
+            return None
+        cost_basis = avg_cost * qty
+        if cost_basis == 0:
+            return None
+        return round(unrealized / cost_basis * 100.0, 4)
+
+    def apply_current_prices(self, prices: dict[str, Any]) -> None:
+        """Mark stored open positions to the latest observed prices.
+
+        In memory mode nothing updates a position's ``last_price`` as the market
+        moves (it is frozen at fill time), so the dashboard read layer calls this
+        with the current Redis price cache to keep every position read path
+        marked to market and mutually consistent.
+        """
+        for symbol, price in prices.items():
+            value = self._safe_float(price)
+            if value is None:
+                continue
+            position = self.positions.get(symbol)
+            if position is not None:
+                position[FieldName.LAST_PRICE] = value
+                position[FieldName.CURRENT_PRICE] = value
+
+    def normalized_open_positions(self) -> list[dict[str, Any]]:
+        """Frontend-shaped open positions, each marked to market (snapshot view)."""
+        return [
+            self._normalize_position(p)
+            for p in self.positions.values()
+            if self._has_open_quantity(p)
+        ]
 
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
@@ -339,11 +386,7 @@ class InMemoryStore:
 
         return {
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
-            FieldName.POSITIONS: [
-                self._normalize_position(p)
-                for p in self.positions.values()
-                if self._has_open_quantity(p)
-            ],
+            FieldName.POSITIONS: self.normalized_open_positions(),
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
             FieldName.PROPOSALS: [
@@ -603,6 +646,7 @@ class InMemoryStore:
             if computed is not None:
                 row[FieldName.UNREALIZED_PNL] = computed
                 row[FieldName.PNL] = computed
+                row[FieldName.PNL_PERCENT] = self._position_pnl_percent(row, computed)
             rows.append(row)
         return rows
 
