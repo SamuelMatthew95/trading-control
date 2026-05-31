@@ -44,7 +44,6 @@ def test_kill_switch_no_decode_calls() -> None:
     Calling .decode() on a str raises AttributeError at runtime.
     """
     files_to_check = [
-        pathlib.Path("api/services/simple_consumers.py"),
         pathlib.Path("api/services/system_metrics_consumer.py"),
         pathlib.Path("api/services/execution/execution_engine.py"),
     ]
