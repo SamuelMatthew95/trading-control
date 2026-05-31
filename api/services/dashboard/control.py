@@ -69,7 +69,12 @@ async def list_challengers_payload(agents: list[Any]) -> dict[str, Any]:
                     FieldName.FILLS: c._fills,
                     FieldName.MAX_FILLS: c._max_fills,
                     FieldName.CONFIG: c._config,
+                    FieldName.STRATEGY: c._config.get(FieldName.STRATEGY) or "",
                     FieldName.RUNNING: c._running,
+                    # Real own-vs-baseline shadow evidence (empty until it trades).
+                    # Lets the dashboard show what the challenger's CONFIG actually
+                    # did on live data, not just a fill counter.
+                    **c._shadow_summary(),
                 }
                 for c in challengers
             ],
