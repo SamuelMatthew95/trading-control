@@ -1,7 +1,7 @@
 'use client'
 
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
-import { signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
+import { getField, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 
 import { pnlColorClass } from './helpers'
@@ -50,7 +50,7 @@ export function computePnlClarity(
 ): PnlClarityComputation {
   const realizedPnl = tradeFeed.reduce((sum, row) => sum + (row.pnl ?? 0), 0)
   const unrealizedPnl = positions.reduce(
-    (sum, row) => sum + (toFiniteNumber((row as Record<string, unknown>).pnl) ?? 0),
+    (sum, row) => sum + (toFiniteNumber(getField(row, 'pnl')) ?? 0),
     0,
   )
   const totalTrades = tradeFeed.filter((row) => row.pnl != null).length
