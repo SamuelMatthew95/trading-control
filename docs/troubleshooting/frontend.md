@@ -212,3 +212,27 @@ rule-based fallback decisions, not model reasoning"). Amber (caution), not red
 **Regression test:** `frontend/src/test/components/RecentDecisionsPanel.test.tsx`
 — `flags rule-based fallback decisions so they are not read as model reasoning`
 and `shows no fallback markers when every decision used the LLM`.
+
+## Live Reasoning panel showed a green "live" pulse while the LLM was down
+
+**Symptom:** On the Agents page, the "Live Reasoning" cockpit always showed a
+pulsing green `live` indicator as long as `/dashboard/prompt-os` returned — even
+when the LLM provider was at a 100% error rate (`fallback_mode: true`) and every
+decision was a rule-based fallback. The cockpit looked healthy while the AI
+wasn't actually reasoning.
+
+**Root cause:** The header dot only reflected whether the prompt-os *config*
+fetch succeeded; it had no knowledge of LLM call health. `/llm/health` already
+computes a canonical `status` (`live`/`degraded`/`down`/`unknown`) but the panel
+never consulted it.
+
+**Fix:** `components/dashboard/LiveReasoningPanel.tsx` now also fetches
+`/llm/health` (best-effort — a failure leaves the prior status, never blanks the
+panel) and drives the indicator from `status`: green pulse only when `live`,
+amber when `degraded`, red `LLM down · fallback` when `down`, neutral when
+`unknown`. When degraded/down it shows an amber banner stating decisions are
+currently rule-based fallbacks and that the prompt/tools below are still the
+configured strategy. No pipeline/behavior change.
+
+**Regression test:** `frontend/src/test/components/LiveReasoningPanel.test.tsx`
+— `surfaces an LLM-down indicator and fallback banner when the provider is unhealthy`.
