@@ -90,6 +90,7 @@ export const API_ENDPOINTS = {
   LEARNING_STRATEGIES: "/learning/strategies",
   LEARNING_PIPELINE_STATUS: "/learning/pipeline-status",
   LEARNING_MODEL_PERFORMANCE: "/learning/model-performance",
+  LEARNING_PENDING_PARAM_CHANGES: "/learning/pending-param-changes",
   
   // System
   SYSTEM_HEALTH: "/dashboard/system-health",
