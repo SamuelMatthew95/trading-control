@@ -85,3 +85,15 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** Corrected the three stale fixtures to realistic round-trip long closes (`side='sell'`): `for_wins` keeps the favorable up-move, `for_losses` flips `exit_price` to fall against the long, and `clean` tracks `pnl%` to the move. No production code changed — the scorer already matched the real event contract. Added comments at each fixture documenting the close-order convention.
 
 **Regression test:** `tests/agents/test_trade_scorer.py::test_score_trade_adds_price_action_context_labels_for_wins` (and the `_for_losses` / `_marks_clean_execution_on_profitable_trade` siblings)
+
+---
+
+## Confidence gate vs execution-score gate — MOMENTUM signals silently un-tradeable
+
+**Symptom:** Even after price-change (`pct`) was flowing correctly, only STRONG_MOMENTUM signals (composite 0.80) could ever execute — plain MOMENTUM signals (0.55) never placed an order, so trade volume was far lower than the strategy intended and the learning loop saw almost no fills.
+
+**Root cause:** Two independent gates disagreed. The execution-score gate (`compute_execution_score`) was deliberately tuned (`historical_perf=0.6`) so a MOMENTUM signal scores `0.55*0.50 + 0.55*0.30 + 0.6*0.20 = 0.56 > 0.55` and executes — see `tests/agents/test_momentum_gate.py`. But the separate confidence gate `check_confidence_gate` used `SIGNAL_CONFIDENCE_MIN_GATE = 0.65`, and a MOMENTUM signal's `signal_confidence` is 0.55 < 0.65 — so it was blocked *before* the execution-score gate ever ran. The 0.65 value silently nullified the momentum tuning: no momentum trade could pass both gates.
+
+**Fix:** `api/constants.py` — `SIGNAL_CONFIDENCE_MIN_GATE` lowered `0.65 → 0.50`, just below the MOMENTUM composite tier (0.55) and above LOW/noise (0.30). Now MOMENTUM and STRONG signals clear the confidence gate and are then filtered by the (intended) execution-score, regime, net-EV, and cooling-off gates; LOW signals are still blocked. The two gates now agree.
+
+**Regression test:** `tests/agents/test_momentum_gate.py::test_confidence_gate_consistent_with_execution_score_gate`
