@@ -72,11 +72,21 @@ def test_should_skip_existing():
 class _FakeRunner:
     """Records every command; scriptable responses for gh pr list and the apply step."""
 
-    def __init__(self, *, open_branches=(), apply_ok=True, push_ok=True, prev=0.5, new=0.55):
+    def __init__(
+        self,
+        *,
+        open_branches=(),
+        apply_ok=True,
+        push_ok=True,
+        pr_create_ok=True,
+        prev=0.5,
+        new=0.55,
+    ):
         self.calls: list[list[str]] = []
         self._open = set(open_branches)
         self._apply_ok = apply_ok
         self._push_ok = push_ok
+        self._pr_create_ok = pr_create_ok
         self._prev = prev
         self._new = new
 
@@ -85,6 +95,12 @@ class _FakeRunner:
         if cmd[:3] == ["gh", "pr", "list"]:
             branch = cmd[cmd.index("--head") + 1]
             return (0, json.dumps([{"number": 1}] if branch in self._open else []), "")
+        if cmd[:3] == ["gh", "pr", "create"]:
+            return (
+                (0, "https://github.com/x/y/pull/1", "")
+                if self._pr_create_ok
+                else (1, "", "denied")
+            )
         if cmd and cmd[0] == "python3" and "apply_param_change.py" in cmd[1]:
             if self._apply_ok:
                 return (0, json.dumps({"previous_value": self._prev, "new_value": self._new}), "")
@@ -109,6 +125,24 @@ def test_opens_pr_for_new_parameter():
     pr_create = runner.commands(["gh", "pr", "create"])
     assert len(pr_create) == 1
     assert "--base" in pr_create[0] and pr_create[0][pr_create[0].index("--base") + 1] == "main"
+    assert res.exit_code == 0  # success
+
+
+def test_refuses_when_pr_create_fails(monkeypatch):
+    """REGRESSION (PR #275 review P2): a failed `gh pr create` (after the branch was
+    pushed) must NOT report success — the param goes to refused and exit_code is 1,
+    so the scheduled workflow surfaces the failure instead of a green no-PR run."""
+    runner = _FakeRunner(pr_create_ok=False)
+    res = R.run_evolution([_ITEM], runner, base_ref="main")
+    assert res.opened == []
+    assert res.refused == ["SIGNAL_CONFIDENCE_MIN_GATE"]
+    assert res.exit_code == 1
+    # The branch WAS pushed (so this is the leftover-branch scenario the reviewer flagged).
+    assert runner.commands(["git", "push"])
+
+
+def test_exit_code_zero_when_all_clean():
+    assert R.run_evolution([], _FakeRunner(), base_ref="main").exit_code == 0
 
 
 def test_skips_when_pr_already_open():
