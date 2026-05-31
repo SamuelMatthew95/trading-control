@@ -69,6 +69,31 @@ class AgentSupervisor:
             self._task = None
 
     # ------------------------------------------------------------------
+    # Public introspection — exposed for uniformity with the supervised agents
+    # (the supervisor cannot restart itself, so nothing monitors this today).
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Agent identity string."""
+        return SOURCE_SUPERVISOR
+
+    @property
+    def has_crashed(self) -> bool:
+        """True if the supervisor's own task finished with an unhandled exception.
+
+        Exposed so the background-task agents (RiskGuardian, AgentSupervisor)
+        present the same introspection interface as the stream agents. Nothing
+        monitors the supervisor itself — a watchdog cannot restart its own task.
+        """
+        return (
+            self._task is not None
+            and self._task.done()
+            and not self._task.cancelled()
+            and self._task.exception() is not None
+        )
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
