@@ -75,6 +75,13 @@ class EvolutionResult:
     skipped: list[str] = field(default_factory=list)
     refused: list[str] = field(default_factory=list)
 
+    @property
+    def exit_code(self) -> int:
+        """Non-zero when any item was refused, so the workflow surfaces a failure
+        instead of reporting a green run that opened no PR (e.g. a branch was pushed
+        but `gh pr create` failed, leaving the change stuck on a branch)."""
+        return 1 if self.refused else 0
+
 
 def _valid_item(item: dict) -> bool:
     return bool(item.get("parameter")) and item.get("proposed_value") is not None
@@ -137,7 +144,7 @@ def run_evolution(
             continue
 
         body = _pr_body(parameter, prev, new, reason)
-        run(
+        rc, _, err = run(
             [
                 "gh",
                 "pr",
@@ -152,7 +159,13 @@ def run_evolution(
                 base,
             ]
         )
-        result.opened.append(parameter)
+        # A failed `gh pr create` (bad token, invalid base ref, GitHub rejection)
+        # leaves the change pushed to a branch with NO review PR. Treat it as a
+        # refusal so the run does not report false success and the operator notices.
+        if rc != 0:
+            result.refused.append(parameter)
+        else:
+            result.opened.append(parameter)
         run(["git", "checkout", base])
 
     return result
@@ -196,7 +209,9 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
     )
-    return 0
+    # Non-zero when any item was refused (e.g. a pushed branch whose PR creation
+    # failed) so the scheduled workflow surfaces the failure instead of green.
+    return result.exit_code
 
 
 if __name__ == "__main__":
