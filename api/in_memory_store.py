@@ -134,10 +134,12 @@ class InMemoryStore:
         when Postgres is unavailable.
         """
         entry = dict(payload)
-        entry.setdefault(
-            FieldName.ID,
-            entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}",
-        )
+        # setdefault keeps an explicit None (memory-cicd #12); coerce a falsy id
+        # so the dashboard always has a non-empty id for de-dup / read-tracking.
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = (
+                entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}"
+            )
         entry.setdefault(FieldName.TIMESTAMP, time.time())
         self.notifications.append(entry)
         if len(self.notifications) > 100:
@@ -266,7 +268,9 @@ class InMemoryStore:
 
     def add_reflection(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault(FieldName.ID, str(uuid.uuid4()))
+        # Coerce a falsy id (setdefault keeps an explicit None — memory-cicd #12).
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = str(uuid.uuid4())
         entry.setdefault(FieldName.CREATED_AT, time.time())
         self.reflections.append(entry)
         if len(self.reflections) > 100:
@@ -279,7 +283,9 @@ class InMemoryStore:
 
     def add_strategy(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault(FieldName.ID, str(uuid.uuid4()))
+        # Coerce a falsy id (setdefault keeps an explicit None — memory-cicd #12).
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = str(uuid.uuid4())
         entry.setdefault(FieldName.CREATED_AT, time.time())
         self.strategies.append(entry)
         if len(self.strategies) > 100:
