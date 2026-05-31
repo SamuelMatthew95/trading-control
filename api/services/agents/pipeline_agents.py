@@ -47,6 +47,7 @@ from api.constants import (
     STREAM_EXECUTIONS,
     STREAM_FACTOR_IC_HISTORY,
     STREAM_GITHUB_PRS,
+    STREAM_MARKET_EVENTS,
     STREAM_MARKET_TICKS,
     STREAM_NOTIFICATIONS,
     STREAM_PROPOSALS,
@@ -1702,12 +1703,14 @@ class ChallengerAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            # STREAM_SIGNALS drives the REAL shadow trades (the challenger runs its
-            # own strategy on the same signals the baseline sees). Safe now that
-            # each agent has its OWN fan-out group, so this does NOT steal signals
-            # from ReasoningAgent. executions/trade_performance remain the grading
-            # cadence clock and backward-compatible liveness.
-            streams=[STREAM_SIGNALS, STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
+            # STREAM_MARKET_EVENTS (the UNFILTERED price stream from PricePoller)
+            # drives the REAL shadow trades, NOT STREAM_SIGNALS: SignalGenerator
+            # throttles LOW/noise ticks before publishing signals, so consuming
+            # signals would feed the shadow strategy a sparsified series and skew
+            # its PnL/win-rate vs the backtest harness (which sees every bar). Safe
+            # from stealing because each agent has its OWN fan-out group.
+            # executions/trade_performance remain the grading cadence clock.
+            streams=[STREAM_MARKET_EVENTS, STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
             consumer=f"challenger-{self._challenger_id}",
             agent_state=agent_state,
         )
@@ -1767,9 +1770,10 @@ class ChallengerAgent(MultiStreamAgent):
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         self._ensure_lifecycle_registered()
 
-        # Live signals drive the REAL shadow trades: the challenger runs its OWN
-        # strategy (and baseline) on the same prices the production pipeline sees.
-        if stream == STREAM_SIGNALS:
+        # Unfiltered market_events drive the REAL shadow trades: the challenger runs
+        # its OWN strategy (and baseline) on EVERY price tick the poller emits — the
+        # same series the backtest harness measures — not the throttled signal stream.
+        if stream == STREAM_MARKET_EVENTS:
             self._observe_shadow(data)
             return
 
@@ -1787,17 +1791,31 @@ class ChallengerAgent(MultiStreamAgent):
             await self._retire_with_summary()
 
     def _observe_shadow(self, data: dict[str, Any]) -> None:
-        """Run the configured strategy (and baseline) on one live signal's price.
+        """Run the configured strategy (and baseline) on one market-events price tick.
 
-        This is what makes the challenger's config REAL: it actually executes the
-        strategy on live data as shadow trades, instead of grading the baseline's
-        fills like every challenger used to. No real capital is touched.
+        This is what makes the challenger's config REAL: it executes the strategy on
+        EVERY live tick as shadow trades, instead of grading the baseline's fills like
+        every challenger used to. No real capital is touched.
+
+        market_events wraps the tick in a JSON ``payload`` string (PricePoller); parse
+        it the same way SignalGenerator does so we read the same unfiltered series.
         """
         if self._shadow is None:
             return
-        symbol = data.get(FieldName.SYMBOL)
+        raw = data.get(FieldName.PAYLOAD)
+        if isinstance(raw, str):
+            try:
+                payload = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return
+        elif isinstance(raw, dict):
+            payload = raw
+        else:
+            payload = data
+
+        symbol = payload.get(FieldName.SYMBOL)
         try:
-            price = float(data.get(FieldName.PRICE) or 0.0)
+            price = float(payload.get(FieldName.PRICE) or 0.0)
         except (TypeError, ValueError):
             return
         if not symbol or price <= 0:
