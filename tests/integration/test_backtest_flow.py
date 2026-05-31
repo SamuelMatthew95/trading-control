@@ -40,19 +40,20 @@ def test_backtest_is_deterministic_for_a_seed():
     assert r1.final_equity == r2.final_equity
 
 
-def test_realistic_volatility_almost_never_trades():
-    """The 'idle' failure mode, reproduced offline.
+def test_volatility_normalized_signal_trades_at_low_absolute_volatility():
+    """Regression for the 'idle bot' bug — the inverse of the old reproduction.
 
-    At realistic per-minute volatility (~0.1%), a single bar virtually never
-    moves >= 1.5%, so the current signal sits in 'hold' forever — exactly the
-    "0 trades most of the time" the operator observes live.
+    The old fixed 1.5%-per-bar trigger never fired on realistic ~0.1% per-minute
+    moves, so the live signal sat in 'hold' forever (0 trades). The volatility-
+    normalized trigger grades each move against rolling return volatility, so it
+    fires regardless of the absolute volatility level: the exact 0.1% series that
+    produced 0 trades before now produces a healthy, non-idle trade count.
     """
     bars = 2000
     prices = synthetic_prices(n=bars, vol_pct=0.1, seed=3)
     result = run_backtest(prices, slippage_seed=3)
-    assert result.trades == 0
-    assert result.holds == bars - 1
-    assert result.total_return_pct == 0.0
+    assert result.trades > 0  # was exactly 0 under the fixed-% trigger — the bug
+    assert result.holds < bars - 1
 
 
 def test_default_strategy_matches_explicit_baseline():
@@ -137,9 +138,11 @@ def test_challenger_insufficient_data_on_realistic_low_trade_counts():
 
 
 def test_realistic_volatility_yields_insufficient_data_verdict():
-    """End-to-end: at realistic ~0.1% per-bar vol the baseline never crosses the
-    1.5% trigger, so the challenger verdict is INSUFFICIENT_DATA — the gate fires
-    on the exact regime that produced the live '0 trades' panel."""
+    """End-to-end eligibility gate. With the volatility-normalized trigger the
+    baseline now trades plenty even at ~0.1% per-bar vol, but the winning
+    challenger (strong_only) trades too few times (< MIN_TRADES_FOR_VERDICT) to
+    judge — so the gate still returns INSUFFICIENT_DATA rather than promote or
+    reject on a noisy handful of trades."""
     prices = synthetic_prices(n=2000, vol_pct=0.1, seed=3)
     verdict = evaluate_from_stats(compare_on_prices(prices))
     assert verdict is not None

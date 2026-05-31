@@ -11,6 +11,7 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [frontend.md](frontend.md) | Dashboard UI bugs: stat tiles, P&L display, win-rate fallback |
 | [lm-studio.md](lm-studio.md) | LM Studio / LM Link local inference: startup, timeout, fallback, secrets |
 | [backtest.md](backtest.md) | Strategy-comparison harness: eligibility gates, NO SIGNALS vs 0.00, verdict honesty |
+| [signal-generation.md](signal-generation.md) | Live SignalGenerator trigger: volatility-normalized vs fixed-% thresholds, idle-bot / "no signals" |
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 

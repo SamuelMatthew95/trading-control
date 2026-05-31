@@ -38,8 +38,10 @@ above active ones, and the promote/reject verdict was computed on 0 trades.
   strategies as `NO SIGNALS` with `—` for return/Sharpe/win, and surface the
   `INSUFFICIENT DATA` verdict.
 
-Re-scaling the signal to the bar timeframe (fixed recalibration vs.
-volatility-normalized triggers) is a separate, deliberate trading-behavior
-decision and is intentionally out of scope here.
+Re-scaling the signal to the bar timeframe was the separate, deliberate
+trading-behavior decision flagged here — it has since been made: the trigger is
+now volatility-normalized (`move > k·sigma`), so it self-calibrates to the bar
+timeframe instead of comparing against a fixed percentage. See
+[signal-generation.md](signal-generation.md) for that fix and its rationale.
 
 **Regression test:** `tests/integration/test_backtest_flow.py::test_challenger_insufficient_data_on_realistic_low_trade_counts`

@@ -12,7 +12,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from api.services.signal_generator import MOMENTUM_PCT, STRONG_MOMENTUM_PCT, classify_signal
+from api.services.signal_generator import (
+    MOMENTUM_SIGMA,
+    SIGMA_FLOOR_PCT,
+    STRONG_MOMENTUM_SIGMA,
+    classify_signal,
+    compute_return_sigma,
+)
 
 __all__ = [
     "STRATEGIES",
@@ -42,22 +48,27 @@ Strategy = Callable[[Bar], str]
 
 
 def baseline_momentum(bar: Bar) -> str:
-    """The live production signal: chase any single-bar move >= MOMENTUM_PCT.
+    """The live production signal: the volatility-normalized momentum decision.
 
-    This is exactly ``classify_signal`` — the harness measures the real thing.
+    Exactly ``classify_signal`` fed the same rolling-volatility estimate the live
+    SignalGenerator computes from its price history — so the harness measures the
+    real thing, not a stale fixed-percentage variant.
     """
-    return classify_signal(bar.pct)[-1]
+    return classify_signal(bar.pct, sigma=compute_return_sigma(bar.history))[-1]
 
 
 def strong_only(bar: Bar) -> str:
-    """Trade only STRONG moves (>= STRONG_MOMENTUM_PCT), ignoring the noisy
-    1.5% band the baseline over-trades.
+    """Trade only STRONG moves (>= STRONG_MOMENTUM_SIGMA of rolling volatility),
+    ignoring the noisier MOMENTUM band the baseline also trades.
 
     On data with no edge, every trade is a guaranteed loss to slippage, so
-    trading less *is* the improvement. Maps directly to a one-line production
-    change (drop the MOMENTUM band).
+    trading less *is* the improvement. A strict subset of the baseline's signals
+    (the strong tier only); maps to a one-line production change.
     """
-    if abs(bar.pct) < STRONG_MOMENTUM_PCT:
+    sigma = compute_return_sigma(bar.history)
+    if sigma is None or sigma < SIGMA_FLOOR_PCT:
+        return HOLD
+    if abs(bar.pct) / sigma < STRONG_MOMENTUM_SIGMA:
         return HOLD
     return BUY if bar.pct > 0 else SELL
 
@@ -80,9 +91,13 @@ def mean_reversion(bar: Bar) -> str:
     """Fade the move instead of chasing it: a big up-move => sell, down => buy.
 
     The opposite hypothesis to the baseline — included so the harness is shown
-    to measure competing ideas on equal footing, not to bless this one.
+    to measure competing ideas on equal footing, not to bless this one. Uses the
+    same volatility-normalized trigger as the baseline so the comparison is fair.
     """
-    if abs(bar.pct) < MOMENTUM_PCT:
+    sigma = compute_return_sigma(bar.history)
+    if sigma is None or sigma < SIGMA_FLOOR_PCT:
+        return HOLD
+    if abs(bar.pct) / sigma < MOMENTUM_SIGMA:
         return HOLD
     return SELL if bar.pct > 0 else BUY
 

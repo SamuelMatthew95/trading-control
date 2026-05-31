@@ -38,7 +38,10 @@ export function RecentDecisionsPanel({
       <div className="mb-3 flex items-center justify-between">
         <p className={sectionTitleClass}>Recent Decisions</p>
         {stats && (
-          <div className="flex items-center gap-3 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
+            <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600">
+              last 1h
+            </span>
             <span className="text-emerald-600 dark:text-emerald-400">
               Buys: {stats.last_hour.buys}
             </span>
@@ -46,7 +49,16 @@ export function RecentDecisionsPanel({
               Sells: {stats.last_hour.sells}
             </span>
             <span>Holds: {stats.last_hour.holds}</span>
-            <span>Total: {stats.total}</span>
+            <span className="text-slate-300 dark:text-slate-700">·</span>
+            <span
+              title="All decisions stored (most-recent, capped at 500) — not a last-hour figure, so it won't equal Buys + Sells + Holds"
+              className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600"
+            >
+              all-time
+            </span>
+            <span title="All decisions stored (most-recent, capped at 500) — not a last-hour figure, so it won't equal Buys + Sells + Holds">
+              Total: {stats.total}
+            </span>
           </div>
         )}
       </div>
