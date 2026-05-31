@@ -116,9 +116,10 @@ expired, and indeed every SPY/TSLA/AAPL decision was `hold`/0.30.)
 its **own in-memory previous-price anchor** (`_PollerState.last_prices`), advanced
 once per cycle, instead of the short-TTL Redis cache. `build_symbol_payloads()` is
 now a pure function taking an explicit `prev_prices` map. The consumer-facing cache
-TTL is unchanged (still the 30 s freshness contract); only the *delta anchor* was
-decoupled from it, so the cache can never again pin pct to 0. First cycle after a
-restart still reports pct=0 for one tick (no anchor yet), then real deltas flow.
+TTL is a separate concern (see "Price cache empties between polls" below); the
+*delta anchor* is fully decoupled from it, so the cache can never again pin pct to 0.
+First cycle after a restart still reports pct=0 for one tick (no anchor yet), then
+real deltas flow.
 
 **Regression test:**
 `tests/core/test_price_poller.py::test_run_poll_cycle_pct_survives_expired_cache`
@@ -166,3 +167,24 @@ Indicator history stays warm every tick and a throttled tick still heartbeats, s
 agent never ages to STALE.
 
 **Regression test:** `tests/agents/test_signal_generator_throttle.py::test_low_ticks_publish_first_then_every_n`
+
+## Price cache empties between polls — blank/stale stock prices (TTL < poll interval)
+
+**Symptom:** Dashboard stock prices (AAPL/TSLA/SPY) intermittently render blank or
+stale; `prices:{symbol}` is absent from Redis for part of every poll window even
+though the poller is healthy. RiskGuardian occasionally skips a position because the
+price reads as `None`.
+
+**Root cause:** The consumer-facing price cache `prices:{symbol}` was written with
+`ex=REDIS_PRICES_TTL_SECONDS = 30s`, but stocks poll every
+`STOCK_POLL_INTERVAL_SECONDS = 60s`. The entry therefore expired ~30s before the next
+refresh, leaving the key absent for half of every 60s window. A cache whose TTL is
+shorter than its own refresh interval cannot stay populated.
+
+**Fix:** `api/constants.py` — `REDIS_PRICES_TTL_SECONDS` raised `30 → 150` so it
+comfortably exceeds the longest poll interval (60s) and survives one missed poll. This
+is the consumer-cache freshness fix only; the buy/sell momentum delta is independent of
+this TTL (the poller keeps its own in-memory prev-price anchor — see the pct=0 entry
+above). Docs updated in `CLAUDE.md` and `.claude/rules/memory-storage.md`.
+
+**Regression test:** `tests/core/test_price_poller.py::test_price_cache_ttl_exceeds_poll_interval`
