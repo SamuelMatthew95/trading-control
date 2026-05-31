@@ -75,7 +75,6 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/core/models/strategy.py",
         "api/core/schemas/__init__.py",
         "api/core/stream_logic.py",
-        "api/core/stream_manager.py",
         "api/core/writer/safe_writer.py",
         "api/database.py",
         "api/db/init.py",
