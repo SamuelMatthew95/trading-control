@@ -9,6 +9,7 @@ vi.mock('@/lib/apiClient', () => ({
   API_ENDPOINTS: {
     LEARNING_LOOP: '/dashboard/learning/loop',
     DASHBOARD_CHALLENGERS: '/dashboard/challengers',
+    LEARNING_PENDING_PARAM_CHANGES: '/learning/pending-param-changes',
   },
   apiFetch: vi.fn(),
 }))
@@ -60,7 +61,31 @@ const LOOP = {
 }
 
 const CHALLENGERS = {
-  challengers: [{ challenger_id: 'abc123', fills: 12, max_fills: 200, running: true }],
+  challengers: [
+    {
+      challenger_id: 'abc123',
+      fills: 12,
+      max_fills: 200,
+      running: true,
+      strategy: 'mean_reversion',
+      shadow_trades: 8,
+      shadow_win_rate: 0.625,
+      shadow_pnl: 142.5,
+      beats_baseline_shadow: true,
+    },
+  ],
+}
+
+const PENDING_PRS = {
+  items: [
+    {
+      parameter: 'SIGNAL_CONFIDENCE_MIN_GATE',
+      previous_value: 0.65,
+      proposed_value: 0.55,
+      reason: 'too many momentum signals gated',
+      timestamp: '2026-05-29T12:03:00Z',
+    },
+  ],
 }
 
 describe('LearningLoopPanel', () => {
@@ -68,12 +93,17 @@ describe('LearningLoopPanel', () => {
     mockApiFetch.mockReset()
   })
 
-  it('renders control plane, applied/pending split, suspended agents, and challengers', async () => {
+  const _wireAll = () => {
     mockApiFetch.mockImplementation((path: string) => {
       if (path === '/dashboard/learning/loop') return Promise.resolve(LOOP)
       if (path === '/dashboard/challengers') return Promise.resolve(CHALLENGERS)
+      if (path === '/learning/pending-param-changes') return Promise.resolve(PENDING_PRS)
       return Promise.reject(new Error('unexpected path'))
     })
+  }
+
+  it('renders control plane, applied/pending split, suspended agents, and challengers', async () => {
+    _wireAll()
 
     render(<LearningLoopPanel />)
 
@@ -89,19 +119,40 @@ describe('LearningLoopPanel', () => {
 
     // Suspended agent chip rendered with the canonical display name
     expect(screen.getByText(agentDisplayName('REASONING_AGENT'))).toBeInTheDocument()
-
-    // Challenger shadow with fills progress
-    expect(screen.getByText(/challenger abc123/)).toBeInTheDocument()
-    expect(screen.getByText('12/200 fills')).toBeInTheDocument()
   })
 
-  it('degrades gracefully when both endpoints fail', async () => {
+  it('shows challenger strategy name + shadow evidence + beats-baseline badge', async () => {
+    _wireAll()
+    render(<LearningLoopPanel />)
+
+    // Strategy name (not just the opaque challenger id) and fills progress.
+    expect(await screen.findByText(/mean_reversion/)).toBeInTheDocument()
+    expect(screen.getByText('12/200 fills')).toBeInTheDocument()
+    // Real shadow evidence is surfaced.
+    expect(screen.getByText(/shadow trades: 8/)).toBeInTheDocument()
+    expect(screen.getByText(/win: 63%/)).toBeInTheDocument()
+    expect(screen.getByText(/beats baseline/)).toBeInTheDocument()
+  })
+
+  it('lists pending parameter-change PRs (GitOps loop)', async () => {
+    _wireAll()
+    render(<LearningLoopPanel />)
+
+    expect(await screen.findByText('SIGNAL_CONFIDENCE_MIN_GATE')).toBeInTheDocument()
+    expect(screen.getByText('0.55')).toBeInTheDocument() // proposed value
+    expect(screen.getByText(/too many momentum signals gated/)).toBeInTheDocument()
+  })
+
+  it('degrades gracefully when all endpoints fail', async () => {
     mockApiFetch.mockRejectedValue(new Error('network'))
 
     render(<LearningLoopPanel />)
 
-    // No crash; empty-state copy for proposals and challengers is shown.
+    // No crash; empty-state copy for each section is shown.
     expect(await screen.findByText('No proposals yet.')).toBeInTheDocument()
     expect(screen.getByText('No shadow challengers running.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/No pending parameter changes/),
+    ).toBeInTheDocument()
   })
 })
