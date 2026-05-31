@@ -48,7 +48,12 @@
 - Formula: `signal_confidence × 0.50 + reasoning_score × 0.30 + historical_perf × 0.20`
 
 ### Gate 2: Signal Confidence Minimum (new)
-- Blocks trades where `signal_confidence < 0.65`
+- Blocks trades where `signal_confidence < SIGNAL_CONFIDENCE_MIN_GATE`
+- **Update:** the threshold was later lowered `0.65 → 0.50`. At 0.65 it sat *above*
+  the MOMENTUM tier (composite 0.55) and silently nullified Gate 1, which is tuned
+  to admit MOMENTUM — so no momentum trade could ever execute. 0.50 sits just below
+  the MOMENTUM tier (admits MOMENTUM + STRONG, blocks LOW/noise at 0.30). See
+  `docs/troubleshooting/execution-engine.md`.
 - Bypasses advisory actions (hold/reject/flat)
 - Logged as `execution_gated_low_confidence`
 
