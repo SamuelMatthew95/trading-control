@@ -74,8 +74,11 @@ type PendingParamChange = {
 }
 
 
-const fmtUSD = (n: number): string =>
-  (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+const fmtUSD = (n: number | null | undefined): string => {
+  // Guard malformed API rows: a missing/non-finite pnl renders '--', never 'NaN'.
+  if (n == null || !Number.isFinite(n)) return '--'
+  return (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
 
 export function LearningLoopPanel() {
   const [state, setState] = useState<LearningLoopState | null>(null)
