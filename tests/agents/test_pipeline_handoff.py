@@ -349,6 +349,50 @@ async def test_score_above_threshold_clears_gate():
     broker.place_order.assert_called_once()
 
 
+async def test_momentum_tier_decision_clears_confidence_gate():
+    """REGRESSION: a MOMENTUM-tier decision (signal_confidence=0.55) must reach the
+    broker through the full gate chain. SIGNAL_CONFIDENCE_MIN_GATE used to be 0.65 —
+    above the 0.55 momentum tier — so it silently blocked every momentum trade before
+    the execution-score gate (tuned to admit 0.55) ever ran. Lowered to 0.50, the two
+    gates now agree: execution_score = 0.55*0.50 + 0.55*0.30 + 0.6*0.20 = 0.56 > 0.55
+    and the confidence gate 0.55 >= 0.50.
+    """
+    broker = _make_broker()
+    engine = ExecutionEngine(
+        bus=_make_bus(), dlq=_make_dlq(), redis_client=_make_redis(), broker=broker
+    )
+
+    payload = _decision_payload(signal_confidence=0.55, reasoning_score=0.55)
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine.process(payload)
+
+    broker.place_order.assert_called_once()
+
+
+async def test_below_momentum_confidence_blocked_even_with_high_reasoning():
+    """The confidence gate still blocks sub-momentum signals so the 0.50 value can't
+    be widened by accident. signal_confidence=0.45 clears the execution-score gate
+    when reasoning is high (0.45*0.50 + 0.9*0.30 + 0.6*0.20 = 0.615 > 0.55) but the
+    confidence gate (0.45 < 0.50) blocks it, so no order is placed.
+    """
+    broker = _make_broker()
+    engine = ExecutionEngine(
+        bus=_make_bus(), dlq=_make_dlq(), redis_client=_make_redis(), broker=broker
+    )
+
+    payload = _decision_payload(signal_confidence=0.45, reasoning_score=0.9)
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine.process(payload)
+
+    broker.place_order.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Dashboard degraded_mode tests
 # ---------------------------------------------------------------------------

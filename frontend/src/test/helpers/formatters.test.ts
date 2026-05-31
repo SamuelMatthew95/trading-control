@@ -2,7 +2,49 @@
  * Contract tests for shared formatting helpers in src/lib/formatters.ts.
  */
 import { describe, it, expect } from 'vitest'
-import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum } from '@/lib/formatters'
+import {
+  formatUSD,
+  signedUSD,
+  formatTimeAgo,
+  toFiniteNum,
+  getField,
+  getStr,
+} from '@/lib/formatters'
+
+describe('getField', () => {
+  it('reads a present key', () => {
+    expect(getField({ a: 1 }, 'a')).toBe(1)
+  })
+  it('returns undefined for a missing key', () => {
+    expect(getField({ a: 1 }, 'b')).toBeUndefined()
+  })
+  it('is safe on null / array / primitive (the cast-replacement contract)', () => {
+    expect(getField(null, 'a')).toBeUndefined()
+    expect(getField(undefined, 'a')).toBeUndefined()
+    expect(getField([1, 2], 'a')).toBeUndefined()
+    expect(getField('str', 'a')).toBeUndefined()
+    expect(getField(42, 'a')).toBeUndefined()
+  })
+})
+
+describe('getStr', () => {
+  it('coalesces the first present alias to a string', () => {
+    expect(getStr({ agent: 'x' }, 'agent_name', 'agent', 'source')).toBe('x')
+    expect(getStr({ source: 's' }, 'agent_name', 'agent', 'source')).toBe('s')
+  })
+  it('skips null / empty-string fields', () => {
+    expect(getStr({ a: '', b: 'real' }, 'a', 'b')).toBe('real')
+    expect(getStr({ a: null, b: 'real' }, 'a', 'b')).toBe('real')
+  })
+  it('returns "" when no alias is present or object is not an object', () => {
+    expect(getStr({ x: 1 }, 'a', 'b')).toBe('')
+    expect(getStr(null, 'a')).toBe('')
+    expect(getStr([1], 'a')).toBe('')
+  })
+  it('stringifies non-string values', () => {
+    expect(getStr({ n: 7 }, 'n')).toBe('7')
+  })
+})
 
 describe('formatUSD', () => {
   it('returns -- for null', () => {

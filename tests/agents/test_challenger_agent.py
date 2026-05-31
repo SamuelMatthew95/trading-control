@@ -9,10 +9,24 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.constants import STREAM_AGENT_GRADES, STREAM_EXECUTIONS, STREAM_PROPOSALS
+from api.constants import (
+    STREAM_AGENT_GRADES,
+    STREAM_EXECUTIONS,
+    STREAM_MARKET_EVENTS,
+    STREAM_PROPOSALS,
+    STREAM_TRADE_PERFORMANCE,
+)
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agents.pipeline_agents import ChallengerAgent
+
+
+def _tick(price: float, symbol: str = "BTC/USD") -> dict:
+    """A market_events message: the tick is wrapped in a JSON ``payload`` string,
+    exactly as PricePoller publishes it (and SignalGenerator parses it)."""
+    import json
+
+    return {"payload": json.dumps({"symbol": symbol, "price": price})}
 
 
 @pytest.fixture
@@ -151,3 +165,86 @@ async def test_start_registers_shadow_eagerly(mock_bus, mock_dlq, monkeypatch):
     match = [v for v in reg.versions() if v.config.get("strategy") == "confirmed_trend"]
     assert len(match) == 1
     assert reg.status(match[0].version_id) == StrategyStatus.SHADOW
+
+
+# ---------------------------------------------------------------------------
+# Shadow trading — the challenger actually RUNS its strategy on live signals
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_challenger_runs_its_strategy_as_shadow_trades(mock_bus, mock_dlq):
+    """A challenger with a strategy config actually executes it on live signals —
+    the config is no longer decorative."""
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "baseline_momentum"}, max_fills=10_000
+    )
+    assert agent._shadow is not None and agent._baseline_shadow is not None
+    price = 100.0
+    for _ in range(40):
+        price *= 1.001
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    for _ in range(12):
+        price *= 1.03
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    for _ in range(12):
+        price *= 0.97
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    assert agent._shadow.metrics.trades >= 1  # the strategy genuinely traded
+
+
+@pytest.mark.asyncio
+async def test_no_strategy_challenger_ignores_signals(mock_bus, mock_dlq):
+    """No strategy configured → no shadow engine; signals are a safe no-op."""
+    agent = ChallengerAgent(mock_bus, mock_dlq, max_fills=100)
+    assert agent._shadow is None
+    await agent.process(STREAM_MARKET_EVENTS, "s", _tick(100.0))  # no crash
+    assert agent._shadow is None
+
+
+@pytest.mark.asyncio
+async def test_shadow_observes_unfiltered_market_events_payload(mock_bus, mock_dlq):
+    """REGRESSION (PR #275 review P2): the challenger feeds off the UNFILTERED
+    market_events stream (every tick), parsing the wrapped JSON ``payload`` — not the
+    throttled signals stream. A malformed/empty payload is a safe no-op."""
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "baseline_momentum"}, max_fills=10_000
+    )
+    # Two distinct prices via the wrapped payload → the engine records history for the
+    # symbol (proving the JSON envelope is parsed like SignalGenerator does).
+    await agent.process(STREAM_MARKET_EVENTS, "s", _tick(100.0))
+    await agent.process(STREAM_MARKET_EVENTS, "s", _tick(101.0))
+    assert "BTC/USD" in agent._shadow._history
+    assert list(agent._shadow._history["BTC/USD"])[-1] == 101.0
+    # Malformed payloads must not crash.
+    await agent.process(STREAM_MARKET_EVENTS, "s", {"payload": "not json"})
+    await agent.process(STREAM_MARKET_EVENTS, "s", {})
+
+
+@pytest.mark.asyncio
+async def test_grade_carries_shadow_evidence(mock_bus, mock_dlq):
+    """The grade payload carries the real own-vs-baseline shadow comparison so the
+    dashboard can show what the challenger's strategy actually did on live data."""
+    agent = ChallengerAgent(
+        mock_bus,
+        mock_dlq,
+        challenger_config={"strategy": "mean_reversion", "grade_every": 1},
+        max_fills=10_000,
+    )
+    price = 100.0
+    for _ in range(40):
+        price *= 1.001
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    for _ in range(12):
+        price *= 1.03
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    # trade_performance is the grade-cadence clock; one event triggers _grade().
+    await agent.process(STREAM_TRADE_PERFORMANCE, "1", {"pnl": 1.0})
+
+    grade_calls = [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_AGENT_GRADES]
+    assert grade_calls, "expected a challenger grade to be published"
+    metrics = grade_calls[-1].args[1]["metrics"]
+    assert "shadow_trades" in metrics
+    assert "shadow_win_rate" in metrics
+    assert "shadow_pnl" in metrics
+    assert "beats_baseline_shadow" in metrics  # baseline engine present for A/B

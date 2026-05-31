@@ -159,3 +159,30 @@ already correct, only the presentation was ambiguous.
 
 **Regression test:** `frontend/src/test/components/RecentDecisionsPanel.test.tsx`
 — `labels the last-hour breakdown and the all-time total as distinct windows`.
+
+## Scattered `as Record<string, unknown>` casts — fragile dynamic-field reads
+
+**Symptom:** A static UI audit flagged ~13 sites in `TradingView.tsx` reading
+dynamic agent-log / position fields via `(x as Record<string, unknown>)?.field`.
+Not crashing (optional chaining guarded them), but fragile and repetitive: each
+cast skips runtime validation, and a non-object value reaching a deeper
+`...?.data?.symbol` access could throw.
+
+**Root cause:** `agentLogs` / `positions` from `useCodexStore()` are typed
+narrowly, so every alias field (`confidence_score`, `source`, `data.symbol`,
+`decision`, `qty` vs `quantity`, `created_at`) required an inline cast. The
+pattern was copy-pasted rather than centralized.
+
+**Fix:** two pure helpers in `src/lib/formatters.ts` —
+- `getField(obj, key)`: returns `undefined` unless `obj` is a plain object with
+  that key (safe on null/array/primitive),
+- `getStr(obj, ...keys)`: first present alias coalesced to a string, else `''`.
+
+All 13 casts in `TradingView.tsx` replaced with these. One canonical, tested
+accessor instead of scattered unchecked casts. `LearningLoopPanel.fmtUSD` also
+hardened to render `--` for null/NaN, and `AgentStatusTable` empty-row `colSpan`
+now uses `COLUMNS.length` instead of a hardcoded `5`.
+
+**Regression test:** `frontend/src/test/helpers/formatters.test.ts` —
+`getField` / `getStr` describe blocks (null/array/primitive safety, alias
+coalescing, stringification).

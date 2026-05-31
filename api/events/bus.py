@@ -314,10 +314,15 @@ class EventBus:
         except Exception:
             pass
 
-    async def create_consumer_group(self, stream: str, group: str) -> None:
-        """Create consumer group if it doesn't exist using mkstream."""
+    async def create_consumer_group(self, stream: str, group: str, start_id: str = "0") -> None:
+        """Create consumer group if it doesn't exist using mkstream.
+
+        ``start_id="$"`` makes the group read only NEW messages — used by per-agent
+        fan-out groups so a freshly-created agent group does not replay the whole
+        backlog. Default ``"0"`` preserves the original read-from-start behavior.
+        """
         try:
-            await self.redis.xgroup_create(stream, group, "0", mkstream=True)
+            await self.redis.xgroup_create(stream, group, start_id, mkstream=True)
         except ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise

@@ -415,7 +415,7 @@ export function LLMHealthPanel() {
           </p>
           <div className="flex flex-wrap gap-1">
             {data.recent_results.map((call, i) => (
-              <CallDot key={i} call={call} />
+              <CallDot key={`${i}-${call.result}`} call={call} />
             ))}
           </div>
         </div>

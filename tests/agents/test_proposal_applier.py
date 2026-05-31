@@ -143,15 +143,18 @@ async def test_agent_retirement_pauses_trading(monkeypatch):
 
 
 async def test_unknown_proposal_type_is_logged_not_applied(monkeypatch):
-    """parameter_change / code_change need human review — no Redis writes."""
+    """code_change / regime_adjustment need human DESIGN — no Redis writes, no PR.
+
+    (PARAMETER_CHANGE is handled separately now: it emits a GitOps PR artifact —
+    see test_parameter_change_emits_github_pr_artifact.)"""
     monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
     monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis()
     applier = _make_applier(redis)
 
     proposal = {
-        FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
-        FieldName.CONTENT: {FieldName.ACTION: "tighten_stop_loss"},
+        FieldName.PROPOSAL_TYPE: ProposalType.CODE_CHANGE,
+        FieldName.CONTENT: {FieldName.ACTION: "rewrite_signal_logic"},
     }
     await applier.process("proposals", "1-0", proposal)
 
@@ -184,3 +187,55 @@ async def test_apply_writes_agent_log_with_applied_at(monkeypatch):
     assert trace_id == "trace-xyz"
     assert payload[FieldName.APPLIED] is True
     assert FieldName.APPLIED_AT in payload
+
+
+async def test_parameter_change_emits_github_pr_artifact(monkeypatch):
+    """A PARAMETER_CHANGE proposal becomes a durable github_prs artifact instead of
+    being dropped — the GitOps 'create artifact -> PR' path."""
+    from api.constants import STREAM_GITHUB_PRS
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    redis = _FakeRedis()
+    applier = _make_applier(redis)
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+        FieldName.CONTENT: {
+            FieldName.PARAMETER: "SIGNAL_CONFIDENCE_MIN_GATE",
+            FieldName.PREVIOUS_VALUE: 0.65,
+            FieldName.NEW_VALUE: 0.50,
+            FieldName.REASON: "too many momentum signals gated",
+        },
+    }
+    await applier.process("proposals", "1-0", proposal)
+
+    pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert pr_calls, "expected a github_prs pr_request artifact"
+    artifact = pr_calls[0].args[1]
+    assert artifact[FieldName.TYPE] == "pr_request"
+    assert artifact[FieldName.PARAMETER] == "SIGNAL_CONFIDENCE_MIN_GATE"
+    assert artifact[FieldName.PREVIOUS_VALUE] == 0.65
+    assert artifact[FieldName.PROPOSED_VALUE] == 0.50
+    assert artifact[FieldName.PROPOSAL_TYPE] == ProposalType.PARAMETER_CHANGE
+    # No live control-plane key was mutated — this is a PR artifact, not an apply.
+    assert await redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE) is None
+
+
+async def test_parameter_change_without_parameter_is_noop(monkeypatch):
+    """A param proposal missing the parameter name emits no artifact (and no crash)."""
+    from api.constants import STREAM_GITHUB_PRS
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    redis = _FakeRedis()
+    applier = _make_applier(redis)
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+        FieldName.CONTENT: {FieldName.REASON: "x"},
+    }
+    await applier.process("proposals", "1-0", proposal)
+
+    pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert pr_calls == []

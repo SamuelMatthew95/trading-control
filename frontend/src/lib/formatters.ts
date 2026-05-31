@@ -27,6 +27,30 @@ export function toFiniteNum(v: unknown): number | null {
 }
 
 /**
+ * Read a field from a loosely-typed object (API row / store record) by key,
+ * returning `undefined` when the object is not a plain object or the key is
+ * absent. One canonical replacement for the scattered
+ * `(x as Record<string, unknown>)?.field` casts — safe on null/array/primitive.
+ */
+export function getField(obj: unknown, key: string): unknown {
+  if (obj == null || typeof obj !== 'object' || Array.isArray(obj)) return undefined
+  return (obj as Record<string, unknown>)[key]
+}
+
+/**
+ * Read the first present field from a list of candidate keys as a string,
+ * coalescing across alias names (e.g. `agent_name` | `agent` | `source`).
+ * Returns '' when none are present, so callers never handle null.
+ */
+export function getStr(obj: unknown, ...keys: string[]): string {
+  for (const key of keys) {
+    const v = getField(obj, key)
+    if (v != null && v !== '') return String(v)
+  }
+  return ''
+}
+
+/**
  * Parse any timestamp-like value to epoch milliseconds, or return null.
  *
  * Handles: Date objects, numeric ms, numeric seconds (via EPOCH_MS_THRESHOLD),

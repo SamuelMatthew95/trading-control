@@ -735,6 +735,7 @@ class FieldName(StrEnum):
     PROCESSING_ATTEMPT = "processing_attempt"
     PROPOSALS = "proposals"
     PROPOSAL_TYPE = "proposal_type"
+    PROPOSED_VALUE = "proposed_value"
     PROVIDER = "provider"
     QTY = "qty"
     QUANTITY = "quantity"
@@ -1225,6 +1226,10 @@ LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
 # Regression gate — hard thresholds a challenger must clear before promotion.
 # These are deterministic and non-negotiable: a candidate is rejected if it is
 # worse than the champion on ANY gate beyond these tolerances. No exceptions.
+# How many recent github_prs stream entries the pending-param-changes endpoint
+# scans (the GitHub Action de-dupes, so this only bounds the read window).
+PARAM_PR_REQUESTS_SCAN_LIMIT: Final[int] = 200
+
 # ---------------------------------------------------------------------------
 # Candidate Sharpe may be at most this far BELOW the champion's.
 REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
@@ -1325,7 +1330,13 @@ DEFAULT_PAPER_CASH: Final[float] = 100_000.0
 ORDER_LOCK_TTL_SECONDS: Final[int] = 5
 IN_FLIGHT_TTL_SECONDS: Final[int] = 10  # Safety valve: clears if fill callback never runs
 WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key TTL
-REDIS_PRICES_TTL_SECONDS: Final[int] = 30  # How long price cache entries live
+# How long price cache entries live. MUST exceed the longest poll interval
+# (STOCK_POLL_INTERVAL_SECONDS = 60s) — otherwise the cache expires before the
+# poller can refresh it, leaving prices:{symbol} empty between polls (dashboard
+# shows blank/stale stock prices). 150s survives one missed poll with margin.
+# (The buy/sell momentum delta no longer depends on this TTL — the poller keeps
+# its own in-memory prev-price anchor. See docs/troubleshooting/price-poller.md.)
+REDIS_PRICES_TTL_SECONDS: Final[int] = 150
 REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
@@ -1389,8 +1400,14 @@ TAKE_PROFIT_PCT: Final[float] = 0.10
 DAILY_LOSS_LIMIT_PCT: Final[float] = 0.02
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
-# Signal confidence gate — trades below this confidence are blocked pre-execution
-SIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.65
+# Signal confidence gate — trades below this confidence are blocked pre-execution.
+# Set just below the MOMENTUM tier (signal composite score 0.55) so MOMENTUM and
+# STRONG signals can trade while LOW/noise (0.30) stays blocked. It MUST stay <=
+# the MOMENTUM score: a higher value silently nullifies the execution-score gate,
+# which is deliberately tuned (historical_perf=0.6) so MOMENTUM clears the 0.55
+# threshold — see tests/agents/test_momentum_gate.py. At 0.65 the two gates
+# contradicted each other so NO momentum trade could ever execute.
+SIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.50
 # Kelly sizing — use quarter Kelly for conservatism
 KELLY_FRACTION_SCALE: Final[float] = 0.25
 # Maximum risk per trade as fraction of equity
@@ -1489,3 +1506,35 @@ INITIAL_PRICES: Final[dict[str, float]] = {
     SYMBOL_AAPL: 178.0,
     SYMBOL_NVDA: 875.0,
 }
+
+
+# ---------------------------------------------------------------------------
+# Learning-loop parameter overrides (applied LAST, over the defaults above).
+#
+# The values above are the hand-authored defaults. The GitOps learning loop tunes
+# a small allowlist of them by writing config/param_overrides.json (plain DATA —
+# the bot never edits this source file). We apply that file here, once, at import:
+# each override is validated against api.services.param_evolution.PARAM_BOUNDS, so
+# an unknown key or out-of-bounds value is dropped and the default stands. A bad
+# override file therefore degrades to "use defaults", never to a crash.
+#
+# Import is local to avoid any import-time cycle and to keep this file importable
+# even if the services package is unavailable (e.g. minimal tooling contexts).
+def _apply_param_overrides() -> dict[str, float]:
+    try:
+        from api.services.param_overrides import load_overrides  # noqa: PLC0415
+    except Exception:
+        return {}
+    applied: dict[str, float] = {}
+    overrides = load_overrides()
+    _g = globals()
+    for name, value in overrides.items():
+        if name in _g:  # only override an existing default
+            _g[name] = value
+            applied[name] = value
+    return applied
+
+
+# Names the learning loop has overridden this process (empty when none). Surfaced
+# by the dashboard so operators can see which params are running off-default.
+ACTIVE_PARAM_OVERRIDES: dict[str, float] = _apply_param_overrides()

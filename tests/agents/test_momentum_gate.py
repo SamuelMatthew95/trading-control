@@ -11,8 +11,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.constants import EXECUTION_DECISION_THRESHOLD
+from api.constants import EXECUTION_DECISION_THRESHOLD, SIGNAL_CONFIDENCE_MIN_GATE
+from api.services.execution.decision_utils import check_confidence_gate
 from api.services.execution.execution_engine import ExecutionEngine
+
+# Signal composite-score tiers produced by classify_signal (score/100).
+_LOW_TIER = 0.30
+_MOMENTUM_TIER = 0.55
+_STRONG_TIER = 0.80
 
 # ---------------------------------------------------------------------------
 # Fixture — minimal ExecutionEngine instance (no DB, no Redis needed)
@@ -73,3 +79,42 @@ def test_compute_final_score_historical_perf_override(engine):
     score = engine._compute_final_score(0.55, 0.55)
     assert abs(score - expected) < 1e-9
     assert abs(score - 0.56) < 0.001
+
+
+# ---------------------------------------------------------------------------
+# Confidence gate must agree with the execution-score gate (the alignment fix)
+# ---------------------------------------------------------------------------
+
+
+def test_confidence_gate_allows_momentum_tier():
+    """REGRESSION: a MOMENTUM-tier signal (0.55) must NOT be blocked by the
+    confidence gate. At 0.65 it was, which silently nullified the deliberately
+    tuned execution-score gate (which lets MOMENTUM clear 0.55) — so no momentum
+    trade could ever execute."""
+    assert check_confidence_gate(_MOMENTUM_TIER, "buy") is None
+    assert check_confidence_gate(_STRONG_TIER, "buy") is None
+
+
+def test_confidence_gate_blocks_low_tier():
+    """LOW/noise (0.30) is still correctly blocked pre-execution."""
+    assert check_confidence_gate(_LOW_TIER, "buy") is not None
+
+
+def test_confidence_gate_consistent_with_execution_score_gate(engine):
+    """The two gates must agree: the MOMENTUM tier the confidence gate admits must
+    also clear the execution-score gate (with reasoning agreeing), and the LOW tier
+    both reject. Guards against re-raising the gate above the MOMENTUM tier."""
+    assert SIGNAL_CONFIDENCE_MIN_GATE <= _MOMENTUM_TIER
+    # MOMENTUM passes confidence gate AND can clear the execution-score gate.
+    assert check_confidence_gate(_MOMENTUM_TIER, "buy") is None
+    assert (
+        engine._compute_final_score(_MOMENTUM_TIER, _MOMENTUM_TIER) > EXECUTION_DECISION_THRESHOLD
+    )
+    # LOW fails both gates.
+    assert check_confidence_gate(_LOW_TIER, "buy") is not None
+    assert engine._compute_final_score(_LOW_TIER, _LOW_TIER) < EXECUTION_DECISION_THRESHOLD
+
+
+def test_confidence_gate_bypassed_for_advisory_actions():
+    """hold/reject/flat never trade, so the gate must not apply to them."""
+    assert check_confidence_gate(_LOW_TIER, "hold") is None

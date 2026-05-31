@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
-import { formatUSD, formatTimeAgo, toFiniteNum as toNum } from '@/lib/formatters'
+import { formatUSD, formatTimeAgo, getField, getStr, toFiniteNum as toNum } from '@/lib/formatters'
 import { GRADE_STYLES } from '@/lib/grade-colors'
 import { Activity, BarChart2, Layers, TrendingDown, TrendingUp } from 'lucide-react'
 import {
@@ -256,24 +256,23 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
         <div className="relative max-h-[480px] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800/60">
           {logs.map((log, idx) => {
             // ReasoningAgent emits confidence_score (0-100); SignalGenerator emits confidence (0-1).
-            const rawConf = toNum((log as Record<string, unknown>)?.confidence_score ?? log?.confidence)
+            const rawConf = toNum(getField(log, 'confidence_score') ?? log?.confidence)
             // Normalise to 0-1 fraction: values > 1 are percentages from the reasoning agent.
             const conf = rawConf == null ? null : rawConf > 1 ? rawConf / 100 : rawConf
             const confPct = conf == null ? null : Math.round(conf * 100)
             const confColor = confColorClass(conf)
 
-            const rawName = String(log?.agent_name || log?.agent || (log as Record<string, unknown>)?.source || '')
+            const rawName = getStr(log, 'agent_name', 'agent', 'source')
             const displayName = rawName
               ? rawName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
               : 'Agent'
-            const symbol = String(
-              log?.symbol || ((log as Record<string, unknown>)?.data as Record<string, unknown>)?.symbol || '',
-            )
-            const action = String(log?.action || (log as Record<string, unknown>)?.decision || '').toUpperCase()
+            // symbol may sit on the log or nested under log.data (signal payloads).
+            const symbol = getStr(log, 'symbol') || getStr(getField(log, 'data'), 'symbol')
+            const action = getStr(log, 'action', 'decision').toUpperCase()
             const msg = resolveMessage(
-              log?.message || (log as Record<string, unknown>)?.summary || (log as Record<string, unknown>)?.primary_edge,
+              log?.message ?? getField(log, 'summary') ?? getField(log, 'primary_edge'),
             )
-            const ts = String(log?.timestamp || (log as Record<string, unknown>)?.created_at || '')
+            const ts = getStr(log, 'timestamp', 'created_at')
 
             return (
               <div key={String(log?.id || `${rawName}-${idx}`)} className="px-5 py-3">
@@ -364,15 +363,15 @@ function OpenPositionsPanel() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {positions.map((pos, i) => {
-                const pnl = toNum((pos as Record<string, unknown>)?.pnl)
-                const pnlPct = toNum((pos as Record<string, unknown>)?.pnl_percent)
+                const pnl = toNum(getField(pos, 'pnl'))
+                const pnlPct = toNum(getField(pos, 'pnl_percent'))
                 const isPos = (pnl ?? 0) >= 0
-                const side = String((pos as Record<string, unknown>)?.side ?? '').toUpperCase()
-                const symbol = String((pos as Record<string, unknown>)?.symbol ?? '--')
+                const side = getStr(pos, 'side').toUpperCase()
+                const symbol = getStr(pos, 'symbol') || '--'
                 // ORM uses `quantity`; paper-broker Redis state uses `qty` — try both.
-                const qty = toNum((pos as Record<string, unknown>)?.quantity) ?? toNum((pos as Record<string, unknown>)?.qty)
-                const entryPrice = toNum((pos as Record<string, unknown>)?.entry_price)
-                const currentPrice = toNum((pos as Record<string, unknown>)?.current_price)
+                const qty = toNum(getField(pos, 'quantity')) ?? toNum(getField(pos, 'qty'))
+                const entryPrice = toNum(getField(pos, 'entry_price'))
+                const currentPrice = toNum(getField(pos, 'current_price'))
 
                 return (
                   <tr

@@ -1,0 +1,87 @@
+name: Parameter Evolution — open PRs from learning artifacts
+
+# The final hop of the GitOps learning loop. The trading backend never holds
+# repo-write credentials: ProposalApplier publishes a pr_request to the
+# github_prs Redis stream, surfaced at GET /learning/pending-param-changes. This
+# scheduled Action reads that endpoint and, for each validated parameter change,
+# edits api/constants.py via scripts/apply_param_change.py and opens a PR for
+# human review. The repo's GITHUB_TOKEN is used HERE, at GitHub runtime — not by
+# the app.
+#
+# Idempotent by construction: each parameter maps to a deterministic branch
+# (param-evolution/<PARAMETER>). If that branch already has an open PR, the run
+# skips it — so re-running never opens duplicates. GitHub owns PR lifecycle; this
+# workflow holds no state of its own.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: "Override backend base URL (else uses BACKEND_URL secret/var)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: param-evolution
+  cancel-in-progress: false
+
+jobs:
+  open-param-prs:
+    name: Open parameter-change PRs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve backend URL
+        id: cfg
+        env:
+          INPUT_URL: ${{ github.event.inputs.backend_url }}
+          SECRET_URL: ${{ secrets.BACKEND_URL }}
+          VAR_URL: ${{ vars.BACKEND_URL }}
+        run: |
+          URL="${INPUT_URL:-${SECRET_URL:-${VAR_URL:-}}}"
+          if [ -z "$URL" ]; then
+            echo "No BACKEND_URL configured (input/secret/var). Nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${URL%/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch pending parameter changes
+        if: steps.cfg.outputs.skip != 'true'
+        id: fetch
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 \
+            "${{ steps.cfg.outputs.url }}/api/learning/pending-param-changes" \
+            -o /tmp/pending.json || echo '{"items":[]}' > /tmp/pending.json
+          python3 -c "import json; d=json.load(open('/tmp/pending.json')); print('count=%d' % len(d.get('items',[])))"
+
+      - name: Open a PR per validated parameter change
+        if: steps.cfg.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # apply_param_change.py imports api.services.param_overrides — make the
+          # repo root importable for the subprocess the runner spawns.
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          git config user.name "param-evolution-bot"
+          git config user.email "param-evolution-bot@users.noreply.github.com"
+          # All branch/dedup/base-ref/commit logic lives in a UNIT-TESTED module
+          # (scripts/param_evolution_runner.py + tests/core/test_param_evolution_runner.py),
+          # so this step is a thin, non-guessing shell over verified code.
+          python3 scripts/param_evolution_runner.py --pending-file /tmp/pending.json

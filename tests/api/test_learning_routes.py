@@ -916,3 +916,76 @@ async def test_trade_detail_db_down_excludes_accuracy_grade(client):
 
     resp = await client.get("/learning/trades/signal-only")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# /learning/pending-param-changes — GitOps artifact surfacing
+# ---------------------------------------------------------------------------
+
+
+class _FakeRedisXR:
+    """Minimal redis stub exposing xrevrange with scripted github_prs entries."""
+
+    def __init__(self, entries: list[tuple[str, dict[str, Any]]]):
+        self._entries = entries
+
+    async def xrevrange(self, stream: str, count: int = 100):  # noqa: ARG002
+        return self._entries
+
+
+@pytest.mark.asyncio
+async def test_pending_param_changes_filters_and_dedups(client, monkeypatch):
+    from api.constants import FieldName as F
+
+    entries = [
+        # newest first (xrevrange order): valid SIGNAL gate change
+        (
+            "3-0",
+            {
+                F.TYPE: "pr_request",
+                F.PARAMETER: "SIGNAL_CONFIDENCE_MIN_GATE",
+                F.PREVIOUS_VALUE: 0.65,
+                F.PROPOSED_VALUE: 0.55,
+                F.REASON: "too many gated",
+            },
+        ),
+        # older duplicate of same param -> must be deduped out
+        (
+            "2-0",
+            {
+                F.TYPE: "pr_request",
+                F.PARAMETER: "SIGNAL_CONFIDENCE_MIN_GATE",
+                F.PROPOSED_VALUE: 0.50,
+            },
+        ),
+        # out-of-bounds -> must be dropped
+        (
+            "1-0",
+            {F.TYPE: "pr_request", F.PARAMETER: "STOP_LOSS_PCT", F.PROPOSED_VALUE: 0.99},
+        ),
+        # non pr_request -> ignored
+        ("0-1", {F.TYPE: "other", F.PARAMETER: "KELLY_FRACTION_SCALE", F.PROPOSED_VALUE: 0.3}),
+    ]
+
+    async def _fake_get_redis():
+        return _FakeRedisXR(entries)
+
+    monkeypatch.setattr(learning_module, "get_redis", _fake_get_redis)
+
+    resp = await client.get("/learning/pending-param-changes")
+    assert resp.status_code == 200
+    data = resp.json()
+    params = [it[FieldName.PARAMETER] for it in data[FieldName.ITEMS]]
+    assert params == ["SIGNAL_CONFIDENCE_MIN_GATE"]  # deduped + bounds-filtered
+    assert data[FieldName.ITEMS][0][FieldName.PROPOSED_VALUE] == 0.55  # newest wins
+
+
+@pytest.mark.asyncio
+async def test_pending_param_changes_empty_on_redis_error(client, monkeypatch):
+    async def _boom():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(learning_module, "get_redis", _boom)
+    resp = await client.get("/learning/pending-param-changes")
+    assert resp.status_code == 200
+    assert resp.json()[FieldName.ITEMS] == []

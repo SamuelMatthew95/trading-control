@@ -39,6 +39,7 @@ from api.constants import (
     SIGNAL_WEIGHT_REDUCTION_FACTOR,
     SIGNAL_WEIGHT_SCALE_MIN,
     SOURCE_PROPOSAL_APPLIER,
+    STREAM_GITHUB_PRS,
     STREAM_PROPOSALS,
     FieldName,
     LogType,
@@ -92,9 +93,12 @@ class ProposalApplier(MultiStreamAgent):
                 applied = await self._apply_agent_suspension(content)
             elif proposal_type == ProposalType.AGENT_RETIREMENT:
                 applied = await self._apply_trading_pause(content)
+            elif proposal_type == ProposalType.PARAMETER_CHANGE:
+                # Don't mutate the live system — turn it into a GitOps PR artifact.
+                applied = await self._emit_param_change_artifact(content, trace_id)
             else:
-                # parameter_change, code_change, regime_adjustment, new_agent —
-                # those need human review; record the proposal but don't auto-apply.
+                # code_change / regime_adjustment / new_agent need human DESIGN, not
+                # a mechanical value edit — record but don't auto-emit a PR.
                 log_structured(
                     "info",
                     "proposal_skipped_requires_review",
@@ -214,5 +218,48 @@ class ProposalApplier(MultiStreamAgent):
         )
         return {
             FieldName.MESSAGE: f"trading paused: {reason}",
+            FieldName.REASON: reason,
+        }
+
+    async def _emit_param_change_artifact(
+        self, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        """Turn a PARAMETER_CHANGE proposal into a durable GitOps PR artifact.
+
+        Parameter changes used to be DROPPED here ("requires review"), so the
+        learning loop could never tune anything. Instead we publish a structured
+        ``pr_request`` to STREAM_GITHUB_PRS for a GitHub Action to consume and open
+        a PR editing the value in ``api/constants.py`` — version-controlled and
+        human-reviewed. NOTHING is applied to the live system; no capital moves.
+        """
+        parameter = content.get(FieldName.PARAMETER)
+        if not parameter:
+            return None
+        previous_value = content.get(FieldName.PREVIOUS_VALUE)
+        proposed_value = content.get(FieldName.NEW_VALUE)
+        reason = content.get(FieldName.REASON, "")
+        await self.bus.publish(
+            STREAM_GITHUB_PRS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.TYPE: "pr_request",
+                FieldName.SOURCE: SOURCE_PROPOSAL_APPLIER,
+                FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+                FieldName.PARAMETER: parameter,
+                FieldName.PREVIOUS_VALUE: previous_value,
+                FieldName.PROPOSED_VALUE: proposed_value,
+                FieldName.REASON: reason,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return {
+            FieldName.MESSAGE: (
+                f"PR artifact queued for {parameter}: {previous_value} -> {proposed_value}"
+            ),
+            FieldName.PARAMETER: parameter,
+            FieldName.PREVIOUS_VALUE: previous_value,
+            FieldName.PROPOSED_VALUE: proposed_value,
+            FieldName.STATUS: "pending_pr",
             FieldName.REASON: reason,
         }

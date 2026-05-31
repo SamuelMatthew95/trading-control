@@ -182,7 +182,7 @@ from api.constants import (
     REDIS_KEY_IC_WEIGHTS,           # "alpha:ic_weights"
     REDIS_KEY_PRICES,               # "prices:{symbol}" — use .format(symbol=symbol)
     REDIS_KEY_WORKER_HEARTBEAT,     # "worker:heartbeat"
-    REDIS_PRICES_TTL_SECONDS,       # 30s — price cache lifetime
+    REDIS_PRICES_TTL_SECONDS,       # 150s — price cache lifetime (must exceed poll interval)
     REDIS_IC_WEIGHTS_TTL_SECONDS,   # 90000s (~25h) — IC weights survive overnight
 )
 # Prices key usage:

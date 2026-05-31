@@ -44,7 +44,7 @@ export function AgentStatusTable({ realAgents, showNoAgentDataMessage }: AgentSt
           <tbody>
             {showNoAgentDataMessage ? (
               <tr>
-                <td colSpan={5} className="px-2 py-8">
+                <td colSpan={COLUMNS.length} className="px-2 py-8">
                   <EmptyState message="No active agents" />
                 </td>
               </tr>
