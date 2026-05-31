@@ -58,7 +58,11 @@ def test_short_cover_then_flip_is_bounded_to_cap():
 
 
 def test_signed_position_qty_sign_and_flat():
+    # Enum-member sides (as produced by apply_signed_delta)...
     assert signed_position_qty(_long(0.3)) == 0.3
     assert signed_position_qty(_short(0.3)) == -0.3
+    # ...and raw-string sides (as stored in / read back from the DB).
+    assert signed_position_qty({FieldName.SIDE: "short", FieldName.QTY: 0.3}) == -0.3
+    assert signed_position_qty({FieldName.SIDE: "long", FieldName.QTY: 0.3}) == 0.3
     assert signed_position_qty(None) == 0.0
     assert signed_position_qty({}) == 0.0
