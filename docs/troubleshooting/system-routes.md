@@ -100,9 +100,9 @@
 
 ## EventPipeline logs `pipeline_persist_skipped` warnings on every grade / proposal / reflection / IC update
 
-**Symptom:** With Postgres up, the logs fill with `pipeline_persist_skipped` warnings for `agent_grades`, `proposals`, `reflection_outputs`, and `factor_ic_history` — one per event — even though the system is healthy and the data is in the DB.
+**Symptom:** With Postgres up, the logs fill with `pipeline_persist_skipped` warnings for `agent_grades`, `proposals`, `reflection_outputs`, `factor_ic_history`, and `executions` — one per event — even though the system is healthy and the data is in the DB.
 
-**Root cause:** The `EventPipeline` treated its DB persistence as a "secondary safety net" and re-wrote these streams via `SafeWriter`. But the producing agents are the *authoritative* writers (`GradeAgent.write_grade_to_db`, `StrategyProposer.persist_proposal`, `ReflectionAgent.write_agent_log` + `persist_reflection_record`, `ICUpdater`), and the stream payloads omit fields the `SafeWriter` validators require (`agent_id`/`agent_run_id`/`grade_type`, `ic_value`, `trace_id`, `insights`…). So the pipeline write *always raised* and was swallowed as a warning — pure noise, never a real row.
+**Root cause:** The `EventPipeline` treated its DB persistence as a "secondary safety net" and re-wrote these streams via `SafeWriter`. But the producing agents are the *authoritative* writers (`GradeAgent.write_grade_to_db`, `StrategyProposer.persist_proposal`, `ReflectionAgent.write_agent_log` + `persist_reflection_record`, `ICUpdater`, and `ExecutionEngine` via `order_writer`/`upsert_position_db`/`upsert_trade_lifecycle`), and the stream payloads omit fields the `SafeWriter` validators require (`agent_id`/`agent_run_id`/`grade_type`, `ic_value`, `trace_id`, `insights`, Position `quantity`…). So the pipeline write *always raised* and was swallowed as a warning — pure noise, never a real row.
 
 **Fix:** `api/services/persistence_routing.py` adds `_AGENT_OWNED_DB_STREAMS`; `determine_persist_route` returns `SKIP` for those streams when the DB is up (the agent already wrote the durable row). The pipeline still broadcasts them, and the MEMORY fallback when the DB is down is unchanged, so memory-mode hydration (and challenger grades, which only flow via the stream) is preserved.
 
