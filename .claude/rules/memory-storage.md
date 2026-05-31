@@ -63,12 +63,17 @@ with sub-millisecond read latency. NOT for persistent records.
 Never write raw string keys. Every key must have a documented owner and TTL policy.
 
 ### Category 1 — Market Data Cache
-Short-lived price snapshots. Written by PricePoller, read by any service needing
-current prices. Expires automatically so stale prices are never used.
+Price snapshots. Written by PricePoller, read by any service needing current
+prices. The TTL MUST exceed the longest poll interval (STOCK_POLL_INTERVAL_SECONDS
+= 60s) or the cache empties between polls (blank/stale stock prices on the
+dashboard); 150s survives one missed poll with margin. NOTE: the buy/sell momentum
+delta is NOT derived from this cache — the poller keeps its own in-memory
+prev-price anchor (a cache-derived prev expired before each read and pinned pct
+to 0; see docs/troubleshooting/price-poller.md).
 
 | Constant | Key Pattern | TTL | Owner |
 |----------|------------|-----|-------|
-| `REDIS_KEY_PRICES` | `prices:{symbol}` | 30s | PricePoller |
+| `REDIS_KEY_PRICES` | `prices:{symbol}` | 150s (must exceed poll interval) | PricePoller |
 
 **Fallback if absent:** Return `None`; callers skip the operation gracefully.
 
