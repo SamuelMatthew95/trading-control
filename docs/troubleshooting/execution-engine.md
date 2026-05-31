@@ -1,5 +1,15 @@
 # Execution Engine Troubleshooting
 
+## Normal (Kelly-sized) BUYs had no pre-trade position cap
+
+**Symptom:** A buggy or hallucinated `SIZE_PCT` (Kelly fraction) from `ReasoningAgent` could open an arbitrarily large long position. The pre-trade size caps (`MAX_SYMBOL_EXPOSURE`, `MAX_OPEN_POSITION_QTY`) were enforced only on *fallback* signals; normal Kelly-sized BUYs went to the broker with no upper bound. (SELLs were already bounded by `reject_unmatched_sell` + the oversell clamp.)
+
+**Root cause:** `_apply_kelly_sizing()` returns `SIZE_PCT × portfolio / price` with no clamp, and the normal execution path had no symmetric overbuy guard to match the SELL oversell clamp.
+
+**Fix:** Added `clamp_buy_to_position_limit()` (`api/services/execution/position_math.py`) and applied it in both execution paths (`_process_with_db`, `_process_in_memory`) right after the oversell clamp: a BUY is clamped so the resulting long never exceeds `min(MAX_SYMBOL_EXPOSURE, MAX_OPEN_POSITION_QTY)`; an order already at the cap is rejected (`execution_buy_rejected_position_limit`), and an oversized one is reduced (`execution_buy_qty_clamped_to_position_limit`). Short-covering up to the cap passes through.
+
+**Regression test:** `tests/core/test_position_limit_clamp.py::test_huge_buy_from_flat_is_clamped_to_cap`
+
 ## Score parsing — `"n/a"` sends decisions to DLQ
 
 **Symptom:** Hold decisions from `ReasoningAgent` land in the dead-letter queue instead of producing an idle heartbeat.

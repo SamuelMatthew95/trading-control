@@ -1170,6 +1170,7 @@ SOURCE_NOTIFICATION: Final[str] = "notification_agent"
 SOURCE_DB_HELPERS: Final[str] = "db_helpers"
 SOURCE_SUPERVISOR: Final[str] = "agent_supervisor"
 SOURCE_PROPOSAL_APPLIER: Final[str] = "proposal_applier"
+SOURCE_RISK_GUARDIAN: Final[str] = "risk_guardian"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"

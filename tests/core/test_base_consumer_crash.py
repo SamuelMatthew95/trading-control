@@ -280,3 +280,94 @@ def test_agent_supervisor_restart_is_rate_limited():
     asyncio.run(_run_checks())
 
     assert agent.start.await_count == SUPERVISOR_MAX_RESTARTS_PER_WINDOW
+
+
+# ---------------------------------------------------------------------------
+# RiskGuardian / AgentSupervisor uniform-interface tests
+# ---------------------------------------------------------------------------
+#
+# RiskGuardian and AgentSupervisor are background-task agents (not stream
+# consumers). They must expose the same `name` / `has_crashed` introspection the
+# supervisor reads, so RiskGuardian can be monitored uniformly alongside the
+# stream agents — the stop-loss / daily-loss monitor must be restarted if its
+# task ever dies. Before this fix RiskGuardian was started but never supervised.
+
+
+def test_risk_guardian_exposes_supervisor_interface():
+    """RiskGuardian must expose name + has_crashed so AgentSupervisor can iterate
+    it without AttributeError. has_crashed is False before the task starts."""
+    from unittest.mock import MagicMock
+
+    from api.services.agents.risk_guardian import RiskGuardian
+
+    rg = RiskGuardian(MagicMock(), MagicMock())
+
+    assert rg.name == "risk_guardian"
+    assert hasattr(rg, "has_crashed")
+    assert not rg.has_crashed, "has_crashed must be False before the task is started"
+
+
+@pytest.mark.asyncio
+async def test_risk_guardian_has_crashed_true_after_task_dies():
+    """has_crashed flips True when the background task finishes with an exception,
+    so AgentSupervisor can detect and restart a dead RiskGuardian."""
+    from unittest.mock import MagicMock
+
+    from api.services.agents.risk_guardian import RiskGuardian
+
+    rg = RiskGuardian(MagicMock(), MagicMock())
+
+    async def _boom() -> None:
+        raise RuntimeError("risk_guardian_died")
+
+    rg._task = asyncio.ensure_future(_boom())
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+        if rg._task.done():
+            break
+
+    assert rg._task.done() and not rg._task.cancelled()
+    assert rg.has_crashed, "supervisor relies on has_crashed to restart a dead RiskGuardian"
+
+
+def test_agent_supervisor_exposes_uniform_interface():
+    """AgentSupervisor exposes the same name + has_crashed interface as the agents
+    it supervises (uniformity); has_crashed is False before its task starts."""
+    from unittest.mock import MagicMock
+
+    from api.services.agent_supervisor import AgentSupervisor
+
+    supervisor = AgentSupervisor(MagicMock(), [])
+
+    assert supervisor.name == "agent_supervisor"
+    assert not supervisor.has_crashed
+
+
+def test_agent_supervisor_iterates_list_including_risk_guardian():
+    """_check_health() must not raise when the supervised list contains a real
+    RiskGuardian — the regression guard for 'RiskGuardian not monitored'."""
+    from unittest.mock import MagicMock
+
+    from api.services.agent_supervisor import AgentSupervisor
+    from api.services.agents.risk_guardian import RiskGuardian
+
+    rg = RiskGuardian(MagicMock(), MagicMock())
+    supervisor = AgentSupervisor(MagicMock(), [rg])
+
+    asyncio.run(supervisor._check_health())  # must not raise
+
+
+def test_startup_wires_risk_guardian_into_supervisor():
+    """startup must pass RiskGuardian into AgentSupervisor so it is monitored.
+    Source-level guard against reverting to AgentSupervisor(event_bus, agents)."""
+    import re
+    from pathlib import Path
+
+    startup_src = (Path(__file__).resolve().parents[2] / "api" / "startup.py").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"AgentSupervisor\((.*?)\)", startup_src, re.DOTALL)
+    assert match is not None, "AgentSupervisor construction not found in startup.py"
+    assert "risk_guardian" in match.group(1), (
+        "AgentSupervisor must be constructed with risk_guardian in its supervised list"
+    )

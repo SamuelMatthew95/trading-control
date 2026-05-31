@@ -8,6 +8,7 @@ Regression coverage for:
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -101,3 +102,50 @@ def test_transform_market_event_flat_payload_with_symbol(broadcaster: WebSocketB
     assert result is not None
     assert result[FieldName.TYPE] == "price_update"
     assert result[FieldName.SYMBOL] == "SOL/USD"
+
+
+# ---------------------------------------------------------------------------
+# broadcast() — zero-connection guard (don't broadcast into the void)
+# ---------------------------------------------------------------------------
+
+
+async def test_broadcast_noop_when_no_connections(
+    broadcaster: WebSocketBroadcaster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With zero connected clients, broadcast() must short-circuit: no send loop
+    and — critically — no `websocket_broadcast` log line. Before the guard, an
+    idle (no-browser) deployment logged `active_connections=0` for every Redis
+    stream message, spamming logs and serializing payloads for nobody."""
+    logged: list[str] = []
+    monkeypatch.setattr(
+        "api.services.websocket_broadcaster.log_structured",
+        lambda level, event, **kw: logged.append(event),
+    )
+
+    assert broadcaster.active_connections == 0
+    await broadcaster.broadcast({FieldName.TYPE: "price_update", FieldName.SYMBOL: "BTC/USD"})
+
+    assert "websocket_broadcast" not in logged
+    assert broadcaster.messages_sent == 0
+
+
+async def test_broadcast_sends_and_logs_when_client_connected(
+    broadcaster: WebSocketBroadcaster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard must not regress the normal path: with a client attached,
+    broadcast() still sends the payload and emits the `websocket_broadcast` log."""
+    logged: list[str] = []
+    monkeypatch.setattr(
+        "api.services.websocket_broadcaster.log_structured",
+        lambda level, event, **kw: logged.append(event),
+    )
+
+    client = AsyncMock()
+    broadcaster._connections.add(client)
+
+    payload = {FieldName.TYPE: "price_update", FieldName.SYMBOL: "BTC/USD"}
+    await broadcaster.broadcast(payload)
+
+    client.send_json.assert_awaited_once_with(payload)
+    assert "websocket_broadcast" in logged
+    assert broadcaster.messages_sent == 1

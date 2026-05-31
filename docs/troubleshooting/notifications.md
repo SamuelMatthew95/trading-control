@@ -47,8 +47,21 @@ Note: notification delivery and PnL summary charts are separate paths. A notific
 
 ---
 
+## WebSocket broadcaster logged into the void with zero clients connected
+
+**Symptom:** Logs repeatedly show `websocket_broadcast` with `"active_connections": 0` while the pipeline is otherwise healthy — the backend "broadcasts" every Redis stream message even though no browser/dashboard is attached. (The `active_connections: 0` is expected when no client is connected; the wasted work + log spam is the actual issue.)
+
+**Root cause:** `WebSocketBroadcaster.broadcast()` had no zero-client guard. With no connections it still extracted payload fields, iterated an (empty) connection set, and emitted the per-message `websocket_broadcast` log. The sibling `_agent_status_push_loop` already guarded (`if not self._connections: continue`); the broadcast path did not.
+
+**Fix:** Early-return at the top of `broadcast()` when `self._connections` is empty (`api/services/websocket_broadcaster.py`). The dashboard `xread` loop keeps running so the stream cursor stays warm — the next client to connect immediately receives live data.
+
+**Regression test:** `tests/core/test_websocket_broadcaster.py::test_broadcast_noop_when_no_connections`
+
+---
+
 ## Regression tests
 
 - `tests/core/test_websocket_notifications_regression.py`
 - `tests/agents/test_notification_agent.py`
 - `tests/core/test_websocket_stream_offsets.py::test_websocket_stream_offsets_match_supported_streams`
+- `tests/core/test_websocket_broadcaster.py::test_broadcast_noop_when_no_connections`

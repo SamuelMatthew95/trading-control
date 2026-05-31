@@ -5,9 +5,22 @@ No async, no logging, no IO — fully testable without mocking.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from api.constants import FieldName, OrderSide, PositionSide
+
+
+def _side_str(raw: Any) -> str:
+    """Normalize a position/order side to its lowercase string value.
+
+    Robust across the 3.10 StrEnum compat shim (where str(PositionSide.LONG) is
+    "PositionSide.LONG") and native 3.11 StrEnum ("long"): an enum member
+    resolves via .value; a raw string passes through.
+    """
+    if isinstance(raw, Enum):
+        raw = raw.value
+    return str(raw or "").strip().lower()
 
 
 def compute_realized_pnl(
@@ -20,7 +33,7 @@ def compute_realized_pnl(
 
     Returns 0.0 when the order opens or adds to a position.
     """
-    prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
+    prior_side = _side_str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT)
     prior_entry = float(prior_position.get(FieldName.ENTRY_PRICE) or fill_price)
     prior_qty = float(prior_position.get(FieldName.QTY) or 0)
 
@@ -65,7 +78,7 @@ def compute_pnl_percent(
 
 def is_round_trip_close(prior_position: dict[str, Any], side: str, qty: float) -> bool:
     """Return True if this order closes (or partially closes) an existing position."""
-    prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
+    prior_side = _side_str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT)
     prior_qty = float(prior_position.get(FieldName.QTY) or 0)
     if prior_qty <= 0:
         return False
@@ -80,9 +93,43 @@ def reject_unmatched_sell(side: str, prior_position: dict[str, Any]) -> bool:
     """Return True if this is a SELL with no open long position to close."""
     if side not in (OrderSide.SELL, PositionSide.SHORT):
         return False
-    prior_side = str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT).lower()
+    prior_side = _side_str(prior_position.get(FieldName.SIDE) or PositionSide.FLAT)
     prior_qty = float(prior_position.get(FieldName.QTY) or 0)
     return not (prior_side == PositionSide.LONG and prior_qty > 0)
+
+
+def signed_position_qty(position: dict[str, Any] | None) -> float:
+    """Signed position size: long > 0, short < 0, flat / None == 0."""
+    if not isinstance(position, dict):
+        return 0.0
+    qty = position.get(FieldName.QTY, position.get(FieldName.QUANTITY))
+    try:
+        qty_value = float(qty or 0.0)
+    except (TypeError, ValueError):
+        qty_value = 0.0
+    side = _side_str(position.get(FieldName.SIDE))
+    if side in {"short", "sell", "sold"}:
+        return -abs(qty_value)
+    if side in {"long", "buy", "bought"}:
+        return abs(qty_value)
+    return qty_value
+
+
+def clamp_buy_to_position_limit(
+    prior_position: dict[str, Any] | None, qty: float, max_position_qty: float
+) -> float:
+    """Clamp a BUY so the resulting long position never exceeds ``max_position_qty``.
+
+    The pre-trade size bound for BUYs, mirroring the oversell clamp for SELLs:
+    it stops an oversized / hallucinated qty (e.g. a runaway Kelly SIZE_PCT)
+    from opening an unbounded long. Short-covering up to the limit passes through
+    unchanged. Returns the (possibly reduced) qty; ``0.0`` means the position is
+    already at/above the limit and the caller must reject the order.
+    """
+    room = max_position_qty - signed_position_qty(prior_position)
+    if room <= 0:
+        return 0.0
+    return min(qty, room)
 
 
 def apply_signed_delta(
@@ -100,11 +147,9 @@ def apply_signed_delta(
     The caller is responsible for writing this to the store or DB.
     """
     signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
+    existing_side = _side_str(existing_pos.get(FieldName.SIDE, PositionSide.LONG))
     existing_signed = float(existing_pos.get(FieldName.QTY, 0)) * (
-        1
-        if str(existing_pos.get(FieldName.SIDE, PositionSide.LONG)).lower()
-        in {PositionSide.LONG, OrderSide.BUY}
-        else -1
+        1 if existing_side in {PositionSide.LONG, OrderSide.BUY} else -1
     )
     new_signed = existing_signed + signed_qty
     new_abs_qty = abs(new_signed)

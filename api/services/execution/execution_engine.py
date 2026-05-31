@@ -83,10 +83,12 @@ from api.services.execution.order_writer import (
 )
 from api.services.execution.position_math import (
     apply_signed_delta,
+    clamp_buy_to_position_limit,
     compute_pnl_percent,
     compute_realized_pnl,
     is_round_trip_close,
     reject_unmatched_sell,
+    signed_position_qty,
 )
 from api.services.market_status import get_market_status
 from api.services.risk_filters import is_cooling_off
@@ -299,6 +301,36 @@ class ExecutionEngine(BaseStreamConsumer):
                             trace_id=trace_id,
                         )
                         qty = prior_qty
+
+                # Clamp overbuy: never let a BUY push the resulting long position
+                # past the per-symbol exposure cap. The pre-trade size bound for
+                # BUYs (mirrors the oversell clamp above) — without it a runaway or
+                # hallucinated Kelly SIZE_PCT could open an unbounded position.
+                if side in (OrderSide.BUY, PositionSide.LONG):
+                    max_position = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)
+                    capped_qty = clamp_buy_to_position_limit(prior_position, qty, max_position)
+                    if capped_qty <= 0:
+                        log_structured(
+                            "warning",
+                            "execution_buy_rejected_position_limit",
+                            symbol=symbol,
+                            requested_qty=qty,
+                            max_position_qty=max_position,
+                            current_position_qty=signed_position_qty(prior_position),
+                            trace_id=trace_id,
+                        )
+                        return
+                    if capped_qty < qty:
+                        log_structured(
+                            "warning",
+                            "execution_buy_qty_clamped_to_position_limit",
+                            symbol=symbol,
+                            requested_qty=qty,
+                            clamped_qty=capped_qty,
+                            max_position_qty=max_position,
+                            trace_id=trace_id,
+                        )
+                        qty = capped_qty
 
                 # Compute VWAP plan after oversell clamping so the slicing plan
                 # reflects the actual executed quantity, not the requested qty.
@@ -761,6 +793,36 @@ class ExecutionEngine(BaseStreamConsumer):
                     )
                     qty = prior_qty
 
+            # Clamp overbuy: never let a BUY push the resulting long position
+            # past the per-symbol exposure cap. The pre-trade size bound for
+            # BUYs (mirrors the oversell clamp above) — without it a runaway or
+            # hallucinated Kelly SIZE_PCT could open an unbounded position.
+            if side in (OrderSide.BUY, PositionSide.LONG):
+                max_position = min(settings.MAX_SYMBOL_EXPOSURE, settings.MAX_OPEN_POSITION_QTY)
+                capped_qty = clamp_buy_to_position_limit(prior_position, qty, max_position)
+                if capped_qty <= 0:
+                    log_structured(
+                        "warning",
+                        "execution_buy_rejected_position_limit",
+                        symbol=symbol,
+                        requested_qty=qty,
+                        max_position_qty=max_position,
+                        current_position_qty=signed_position_qty(prior_position),
+                        trace_id=trace_id,
+                    )
+                    return
+                if capped_qty < qty:
+                    log_structured(
+                        "warning",
+                        "execution_buy_qty_clamped_to_position_limit",
+                        symbol=symbol,
+                        requested_qty=qty,
+                        clamped_qty=capped_qty,
+                        max_position_qty=max_position,
+                        trace_id=trace_id,
+                    )
+                    qty = capped_qty
+
             # Compute VWAP plan after oversell clamping so the slicing plan
             # reflects the actual executed quantity, not the requested qty.
             vwap_plan = self._build_vwap_plan(qty)
@@ -1003,19 +1065,7 @@ class ExecutionEngine(BaseStreamConsumer):
 
     @staticmethod
     def _signed_position_qty(position: dict[str, Any] | None) -> float:
-        if not isinstance(position, dict):
-            return 0.0
-        qty = position.get(FieldName.QTY, position.get(FieldName.QUANTITY))
-        try:
-            qty_value = float(qty or 0.0)
-        except (TypeError, ValueError):
-            qty_value = 0.0
-        side = str(position.get(FieldName.SIDE) or "").strip().lower()
-        if side in {"short", "sell", "sold"}:
-            return -abs(qty_value)
-        if side in {"long", "buy", "bought"}:
-            return abs(qty_value)
-        return qty_value
+        return signed_position_qty(position)
 
     @staticmethod
     def _extract_scores(data: dict[str, Any]) -> tuple[float, float]:

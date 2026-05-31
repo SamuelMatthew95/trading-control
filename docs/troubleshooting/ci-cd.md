@@ -15,3 +15,13 @@ use the same linter version.
 
 **Regression test:** CI `Lint (ruff)` step — passes without modifications on every
 push once the version is pinned.
+
+## Deprecated SQLAlchemy `declarative_base` import path
+
+**Symptom:** `MovedIn20Warning` emitted on import — `from sqlalchemy.ext.declarative import declarative_base` is deprecated and slated for removal in a future SQLAlchemy release.
+
+**Root cause:** `api/core/models/base.py` used the pre-2.0 import path. (`api/database.py` already imported from the correct location, so only this one module was affected.)
+
+**Fix:** Import from the 2.0 location — `from sqlalchemy.orm import declarative_base` (`api/core/models/base.py:6`).
+
+**Regression test:** `tests/core/test_sqlalchemy_import_guardrail.py::test_no_deprecated_declarative_base_import`

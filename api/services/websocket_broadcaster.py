@@ -405,6 +405,15 @@ class WebSocketBroadcaster:
         )
 
     async def broadcast(self, data: dict[str, Any]) -> None:
+        # No clients attached → nothing to send. Skip the send loop and the
+        # per-message `websocket_broadcast` log so an idle (no-browser)
+        # deployment doesn't serialize payloads or spam logs with
+        # active_connections=0. The dashboard xread loop keeps running, so the
+        # stream cursor stays warm and the next client to connect immediately
+        # receives live data.
+        if not self._connections:
+            return
+
         msg_id = str(data.get(FieldName.MSG_ID, "none"))
         event_type = str(data.get(FieldName.EVENT_TYPE, data.get(FieldName.TYPE, "unknown")))
         ts = str(data.get(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat()))
