@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('@/lib/apiClient', () => ({
-  API_ENDPOINTS: { DASHBOARD_PROMPT_OS: '/dashboard/prompt-os' },
+  API_ENDPOINTS: { DASHBOARD_PROMPT_OS: '/dashboard/prompt-os', LLM_HEALTH: '/llm/health' },
   apiFetch: vi.fn(),
 }))
 
@@ -90,5 +90,19 @@ describe('LiveReasoningPanel', () => {
     mockApiFetch.mockRejectedValue(new Error('network'))
     render(<LiveReasoningPanel />)
     await waitFor(() => expect(screen.getByText(/err: network/)).toBeInTheDocument())
+  })
+
+  it('surfaces an LLM-down indicator and fallback banner when the provider is unhealthy', async () => {
+    mockApiFetch.mockImplementation((url: string) =>
+      Promise.resolve(url === '/llm/health' ? { status: 'down' } : PAYLOAD),
+    )
+    render(<LiveReasoningPanel />)
+
+    // Strategy still renders (the prompt/tools below are unchanged) ...
+    expect(await screen.findByText('get_ic_weights')).toBeInTheDocument()
+    // ... but the header dot no longer claims a healthy "live" state, and the
+    // banner explains the decisions are currently rule-based fallbacks.
+    await waitFor(() => expect(screen.getByText(/LLM down/)).toBeInTheDocument())
+    expect(screen.getByText(/rule-based fallbacks/)).toBeInTheDocument()
   })
 })
