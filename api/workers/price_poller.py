@@ -174,33 +174,36 @@ def _compute_symbol_payload(symbol: str, current_price: float, prev_data: dict |
 
 
 async def build_symbol_payload(redis_client, symbol: str, current_price: float) -> dict:
-    """Single-symbol payload (one GET).
+    """Single-symbol payload for ad-hoc/direct lookups (one GET against the cache).
 
-    Retained for direct callers/tests; the poll loop uses the batched
-    build_symbol_payloads() so a cycle is one MGET, not one GET per symbol.
+    Retained for direct callers/tests only. The poll loop does NOT use this — it
+    computes change/pct from its own in-memory previous-price anchor
+    (``_PollerState.last_prices``) via :func:`build_symbol_payloads`, because the
+    Redis price cache TTL is shorter than the poll interval and so always misses.
     """
     prev_raw = await redis_client.get(REDIS_KEY_PRICES.format(symbol=symbol))
     prev_data = json.loads(prev_raw) if prev_raw else None
     return _compute_symbol_payload(symbol, current_price, prev_data)
 
 
-async def build_symbol_payloads(redis_client, prices: dict[str, float]) -> list[dict]:
-    """Batched payload build for a whole poll cycle.
+def build_symbol_payloads(prices: dict[str, float], prev_prices: dict[str, float]) -> list[dict]:
+    """Build a payload per symbol for a poll cycle, deriving change/pct from ``prev_prices``.
 
-    Replaces the per-symbol GET — an N+1 against Redis that drove the connection
-    pool to exhaustion under load (incident: ConnectionError 'Too many
-    connections', build_symbol_payload → ConnectionPool.get_connection) — with a
-    SINGLE MGET round-trip for every symbol's previous snapshot.
+    ``prev_prices`` is the poll loop's own in-memory previous-price map
+    (``_PollerState.last_prices``) — NOT the Redis price cache. Reading the prev
+    price from the cache is a bug: the cache TTL (REDIS_PRICES_TTL_SECONDS) is
+    shorter than the poll interval, so the previous entry has always expired by
+    the next read, which pins pct to 0.0 and starves the momentum signal (every
+    move looks like no move → NEUTRAL/LOW → hold → no buys). Pure — no IO, so a
+    poll cycle reads Redis zero times for the delta (better than the old MGET).
     """
     if not prices:
         return []
-    symbols = list(prices.keys())
-    keys = [REDIS_KEY_PRICES.format(symbol=s) for s in symbols]
-    prev_raws = await redis_client.mget(keys)
     payloads: list[dict] = []
-    for symbol, prev_raw in zip(symbols, prev_raws, strict=False):
-        prev_data = json.loads(prev_raw) if prev_raw else None
-        payloads.append(_compute_symbol_payload(symbol, prices[symbol], prev_data))
+    for symbol, current_price in prices.items():
+        prev = prev_prices.get(symbol)
+        prev_data = {FieldName.PRICE: prev} if prev else None
+        payloads.append(_compute_symbol_payload(symbol, current_price, prev_data))
     return payloads
 
 
@@ -355,7 +358,16 @@ def _open_circuit(consecutive_failures: int) -> float:
 
 @dataclass
 class _PollerState:
-    """Mutable state carried across poll cycles (client + circuit breaker)."""
+    """Mutable state carried across poll cycles (client + circuit breaker).
+
+    ``last_prices`` is the poll loop's authoritative previous-price map, used as
+    the delta anchor for change/pct. It deliberately does NOT come from the Redis
+    price cache: that cache's TTL (REDIS_PRICES_TTL_SECONDS = 30s) is <= the poll
+    interval (crypto 30s, stocks 60s) and the inter-cycle sleep happens AFTER the
+    write, so a cache-derived prev has always expired by the next read — which
+    pinned pct to 0.0, classified every signal NEUTRAL/LOW, and made the momentum
+    (buy/sell) path unreachable. This in-memory anchor lives for the whole process.
+    """
 
     client: httpx.AsyncClient
     consecutive_failures: int = 0
@@ -363,6 +375,7 @@ class _PollerState:
     last_fetch: dict[str, float] = field(
         default_factory=lambda: {FieldName.CRYPTO: 0.0, FieldName.STOCKS: 0.0}
     )
+    last_prices: dict[str, float] = field(default_factory=dict)
 
 
 async def _run_poll_cycle(
@@ -462,8 +475,16 @@ async def _run_poll_cycle(
 
     state.consecutive_failures = 0  # any success resets the counter
 
-    # ONE Redis MGET for all previous snapshots (was an N+1 of per-symbol GETs).
-    payloads = await build_symbol_payloads(redis_client, all_prices)
+    # Derive change/pct against the poller's OWN previous-price memory, not the
+    # Redis price cache. The cache (REDIS_PRICES_TTL_SECONDS = 30s) expires before
+    # the next poll reads it (crypto 30s / stocks 60s intervals, with the sleep
+    # AFTER the write), so a cache-derived prev was always missing → pct pinned to
+    # 0.0 → every signal NEUTRAL/LOW → hold → no buys ever. The in-memory anchor
+    # lives for the whole process, so deltas are correct from the second cycle on.
+    payloads = build_symbol_payloads(all_prices, state.last_prices)
+    # Advance the anchor AFTER building payloads so this cycle's delta is measured
+    # against the prior cycle's price; the next cycle measures against this one.
+    state.last_prices.update(all_prices)
     await asyncio.gather(
         publish_to_redis(redis_client, payloads),
         flush_to_db(payloads),
