@@ -83,3 +83,15 @@
 **Fix:** Added the `proposals/page.tsx` route (renders `<DashboardView section="proposals" />`) and a "Proposals" nav link, so the existing data path now has a visible destination.
 
 **Operator check:** `/dashboard/proposals` loads and shows pending proposals with Approve/Reject buttons; empty state reads "No proposals yet — they arrive from the ReflectionAgent".
+
+---
+
+## Learning-events panel shows every grade 2-3x in memory mode
+
+**Symptom:** With `USE_MEMORY_MODE=true` (or Postgres down), the dashboard's learning-events / grade feed shows each grade duplicated two or three times — and the duplicates disagree (one row has the letter grade, another has `grade: null`; scores differ in scale).
+
+**Root cause:** `InMemoryStore.add_grade()` had no dedup, but the same grade reaches `grade_history` up to three times in memory mode: `GradeAgent` calls both `write_agent_log(LogType.GRADE, …)` and `write_grade_to_db(…)` (each routes to `add_grade`), and then the `EventPipeline` re-delivers the same grade from `STREAM_AGENT_GRADES` and calls `add_grade` again (`api/services/persistence_routing.py::write_event_to_memory`).
+
+**Fix:** `add_grade` now dedups by `trace_id` (`api/in_memory_store.py`): a re-delivered grade merges into the first row (existing values win, new fields like `self_correction` fill in) so one enriched grade survives. Challenger grades carry no `trace_id`, so they always append and are never collapsed together.
+
+**Regression test:** `tests/agents/test_in_memory_persistence.py::test_add_grade_dedups_same_trace_id`, `tests/agents/test_in_memory_persistence.py::test_add_grade_without_trace_id_always_appends`
