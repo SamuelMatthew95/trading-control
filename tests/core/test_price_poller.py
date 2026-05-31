@@ -465,43 +465,34 @@ def test_due_classes_crypto_due_stock_not_yet():
 
 
 # ---------------------------------------------------------------------------
-# build_symbol_payloads — single MGET (the N+1 fix)
+# build_symbol_payloads — pure delta against the in-memory prev-price anchor
 # ---------------------------------------------------------------------------
 
 
-async def test_build_symbol_payloads_computes_change_from_prev(redis):
-    await redis.set(
-        "prices:BTC/USD", json.dumps({"price": 40000.0, "change": 0, "pct": 0, "ts": 0})
-    )
-    payloads = await build_symbol_payloads(redis, {"BTC/USD": 42000.0, "ETH/USD": 3000.0})
+def test_build_symbol_payloads_computes_change_from_prev():
+    payloads = build_symbol_payloads({"BTC/USD": 42000.0, "ETH/USD": 3000.0}, {"BTC/USD": 40000.0})
     by_symbol = {p["symbol"]: p for p in payloads}
     assert by_symbol["BTC/USD"]["change"] == 2000.0
-    assert by_symbol["ETH/USD"]["change"] == 0.0  # no prior snapshot
+    assert abs(by_symbol["BTC/USD"]["pct"] - 5.0) < 0.01
+    assert by_symbol["ETH/USD"]["change"] == 0.0  # no prior price → first-tick zero
+    assert by_symbol["ETH/USD"]["pct"] == 0.0
 
 
-async def test_build_symbol_payloads_uses_one_mget(redis, monkeypatch):
-    """All previous snapshots are read in a SINGLE round-trip, not one GET each."""
-    calls = {"mget": 0, "get": 0}
-    orig_mget = redis.mget
-    orig_get = redis.get
-
-    async def spy_mget(keys, *a):
-        calls["mget"] += 1
-        return await orig_mget(keys, *a)
-
-    async def spy_get(key, *a):
-        calls["get"] += 1
-        return await orig_get(key, *a)
-
-    monkeypatch.setattr(redis, "mget", spy_mget)
-    monkeypatch.setattr(redis, "get", spy_get)
-    await build_symbol_payloads(redis, {"BTC/USD": 1.0, "ETH/USD": 2.0, "SOL/USD": 3.0})
-    assert calls["mget"] == 1
-    assert calls["get"] == 0  # never a per-symbol GET
+def test_build_symbol_payloads_anchor_is_prev_map_not_redis_cache():
+    """REGRESSION (no-buys bug): the delta anchor is the explicit prev-price map,
+    never the short-TTL Redis cache. A whole cycle computes pct with zero Redis
+    reads, so an expired/empty cache can no longer pin pct to 0 and starve the
+    momentum (buy/sell) signal."""
+    # prev supplied in-memory → real delta even with nothing in any cache.
+    moved = build_symbol_payloads({"BTC/USD": 51000.0}, {"BTC/USD": 50000.0})
+    assert moved[0]["pct"] == pytest.approx(2.0, abs=0.01)
+    assert moved[0]["change"] == pytest.approx(1000.0)
+    # absent prev → first-tick zero (one cycle only), not a crash.
+    assert build_symbol_payloads({"BTC/USD": 51000.0}, {})[0]["pct"] == 0.0
 
 
-async def test_build_symbol_payloads_empty_returns_empty(redis):
-    assert await build_symbol_payloads(redis, {}) == []
+def test_build_symbol_payloads_empty_returns_empty():
+    assert build_symbol_payloads({}, {}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +543,39 @@ async def test_run_poll_cycle_circuit_open_does_no_work(redis, monkeypatch):
     state = _PollerState(client=MagicMock(), circuit_open_until=time.monotonic() + 999)
     await _run_poll_cycle(state, redis, _market(True), 30, 60)
     crypto_mock.assert_not_awaited()
+
+
+async def test_run_poll_cycle_pct_survives_expired_cache(redis, monkeypatch):
+    """REGRESSION (the 'no buys ever' bug): pct must be derived from the poller's
+    own in-memory anchor (_PollerState.last_prices), so a price move yields a
+    non-zero pct on the next cycle EVEN WHEN the Redis price cache entry has
+    expired (REDIS_PRICES_TTL_SECONDS < poll interval).
+
+    Before the fix, prev was read from the expiring cache → prev always missing →
+    pct pinned to 0.0 → every signal classified NEUTRAL/LOW → 'hold' forever →
+    no buys and a permanently starved learning loop (Grade/IC/Reflection/etc).
+    """
+    fetch = AsyncMock(side_effect=[{"BTC/USD": 50000.0}, {"BTC/USD": 51000.0}])
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", fetch)
+    state = _PollerState(client=MagicMock())
+
+    # Cycle 1 — first observation, pct=0 (no prior anchor yet).
+    await _run_poll_cycle(state, redis, _market(False), crypto_interval=30, stock_interval=60)
+    assert state.last_prices["BTC/USD"] == 50000.0
+
+    # Simulate the cache TTL expiring before the next poll, and make crypto due again.
+    await redis.delete("prices:BTC/USD")
+    state.last_fetch[FieldName.CRYPTO] = 0.0
+
+    # Cycle 2 — price moved +2%; pct must come from the anchor, not the (gone) cache.
+    await _run_poll_cycle(state, redis, _market(False), crypto_interval=30, stock_interval=60)
+
+    messages = await redis.xread({"market_events": "0-0"}, count=10)
+    _stream, entries = messages[0]
+    last_payload = json.loads(entries[-1][1]["payload"])
+    assert last_payload["symbol"] == "BTC/USD"
+    assert last_payload["pct"] == pytest.approx(2.0, abs=0.01)
+    assert last_payload["change"] == pytest.approx(1000.0)
 
 
 async def test_run_poll_cycle_recreates_client_on_ssl_eof(redis, monkeypatch):
