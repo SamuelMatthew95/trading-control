@@ -150,8 +150,15 @@ class EventBus:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
-    async def publish(self, stream: str, event: dict[str, Any], maxlen: int | None = None) -> str:
-        """Publish event to Redis stream with schema version."""
+    async def publish(
+        self, stream: str, event: dict[str, Any], maxlen: int | None = None
+    ) -> str | None:
+        """Publish event to Redis stream with schema version.
+
+        Returns the Redis message id on success, or ``None`` when the publish
+        is swallowed (Redis connection/timeout error or any other failure) so
+        callers can detect a dropped publish instead of trusting a bogus id.
+        """
         # Bug fix: always include schema_version so consumer never sends to DLQ
         event.setdefault(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION)
         event.setdefault(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat())
