@@ -72,17 +72,56 @@ shared client/pool itself was fine — the problem was the per-symbol fan-out of
 reads, amplified by an over-aggressive 5 s cadence.
 
 **Fix:** `api/workers/price_poller.py`
-- New `build_symbol_payloads()` reads every symbol's previous snapshot in a
-  **single `MGET`** round-trip instead of one `GET` each. `build_symbol_payload()`
-  (single-symbol) is retained for callers/tests and shares a pure
-  `_compute_symbol_payload()` helper.
+- `build_symbol_payloads()` builds every symbol's payload in one pass.
+  `build_symbol_payload()` (single-symbol) is retained for callers/tests and
+  shares a pure `_compute_symbol_payload()` helper.
 - Cadence is now per asset class and far less aggressive
   (`CRYPTO_POLL_INTERVAL_SECONDS=30`, `STOCK_POLL_INTERVAL_SECONDS=60`), cutting
   baseline Redis traffic ~6–12×.
 
+> **Superseded (see "Every decision `hold`" below):** the previous-price read no
+> longer touches Redis at all — `build_symbol_payloads()` now takes an explicit
+> in-memory `prev_prices` map (`_PollerState.last_prices`), so a poll cycle does
+> **zero** Redis reads for the delta (strictly better than the MGET this entry
+> introduced, and it fixes the pct=0 bug that MGET-from-cache caused).
+
 **Regression tests:**
-- `tests/core/test_price_poller.py::test_build_symbol_payloads_uses_one_mget`
 - `tests/core/test_price_poller.py::test_build_symbol_payloads_computes_change_from_prev`
+- `tests/core/test_price_poller.py::test_build_symbol_payloads_anchor_is_prev_map_not_redis_cache`
+
+## Every decision is `hold` — no buys/sells ever, learning loop starved (pct pinned to 0)
+
+**Symptom:** The dashboard agent matrix shows the whole downstream pipeline stuck
+at 0 events — `GRADE_AGENT`, `IC_UPDATER`, `REFLECTION_AGENT`, `STRATEGY_PROPOSER`,
+`CHALLENGER_AGENT`, `PROPOSAL_APPLIER` never increment. Every decision in
+`decisions:recent` is `action="hold"` with `confidence=0.30` ("low momentum"),
+across *all* symbols (crypto **and** stocks). `executions`, `trade_performance`,
+`trade_completed`, `agent_grades`, `reflection_outputs` streams are all empty.
+No buy or sell is ever placed even though prices clearly move.
+
+**Root cause:** `pct` (the bar-to-bar % move that *is* the buy/sell/hold decision
+in `classify_signal`) was computed against a previous price read back from the
+Redis price cache `prices:{symbol}`, written with `ex=REDIS_PRICES_TTL_SECONDS`
+(30 s). But the poll interval is **≥** that TTL (crypto 30 s, stocks 60 s) and the
+inter-cycle `sleep` happens **after** the write — so the previous entry had always
+expired by the next read. `prev_raw` was therefore always `None` → `change=0.0`,
+`pct=0.0` every cycle. With `pct=0`, `classify_signal` returns `direction=NEUTRAL`,
+`strength=LOW` → `action="hold"` — *unconditionally*, regardless of real price
+movement. The momentum (buy/sell) branch was structurally unreachable, so nothing
+ever flowed past `decisions` into execution and the entire learning loop starved.
+(Stocks made it provable: 60 s interval vs 30 s TTL means the stock prev is *always*
+expired, and indeed every SPY/TSLA/AAPL decision was `hold`/0.30.)
+
+**Fix:** `api/workers/price_poller.py` — the poll loop now derives change/pct from
+its **own in-memory previous-price anchor** (`_PollerState.last_prices`), advanced
+once per cycle, instead of the short-TTL Redis cache. `build_symbol_payloads()` is
+now a pure function taking an explicit `prev_prices` map. The consumer-facing cache
+TTL is unchanged (still the 30 s freshness contract); only the *delta anchor* was
+decoupled from it, so the cache can never again pin pct to 0. First cycle after a
+restart still reports pct=0 for one tick (no anchor yet), then real deltas flow.
+
+**Regression test:**
+`tests/core/test_price_poller.py::test_run_poll_cycle_pct_survives_expired_cache`
 
 ## Stock workers active 24/7 — overnight polling, broadcasts, and SIP 403s
 
