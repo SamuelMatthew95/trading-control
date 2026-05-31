@@ -735,6 +735,7 @@ class FieldName(StrEnum):
     PROCESSING_ATTEMPT = "processing_attempt"
     PROPOSALS = "proposals"
     PROPOSAL_TYPE = "proposal_type"
+    PROPOSED_VALUE = "proposed_value"
     PROVIDER = "provider"
     QTY = "qty"
     QUANTITY = "quantity"
