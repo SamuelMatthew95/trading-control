@@ -85,6 +85,40 @@ def reject_unmatched_sell(side: str, prior_position: dict[str, Any]) -> bool:
     return not (prior_side == PositionSide.LONG and prior_qty > 0)
 
 
+def signed_position_qty(position: dict[str, Any] | None) -> float:
+    """Signed position size: long > 0, short < 0, flat / None == 0."""
+    if not isinstance(position, dict):
+        return 0.0
+    qty = position.get(FieldName.QTY, position.get(FieldName.QUANTITY))
+    try:
+        qty_value = float(qty or 0.0)
+    except (TypeError, ValueError):
+        qty_value = 0.0
+    side = str(position.get(FieldName.SIDE) or "").strip().lower()
+    if side in {"short", "sell", "sold"}:
+        return -abs(qty_value)
+    if side in {"long", "buy", "bought"}:
+        return abs(qty_value)
+    return qty_value
+
+
+def clamp_buy_to_position_limit(
+    prior_position: dict[str, Any] | None, qty: float, max_position_qty: float
+) -> float:
+    """Clamp a BUY so the resulting long position never exceeds ``max_position_qty``.
+
+    The pre-trade size bound for BUYs, mirroring the oversell clamp for SELLs:
+    it stops an oversized / hallucinated qty (e.g. a runaway Kelly SIZE_PCT)
+    from opening an unbounded long. Short-covering up to the limit passes through
+    unchanged. Returns the (possibly reduced) qty; ``0.0`` means the position is
+    already at/above the limit and the caller must reject the order.
+    """
+    room = max_position_qty - signed_position_qty(prior_position)
+    if room <= 0:
+        return 0.0
+    return min(qty, room)
+
+
 def apply_signed_delta(
     existing_pos: dict[str, Any],
     side: str,
