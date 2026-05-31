@@ -26,14 +26,21 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
-from api.constants import FieldName, GradeType
+from api.constants import (
+    PARAM_PR_REQUESTS_SCAN_LIMIT,
+    STREAM_GITHUB_PRS,
+    FieldName,
+    GradeType,
+)
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
+from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agents.trade_scorer import (
     aggregate_model_performance,
     compute_learning_metrics,
 )
+from api.services.param_evolution import validate_param_change
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -801,3 +808,46 @@ async def get_pipeline_status() -> dict[str, Any]:
     except Exception:
         log_structured("error", "learning_pipeline_status_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+@router.get("/pending-param-changes")
+async def get_pending_param_changes() -> dict[str, Any]:
+    """Pending parameter-change PR artifacts for the GitOps Action to open PRs from.
+
+    ProposalApplier publishes a ``pr_request`` to STREAM_GITHUB_PRS for every
+    PARAMETER_CHANGE proposal. This endpoint surfaces the recent, VALID ones
+    (passing the same safe-bounds check the source editor enforces), de-duplicated
+    by parameter so only the latest proposal per parameter is acted on. The
+    scheduled GitHub Action reads this, edits api/constants.py, and opens a PR.
+    """
+    try:
+        redis = await get_redis()
+        raw = await redis.xrevrange(STREAM_GITHUB_PRS, count=PARAM_PR_REQUESTS_SCAN_LIMIT)
+    except Exception:
+        log_structured("warning", "pending_param_changes_read_failed", exc_info=True)
+        return {FieldName.ITEMS: [], FieldName.TOTAL: 0}
+
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for _entry_id, fields in raw or []:
+        if str(fields.get(FieldName.TYPE) or "") != "pr_request":
+            continue
+        parameter = fields.get(FieldName.PARAMETER)
+        proposed = fields.get(FieldName.PROPOSED_VALUE)
+        if not parameter or parameter in seen:
+            continue
+        if validate_param_change(str(parameter), proposed) is not None:
+            continue  # out-of-bounds / unknown — never surface for auto-PR
+        seen.add(str(parameter))
+        items.append(
+            {
+                FieldName.PARAMETER: parameter,
+                FieldName.PREVIOUS_VALUE: fields.get(FieldName.PREVIOUS_VALUE),
+                FieldName.PROPOSED_VALUE: proposed,
+                FieldName.REASON: fields.get(FieldName.REASON, ""),
+                FieldName.TRACE_ID: fields.get(FieldName.TRACE_ID),
+                FieldName.TIMESTAMP: fields.get(FieldName.TIMESTAMP),
+            }
+        )
+
+    return {FieldName.ITEMS: items, FieldName.TOTAL: len(items)}
