@@ -8,8 +8,8 @@ assert exact trade mechanics, and the real strategies confirm integration.
 
 from __future__ import annotations
 
-from backtest.strategies import Bar
 from api.services.shadow_trader import ShadowTradeEngine
+from backtest.strategies import Bar
 
 
 def _scripted(actions: list[str]):
