@@ -72,6 +72,17 @@ STREAMS_REQUIRING_ACTIVE_CONSUMERS: frozenset[str] = frozenset(
 )
 
 
+def _flags_missing_consumer(stream_name: str, stream_length: int) -> bool:
+    """Whether a stream with no active consumer should raise a warning.
+
+    A required-consumer stream warns only when it actually holds messages. An
+    empty / dormant stream (e.g. ``orders``, which is never written in the live
+    pipeline) has nothing to consume, so a missing consumer is not a fault and
+    must not raise a false ``no_active_consumers`` warning.
+    """
+    return stream_length > 0 and stream_name in STREAMS_REQUIRING_ACTIVE_CONSUMERS
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -322,8 +333,9 @@ async def get_stream_lag_data() -> dict[str, Any]:
                 data.append({"stream": stream_name, "health": "unknown"})
                 continue
 
+            stream_length = int(stream_info.get("length") or 0)
             if not groups:
-                missing_required_consumers = stream_name in STREAMS_REQUIRING_ACTIVE_CONSUMERS
+                missing_required_consumers = _flags_missing_consumer(stream_name, stream_length)
                 data.append(
                     {
                         "stream": stream_name,
@@ -354,7 +366,7 @@ async def get_stream_lag_data() -> dict[str, Any]:
                     health = "warning"
                 consumers = int(group.get("consumers", 0) or 0)
                 reason = None
-                if consumers == 0 and stream_name in STREAMS_REQUIRING_ACTIVE_CONSUMERS:
+                if consumers == 0 and _flags_missing_consumer(stream_name, stream_length):
                     health = "warning"
                     reason = "no_active_consumers"
                 data.append(
