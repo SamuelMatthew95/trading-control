@@ -11,7 +11,8 @@ import fakeredis
 import httpx
 import pytest
 
-from api.constants import FieldName
+from api.config import settings
+from api.constants import REDIS_PRICES_TTL_SECONDS, FieldName
 from api.workers.price_poller import (
     _create_alpaca_client,
     _due_asset_classes,
@@ -493,6 +494,14 @@ def test_build_symbol_payloads_anchor_is_prev_map_not_redis_cache():
 
 def test_build_symbol_payloads_empty_returns_empty():
     assert build_symbol_payloads({}, {}) == []
+
+
+def test_price_cache_ttl_exceeds_poll_interval():
+    """Guardrail: the price cache TTL MUST exceed the longest poll interval, or the
+    consumer cache (dashboard, RiskGuardian) empties between polls. A 30s TTL with a
+    60s stock interval left stock prices blank for half of every window."""
+    assert REDIS_PRICES_TTL_SECONDS > settings.STOCK_POLL_INTERVAL_SECONDS
+    assert REDIS_PRICES_TTL_SECONDS > settings.CRYPTO_POLL_INTERVAL_SECONDS
 
 
 # ---------------------------------------------------------------------------
