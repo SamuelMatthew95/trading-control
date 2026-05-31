@@ -83,3 +83,27 @@
 **Fix:** Added the `proposals/page.tsx` route (renders `<DashboardView section="proposals" />`) and a "Proposals" nav link, so the existing data path now has a visible destination.
 
 **Operator check:** `/dashboard/proposals` loads and shows pending proposals with Approve/Reject buttons; empty state reads "No proposals yet — they arrive from the ReflectionAgent".
+
+---
+
+## Learning-events panel shows every grade 2-3x in memory mode
+
+**Symptom:** With `USE_MEMORY_MODE=true` (or Postgres down), the dashboard's learning-events / grade feed shows each grade duplicated two or three times — and the duplicates disagree (one row has the letter grade, another has `grade: null`; scores differ in scale).
+
+**Root cause:** `InMemoryStore.add_grade()` had no dedup, but the same grade reaches `grade_history` up to three times in memory mode: `GradeAgent` calls both `write_agent_log(LogType.GRADE, …)` and `write_grade_to_db(…)` (each routes to `add_grade`), and then the `EventPipeline` re-delivers the same grade from `STREAM_AGENT_GRADES` and calls `add_grade` again (`api/services/persistence_routing.py::write_event_to_memory`).
+
+**Fix:** `add_grade` now dedups by `trace_id` (`api/in_memory_store.py`): a re-delivered grade merges into the first row (existing values win, new fields like `self_correction` fill in) so one enriched grade survives. Challenger grades carry no `trace_id`, so they always append and are never collapsed together.
+
+**Regression test:** `tests/agents/test_in_memory_persistence.py::test_add_grade_dedups_same_trace_id`, `tests/agents/test_in_memory_persistence.py::test_add_grade_without_trace_id_always_appends`
+
+---
+
+## EventPipeline logs `pipeline_persist_skipped` warnings on every grade / proposal / reflection / IC update
+
+**Symptom:** With Postgres up, the logs fill with `pipeline_persist_skipped` warnings for `agent_grades`, `proposals`, `reflection_outputs`, `factor_ic_history`, and `executions` — one per event — even though the system is healthy and the data is in the DB.
+
+**Root cause:** The `EventPipeline` treated its DB persistence as a "secondary safety net" and re-wrote these streams via `SafeWriter`. But the producing agents are the *authoritative* writers (`GradeAgent.write_grade_to_db`, `StrategyProposer.persist_proposal`, `ReflectionAgent.write_agent_log` + `persist_reflection_record`, `ICUpdater`, and `ExecutionEngine` via `order_writer`/`upsert_position_db`/`upsert_trade_lifecycle`), and the stream payloads omit fields the `SafeWriter` validators require (`agent_id`/`agent_run_id`/`grade_type`, `ic_value`, `trace_id`, `insights`, Position `quantity`…). So the pipeline write *always raised* and was swallowed as a warning — pure noise, never a real row.
+
+**Fix:** `api/services/persistence_routing.py` adds `_AGENT_OWNED_DB_STREAMS`; `determine_persist_route` returns `SKIP` for those streams when the DB is up (the agent already wrote the durable row). The pipeline still broadcasts them, and the MEMORY fallback when the DB is down is unchanged, so memory-mode hydration (and challenger grades, which only flow via the stream) is preserved.
+
+**Regression test:** `tests/integration/test_pipeline_flow.py::test_determine_persist_route_skip_for_agent_owned_when_db_available`, `tests/integration/test_pipeline_flow.py::test_determine_persist_route_agent_owned_still_memory_when_db_down`

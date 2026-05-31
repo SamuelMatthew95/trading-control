@@ -148,6 +148,35 @@ def test_determine_persist_route_db_when_available(monkeypatch):
     assert route == PersistRoute.DB
 
 
+def test_determine_persist_route_skip_for_agent_owned_when_db_available(monkeypatch):
+    """Agent-owned streams are persisted by the producing agent directly, so the
+    pipeline must SKIP the redundant DB write (it only ever failed validation)
+    and just broadcast."""
+    monkeypatch.setattr("api.services.persistence_routing.is_db_available", lambda: True)
+    for stream in (
+        "agent_grades",
+        "factor_ic_history",
+        "reflection_outputs",
+        "proposals",
+        "executions",
+    ):
+        assert determine_persist_route(stream, {}) == PersistRoute.SKIP, stream
+
+
+def test_determine_persist_route_agent_owned_still_memory_when_db_down(monkeypatch):
+    """DB down: agent-owned streams still route to MEMORY so the dashboard keeps
+    hydrating (challenger grades, which only flow via the stream, still surface)."""
+    monkeypatch.setattr("api.services.persistence_routing.is_db_available", lambda: False)
+    for stream in (
+        "agent_grades",
+        "factor_ic_history",
+        "reflection_outputs",
+        "proposals",
+        "executions",
+    ):
+        assert determine_persist_route(stream, {}) == PersistRoute.MEMORY, stream
+
+
 def test_should_route_agent_log_to_memory_missing_message():
     event = {"schema_version": "v3", "source": "s", "trace_id": "t", "level": "INFO"}
     assert should_route_agent_log_to_memory(event) is True

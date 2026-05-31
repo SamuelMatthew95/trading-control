@@ -134,10 +134,12 @@ class InMemoryStore:
         when Postgres is unavailable.
         """
         entry = dict(payload)
-        entry.setdefault(
-            FieldName.ID,
-            entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}",
-        )
+        # setdefault keeps an explicit None (memory-cicd #12); coerce a falsy id
+        # so the dashboard always has a non-empty id for de-dup / read-tracking.
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = (
+                entry.get(FieldName.NOTIFICATION_ID) or f"mem-{len(self.notifications) + 1}"
+            )
         entry.setdefault(FieldName.TIMESTAMP, time.time())
         self.notifications.append(entry)
         if len(self.notifications) > 100:
@@ -147,6 +149,22 @@ class InMemoryStore:
     def add_grade(self, grade_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(grade_payload)
         payload.setdefault(FieldName.TIMESTAMP, time.time())
+        # Dedup by trace_id. In memory mode the SAME grade reaches grade_history
+        # up to three times: GradeAgent calls both write_agent_log(GRADE) and
+        # write_grade_to_db() (each calls add_grade), then the EventPipeline
+        # re-adds it from STREAM_AGENT_GRADES. Without dedup the dashboard's
+        # learning-events panel shows every grade 2-3x. Merge re-deliveries into
+        # the existing row — newest non-null values win (so a genuine re-grade
+        # updates the score), while fields only an earlier delivery carried (e.g.
+        # self_correction) are preserved. Challenger grades carry no trace_id, so
+        # they always append and are never collapsed together.
+        trace_id = payload.get(FieldName.TRACE_ID)
+        if trace_id:
+            for i, existing in enumerate(self.grade_history):
+                if existing.get(FieldName.TRACE_ID) == trace_id:
+                    merged = {**existing, **{k: v for k, v in payload.items() if v is not None}}
+                    self.grade_history[i] = merged
+                    return merged
         self.grade_history.append(payload)
         if len(self.grade_history) > 500:
             self.grade_history = self.grade_history[-500:]
@@ -250,7 +268,9 @@ class InMemoryStore:
 
     def add_reflection(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault(FieldName.ID, str(uuid.uuid4()))
+        # Coerce a falsy id (setdefault keeps an explicit None — memory-cicd #12).
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = str(uuid.uuid4())
         entry.setdefault(FieldName.CREATED_AT, time.time())
         self.reflections.append(entry)
         if len(self.reflections) > 100:
@@ -263,7 +283,9 @@ class InMemoryStore:
 
     def add_strategy(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = dict(payload)
-        entry.setdefault(FieldName.ID, str(uuid.uuid4()))
+        # Coerce a falsy id (setdefault keeps an explicit None — memory-cicd #12).
+        if not entry.get(FieldName.ID):
+            entry[FieldName.ID] = str(uuid.uuid4())
         entry.setdefault(FieldName.CREATED_AT, time.time())
         self.strategies.append(entry)
         if len(self.strategies) > 100:

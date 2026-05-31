@@ -336,6 +336,74 @@ async def test_write_grade_to_db_memory_mode():
     assert "timestamp" in g
 
 
+def test_add_grade_dedups_same_trace_id():
+    """The same grade arriving 3x (write_agent_log + write_grade_to_db + pipeline)
+    must collapse to ONE enriched row, not duplicate the learning-events panel."""
+    store = _fresh_store()
+
+    # 1) write_agent_log(GRADE) path — has the letter grade + fractional score
+    store.add_grade(
+        {
+            "trace_id": "dup-trace",
+            "grade": "B",
+            "score": 0.72,
+            "score_pct": 72.0,
+            "metrics": {"accuracy": 0.7},
+        }
+    )
+    # 2) write_grade_to_db path — grade is None, adds self_correction
+    store.add_grade(
+        {
+            "trace_id": "dup-trace",
+            "grade": None,
+            "score": 72.0,
+            "score_pct": 72.0,
+            "metrics": {"accuracy": 0.7},
+            "self_correction": {"flag": True},
+        }
+    )
+    # 3) EventPipeline re-delivery from STREAM_AGENT_GRADES
+    store.add_grade(
+        {
+            "trace_id": "dup-trace",
+            "grade": "B",
+            "score": 0.72,
+            "confidence_score": 72.0,
+        }
+    )
+
+    assert len(store.grade_history) == 1, "same trace_id grade must not duplicate"
+    row = store.grade_history[0]
+    # First writer's values win; later writers only fill in missing fields.
+    assert row["grade"] == "B"  # None from path 2 never clobbers the letter
+    assert row["score"] == 0.72
+    assert row["self_correction"] == {"flag": True}  # enriched from path 2
+    assert len(store.get_grades()) == 1
+
+
+def test_add_grade_without_trace_id_always_appends():
+    """Challenger grades carry no trace_id and must never collapse together."""
+    store = _fresh_store()
+
+    store.add_grade({"grade": "A", "score": 0.9})
+    store.add_grade({"grade": "C", "score": 0.4})
+
+    assert len(store.grade_history) == 2
+
+
+def test_memory_store_coerces_falsy_ids():
+    """An explicit id=None must be coerced to a real id (setdefault keeps None)."""
+    store = _fresh_store()
+
+    notif = store.record_notification({"id": None, "message": "hi", "notification_type": "trade"})
+    refl = store.add_reflection({"id": None, "summary": "r"})
+    strat = store.add_strategy({"id": None, "name": "s"})
+
+    assert notif["id"], "notification id must not be falsy"
+    assert refl["id"], "reflection id must not be falsy"
+    assert strat["id"], "strategy id must not be falsy"
+
+
 @pytest.mark.asyncio
 async def test_persist_proposal_memory_mode():
     """persist_proposal in memory mode writes a PROPOSAL event to event_history."""
