@@ -51,22 +51,29 @@ _DB_STREAMS: frozenset[str] = frozenset(
 )
 
 # Streams whose durable Postgres row is owned by the producing agent, NOT the
-# pipeline: GradeAgent persists grades (write_grade_to_db), ReflectionAgent
-# persists reflections (write_agent_log + persist_reflection_record),
-# StrategyProposer persists proposals (persist_proposal), and ICUpdater owns
-# factor IC history. The EventPipeline's redundant SafeWriter call for these
-# never actually succeeded — the stream payloads omit fields the validators
-# require (agent_id/agent_run_id/grade_type, ic_value, trace_id, insights…), so
-# it only ever raised and logged "pipeline_persist_skipped". Skip the DB write
-# when the DB is up (the agent already wrote the row); the pipeline still
-# broadcasts the event, and the MEMORY fallback when the DB is down is unchanged
-# so the dashboard keeps hydrating in memory mode.
+# pipeline:
+#   - GradeAgent persists grades (write_grade_to_db)
+#   - ReflectionAgent persists reflections (write_agent_log + persist_reflection_record)
+#   - StrategyProposer persists proposals (persist_proposal)
+#   - ICUpdater owns factor IC history
+#   - ExecutionEngine persists orders/positions/fills directly (order_writer +
+#     upsert_position_db + upsert_trade_lifecycle), so STREAM_EXECUTIONS
+#     write_execution is redundant (and always failed on the Position NOT NULL
+#     constraint because the fill payload carries no new_quantity/avg_cost).
+# The EventPipeline's redundant SafeWriter call for these never actually
+# succeeded — the stream payloads omit fields the validators require
+# (agent_id/agent_run_id/grade_type, ic_value, trace_id, insights, position
+# quantity…), so it only ever raised and logged "pipeline_persist_skipped".
+# Skip the DB write when the DB is up (the agent already wrote the row); the
+# pipeline still broadcasts the event, and the MEMORY fallback when the DB is
+# down is unchanged so the dashboard keeps hydrating in memory mode.
 _AGENT_OWNED_DB_STREAMS: frozenset[str] = frozenset(
     {
         STREAM_AGENT_GRADES,
         STREAM_FACTOR_IC_HISTORY,
         STREAM_REFLECTION_OUTPUTS,
         STREAM_PROPOSALS,
+        STREAM_EXECUTIONS,
     }
 )
 
