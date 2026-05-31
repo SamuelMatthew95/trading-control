@@ -32,6 +32,7 @@ from api.constants import (
     REDIS_KEY_KILL_SWITCH_UPDATED_AT,
     REDIS_KEY_PRICES,
     RISK_CHECK_INTERVAL_SECONDS,
+    SOURCE_RISK_GUARDIAN,
     STOP_LOSS_PCT,
     STREAM_DECISIONS,
     STREAM_RISK_ALERTS,
@@ -53,7 +54,7 @@ class RiskGuardian:
     Start/stop interface mirrors the agent API so main.py can manage it uniformly.
     """
 
-    _SOURCE = "risk_guardian"
+    _SOURCE = SOURCE_RISK_GUARDIAN
 
     def __init__(self, bus: EventBus, redis_client: Any) -> None:
         self.bus = bus
@@ -88,6 +89,30 @@ class RiskGuardian:
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+
+    # ------------------------------------------------------------------
+    # Public introspection — used by AgentSupervisor to monitor uniformly
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Agent identity string — matches the source tag on published decisions."""
+        return self._SOURCE
+
+    @property
+    def has_crashed(self) -> bool:
+        """True if the background task finished with an unhandled exception (not cancelled).
+
+        The _run() loop swallows per-cycle exceptions so the task rarely dies,
+        but AgentSupervisor uses this to monitor RiskGuardian uniformly alongside
+        the stream-consumer agents.
+        """
+        return (
+            self._task is not None
+            and self._task.done()
+            and not self._task.cancelled()
+            and self._task.exception() is not None
+        )
 
     # ------------------------------------------------------------------
     # Main loop
