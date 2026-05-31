@@ -188,3 +188,24 @@ this TTL (the poller keeps its own in-memory prev-price anchor — see the pct=0
 above). Docs updated in `CLAUDE.md` and `.claude/rules/memory-storage.md`.
 
 **Regression test:** `tests/core/test_price_poller.py::test_price_cache_ttl_exceeds_poll_interval`
+
+## Prev-price anchor advanced before publish — a failed publish erases the move
+
+**Symptom:** After a transient Redis/pipeline failure during `publish_to_redis()`,
+the next `market_events` tick emits `pct=0` even though the price moved — the
+accumulated move is silently erased (e.g. a +2% jump during the failed publish,
+then a flat tick, emits 0%). Intermittent, only around a publish failure.
+
+**Root cause:** `_run_poll_cycle` advanced `state.last_prices` (the delta anchor)
+*before* awaiting `publish_to_redis`. When the publish raised, `poll_prices`
+caught it and continued, but the anchor had already moved to a price no consumer
+ever saw — so the next cycle measured `pct` from that unpublished price. (Found in
+PR #275 review; the original Redis-cache anchor only advanced on a successful
+write, so the refactor to an in-memory anchor regressed this guarantee.)
+
+**Fix:** `api/workers/price_poller.py` — advance `state.last_prices` only AFTER the
+`asyncio.gather(publish_to_redis, flush_to_db)` returns. `publish_to_redis` raises
+on failure (`flush_to_db` swallows its own errors), so a failed publish leaves the
+anchor untouched and the unpublished move is re-measured next cycle.
+
+**Regression test:** `tests/core/test_price_poller.py::test_run_poll_cycle_anchor_not_advanced_when_publish_fails`
