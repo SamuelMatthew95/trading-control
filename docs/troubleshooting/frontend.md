@@ -236,3 +236,27 @@ configured strategy. No pipeline/behavior change.
 
 **Regression test:** `frontend/src/test/components/LiveReasoningPanel.test.tsx`
 — `surfaces an LLM-down indicator and fallback banner when the provider is unhealthy`.
+
+## Open Positions table showed P&L 0.00 for every position (stale stored value)
+
+**Symptom:** In memory mode the Trading page's Open Positions table showed
+`+$0.00` P&L for every open position, even when `last_price` clearly differed
+from `entry_price` — while the equity curve / Session P&L showed a non-zero
+unrealized figure. The two disagreed, so the table looked broken.
+
+**Root cause:** Three position read paths existed and only one marked to market.
+`paired_pnl_payload()` (equity curve / summary) computed unrealized PnL from
+avg_cost vs last_price, but `_normalize_position()` (the `/dashboard/state`
+snapshot the table renders) and `open_positions()` (MCP `get_positions`)
+returned the raw stored `unrealized_pnl` — written once at fill time (0.0 when
+last == entry) and never updated as price moves.
+
+**Fix:** Extracted the formula into one shared
+`InMemoryStore._position_unrealized_pnl()` (abs(qty), side-aware) and used it in
+all three paths (`_normalize_position`, `open_positions`, `paired_pnl_payload`),
+falling back to the stored value (or flagging stale) only when avg_cost/last_price
+are missing. Every position read path now marks to market and agrees. (The stored
+`last_price` itself can still lag the latest tick — a shared limitation the equity
+curve has too — so the table is now *consistent* with the rest of the system.)
+
+**Regression test:** `tests/core/test_in_memory_unrealized_pnl.py::test_open_positions_marked_to_market_not_stale_stored_value`
