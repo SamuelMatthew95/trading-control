@@ -186,3 +186,29 @@ now uses `COLUMNS.length` instead of a hardcoded `5`.
 **Regression test:** `frontend/src/test/helpers/formatters.test.ts` —
 `getField` / `getStr` describe blocks (null/array/primitive safety, alias
 coalescing, stringification).
+
+## Rule-based fallback decisions were indistinguishable from real model reasoning
+
+**Symptom:** When the LLM is unavailable (deployment/config), the ReasoningAgent
+emits `fallback:skip_reasoning` decisions with `llm_succeeded: false`, but the
+"Recent Decisions" panel rendered them identically to model-reasoned calls — a
+confident-looking `BUY SOL 55%` with nothing marking it as a rule-based
+fallback. The whole feed looked like normal (if random) AI decisions, so the
+operator couldn't tell the system was running degraded.
+
+**Root cause:** `RecentDecisionsPanel.tsx` only rendered action/symbol/price/
+confidence and ignored the `llm_succeeded` / `reasoning_summary` fields the
+`/decisions` endpoint already returns. (Only `TradingView.tsx` had fallback
+labeling, via its local `resolveMessage`, and it covers the Agent Activity feed,
+not this panel.)
+
+**Fix:** `components/dashboard/RecentDecisionsPanel.tsx` adds
+`isFallbackDecision(d)` (`llm_succeeded === false` or a `fallback:`-prefixed
+`reasoning_summary`). Fallback rows get an amber `rule-based` tag, and the
+header shows an `N/M rule-based` summary with a tooltip ("LLM unavailable —
+rule-based fallback decisions, not model reasoning"). Amber (caution), not red
+(error): the data is intentional degradation, not a crash. No API change.
+
+**Regression test:** `frontend/src/test/components/RecentDecisionsPanel.test.tsx`
+— `flags rule-based fallback decisions so they are not read as model reasoning`
+and `shows no fallback markers when every decision used the LLM`.
