@@ -482,13 +482,16 @@ async def _run_poll_cycle(
     # 0.0 → every signal NEUTRAL/LOW → hold → no buys ever. The in-memory anchor
     # lives for the whole process, so deltas are correct from the second cycle on.
     payloads = build_symbol_payloads(all_prices, state.last_prices)
-    # Advance the anchor AFTER building payloads so this cycle's delta is measured
-    # against the prior cycle's price; the next cycle measures against this one.
-    state.last_prices.update(all_prices)
     await asyncio.gather(
         publish_to_redis(redis_client, payloads),
         flush_to_db(payloads),
     )
+    # Advance the anchor ONLY after the publish succeeds. publish_to_redis raises on
+    # failure (flush_to_db swallows its own errors), so a failed market_events write
+    # leaves last_prices untouched and the unpublished move is re-measured next cycle
+    # instead of being silently erased. The next cycle's delta is then measured
+    # against this cycle's (published) price.
+    state.last_prices.update(all_prices)
     await redis_client.set(
         REDIS_KEY_WORKER_HEARTBEAT,
         datetime.now(timezone.utc).isoformat(),
