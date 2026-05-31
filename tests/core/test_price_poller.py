@@ -587,6 +587,45 @@ async def test_run_poll_cycle_pct_survives_expired_cache(redis, monkeypatch):
     assert last_payload["change"] == pytest.approx(1000.0)
 
 
+async def test_run_poll_cycle_anchor_not_advanced_when_publish_fails(redis, monkeypatch):
+    """REGRESSION (PR #275 review P2): the prev-price anchor must advance ONLY after
+    publish succeeds. If publish_to_redis raises, last_prices must stay put so the
+    unpublished move is re-measured next cycle instead of being silently erased.
+
+    Scenario: cycle 1 publishes @50000 (anchor=50000). Cycle 2 fetches 51000 but the
+    publish fails — anchor must remain 50000. Cycle 3 fetches 52000 and publishes; its
+    pct must be measured from 50000 (the last PUBLISHED price), i.e. +4%, not +1.96%.
+    """
+    fetch = AsyncMock(
+        side_effect=[{"BTC/USD": 50000.0}, {"BTC/USD": 51000.0}, {"BTC/USD": 52000.0}]
+    )
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", fetch)
+    state = _PollerState(client=MagicMock())
+
+    # Cycle 1 — publishes, anchor advances to 50000.
+    await _run_poll_cycle(state, redis, _market(False), 30, 60)
+    assert state.last_prices["BTC/USD"] == 50000.0
+
+    # Cycle 2 — publish raises; the cycle error propagates but anchor must NOT advance.
+    boom = AsyncMock(side_effect=RuntimeError("redis pipeline down"))
+    monkeypatch.setattr("api.workers.price_poller.publish_to_redis", boom)
+    state.last_fetch[FieldName.CRYPTO] = 0.0
+    with pytest.raises(RuntimeError):
+        await _run_poll_cycle(state, redis, _market(False), 30, 60)
+    assert state.last_prices["BTC/USD"] == 50000.0  # unchanged — the fix
+
+    # Cycle 3 — publish restored; pct measured from the last PUBLISHED price (50000).
+    monkeypatch.undo()  # restore real publish_to_redis
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", fetch)
+    state.last_fetch[FieldName.CRYPTO] = 0.0
+    await _run_poll_cycle(state, redis, _market(False), 30, 60)
+    messages = await redis.xread({"market_events": "0-0"}, count=20)
+    _stream, entries = messages[0]
+    last_payload = json.loads(entries[-1][1]["payload"])
+    assert last_payload["pct"] == pytest.approx(4.0, abs=0.01)  # (52000-50000)/50000
+    assert state.last_prices["BTC/USD"] == 52000.0
+
+
 async def test_run_poll_cycle_recreates_client_on_ssl_eof(redis, monkeypatch):
     ssl_exc = ssl.SSLZeroReturnError(6, "EOF")
     httpx_exc = httpx.ConnectError("SSL EOF")
