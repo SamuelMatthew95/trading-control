@@ -74,6 +74,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # apply_param_change.py imports api.services.param_overrides — make the
+          # repo root importable for the subprocess the runner spawns.
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
           git config user.name "param-evolution-bot"
