@@ -7,9 +7,9 @@ functions so the risky parts — branch naming, idempotent skip, base-ref
 resolution, command sequencing — are verified, not hoped.
 
 Layering:
-    apply_param_change_to_source  (api/services/param_evolution, pure, tested)
-      -> apply_param_change.py     (file IO, tested)
-        -> param_evolution_runner  (THIS: planning + git/gh orchestration, tested)
+    apply_param_override         (api/services/param_overrides, pure, tested)
+      -> apply_param_change.py   (file IO on config/param_overrides.json, tested)
+        -> param_evolution_runner (THIS: planning + git/gh orchestration, tested)
           -> param-evolution-pr.yml (thin shell: just runs this)
 
 ``plan_branch_name`` / ``resolve_base_ref`` / ``should_skip_existing`` are pure
@@ -127,7 +127,8 @@ def run_evolution(
             prev, new = None, value
 
         title = f"chore(params): {parameter} {prev} -> {new} (learning loop)"
-        run(["git", "add", "api/constants.py"])
+        # The bot edits the plain-DATA overrides file, never source code.
+        run(["git", "add", "config/param_overrides.json"])
         run(["git", "commit", "-m", title])
         rc, _, err = run(["git", "push", "-f", "origin", branch])
         if rc != 0:
@@ -160,12 +161,15 @@ def run_evolution(
 def _pr_body(parameter: str, prev: object, new: object, reason: str) -> str:
     return (
         "## Automated parameter-evolution proposal\n\n"
-        f"The learning loop proposes changing **`{parameter}`** in `api/constants.py`:\n\n"
+        f"The learning loop proposes overriding **`{parameter}`** via "
+        "`config/param_overrides.json` (plain data — no source code is edited):\n\n"
         f"| | value |\n|---|---|\n| current | `{prev}` |\n| proposed | `{new}` |\n\n"
         f"**Reason:** {reason or '_none provided_'}\n\n"
         "Generated from a `pr_request` artifact emitted by `ProposalApplier`. The value is "
-        "within the safe bounds enforced by `api/services/param_evolution.PARAM_BOUNDS`. "
-        "**Review the trade-off before merging** — merging deploys the change.\n\n"
+        "within the safe bounds enforced by `api/services/param_evolution.PARAM_BOUNDS`, and "
+        "is re-validated by the constants loader at startup (a bad value falls back to the "
+        "code default). **Review the trade-off before merging** — merging deploys the change "
+        "on next restart.\n\n"
         "---\n🤖 Auto-opened by the Parameter Evolution workflow."
     )
 

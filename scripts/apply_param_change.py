@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Apply ONE parameter change to api/constants.py — the file-IO wrapper.
+"""Apply ONE parameter change to config/param_overrides.json — the file-IO wrapper.
 
 Layer in the GitOps loop:
-    api/services/param_evolution.apply_param_change_to_source   (pure, tested)
-        -> scripts/apply_param_change.py                        (this: file IO)
-            -> .github/workflows/param-evolution-pr.yml         (git/gh IO)
+    api/services/param_overrides.apply_param_override   (pure, tested)
+        -> scripts/apply_param_change.py                (this: file IO)
+            -> .github/workflows/param-evolution-pr.yml (git/gh IO)
 
-Reads the constants file, applies the edit via the pure helper (which enforces
-all safe-bound / type / uniqueness invariants), and writes it back. Prints a
-JSON line so the workflow can build the PR title/body, and exits non-zero on any
-refusal so the workflow skips that parameter instead of opening a junk PR.
+The bot edits a plain-DATA JSON file, never source code: a malformed or
+out-of-bounds value is refused here, and even if a bad value somehow landed, the
+constants loader validates it again and falls back to the code default — so a bad
+artifact can never break the running app. The reviewed PR diff is one JSON line.
+
+Reads the overrides JSON (treating a missing file as ``{}``), applies the edit via
+the pure helper, writes it back. Prints a JSON line so the workflow can build the
+PR body, and exits non-zero on any refusal so the workflow skips that parameter.
 
 Usage:
     python scripts/apply_param_change.py --parameter SIGNAL_CONFIDENCE_MIN_GATE --value 0.55
@@ -22,41 +26,28 @@ import json
 import pathlib
 import sys
 
-from api.services.param_evolution import apply_param_change_to_source
-
-_DEFAULT_CONSTANTS = "api/constants.py"
+from api.services.param_overrides import DEFAULT_OVERRIDES_PATH, apply_param_override
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parameter", required=True, help="UPPER_SNAKE constant name")
     parser.add_argument("--value", required=True, help="proposed numeric value")
-    parser.add_argument("--constants-path", default=_DEFAULT_CONSTANTS)
+    parser.add_argument("--overrides-path", default=DEFAULT_OVERRIDES_PATH)
     args = parser.parse_args(argv)
 
-    path = pathlib.Path(args.constants_path)
-    if not path.is_file():
-        print(json.dumps({"ok": False, "error": f"file not found: {path}"}))
-        return 2
+    path = pathlib.Path(args.overrides_path)
+    # A missing overrides file is normal (first override ever) — start from "{}".
+    raw_text = path.read_text() if path.is_file() else "{}"
 
-    source = path.read_text()
-    result = apply_param_change_to_source(source, args.parameter, args.value)
-
-    if not result.ok or result.new_source is None:
-        print(json.dumps({"ok": False, "parameter": args.parameter, "error": result.error}))
+    ok, new_text, error = apply_param_override(raw_text, args.parameter, args.value)
+    if not ok or new_text is None:
+        print(json.dumps({"ok": False, "parameter": args.parameter, "error": error}))
         return 1
 
-    path.write_text(result.new_source)
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "parameter": result.parameter,
-                "previous_value": result.previous_value,
-                "new_value": result.new_value,
-            }
-        )
-    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(new_text)
+    print(json.dumps({"ok": True, "parameter": args.parameter, "new_value": args.value}))
     return 0
 
 
