@@ -260,3 +260,23 @@ are missing. Every position read path now marks to market and agrees. (The store
 curve has too — so the table is now *consistent* with the rest of the system.)
 
 **Regression test:** `tests/core/test_in_memory_unrealized_pnl.py::test_open_positions_marked_to_market_not_stale_stored_value`
+
+## Open Positions P&L stayed flat as the market moved (frozen fill price) + missing P&L %
+
+**Symptom:** After the stale-stored-value fix, in-memory Open Positions still
+didn't track the live market — P&L matched the price at the last fill, not the
+current ticker (e.g. SOL sat at 0.00 because last == entry) — and the P&L %
+column always showed "--".
+
+**Root cause:** In memory mode nothing updates a position's `last_price` as
+prices move (it's frozen at fill time), and the rows never carried `pnl_percent`.
+
+**Fix:** (1) `InMemoryStore.apply_current_prices(prices)` marks stored positions
+to the latest prices; `get_state_payload` (`/dashboard/state`) calls it in memory
+mode with the Redis price cache it already fetches, then rebuilds the positions
+via `normalized_open_positions()` — so the table, Session P&L, and MCP
+`get_positions` all read the same live-marked figures from the shared store.
+(2) `_position_pnl_percent()` now populates `pnl_percent` (return on cost basis)
+on every position read path, so the table's P&L % column renders.
+
+**Regression test:** `tests/core/test_in_memory_unrealized_pnl.py::test_apply_current_prices_marks_positions_to_live_price`
