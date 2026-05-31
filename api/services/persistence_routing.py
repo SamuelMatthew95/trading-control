@@ -50,6 +50,26 @@ _DB_STREAMS: frozenset[str] = frozenset(
     }
 )
 
+# Streams whose durable Postgres row is owned by the producing agent, NOT the
+# pipeline: GradeAgent persists grades (write_grade_to_db), ReflectionAgent
+# persists reflections (write_agent_log + persist_reflection_record),
+# StrategyProposer persists proposals (persist_proposal), and ICUpdater owns
+# factor IC history. The EventPipeline's redundant SafeWriter call for these
+# never actually succeeded — the stream payloads omit fields the validators
+# require (agent_id/agent_run_id/grade_type, ic_value, trace_id, insights…), so
+# it only ever raised and logged "pipeline_persist_skipped". Skip the DB write
+# when the DB is up (the agent already wrote the row); the pipeline still
+# broadcasts the event, and the MEMORY fallback when the DB is down is unchanged
+# so the dashboard keeps hydrating in memory mode.
+_AGENT_OWNED_DB_STREAMS: frozenset[str] = frozenset(
+    {
+        STREAM_AGENT_GRADES,
+        STREAM_FACTOR_IC_HISTORY,
+        STREAM_REFLECTION_OUTPUTS,
+        STREAM_PROPOSALS,
+    }
+)
+
 
 class PersistRoute(str, Enum):
     """Explicit persistence destination selected before any write attempt."""
@@ -93,7 +113,9 @@ def determine_persist_route(stream: str, event: dict[str, Any]) -> PersistRoute:
       1. Stream not handled by pipeline writers → SKIP.
       2. agent_logs stream with malformed payload → MEMORY (even when DB is up).
       3. DB unavailable → MEMORY for all handled streams (never silently drop).
-      4. → DB.
+      4. Agent-owned stream (DB up) → SKIP: the producing agent already wrote the
+         durable row; the pipeline only broadcasts it (never double-persists).
+      5. → DB.
     """
     if stream not in _DB_STREAMS:
         return PersistRoute.SKIP
@@ -101,6 +123,8 @@ def determine_persist_route(stream: str, event: dict[str, Any]) -> PersistRoute:
         return PersistRoute.MEMORY
     if not is_db_available():
         return PersistRoute.MEMORY
+    if stream in _AGENT_OWNED_DB_STREAMS:
+        return PersistRoute.SKIP
     return PersistRoute.DB
 
 
