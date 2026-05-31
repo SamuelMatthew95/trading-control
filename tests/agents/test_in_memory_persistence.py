@@ -391,6 +391,19 @@ def test_add_grade_without_trace_id_always_appends():
     assert len(store.grade_history) == 2
 
 
+def test_memory_store_coerces_falsy_ids():
+    """An explicit id=None must be coerced to a real id (setdefault keeps None)."""
+    store = _fresh_store()
+
+    notif = store.record_notification({"id": None, "message": "hi", "notification_type": "trade"})
+    refl = store.add_reflection({"id": None, "summary": "r"})
+    strat = store.add_strategy({"id": None, "name": "s"})
+
+    assert notif["id"], "notification id must not be falsy"
+    assert refl["id"], "reflection id must not be falsy"
+    assert strat["id"], "strategy id must not be falsy"
+
+
 @pytest.mark.asyncio
 async def test_persist_proposal_memory_mode():
     """persist_proposal in memory mode writes a PROPOSAL event to event_history."""
