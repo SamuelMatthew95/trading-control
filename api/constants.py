@@ -1506,3 +1506,35 @@ INITIAL_PRICES: Final[dict[str, float]] = {
     SYMBOL_AAPL: 178.0,
     SYMBOL_NVDA: 875.0,
 }
+
+
+# ---------------------------------------------------------------------------
+# Learning-loop parameter overrides (applied LAST, over the defaults above).
+#
+# The values above are the hand-authored defaults. The GitOps learning loop tunes
+# a small allowlist of them by writing config/param_overrides.json (plain DATA —
+# the bot never edits this source file). We apply that file here, once, at import:
+# each override is validated against api.services.param_evolution.PARAM_BOUNDS, so
+# an unknown key or out-of-bounds value is dropped and the default stands. A bad
+# override file therefore degrades to "use defaults", never to a crash.
+#
+# Import is local to avoid any import-time cycle and to keep this file importable
+# even if the services package is unavailable (e.g. minimal tooling contexts).
+def _apply_param_overrides() -> dict[str, float]:
+    try:
+        from api.services.param_overrides import load_overrides  # noqa: PLC0415
+    except Exception:
+        return {}
+    applied: dict[str, float] = {}
+    overrides = load_overrides()
+    _g = globals()
+    for name, value in overrides.items():
+        if name in _g:  # only override an existing default
+            _g[name] = value
+            applied[name] = value
+    return applied
+
+
+# Names the learning loop has overridden this process (empty when none). Surfaced
+# by the dashboard so operators can see which params are running off-default.
+ACTIVE_PARAM_OVERRIDES: dict[str, float] = _apply_param_overrides()
