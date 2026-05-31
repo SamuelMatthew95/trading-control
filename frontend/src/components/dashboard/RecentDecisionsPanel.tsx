@@ -11,6 +11,16 @@ function formatTimestamp(value?: string | null): string {
   return date.toLocaleTimeString()
 }
 
+// A decision is a rule-based fallback (not real model reasoning) when the agent
+// couldn't run the LLM: it sets llm_succeeded=false and prefixes its reasoning
+// summary with "fallback:". Surfacing this stops a confident-looking buy/sell
+// row from being mistaken for a model-reasoned call when the LLM is down.
+function isFallbackDecision(d: Record<string, unknown>): boolean {
+  if (d.llm_succeeded === false) return true
+  const summary = typeof d.reasoning_summary === 'string' ? d.reasoning_summary : ''
+  return summary.startsWith('fallback:')
+}
+
 function EmptyDecisions() {
   return (
     <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/30">
@@ -32,11 +42,22 @@ export function RecentDecisionsPanel({
     const action = String(d.action ?? '').toLowerCase()
     return action === 'buy' || action === 'sell'
   })
+  const fallbackCount = actionable.filter(isFallbackDecision).length
 
   return (
     <div className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
-        <p className={sectionTitleClass}>Recent Decisions</p>
+        <div className="flex items-center gap-2">
+          <p className={sectionTitleClass}>Recent Decisions</p>
+          {fallbackCount > 0 && (
+            <span
+              title="LLM unavailable — these are rule-based fallback decisions, not model reasoning."
+              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+            >
+              {fallbackCount}/{actionable.length} rule-based
+            </span>
+          )}
+        </div>
         {stats && (
           <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
             <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600">
@@ -93,6 +114,14 @@ export function RecentDecisionsPanel({
                   <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
                     {symbol}
                   </span>
+                  {isFallbackDecision(d) && (
+                    <span
+                      title="LLM unavailable — rule-based fallback, not model reasoning."
+                      className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                    >
+                      rule-based
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 font-mono text-xs tabular-nums text-slate-600 dark:text-slate-300">
                   <span>{priceTxt}</span>

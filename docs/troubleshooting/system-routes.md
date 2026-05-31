@@ -107,3 +107,38 @@
 **Fix:** `api/services/persistence_routing.py` adds `_AGENT_OWNED_DB_STREAMS`; `determine_persist_route` returns `SKIP` for those streams when the DB is up (the agent already wrote the durable row). The pipeline still broadcasts them, and the MEMORY fallback when the DB is down is unchanged, so memory-mode hydration (and challenger grades, which only flow via the stream) is preserved.
 
 **Regression test:** `tests/integration/test_pipeline_flow.py::test_determine_persist_route_skip_for_agent_owned_when_db_available`, `tests/integration/test_pipeline_flow.py::test_determine_persist_route_agent_owned_still_memory_when_db_down`
+
+---
+
+## Open positions show as "degraded" on the memory-mode trade feed
+
+**Symptom:** In memory mode, `GET /dashboard/trade-feed` tagged normal open BUY rows with `degraded_reason: "invalid_numeric_fields_sanitized"` and `sanitized_fields: ["exit_price", "pnl"]`. An open position has no exit price or realized P&L yet, so a perfectly healthy trade looked corrupt.
+
+**Root cause:** The in-memory store sometimes writes the **string** `"None"` (not real `null`) for an open position's `exit_price`/`pnl`. `_normalize_in_memory_trade_row`'s `_pick_num` flagged any field whose raw value was non-`None` but unparseable — which captured the null-like sentinel strings `""`, `"null"`, `"None"` as if they were malformed numbers. NaN/Inf also leaked through `float()` into the JSON.
+
+**Fix:** `api/services/dashboard/trading.py` adds `_is_null_like_numeric()` — null-like sentinels (`None`, `""`, `"null"`, `"none"`, non-finite floats) are treated as legitimately absent and are no longer flagged; only genuinely malformed values (e.g. `"abc"`) trip `degraded_reason`. `_safe_numeric` now also drops NaN/Inf so they never reach the response.
+
+**Regression test:** `tests/api/test_trade_feed_sanitization.py::test_open_position_with_absent_exit_and_pnl_is_not_degraded`, `tests/api/test_trade_feed_sanitization.py::test_trade_feed_drops_non_finite_numeric_values`
+
+---
+
+## Stream-lag telemetry warned `no_active_consumers` on an empty stream
+
+**Symptom:** `get_stream_lag` (MCP telemetry / observability) reported
+`health: "warning"`, `reason: "no_active_consumers"` for the `orders` stream,
+which has length 0 and is never written in the live pipeline (ExecutionEngine
+writes the `orders` *table* + publishes `executions`). A perpetual warning on a
+dormant stream is noise that masks real consumer-lag signals.
+
+**Root cause:** `api/mcp/read_tools.py::get_stream_lag_data` flagged any
+required-consumer stream with zero consumers, regardless of whether the stream
+held any messages. An empty stream has nothing to consume, so a missing consumer
+is not a fault.
+
+**Fix:** Added the pure predicate `_flags_missing_consumer(stream_name, stream_length)`
+— it only warns when the stream is in `STREAMS_REQUIRING_ACTIVE_CONSUMERS` **and**
+`stream_length > 0`. Both call sites (no-group and zero-consumer-group) use it, so
+genuine backlogs on non-empty required streams still warn. Dashboard behavior is
+unchanged (the `/dashboard/stream-lag` route returns `{}` in memory mode anyway).
+
+**Regression test:** `tests/api/test_stream_lag_consumers.py::test_empty_required_stream_does_not_warn`, `tests/api/test_stream_lag_consumers.py::test_required_stream_with_backlog_warns`

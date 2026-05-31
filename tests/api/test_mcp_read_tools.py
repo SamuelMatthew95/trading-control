@@ -40,11 +40,13 @@ async def test_get_stream_lag_degraded_when_redis_down(monkeypatch) -> None:
 
 async def test_get_stream_lag_warns_when_required_stream_has_no_group(monkeypatch) -> None:
     class _Redis:
-        async def xinfo_stream(self, _stream_name: str):
-            return {"length": 0, "last-generated-id": "0-0"}
+        async def xinfo_stream(self, stream_name: str):
+            # signals carries a backlog; orders is empty/dormant (never written).
+            length = 0 if stream_name == "orders" else 5
+            return {"length": length, "last-generated-id": "0-0" if length == 0 else "5-0"}
 
         async def xinfo_groups(self, stream_name: str):
-            if stream_name == "signals":
+            if stream_name in ("signals", "orders"):
                 return []
             return [{"name": "workers", "pending": 0, "lag": 0, "consumers": 1}]
 
@@ -53,10 +55,20 @@ async def test_get_stream_lag_warns_when_required_stream_has_no_group(monkeypatc
 
     monkeypatch.setattr("api.mcp.read_tools.get_redis", _fake_get_redis)
     payload = await get_stream_lag_data()
-    signals = [item for item in payload["data"]["streams"] if item.get("stream") == "signals"]
+    streams = payload["data"]["streams"]
+
+    # A required stream with a backlog and no consumer group is a genuine warning.
+    signals = [item for item in streams if item.get("stream") == "signals"]
     assert signals
     assert signals[0]["health"] == "warning"
     assert signals[0]["reason"] == "no_active_consumers"
+
+    # An empty/dormant required stream (orders) has nothing to consume, so it
+    # must NOT raise a false no_active_consumers warning.
+    orders = [item for item in streams if item.get("stream") == "orders"]
+    assert orders
+    assert orders[0]["health"] == "ok"
+    assert orders[0]["reason"] == "no_consumer_group"
 
 
 async def test_get_agent_grades_filters_since(monkeypatch) -> None:

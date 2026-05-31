@@ -202,6 +202,21 @@ async def get_state_payload() -> dict[str, Any]:
                         pass
             if prices:
                 data[FieldName.PRICES] = prices
+                # In memory mode the store's positions are frozen at fill price;
+                # mark them to the freshly-fetched prices so the Open Positions
+                # table reflects (and agrees with) the live ticker, and every
+                # other read path (Session P&L, MCP get_positions) sees the same
+                # marks via the shared store.
+                if not is_db_available():
+                    store = get_runtime_store()
+                    store.apply_current_prices(
+                        {
+                            sym: payload.get(FieldName.PRICE)
+                            for sym, payload in prices.items()
+                            if isinstance(payload, dict)
+                        }
+                    )
+                    data[FieldName.POSITIONS] = store.normalized_open_positions()
         except Exception:
             log_structured("warning", "dashboard_state_prices_failed", exc_info=True)
 

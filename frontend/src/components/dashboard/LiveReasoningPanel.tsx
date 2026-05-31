@@ -52,6 +52,22 @@ interface LiveReasoningResponse {
   timestamp: string
 }
 
+type LlmStatus = 'live' | 'degraded' | 'down' | 'unknown'
+
+function coerceLlmStatus(value: unknown): LlmStatus {
+  return value === 'live' || value === 'degraded' || value === 'down' ? value : 'unknown'
+}
+
+// Header indicator per LLM status. When the provider is degraded/down the live
+// strategy below is still the configured one, but decisions are rule-based
+// fallbacks — so the dot must stop claiming a healthy green "live".
+const LLM_INDICATOR: Record<LlmStatus, { label: string; text: string; dot: string; pulse: boolean }> = {
+  live: { label: 'live', text: 'text-emerald-500', dot: 'bg-emerald-500', pulse: true },
+  degraded: { label: 'LLM degraded', text: 'text-amber-500', dot: 'bg-amber-500', pulse: false },
+  down: { label: 'LLM down · fallback', text: 'text-rose-500', dot: 'bg-rose-500', pulse: false },
+  unknown: { label: 'awaiting LLM', text: 'text-slate-400', dot: 'bg-slate-400', pulse: false },
+}
+
 function alphaClass(alpha: number): string {
   if (alpha > 0.001) return 'text-emerald-600 dark:text-emerald-400'
   if (alpha < -0.001) return 'text-rose-600 dark:text-rose-400'
@@ -187,6 +203,7 @@ function ProposalRow({ p }: { p: ProposalView }) {
 export function LiveReasoningPanel() {
   const [data, setData] = useState<LiveReasoningResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [llmStatus, setLlmStatus] = useState<LlmStatus>('unknown')
   const [showPrompt, setShowPrompt] = useState(false)
 
   useEffect(() => {
@@ -201,6 +218,14 @@ export function LiveReasoningPanel() {
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'fetch_failed')
       }
+      // LLM health is best-effort: it drives the live/degraded indicator, but a
+      // failure here must not blank the reasoning cockpit.
+      try {
+        const health = await apiFetch<{ status?: string }>(API_ENDPOINTS.LLM_HEALTH)
+        if (!cancelled) setLlmStatus(coerceLlmStatus(health?.status))
+      } catch {
+        /* keep the previous status */
+      }
     }
     load()
     const id = window.setInterval(load, LEARNING_REFRESH_MS)
@@ -214,6 +239,8 @@ export function LiveReasoningPanel() {
   const challengers = data?.challengers ?? []
   const proposals = data?.proposals ?? []
   const versionLabel = live?.strategy_version != null ? `v${live.strategy_version}` : 'default'
+  const indicator = LLM_INDICATOR[llmStatus]
+  const llmDegraded = llmStatus === 'down' || llmStatus === 'degraded'
 
   return (
     <div className={cardClass}>
@@ -222,12 +249,14 @@ export function LiveReasoningPanel() {
         {error ? (
           <span className="font-mono text-xs text-rose-500">err: {error}</span>
         ) : (
-          <span className="flex items-center gap-1.5 font-mono text-xs text-emerald-500">
+          <span className={cn('flex items-center gap-1.5 font-mono text-xs', indicator.text)}>
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              {indicator.pulse && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              )}
+              <span className={cn('relative inline-flex h-2 w-2 rounded-full', indicator.dot)} />
             </span>
-            live
+            {indicator.label}
           </span>
         )}
       </div>
@@ -235,6 +264,14 @@ export function LiveReasoningPanel() {
         Exactly what the buy/sell AI is running now: the fixed rulebook + the tools it&apos;s
         allowed to use + the answer format. Challengers shadow it; proposals would change it.
       </p>
+
+      {llmDegraded && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+          LLM provider is {llmStatus === 'down' ? 'unavailable' : 'degraded'} right now — live
+          decisions are <strong>rule-based fallbacks</strong>, not model reasoning. The prompt and
+          tools below are still the configured strategy.
+        </div>
+      )}
 
       {/* ── Live strategy: the prompt + active tools ───────────────────────── */}
       <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-3 dark:border-slate-800 dark:bg-slate-900/30">

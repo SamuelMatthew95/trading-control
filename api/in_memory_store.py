@@ -80,8 +80,41 @@ class InMemoryStore:
             qty = 0.0
         return abs(qty) > 0
 
+    def _position_unrealized_pnl(self, position: dict[str, Any]) -> float | None:
+        """Mark-to-market unrealized PnL for one open position.
+
+        Returns ``None`` when an input needed to compute it is missing/malformed
+        so callers can fall back to a stored value or flag the row stale. Uses
+        ``abs(qty)`` so a short stored with negative qty still sizes correctly;
+        long/short apply side-aware signs. This is the single source of the
+        formula shared by every position read path.
+        """
+        qty = abs(
+            self._safe_float(position.get(FieldName.QTY))
+            or self._safe_float(position.get(FieldName.QUANTITY))
+            or 0.0
+        )
+        avg_cost = self._safe_float(
+            position.get(FieldName.AVG_COST, position.get(FieldName.AVG_ENTRY_PRICE))
+        )
+        last_price = self._safe_float(
+            position.get(FieldName.LAST_PRICE, position.get(FieldName.PRICE))
+        )
+        if avg_cost is None or last_price is None or qty <= 0:
+            return None
+        side = str(position.get(FieldName.SIDE) or "").lower()
+        if side == "short":
+            return round((avg_cost - last_price) * qty, 8)
+        return round((last_price - avg_cost) * qty, 8)
+
     def _normalize_position(self, p: dict[str, Any]) -> dict[str, Any]:
-        """Map internal position keys to what the frontend expects."""
+        """Map internal position keys to what the frontend expects.
+
+        The stored unrealized_pnl is written at fill time and goes stale as the
+        price moves, so we mark each position to market here (the same formula
+        the paired-PnL / equity-curve path uses) and only fall back to the
+        stored value when the inputs to compute it are missing.
+        """
         qty = self._safe_float(p.get(FieldName.QTY) or p.get(FieldName.QUANTITY)) or 0.0
         current_price = (
             self._safe_float(p.get(FieldName.CURRENT_PRICE))
@@ -89,18 +122,68 @@ class InMemoryStore:
             or self._safe_float(p.get(FieldName.PRICE))
             or 0.0
         )
-        unrealized_pnl = self._safe_float(p.get(FieldName.UNREALIZED_PNL))
-        unrealized = (
-            unrealized_pnl
-            if unrealized_pnl is not None
-            else (self._safe_float(p.get(FieldName.PNL)) or 0.0)
-        )
+        computed = self._position_unrealized_pnl(p)
+        if computed is not None:
+            unrealized = computed
+        else:
+            stored = self._safe_float(p.get(FieldName.UNREALIZED_PNL))
+            unrealized = (
+                stored if stored is not None else (self._safe_float(p.get(FieldName.PNL)) or 0.0)
+            )
         return {
             **p,
             FieldName.QUANTITY: qty,
             FieldName.CURRENT_PRICE: current_price,
+            FieldName.UNREALIZED_PNL: unrealized,
             FieldName.PNL: unrealized,
+            FieldName.PNL_PERCENT: self._position_pnl_percent(p, unrealized),
         }
+
+    def _position_pnl_percent(
+        self, position: dict[str, Any], unrealized: float | None
+    ) -> float | None:
+        """Percent return on cost basis for one position; ``None`` when not derivable."""
+        if unrealized is None:
+            return None
+        qty = abs(
+            self._safe_float(position.get(FieldName.QTY))
+            or self._safe_float(position.get(FieldName.QUANTITY))
+            or 0.0
+        )
+        avg_cost = self._safe_float(
+            position.get(FieldName.AVG_COST, position.get(FieldName.AVG_ENTRY_PRICE))
+        )
+        if avg_cost is None or qty <= 0:
+            return None
+        cost_basis = avg_cost * qty
+        if cost_basis == 0:
+            return None
+        return round(unrealized / cost_basis * 100.0, 4)
+
+    def apply_current_prices(self, prices: dict[str, Any]) -> None:
+        """Mark stored open positions to the latest observed prices.
+
+        In memory mode nothing updates a position's ``last_price`` as the market
+        moves (it is frozen at fill time), so the dashboard read layer calls this
+        with the current Redis price cache to keep every position read path
+        marked to market and mutually consistent.
+        """
+        for symbol, price in prices.items():
+            value = self._safe_float(price)
+            if value is None:
+                continue
+            position = self.positions.get(symbol)
+            if position is not None:
+                position[FieldName.LAST_PRICE] = value
+                position[FieldName.CURRENT_PRICE] = value
+
+    def normalized_open_positions(self) -> list[dict[str, Any]]:
+        """Frontend-shaped open positions, each marked to market (snapshot view)."""
+        return [
+            self._normalize_position(p)
+            for p in self.positions.values()
+            if self._has_open_quantity(p)
+        ]
 
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
@@ -303,11 +386,7 @@ class InMemoryStore:
 
         return {
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
-            FieldName.POSITIONS: [
-                self._normalize_position(p)
-                for p in self.positions.values()
-                if self._has_open_quantity(p)
-            ],
+            FieldName.POSITIONS: self.normalized_open_positions(),
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
             FieldName.PROPOSALS: [
@@ -550,14 +629,25 @@ class InMemoryStore:
         return entry
 
     def open_positions(self) -> list[dict[str, Any]]:
-        """Return normalized in-memory open positions (long/short with non-zero qty)."""
+        """Return in-memory open positions (long/short, non-zero qty), marked to market.
+
+        Each row's unrealized_pnl/pnl is recomputed from avg_cost vs last_price
+        so every position read path agrees with the paired-PnL / equity-curve
+        figures instead of returning the stale value stored at fill time.
+        """
         rows: list[dict[str, Any]] = []
         for position in self.positions.values():
             side = str(position.get(FieldName.SIDE, "")).lower()
             qty = self._safe_float(position.get(FieldName.QTY))
             if side not in {"long", "short"} or qty is None or abs(qty) <= 0:
                 continue
-            rows.append(position)
+            row = dict(position)
+            computed = self._position_unrealized_pnl(row)
+            if computed is not None:
+                row[FieldName.UNREALIZED_PNL] = computed
+                row[FieldName.PNL] = computed
+                row[FieldName.PNL_PERCENT] = self._position_pnl_percent(row, computed)
+            rows.append(row)
         return rows
 
     def paired_pnl_payload(self) -> dict[str, Any]:
@@ -578,15 +668,9 @@ class InMemoryStore:
         unrealized_pnl = 0.0
         for position in self.open_positions():
             row = dict(position)
-            qty_raw = self._safe_float(row.get(FieldName.QTY)) or 0.0
-            qty = abs(qty_raw)
-            side = str(row.get(FieldName.SIDE) or "").lower()
             existing_unrealized = self._safe_float(row.get(FieldName.UNREALIZED_PNL))
-            avg_cost = self._safe_float(
-                row.get(FieldName.AVG_COST, row.get(FieldName.AVG_ENTRY_PRICE))
-            )
-            last_price = self._safe_float(row.get(FieldName.LAST_PRICE, row.get(FieldName.PRICE)))
-            if avg_cost is None or last_price is None or qty <= 0:
+            position_unrealized = self._position_unrealized_pnl(row)
+            if position_unrealized is None:
                 if existing_unrealized is not None:
                     row[FieldName.UNREALIZED_PNL] = round(existing_unrealized, 8)
                     unrealized_pnl += existing_unrealized
@@ -596,11 +680,7 @@ class InMemoryStore:
                 row["pnl_stale"] = True
                 open_positions.append(row)
                 continue
-            if side == "short":
-                position_unrealized = (avg_cost - last_price) * qty
-            else:
-                position_unrealized = (last_price - avg_cost) * qty
-            row[FieldName.UNREALIZED_PNL] = round(position_unrealized, 8)
+            row[FieldName.UNREALIZED_PNL] = position_unrealized
             unrealized_pnl += position_unrealized
             open_positions.append(row)
 

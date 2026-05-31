@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,20 +17,46 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 
+# String tokens that mean "this number is legitimately absent" rather than
+# "this number is malformed". An open position has no exit price or P&L yet, so
+# these must be treated as missing — NOT reported as a degraded/sanitized field.
+_NULL_LIKE_NUMERIC_TOKENS = frozenset(
+    {"", "null", "none", "nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}
+)
+
+
+def _is_null_like_numeric(value: Any) -> bool:
+    """True when ``value`` means 'no number here', not 'a malformed number'.
+
+    Distinguishes a legitimately-absent value (``None``, ``""``, ``"null"``,
+    non-finite float) from genuine garbage (``"abc"``) so the caller can tell an
+    open position's empty exit/P&L apart from a corrupt payload.
+    """
+    if value is None:
+        return True
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, str):
+        return value.strip().lower() in _NULL_LIKE_NUMERIC_TOKENS
+    return False
+
 
 def _safe_numeric(value: Any) -> float | None:
-    """Parse numeric-like values without raising on malformed payloads."""
-    if value is None:
+    """Parse numeric-like values without raising on malformed payloads.
+
+    Returns ``None`` for both legitimately-absent values (``None``, ``""``,
+    ``"null"``) and non-finite/unparseable ones, so NaN/Inf never leak into the
+    JSON response as bare ``NaN`` tokens.
+    """
+    if _is_null_like_numeric(value):
         return None
     if isinstance(value, str):
-        raw = value.strip()
-        if not raw or raw.lower() in {"null", "none"}:
-            return None
-        value = raw
+        value = value.strip()
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _performance_trends_empty_payload(
@@ -86,8 +113,13 @@ def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None
     sanitized_fields: list[str] = []
 
     def _pick_num(name: str) -> float | None:
-        parsed = _safe_numeric(raw.get(name))
-        if raw.get(name) is not None and parsed is None:
+        raw_value = raw.get(name)
+        parsed = _safe_numeric(raw_value)
+        # Only a genuinely malformed value (e.g. "abc") counts as sanitized. A
+        # null-like value (None / "" / "null" / "None") just means the field is
+        # absent — normal for the exit price & P&L of a still-open position,
+        # which must NOT be flagged as degraded.
+        if parsed is None and not _is_null_like_numeric(raw_value):
             sanitized_fields.append(name)
         return parsed
 

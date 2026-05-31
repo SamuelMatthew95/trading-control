@@ -186,3 +186,97 @@ now uses `COLUMNS.length` instead of a hardcoded `5`.
 **Regression test:** `frontend/src/test/helpers/formatters.test.ts` —
 `getField` / `getStr` describe blocks (null/array/primitive safety, alias
 coalescing, stringification).
+
+## Rule-based fallback decisions were indistinguishable from real model reasoning
+
+**Symptom:** When the LLM is unavailable (deployment/config), the ReasoningAgent
+emits `fallback:skip_reasoning` decisions with `llm_succeeded: false`, but the
+"Recent Decisions" panel rendered them identically to model-reasoned calls — a
+confident-looking `BUY SOL 55%` with nothing marking it as a rule-based
+fallback. The whole feed looked like normal (if random) AI decisions, so the
+operator couldn't tell the system was running degraded.
+
+**Root cause:** `RecentDecisionsPanel.tsx` only rendered action/symbol/price/
+confidence and ignored the `llm_succeeded` / `reasoning_summary` fields the
+`/decisions` endpoint already returns. (Only `TradingView.tsx` had fallback
+labeling, via its local `resolveMessage`, and it covers the Agent Activity feed,
+not this panel.)
+
+**Fix:** `components/dashboard/RecentDecisionsPanel.tsx` adds
+`isFallbackDecision(d)` (`llm_succeeded === false` or a `fallback:`-prefixed
+`reasoning_summary`). Fallback rows get an amber `rule-based` tag, and the
+header shows an `N/M rule-based` summary with a tooltip ("LLM unavailable —
+rule-based fallback decisions, not model reasoning"). Amber (caution), not red
+(error): the data is intentional degradation, not a crash. No API change.
+
+**Regression test:** `frontend/src/test/components/RecentDecisionsPanel.test.tsx`
+— `flags rule-based fallback decisions so they are not read as model reasoning`
+and `shows no fallback markers when every decision used the LLM`.
+
+## Live Reasoning panel showed a green "live" pulse while the LLM was down
+
+**Symptom:** On the Agents page, the "Live Reasoning" cockpit always showed a
+pulsing green `live` indicator as long as `/dashboard/prompt-os` returned — even
+when the LLM provider was at a 100% error rate (`fallback_mode: true`) and every
+decision was a rule-based fallback. The cockpit looked healthy while the AI
+wasn't actually reasoning.
+
+**Root cause:** The header dot only reflected whether the prompt-os *config*
+fetch succeeded; it had no knowledge of LLM call health. `/llm/health` already
+computes a canonical `status` (`live`/`degraded`/`down`/`unknown`) but the panel
+never consulted it.
+
+**Fix:** `components/dashboard/LiveReasoningPanel.tsx` now also fetches
+`/llm/health` (best-effort — a failure leaves the prior status, never blanks the
+panel) and drives the indicator from `status`: green pulse only when `live`,
+amber when `degraded`, red `LLM down · fallback` when `down`, neutral when
+`unknown`. When degraded/down it shows an amber banner stating decisions are
+currently rule-based fallbacks and that the prompt/tools below are still the
+configured strategy. No pipeline/behavior change.
+
+**Regression test:** `frontend/src/test/components/LiveReasoningPanel.test.tsx`
+— `surfaces an LLM-down indicator and fallback banner when the provider is unhealthy`.
+
+## Open Positions table showed P&L 0.00 for every position (stale stored value)
+
+**Symptom:** In memory mode the Trading page's Open Positions table showed
+`+$0.00` P&L for every open position, even when `last_price` clearly differed
+from `entry_price` — while the equity curve / Session P&L showed a non-zero
+unrealized figure. The two disagreed, so the table looked broken.
+
+**Root cause:** Three position read paths existed and only one marked to market.
+`paired_pnl_payload()` (equity curve / summary) computed unrealized PnL from
+avg_cost vs last_price, but `_normalize_position()` (the `/dashboard/state`
+snapshot the table renders) and `open_positions()` (MCP `get_positions`)
+returned the raw stored `unrealized_pnl` — written once at fill time (0.0 when
+last == entry) and never updated as price moves.
+
+**Fix:** Extracted the formula into one shared
+`InMemoryStore._position_unrealized_pnl()` (abs(qty), side-aware) and used it in
+all three paths (`_normalize_position`, `open_positions`, `paired_pnl_payload`),
+falling back to the stored value (or flagging stale) only when avg_cost/last_price
+are missing. Every position read path now marks to market and agrees. (The stored
+`last_price` itself can still lag the latest tick — a shared limitation the equity
+curve has too — so the table is now *consistent* with the rest of the system.)
+
+**Regression test:** `tests/core/test_in_memory_unrealized_pnl.py::test_open_positions_marked_to_market_not_stale_stored_value`
+
+## Open Positions P&L stayed flat as the market moved (frozen fill price) + missing P&L %
+
+**Symptom:** After the stale-stored-value fix, in-memory Open Positions still
+didn't track the live market — P&L matched the price at the last fill, not the
+current ticker (e.g. SOL sat at 0.00 because last == entry) — and the P&L %
+column always showed "--".
+
+**Root cause:** In memory mode nothing updates a position's `last_price` as
+prices move (it's frozen at fill time), and the rows never carried `pnl_percent`.
+
+**Fix:** (1) `InMemoryStore.apply_current_prices(prices)` marks stored positions
+to the latest prices; `get_state_payload` (`/dashboard/state`) calls it in memory
+mode with the Redis price cache it already fetches, then rebuilds the positions
+via `normalized_open_positions()` — so the table, Session P&L, and MCP
+`get_positions` all read the same live-marked figures from the shared store.
+(2) `_position_pnl_percent()` now populates `pnl_percent` (return on cost basis)
+on every position read path, so the table's P&L % column renders.
+
+**Regression test:** `tests/core/test_in_memory_unrealized_pnl.py::test_apply_current_prices_marks_positions_to_live_price`
