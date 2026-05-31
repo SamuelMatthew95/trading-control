@@ -1226,6 +1226,10 @@ LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
 # Regression gate — hard thresholds a challenger must clear before promotion.
 # These are deterministic and non-negotiable: a candidate is rejected if it is
 # worse than the champion on ANY gate beyond these tolerances. No exceptions.
+# How many recent github_prs stream entries the pending-param-changes endpoint
+# scans (the GitHub Action de-dupes, so this only bounds the read window).
+PARAM_PR_REQUESTS_SCAN_LIMIT: Final[int] = 200
+
 # ---------------------------------------------------------------------------
 # Candidate Sharpe may be at most this far BELOW the champion's.
 REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
