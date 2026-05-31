@@ -62,4 +62,53 @@ describe('RecentDecisionsPanel', () => {
     render(<RecentDecisionsPanel stats={null} recent={[]} />)
     expect(screen.getByText('No buy/sell decisions yet')).toBeInTheDocument()
   })
+
+  it('flags rule-based fallback decisions so they are not read as model reasoning', () => {
+    const recent = [
+      {
+        id: 'f1',
+        action: 'buy',
+        symbol: 'SOL/USD',
+        price: 81.4,
+        confidence: 0.55,
+        llm_succeeded: false,
+        reasoning_summary: 'fallback:skip_reasoning',
+        timestamp: '2026-05-31T18:00:00Z',
+      },
+      {
+        id: 'n1',
+        action: 'buy',
+        symbol: 'BTC/USD',
+        price: 73000,
+        confidence: 0.8,
+        llm_succeeded: true,
+        reasoning_summary: 'momentum up',
+        timestamp: '2026-05-31T18:01:00Z',
+      },
+    ]
+    render(<RecentDecisionsPanel stats={STATS} recent={recent} />)
+
+    // Header summary counts only the fallback rows against the actionable total.
+    expect(screen.getByText('1/2 rule-based')).toBeInTheDocument()
+    // Exactly one per-row tag — on the fallback decision, not the real one.
+    expect(screen.getAllByText('rule-based')).toHaveLength(1)
+    expect(screen.getByText('SOL/USD')).toBeInTheDocument()
+    expect(screen.getByText('BTC/USD')).toBeInTheDocument()
+  })
+
+  it('shows no fallback markers when every decision used the LLM', () => {
+    const recent = [
+      {
+        id: 'n1',
+        action: 'buy',
+        symbol: 'BTC/USD',
+        price: 73000,
+        confidence: 0.8,
+        llm_succeeded: true,
+        timestamp: '2026-05-31T18:01:00Z',
+      },
+    ]
+    render(<RecentDecisionsPanel stats={STATS} recent={recent} />)
+    expect(screen.queryByText(/rule-based/)).not.toBeInTheDocument()
+  })
 })
