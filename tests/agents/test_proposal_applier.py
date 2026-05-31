@@ -184,3 +184,39 @@ async def test_apply_writes_agent_log_with_applied_at(monkeypatch):
     assert trace_id == "trace-xyz"
     assert payload[FieldName.APPLIED] is True
     assert FieldName.APPLIED_AT in payload
+
+
+@pytest.mark.asyncio
+async def test_parameter_change_emits_github_pr_artifact(applier, mock_bus):
+    """A PARAMETER_CHANGE proposal becomes a durable github_prs artifact instead of
+    being dropped — the GitOps 'create artifact -> PR' path."""
+    from api.constants import STREAM_GITHUB_PRS
+
+    content = {
+        FieldName.PARAMETER: "SIGNAL_CONFIDENCE_MIN_GATE",
+        FieldName.PREVIOUS_VALUE: 0.65,
+        FieldName.NEW_VALUE: 0.50,
+        FieldName.REASON: "too many momentum signals gated",
+    }
+    await applier.process("proposals", "1-0", _proposal(ProposalType.PARAMETER_CHANGE, content))
+
+    pr_calls = [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert pr_calls, "expected a github_prs pr_request artifact"
+    artifact = pr_calls[0].args[1]
+    assert artifact[FieldName.TYPE] == "pr_request"
+    assert artifact[FieldName.PARAMETER] == "SIGNAL_CONFIDENCE_MIN_GATE"
+    assert artifact[FieldName.PREVIOUS_VALUE] == 0.65
+    assert artifact[FieldName.PROPOSED_VALUE] == 0.50
+    assert artifact[FieldName.PROPOSAL_TYPE] == ProposalType.PARAMETER_CHANGE
+
+
+@pytest.mark.asyncio
+async def test_parameter_change_without_parameter_is_noop(applier, mock_bus):
+    """A param proposal missing the parameter name emits no artifact (and no crash)."""
+    from api.constants import STREAM_GITHUB_PRS
+
+    await applier.process(
+        "proposals", "1-0", _proposal(ProposalType.PARAMETER_CHANGE, {FieldName.REASON: "x"})
+    )
+    pr_calls = [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert pr_calls == []
