@@ -39,6 +39,12 @@ class MultiStreamAgent:
         self.dlq = dlq
         self.streams = streams
         self.consumer = consumer
+        # Per-agent consumer group (FAN-OUT). Each MultiStreamAgent gets its OWN
+        # group so it receives EVERY message on a shared stream. Sharing one group
+        # (the old DEFAULT_GROUP "workers") load-balanced events across DIFFERENT
+        # agent types — GradeAgent / ICUpdater / ReflectionAgent / ChallengerAgent
+        # each saw only a fraction of fills, silently starving the learning loop.
+        self._group = f"{DEFAULT_GROUP}:{consumer}"
         self.agent_state = agent_state
         self._task: asyncio.Task[None] | None = None
         self._running = False
@@ -141,11 +147,17 @@ class MultiStreamAgent:
                 task=f"subscribed:{','.join(self.streams)}",
             )
         for stream in self.streams:
+            # Create this agent's OWN group reading only NEW messages ("$") so a
+            # fresh agent doesn't replay the backlog. Best-effort: a fake bus in
+            # unit tests may lack create_consumer_group — non-fatal.
+            with suppress(Exception):
+                await self.bus.create_consumer_group(stream, self._group, start_id="$")
             log_structured(
                 "info",
                 "agent_stream_subscribed",
                 agent=self.consumer,
                 stream=stream,
+                group=self._group,
             )
         self._task = asyncio.create_task(self._run(), name=f"agent:{self.consumer}")
 
@@ -204,7 +216,7 @@ class MultiStreamAgent:
             for stream in self.streams:
                 messages = await self.bus.consume(
                     stream,
-                    group=DEFAULT_GROUP,
+                    group=self._group,
                     consumer=self.consumer,
                     count=20,
                     block_ms=100,
@@ -225,7 +237,7 @@ class MultiStreamAgent:
                             redis_id=redis_id,
                         )
                         await self.process(stream, redis_id, data)
-                        await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+                        await self.bus.acknowledge(stream, self._group, redis_id)
                         self._events_processed += 1
                         if self.agent_state and self._state_name:
                             self.agent_state.record_event(
@@ -274,7 +286,7 @@ class MultiStreamAgent:
                         # reclaim_stale(), so it would never be re-delivered.
                         try:
                             await self.dlq.push(stream, redis_id, data, error=str(exc), retries=1)
-                            await self.bus.acknowledge(stream, DEFAULT_GROUP, redis_id)
+                            await self.bus.acknowledge(stream, self._group, redis_id)
                         except Exception:
                             log_structured(
                                 "error",
