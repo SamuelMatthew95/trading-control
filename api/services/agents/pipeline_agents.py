@@ -1702,7 +1702,12 @@ class ChallengerAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
+            # STREAM_SIGNALS drives the REAL shadow trades (the challenger runs its
+            # own strategy on the same signals the baseline sees). Safe now that
+            # each agent has its OWN fan-out group, so this does NOT steal signals
+            # from ReasoningAgent. executions/trade_performance remain the grading
+            # cadence clock and backward-compatible liveness.
+            streams=[STREAM_SIGNALS, STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE],
             consumer=f"challenger-{self._challenger_id}",
             agent_state=agent_state,
         )
@@ -1716,6 +1721,37 @@ class ChallengerAgent(MultiStreamAgent):
         self._pnl_buffer: deque[float] = deque(maxlen=100)
         self._grade_history: list[dict[str, Any]] = []
         self._lifecycle_registered = False
+        # Shadow engines: this challenger's configured strategy AND the baseline,
+        # both fed the SAME live signals so we can A/B their real performance on
+        # live data and propose promotion only when the challenger beats baseline.
+        self._shadow, self._baseline_shadow = self._build_shadow_engines()
+
+    def _build_shadow_engines(self):
+        """Construct (own, baseline) ShadowTradeEngines from the configured strategy.
+
+        Returns (None, None) when no (or an unknown) strategy is configured, so a
+        config-less challenger is a safe no-op on signal events.
+        """
+        strategy_name = str(self._config.get(FieldName.STRATEGY) or "")
+        if not strategy_name:
+            return None, None
+        try:
+            from api.services.shadow_trader import ShadowTradeEngine  # noqa: PLC0415
+            from backtest.strategies import STRATEGIES  # noqa: PLC0415
+
+            baseline_name = "baseline_momentum"
+            if strategy_name not in STRATEGIES:
+                return None, None
+            own = ShadowTradeEngine(strategy_name, STRATEGIES[strategy_name])
+            baseline = (
+                ShadowTradeEngine(baseline_name, STRATEGIES[baseline_name])
+                if baseline_name in STRATEGIES
+                else None
+            )
+            return own, baseline
+        except Exception:
+            log_structured("warning", "challenger_shadow_engine_init_failed", exc_info=True)
+            return None, None
 
     async def start(self) -> None:
         """Begin consuming streams AND register at SHADOW immediately.
@@ -1730,6 +1766,13 @@ class ChallengerAgent(MultiStreamAgent):
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         self._ensure_lifecycle_registered()
+
+        # Live signals drive the REAL shadow trades: the challenger runs its OWN
+        # strategy (and baseline) on the same prices the production pipeline sees.
+        if stream == STREAM_SIGNALS:
+            self._observe_shadow(data)
+            return
+
         if stream == STREAM_TRADE_PERFORMANCE:
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
@@ -1742,6 +1785,49 @@ class ChallengerAgent(MultiStreamAgent):
 
         if self._fills >= self._max_fills:
             await self._retire_with_summary()
+
+    def _observe_shadow(self, data: dict[str, Any]) -> None:
+        """Run the configured strategy (and baseline) on one live signal's price.
+
+        This is what makes the challenger's config REAL: it actually executes the
+        strategy on live data as shadow trades, instead of grading the baseline's
+        fills like every challenger used to. No real capital is touched.
+        """
+        if self._shadow is None:
+            return
+        symbol = data.get(FieldName.SYMBOL)
+        try:
+            price = float(data.get(FieldName.PRICE) or 0.0)
+        except (TypeError, ValueError):
+            return
+        if not symbol or price <= 0:
+            return
+        self._shadow.observe(symbol, price)
+        if self._baseline_shadow is not None:
+            self._baseline_shadow.observe(symbol, price)
+
+    def _shadow_summary(self) -> dict[str, Any]:
+        """Own vs baseline shadow performance on live data (empty when no engine).
+
+        These are challenger-report fields (not payload FieldName keys); they ride
+        inside the grade / retirement ``metrics`` block for the dashboard.
+        """
+        if self._shadow is None:
+            return {}
+        m = self._shadow.metrics
+        summary: dict[str, Any] = {
+            "shadow_trades": m.trades,
+            "shadow_win_rate": round(m.win_rate, 4),
+            "shadow_pnl": round(m.realized_pnl, 4),
+            "shadow_sharpe": round(m.sharpe, 4),
+        }
+        if self._baseline_shadow is not None:
+            b = self._baseline_shadow.metrics
+            summary["baseline_shadow_trades"] = b.trades
+            summary["baseline_shadow_win_rate"] = round(b.win_rate, 4)
+            summary["baseline_shadow_pnl"] = round(b.realized_pnl, 4)
+            summary["beats_baseline_shadow"] = m.realized_pnl > b.realized_pnl
+        return summary
 
     async def _grade(self) -> None:
         """Compute a grade for this challenger window and publish results."""
@@ -1758,6 +1844,8 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.AVG_PNL: round(avg_pnl, 4),
             FieldName.CONFIG: self._config,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            # Real shadow-strategy evidence (own vs baseline) on live data.
+            **self._shadow_summary(),
         }
         self._grade_history.append(grade_result)
 
@@ -1804,6 +1892,8 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.CONFIG: self._config,
             FieldName.GRADE_HISTORY: self._grade_history[-5:],
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            # Real shadow-strategy evidence (own vs baseline) on live data.
+            **self._shadow_summary(),
         }
         await self.bus.publish(
             STREAM_PROPOSALS,
