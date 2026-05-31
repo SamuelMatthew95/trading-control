@@ -25,8 +25,12 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from backtest.strategies import Bar, Strategy
+from backtest.strategies import Bar  # runtime use: Bar(...) constructor in observe()
+
+if TYPE_CHECKING:
+    from backtest.strategies import Strategy  # annotation-only
 
 # Action constants mirror backtest.strategies (HOLD/BUY/SELL) without importing the
 # private module-level names, so this engine has one obvious source of truth.
