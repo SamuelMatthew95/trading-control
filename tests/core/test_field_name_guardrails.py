@@ -171,6 +171,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/signal_generator.py",
         "api/services/shadow_trader.py",
         "api/services/param_evolution.py",
+        "api/services/param_overrides.py",
         "api/services/strategy_registry.py",
         "api/services/system_metrics_consumer.py",
         "api/services/system_metrics_handler.py",

@@ -1,8 +1,9 @@
-"""Tests for scripts/apply_param_change.py — the file-IO wrapper of the GitOps loop.
+"""Tests for scripts/apply_param_change.py — JSON-overrides file-IO wrapper.
 
-The pure edit logic is covered in test_param_evolution; here we verify the script
-correctly reads/writes a file, emits JSON, and uses exit codes the workflow relies
-on (0 = applied, 1 = refused, 2 = file missing).
+The pure edit logic is covered in test_param_overrides; here we verify the script
+reads/writes config/param_overrides.json correctly, treats a missing file as {},
+emits JSON, and uses the exit codes the workflow relies on (0 = applied,
+1 = refused).
 """
 
 from __future__ import annotations
@@ -22,68 +23,56 @@ def _load_main():
     return mod.main
 
 
-_CONSTANTS = "from typing import Final\n\nSIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.50\n"
-
-
-def test_script_applies_and_writes(tmp_path, capsys):
+def test_script_creates_file_when_missing(tmp_path, capsys):
     main = _load_main()
-    f = tmp_path / "constants.py"
-    f.write_text(_CONSTANTS)
-
+    f = tmp_path / "param_overrides.json"  # does not exist yet
     rc = main(
-        [
-            "--parameter",
-            "SIGNAL_CONFIDENCE_MIN_GATE",
-            "--value",
-            "0.55",
-            "--constants-path",
-            str(f),
-        ]
+        ["--parameter", "SIGNAL_CONFIDENCE_MIN_GATE", "--value", "0.55", "--overrides-path", str(f)]
     )
     assert rc == 0
-    assert "SIGNAL_CONFIDENCE_MIN_GATE: Final[float] = 0.55" in f.read_text()
-    out = json.loads(capsys.readouterr().out.strip())
-    assert out["ok"] is True
-    assert out["previous_value"] == 0.50
-    assert out["new_value"] == 0.55
+    data = json.loads(f.read_text())
+    assert data["SIGNAL_CONFIDENCE_MIN_GATE"] == 0.55
+    assert json.loads(capsys.readouterr().out.strip())["ok"] is True
+
+
+def test_script_merges_into_existing(tmp_path):
+    main = _load_main()
+    f = tmp_path / "param_overrides.json"
+    f.write_text('{"STOP_LOSS_PCT": 0.04}\n')
+    rc = main(
+        ["--parameter", "SIGNAL_CONFIDENCE_MIN_GATE", "--value", "0.55", "--overrides-path", str(f)]
+    )
+    assert rc == 0
+    data = json.loads(f.read_text())
+    assert data["STOP_LOSS_PCT"] == 0.04  # preserved
+    assert data["SIGNAL_CONFIDENCE_MIN_GATE"] == 0.55  # added
 
 
 def test_script_refuses_out_of_bounds_and_leaves_file(tmp_path, capsys):
     main = _load_main()
-    f = tmp_path / "constants.py"
-    f.write_text(_CONSTANTS)
-
+    f = tmp_path / "param_overrides.json"
+    f.write_text("{}\n")
     rc = main(
-        ["--parameter", "SIGNAL_CONFIDENCE_MIN_GATE", "--value", "0.99", "--constants-path", str(f)]
+        ["--parameter", "SIGNAL_CONFIDENCE_MIN_GATE", "--value", "0.99", "--overrides-path", str(f)]
     )
     assert rc == 1
-    assert f.read_text() == _CONSTANTS  # untouched
-    out = json.loads(capsys.readouterr().out.strip())
-    assert out["ok"] is False
-    assert out["error"]
+    assert f.read_text() == "{}\n"  # untouched
+    assert json.loads(capsys.readouterr().out.strip())["ok"] is False
 
 
-def test_script_missing_file_exit_2(tmp_path, capsys):
+def test_script_refuses_unlisted_parameter(tmp_path):
     main = _load_main()
-    rc = main(
-        [
-            "--parameter",
-            "SIGNAL_CONFIDENCE_MIN_GATE",
-            "--value",
-            "0.55",
-            "--constants-path",
-            str(tmp_path / "nope.py"),
-        ]
-    )
-    assert rc == 2
-    out = json.loads(capsys.readouterr().out.strip())
-    assert out["ok"] is False
-
-
-def test_script_refuses_unlisted_parameter(tmp_path, capsys):
-    main = _load_main()
-    f = tmp_path / "constants.py"
-    f.write_text("FOO: Final[int] = 1\n")
-    rc = main(["--parameter", "FOO", "--value", "2", "--constants-path", str(f)])
+    f = tmp_path / "param_overrides.json"
+    f.write_text("{}\n")
+    rc = main(["--parameter", "TOTALLY_FAKE", "--value", "2", "--overrides-path", str(f)])
     assert rc == 1
-    assert f.read_text() == "FOO: Final[int] = 1\n"  # untouched
+    assert f.read_text() == "{}\n"
+
+
+def test_script_coerces_int_style_param(tmp_path):
+    # All current allowlisted params are floats; verify a float param round-trips.
+    main = _load_main()
+    f = tmp_path / "param_overrides.json"
+    rc = main(["--parameter", "STOP_LOSS_PCT", "--value", "0.04", "--overrides-path", str(f)])
+    assert rc == 0
+    assert json.loads(f.read_text())["STOP_LOSS_PCT"] == 0.04
