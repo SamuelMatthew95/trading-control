@@ -350,7 +350,10 @@ async def lifespan(app: FastAPI):
         app.state.risk_guardian = risk_guardian
 
         # AgentSupervisor: detects crashed agent tasks and restarts them.
-        supervisor = AgentSupervisor(event_bus, agents)
+        # RiskGuardian is included so the stop-loss / daily-loss monitor is
+        # restarted too if its task ever dies — it is the one safety-critical
+        # background task we cannot afford to leave unmonitored.
+        supervisor = AgentSupervisor(event_bus, [*agents, risk_guardian])
         await supervisor.start()
         app.state.supervisor = supervisor
 
