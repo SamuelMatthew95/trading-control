@@ -50,12 +50,27 @@ type LearningLoopState = {
   timestamp: string
 }
 
-// A shadow ChallengerAgent (GET /dashboard/challengers).
+// A shadow ChallengerAgent (GET /dashboard/challengers). Carries the REAL
+// own-vs-baseline shadow evidence so the panel shows what the config actually did.
 type ChallengerInfo = {
   challenger_id: string
   fills: number
   max_fills: number
   running: boolean
+  strategy?: string
+  shadow_trades?: number
+  shadow_win_rate?: number
+  shadow_pnl?: number
+  beats_baseline_shadow?: boolean
+}
+
+// A pending parameter-change PR artifact (GET /learning/pending-param-changes).
+type PendingParamChange = {
+  parameter: string
+  previous_value: number | string | null
+  proposed_value: number | string | null
+  reason: string
+  timestamp: string | null
 }
 
 
@@ -65,6 +80,7 @@ const fmtUSD = (n: number): string =>
 export function LearningLoopPanel() {
   const [state, setState] = useState<LearningLoopState | null>(null)
   const [challengers, setChallengers] = useState<ChallengerInfo[]>([])
+  const [pendingPRs, setPendingPRs] = useState<PendingParamChange[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -85,6 +101,15 @@ export function LearningLoopPanel() {
           API_ENDPOINTS.DASHBOARD_CHALLENGERS,
         )
         if (!cancelled) setChallengers(ch.challengers ?? [])
+      } catch {
+        // non-fatal
+      }
+      // Pending parameter-change PRs (GitOps loop) — also best-effort.
+      try {
+        const pr = await apiFetch<{ items: PendingParamChange[] }>(
+          API_ENDPOINTS.LEARNING_PENDING_PARAM_CHANGES,
+        )
+        if (!cancelled) setPendingPRs(pr.items ?? [])
       } catch {
         // non-fatal
       }
@@ -285,24 +310,91 @@ export function LearningLoopPanel() {
           <p className="text-xs text-slate-500">No shadow challengers running.</p>
         ) : (
           <div className="space-y-1.5">
-            {challengers.map((c) => (
-              <div
-                key={c.challenger_id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-800"
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${c.running ? 'bg-emerald-500' : 'bg-slate-400'}`}
-                  />
-                  <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300">
-                    challenger {c.challenger_id}
-                  </span>
-                </span>
-                <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
-                  {c.fills}/{c.max_fills} fills
-                </span>
-              </div>
-            ))}
+            {challengers.map((c) => {
+              const hasShadow = (c.shadow_trades ?? 0) > 0
+              return (
+                <div
+                  key={c.challenger_id}
+                  className="rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-800"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 truncate">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${c.running ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                      />
+                      <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300">
+                        {c.strategy || `challenger ${c.challenger_id}`}
+                      </span>
+                      {c.beats_baseline_shadow ? (
+                        <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 text-[10px] font-bold text-emerald-500">
+                          beats baseline
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                      {c.fills}/{c.max_fills} fills
+                    </span>
+                  </div>
+                  {/* Real shadow-trade evidence — what the config actually did on live data. */}
+                  {hasShadow ? (
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 pl-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                      <span>shadow trades: {c.shadow_trades}</span>
+                      <span>
+                        win: {c.shadow_win_rate != null ? `${(c.shadow_win_rate * 100).toFixed(0)}%` : '--'}
+                      </span>
+                      <span className={(c.shadow_pnl ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                        pnl: {c.shadow_pnl != null ? fmtUSD(c.shadow_pnl) : '--'}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="mt-1 pl-4 text-[11px] text-slate-400">
+                      warming up — no shadow trades yet
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Parameter Evolution — pending GitOps PRs that tune live params */}
+      <div className="mt-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Parameter Evolution — Pending PRs
+        </p>
+        {pendingPRs.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            No pending parameter changes. The learning loop opens a PR when it has evidence to
+            tune a parameter.
+          </p>
+        ) : (
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-300 dark:border-slate-800">
+            <table className="w-full text-xs font-mono">
+              <thead className="bg-slate-100 dark:bg-slate-800/50">
+                <tr className="text-left">
+                  <th className="p-2">Parameter</th>
+                  <th className="p-2 text-right">Current</th>
+                  <th className="p-2 text-right">Proposed</th>
+                  <th className="p-2">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingPRs.slice(0, 12).map((p) => (
+                  <tr
+                    key={p.parameter}
+                    className="border-t border-slate-200 dark:border-slate-800"
+                  >
+                    <td className="p-2">{p.parameter}</td>
+                    <td className="p-2 text-right text-slate-500">{p.previous_value ?? '--'}</td>
+                    <td className="p-2 text-right text-amber-500">{p.proposed_value ?? '--'}</td>
+                    <td className="p-2 text-slate-500 truncate" title={p.reason}>
+                      {p.reason || '--'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
