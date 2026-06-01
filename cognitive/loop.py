@@ -22,13 +22,14 @@ from typing import Any
 
 from cognitive.agents import MarketView
 from cognitive.aggregation import aggregate
-from cognitive.backtest_gate import evaluate_proposal
+from cognitive.backtest_gate import evaluate_proposal, walk_forward
 from cognitive.challenger import review as challenger_review
 from cognitive.config import CognitiveConfig, load_config
 from cognitive.decision import decide
 from cognitive.events import EventStream, EventType
 from cognitive.execution import execute
 from cognitive.gitops import apply_proposal_to_config, build_pull_request
+from cognitive.governance import ProposalGovernor
 from cognitive.grading import grade_agent, grade_config_version, grade_proposal, grade_trade
 from cognitive.health import assess_health
 from cognitive.learning import ImportanceTracker, LearningEngine, attribute
@@ -70,14 +71,19 @@ class CognitiveLoop:
         *,
         stream: EventStream | None = None,
         registry: AgentRegistry | None = None,
+        max_events: int = 100_000,
     ) -> None:
-        self.stream = stream or EventStream()
+        # Bounded retention so the in-process stream can't grow without limit.
+        self.stream = stream or EventStream(max_events=max_events)
         self.config = config or load_config()
         self.registry = registry or build_default_registry()
         self.learning = LearningEngine()
         self.importance = ImportanceTracker()
         self.scorecard = ProposalScorecard()
+        self.governor = ProposalGovernor()
         self.queue = ProposalQueue()
+        # Provenance of the active config: which merged proposal produced it.
+        self._config_proposal_id: str | None = None
 
         signal_agents = {spec.emits: spec.instance for spec in self.registry.by_role(ROLE_SIGNAL)}
         self.news = signal_agents[EventType.NEWS_SIGNAL.value]
@@ -120,9 +126,15 @@ class CognitiveLoop:
         self.reasoning.emit(self.stream, features, trace_id=trace_id, ts=market.ts)
 
         decision = decide(features, self.config)
+        decision_payload = decision.as_dict()
+        # Config lineage: every trade records which config version (and the merged
+        # proposal that produced it) drove the decision — so "which change caused
+        # this drawdown?" is answerable months later.
+        decision_payload["config_version"] = self.config.version
+        decision_payload["config_proposal_id"] = self._config_proposal_id
         self.stream.emit(
             EventType.DECISION,
-            decision.as_dict(),
+            decision_payload,
             trace_id=trace_id,
             source=SOURCE_DECISION,
             ts=market.ts,
@@ -140,9 +152,12 @@ class CognitiveLoop:
         )
 
         execution = execute(decision, gate, symbol=market.symbol, price=market.price, equity=equity)
+        execution_payload = execution.as_dict()
+        execution_payload["config_version"] = self.config.version
+        execution_payload["config_proposal_id"] = self._config_proposal_id
         self.stream.emit(
             EventType.EXECUTION,
-            execution.as_dict(),
+            execution_payload,
             trace_id=trace_id,
             source=SOURCE_EXECUTION,
             ts=market.ts,
@@ -189,6 +204,8 @@ class CognitiveLoop:
                 "realized_pnl": round(realized_pnl, 6),
                 "realized_pnl_pct": round(realized_pnl_pct, 6),
                 "side": side,
+                "config_version": int(decision_payload.get("config_version", self.config.version)),
+                "config_proposal_id": decision_payload.get("config_proposal_id"),
             },
             trace_id=trace_id,
             source=SOURCE_EXECUTION,
@@ -246,6 +263,8 @@ class CognitiveLoop:
         split: float = 0.5,
         slippage_seed: int = 0,
         base_ref: str = "main",
+        news: list[float] | None = None,
+        folds: int = 4,
     ) -> dict[str, Any] | None:
         """Run one evolution cycle. Returns the evidence bundle, or None if no proposal.
 
@@ -258,18 +277,36 @@ class CognitiveLoop:
             return None
 
         self.proposal_agent.emit(self.stream, proposal)
+
+        # Governance: quota / dedup / cooldown — refuse noisy or repeat proposals
+        # BEFORE spending a backtest on them.
+        admitted, reason = self.governor.admit(proposal)
+        if not admitted:
+            self.queue.add(proposal, status=ProposalStatus.BLOCKED.value)
+            self.queue.update(proposal.proposal_id, verdict={"blocked": reason})
+            return {"proposal": proposal, "blocked": reason}
+
         self.queue.add(proposal, status=ProposalStatus.BACKTESTING.value)
 
         candidate = apply_proposal_to_config(self.config, proposal)
         if candidate is None:
+            self.governor.record_outcome(proposal, approved=False)
             self.queue.update(proposal.proposal_id, status=ProposalStatus.REJECTED.value)
             return {"proposal": proposal, "rejected": "proposal does not map to a valid config"}
 
         cut = max(1, int(len(prices) * split))
         in_prices, out_prices = prices[:cut], prices[cut:]
-        in_delta = evaluate_proposal(in_prices, self.config, candidate, slippage_seed=slippage_seed)
+        in_news = None if news is None else news[:cut]
+        out_news = None if news is None else news[cut:]
+        in_delta = evaluate_proposal(
+            in_prices, self.config, candidate, news=in_news, slippage_seed=slippage_seed
+        )
         out_delta = evaluate_proposal(
-            out_prices, self.config, candidate, slippage_seed=slippage_seed
+            out_prices, self.config, candidate, news=out_news, slippage_seed=slippage_seed
+        )
+        # Walk-forward across several market periods — the anti-overfit gate.
+        wf = walk_forward(
+            prices, self.config, candidate, folds=folds, news=news, slippage_seed=slippage_seed
         )
         self.stream.emit(
             EventType.BACKTEST_RESULT,
@@ -278,6 +315,7 @@ class CognitiveLoop:
                 "proposal_id": proposal.proposal_id,
                 "in_sample": in_delta.as_dict(),
                 "out_sample": out_delta.as_dict(),
+                "walk_forward": wf.as_dict(),
             },
             source=SOURCE_GITOPS,
         )
@@ -291,6 +329,7 @@ class CognitiveLoop:
             learning_samples=learning_samples,
             candidate_config_valid=True,
             attribution_supports=self._attribution_supports(signal, direction),
+            walk_forward_consistency=wf.consistency,
         )
         self.stream.emit(
             EventType.CHALLENGER_VERDICT,
@@ -306,11 +345,13 @@ class CognitiveLoop:
         )
         self.stream.emit(EventType.GRADE, proposal_card.as_dict(), source=SOURCE_GITOPS)
         self.scorecard.record(proposal.proposal_type, success=verdict.approved)
+        self.governor.record_outcome(proposal, approved=verdict.approved)
 
         bundle: dict[str, Any] = {
             "proposal": proposal,
             "in_sample": in_delta,
             "out_sample": out_delta,
+            "walk_forward": wf,
             "verdict": verdict,
             "proposal_grade": proposal_card,
             "candidate_config": candidate,
@@ -349,6 +390,7 @@ class CognitiveLoop:
     ) -> dict[str, Any]:
         """Simulate a reviewed PR landing: adopt the config + record a version grade."""
         self.config = candidate
+        self._config_proposal_id = proposal_id  # provenance for trades on this config
         if proposal_id is not None:
             self.queue.update(proposal_id, status=ProposalStatus.MERGED.value)
         grade = grade_config_version(
@@ -425,6 +467,7 @@ class CognitiveLoop:
                 "config_versions": config_versions,
                 "proposal_success_rates": self.scorecard.snapshot(),
                 "agent_grades": agent_grades,
+                "governor": self.governor.snapshot(),
             },
             "health": assess_health(self.stream),
             "traces": [
