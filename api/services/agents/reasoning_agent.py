@@ -109,6 +109,11 @@ class ReasoningAgent(BaseStreamConsumer):
         # consumed by process() to stamp model_used. None means "use configured
         # default". Safe as instance state: process() runs one event at a time.
         self._last_model_label: str | None = None
+        # The tool invocations exercised during the current decision cycle —
+        # {name, latency_ms, success} each. Reset at the top of process() and
+        # attached to the decision so an operator can see the reasoning chain
+        # ("this decision consulted these tools"), not just the final verdict.
+        self._cycle_tools: list[dict[str, Any]] = []
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
@@ -132,6 +137,8 @@ class ReasoningAgent(BaseStreamConsumer):
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         # Reset per-decision provenance; _call_llm sets it to the real provider.
         self._last_model_label = None
+        # Reset the per-cycle tool chain; _record_tool appends to it.
+        self._cycle_tools = []
 
         # ReAct Step 1: Gather context (IC weights + risk state) before reasoning
         context = await self._gather_context(data)
@@ -154,6 +161,7 @@ class ReasoningAgent(BaseStreamConsumer):
             TOOL_QUERY_SIMILAR_TRADES,
             latency_ms=(time.monotonic() - search_t0) * 1000,
             success=search_ok,
+            outputs={FieldName.COUNT: len(similar_trades)},
         )
 
         # --- LLM decision (enriched with gathered context) ---------------
@@ -434,8 +442,15 @@ class ReasoningAgent(BaseStreamConsumer):
         trace_id: str,
         action: str,
         is_fallback: bool,
+        tools_used: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Pure builder for the Redis decision payload — easy to test."""
+        """Pure builder for the Redis decision payload — easy to test.
+
+        `tools_used` is the cycle's tool ledger ({name, latency_ms, success,
+        outputs}). Persisting it onto the decision makes the reasoning chain a
+        first-class part of the decision object: an operator can see which tools
+        produced the verdict, not just the verdict.
+        """
         symbol = str(data.get(FieldName.SYMBOL) or "")
         price = data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE)
         edge = str(summary.get(FieldName.PRIMARY_EDGE) or "")
@@ -448,6 +463,7 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.CONFIDENCE: confidence,
             FieldName.REASONING_SUMMARY: edge,
             FieldName.LLM_SUCCEEDED: not is_fallback,
+            FieldName.TOOLS_USED: tools_used or [],
         }
 
     @staticmethod
@@ -507,6 +523,7 @@ class ReasoningAgent(BaseStreamConsumer):
             trace_id=trace_id,
             action=action,
             is_fallback=is_fallback,
+            tools_used=self._cycle_tools,
         )
         persisted_decision = await store.push_decision(payload)
         if not is_db_available():
@@ -605,6 +622,7 @@ class ReasoningAgent(BaseStreamConsumer):
             TOOL_GET_IC_WEIGHTS,
             latency_ms=(time.monotonic() - ic_t0) * 1000,
             success=ic_ok,
+            outputs={FieldName.IC_WEIGHTS: context.get(FieldName.IC_WEIGHTS) or {}},
         )
 
         # Derive risk state from the signal itself
@@ -627,13 +645,35 @@ class ReasoningAgent(BaseStreamConsumer):
     # Prompt-OS: tool-governed runtime prompt assembly + tool telemetry
     # ------------------------------------------------------------------
 
-    def _record_tool(self, name: str, *, latency_ms: float, success: bool) -> None:
+    def _record_tool(
+        self,
+        name: str,
+        *,
+        latency_ms: float,
+        success: bool,
+        outputs: dict[str, Any] | None = None,
+    ) -> None:
         """Fold one reasoning-node tool invocation into the Tool Registry.
 
         Best-effort and outcome-agnostic: telemetry must never break a trading
         decision, and realized PnL is unknown at decision time, so alpha
         attribution stays at its prior until the grade loop reports an outcome.
+
+        `outputs` is a small decision-relevant summary of what the tool returned
+        (e.g. how many similar trades, the IC weights) — never raw blobs — so the
+        decision's tool ledger is self-explanatory.
         """
+        # Capture the invocation on the per-cycle chain first so the decision
+        # records which tools it used even if the aggregate registry write below
+        # raises. Cheap and never throws.
+        self._cycle_tools.append(
+            {
+                FieldName.NAME: name,
+                FieldName.LATENCY_MS: round(latency_ms, 1),
+                FieldName.SUCCESS: success,
+                FieldName.OUTPUTS: outputs or {},
+            }
+        )
         try:
             get_tool_registry().record_call(name, latency_ms=latency_ms, success=success)
         except Exception:

@@ -248,6 +248,38 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
 
+  it('keeps an agent Live while its heartbeat is within the backend 2-min window', () => {
+    // A 30s-old heartbeat is healthy per the backend contract
+    // (AGENT_STALE_THRESHOLD_SECONDS = 120). The previous 10s window wrongly
+    // painted it "Stale", contradicting the active Agent Instances table.
+    const thirtySecondsAgo = Date.now() - 30_000
+    mockStore.agentStatuses = [
+      {
+        name: 'SIGNAL_AGENT',
+        status: 'running',
+        event_count: 42,
+        last_event: 'processed_signal',
+        last_seen: Math.floor(thirtySecondsAgo / 1000),
+        last_seen_at: new Date(thirtySecondsAgo).toISOString(),
+        source: 'heartbeat',
+        seconds_ago: 30,
+      },
+    ]
+    render(<DashboardView section="agents" />)
+    expect(screen.getAllByText('Live').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
+  })
+
+  it('always registers the full agent roster, even before any agent reports', () => {
+    // Notification / Challenger / Proposal Applier are roster members that are
+    // NOT pipeline stages, so they only appear via the status-table backfill.
+    // Seeing them with an empty store proves every documented agent is wired in.
+    render(<DashboardView section="agents" />)
+    expect(screen.getByText('Proposal Applier')).toBeInTheDocument()
+    expect(screen.getByText('Notification Agent')).toBeInTheDocument()
+    expect(screen.getByText('Challenger Agent')).toBeInTheDocument()
+  })
+
   it('falls back when latest notification timestamp is invalid', () => {
     mockStore.notifications = [
       {
@@ -311,7 +343,9 @@ describe('DashboardView — agents', () => {
 
     render(<DashboardView section="agents" />)
 
-    expect(screen.getByText('BUY filled: BTC/USD')).toBeInTheDocument()
+    // The title now appears in both the Live Activity timeline and the
+    // Notification feed — the aggregated story re-surfaces the same event.
+    expect(screen.getAllByText('BUY filled: BTC/USD').length).toBeGreaterThan(0)
     expect(screen.getByText(/trade\.buy_filled/)).toBeInTheDocument()
     expect(screen.getByText('Qty')).toBeInTheDocument()
     expect(screen.getByText('0.25')).toBeInTheDocument()
