@@ -63,6 +63,8 @@ class EventType(StrEnum):
     ATTRIBUTION = "attribution"
     GRADE = "grade"
     OBSERVATION = "observation"
+    COUNTERFACTUAL = "counterfactual"
+    DRIFT = "drift"
 
     # 3./4. Proposal engine + challenger + backtest gate + gitops
     PROPOSAL = "proposal"
