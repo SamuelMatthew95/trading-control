@@ -79,6 +79,7 @@ def build_seeded_loop() -> CognitiveLoop:
             window_high=max(history),
         )
     loop.learn()
+    loop.detect_drift()
     bundle = loop.evolve(prices, split=0.5, slippage_seed=5, news=news)
     if (
         bundle
