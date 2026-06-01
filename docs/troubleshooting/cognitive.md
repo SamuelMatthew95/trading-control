@@ -52,3 +52,27 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 **Fix:** Keep values within the documented bounds; the loader silently uses defaults on any validation failure by design. Validate with `validate_config_dict()`.
 
 **Regression test:** `tests/core/test_cognitive_core.py::test_load_config_falls_back_on_missing_or_bad`
+
+---
+
+## News-weight proposals always showed zero backtest impact
+
+**Symptom:** A proposal to change `weights.news` produced a ≈0 backtest delta and was always rejected, even when the News Agent looked predictive live.
+
+**Root cause:** `evolve()` ran the backtest with no sentiment series, so the News Agent stayed neutral and the `news` feature was constant 0 throughout the backtest — multiplying a changed news weight by 0 changes nothing.
+
+**Fix:** The backtest gate accepts a per-bar `news` series; `evolve(..., news=...)` threads it through `evaluate_proposal` and `walk_forward` (`cognitive/loop.py`, `cognitive/backtest_gate.py`), and the demo feeds a deterministic momentum-correlated sentiment series.
+
+**Regression test:** `tests/core/test_cognitive_hardening.py::test_news_weight_is_inert_without_sentiment_but_active_with_it`
+
+---
+
+## A good proposal keeps getting re-proposed / the queue fills with near-duplicates
+
+**Symptom:** The ProposalAgent re-proposes the same change repeatedly, or floods the queue.
+
+**Root cause:** Nothing throttled generation. Now `governance.ProposalGovernor` gates admission, but its brakes can look like "lost" proposals if you don't know they fired.
+
+**Fix:** Proposals are admitted only within a per-window quota, exact duplicates (same target + rounded value) are dropped, and a rejected target is benched for a cooldown. Blocked proposals appear in the queue with `ProposalStatus.BLOCKED` and the reason in `verdict.blocked`; counts are in `snapshot()["evolution"]["governor"]`.
+
+**Regression test:** `tests/core/test_cognitive_hardening.py::test_governor_quota_dedup_and_cooldown`
