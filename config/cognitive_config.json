@@ -1,0 +1,15 @@
+{
+  "buy_threshold": 0.15,
+  "risk": {
+    "max_daily_loss_pct": 0.02,
+    "max_exposure_pct": 0.3,
+    "max_position_size_pct": 0.05
+  },
+  "sell_threshold": -0.15,
+  "version": 1,
+  "weights": {
+    "macro": 0.33,
+    "news": 0.34,
+    "tech": 0.33
+  }
+}
