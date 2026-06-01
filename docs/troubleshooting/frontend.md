@@ -280,3 +280,29 @@ via `normalized_open_positions()` — so the table, Session P&L, and MCP
 on every position read path, so the table's P&L % column renders.
 
 **Regression test:** `tests/core/test_in_memory_unrealized_pnl.py::test_apply_current_prices_marks_positions_to_live_price`
+
+## Agents dashboard shows healthy agents as "Stale" / agents missing
+
+**Symptom:** On `/dashboard/agents` the Agent Status table painted live agents
+as "Stale" (and the pipeline read "0 of 8 live") even though the Agent
+Instances table right next to it showed the same agents as "active" — the two
+tables contradicted each other and the whole page looked disconnected. Agents
+that had not reported yet were absent entirely.
+
+**Root cause:** `DashboardView.tsx` used a 10s "Live" window
+(`AGENT_LIVE_THRESHOLD_MS = 10_000`). Agents heartbeat every 15–60s, so a
+healthy agent almost always fell outside the 10s window and rendered "Stale".
+This contradicts the backend contract (`api/constants.py`:
+`AGENT_STALE_THRESHOLD_SECONDS = 120`, `AGENT_HEARTBEAT_TTL_SECONDS = 300`).
+The agent list was also built only from agents that had reported, so a
+never-seen agent silently vanished instead of showing as Idle.
+
+**Fix:** `DashboardView.tsx` — `AGENT_LIVE_THRESHOLD_MS` → `120_000` and
+`AGENT_STALE_THRESHOLD_MS` → `300_000` to mirror the backend heartbeat
+contract; removed the now-redundant Reasoning 90s override. The `realAgents`
+rollup backfills the full `ALL_AGENT_NAMES` roster as Idle so every documented
+agent is always represented. Agents section widened to `max-w-screen-2xl`.
+
+**Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
+`keeps an agent Live while its heartbeat is within the backend 2-min window`
+and `always registers the full agent roster, even before any agent reports`.
