@@ -47,6 +47,7 @@ def build_trace(stream: EventStream, trace_id: str) -> dict[str, Any]:
         "execution": _latest_payload(events, EventType.EXECUTION),
         "outcome": _latest_payload(events, EventType.TRADE_OUTCOME),
         "attribution": _latest_payload(events, EventType.ATTRIBUTION),
+        "counterfactual": _latest_payload(events, EventType.COUNTERFACTUAL),
         "grade": _latest_payload(events, EventType.GRADE),
         "event_count": len(events),
     }
