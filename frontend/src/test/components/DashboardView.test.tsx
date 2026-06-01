@@ -343,7 +343,9 @@ describe('DashboardView — agents', () => {
 
     render(<DashboardView section="agents" />)
 
-    expect(screen.getByText('BUY filled: BTC/USD')).toBeInTheDocument()
+    // The title now appears in both the Live Activity timeline and the
+    // Notification feed — the aggregated story re-surfaces the same event.
+    expect(screen.getAllByText('BUY filled: BTC/USD').length).toBeGreaterThan(0)
     expect(screen.getByText(/trade\.buy_filled/)).toBeInTheDocument()
     expect(screen.getByText('Qty')).toBeInTheDocument()
     expect(screen.getByText('0.25')).toBeInTheDocument()
