@@ -13,7 +13,12 @@ vi.mock('recharts', () => ({
   Area: () => <div data-testid="area" />,
 }))
 
-import { EquityCurve, buildEquitySeries, getPaddedDomain } from '@/components/dashboard/EquityCurve'
+import {
+  EquityCurve,
+  buildEquitySeries,
+  buildSeriesFromPoints,
+  getPaddedDomain,
+} from '@/components/dashboard/EquityCurve'
 
 describe('EquityCurve', () => {
   it('renders empty state with no data', () => {
@@ -103,5 +108,57 @@ describe('EquityCurve', () => {
 
     expect(min).toBeLessThanOrEqual(0)
     expect(max).toBeGreaterThan(200)
+  })
+})
+
+describe('buildSeriesFromPoints (backend cumulative curve)', () => {
+  it('plots absolute values directly and differences them into deltas', () => {
+    // value is the running total already — must NOT be re-accumulated.
+    const series = buildSeriesFromPoints([
+      { timestamp: '2026-01-01T00:00:00Z', value: 10 },
+      { timestamp: '2026-01-01T00:01:00Z', value: 6 },
+      { timestamp: '2026-01-01T00:02:00Z', value: 8.5 },
+    ])
+
+    expect(series.map((p) => p.equity)).toEqual([10, 6, 8.5])
+    expect(series.map((p) => p.delta)).toEqual([10, -4, 2.5])
+  })
+
+  it('accepts total_pnl as a value alias and skips invalid points', () => {
+    const series = buildSeriesFromPoints([
+      { timestamp: '2026-01-01T00:00:00Z', total_pnl: 4 },
+      { timestamp: 'bad-date', value: 999 },
+      { timestamp: '2026-01-01T00:01:00Z', value: Number.NaN },
+    ])
+
+    expect(series).toHaveLength(1)
+    expect(series[0].equity).toBe(4)
+  })
+})
+
+describe('EquityCurve points-vs-orders precedence', () => {
+  it('renders the backend curve when points are present (orders empty)', () => {
+    render(
+      <EquityCurve
+        orders={[]}
+        points={[
+          { timestamp: '2026-01-01T00:00:00Z', value: 120 },
+          { timestamp: '2026-01-01T00:01:00Z', value: 90 },
+        ]}
+      />,
+    )
+    // Would be "No equity data yet" under the old orders-only behaviour.
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument()
+    expect(screen.queryByText(/No equity data yet/i)).not.toBeInTheDocument()
+  })
+
+  it('falls back to the orders-derived series when points is empty', () => {
+    render(
+      <EquityCurve
+        orders={[{ created_at: '2026-01-01T00:00:00Z', pnl: 10 }]}
+        points={[]}
+      />,
+    )
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument()
   })
 })
