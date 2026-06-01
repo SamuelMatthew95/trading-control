@@ -702,6 +702,7 @@ export function DashboardView({ section }: { section: Section }) {
           proposals={proposals}
           decisionStats={decisionStats}
           recentDecisions={recentDecisions}
+          recentEvents={recentEvents}
           apiHealth={apiHealth}
           marketTickCount={marketTickCount}
           lastMarketSymbol={lastMarketSymbol}
