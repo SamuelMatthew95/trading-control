@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { cardClass } from '@/lib/dashboard-styles'
 import {
   actionTone,
   fetchCognitiveEvents,
@@ -22,7 +23,6 @@ import {
 import type {
   CognitiveEvent,
   CognitiveSnapshot,
-  QueueEntry,
   TradeTrace,
 } from '@/types/cognitive'
 
@@ -46,11 +46,13 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id']
 
-const card =
-  'rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40'
+// Shared dual-theme surface (light base + dark "console" variant).
+const card = cardClass
 const chip =
   'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium'
-const label = 'text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500'
+const label = 'text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400'
+const pageShell =
+  'min-h-screen bg-slate-100 px-3 py-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-4'
 
 function Grade({ grade }: { grade: string | null | undefined }) {
   return <span className={cn(chip, gradeTone(grade))}>{grade || 'NR'}</span>
@@ -81,28 +83,41 @@ export function CognitiveDashboard() {
 
   if (error && !snap) {
     return (
-      <div className={cn(card, 'text-sm text-rose-500')}>
-        Could not reach the cognitive API: {error}
+      <div className={pageShell}>
+        <div className={cn(card, 'mx-auto max-w-screen-2xl text-sm text-rose-600 dark:text-rose-400')}>
+          Could not reach the cognitive API: {error}
+        </div>
       </div>
     )
   }
   if (!snap) {
-    return <div className={cn(card, 'animate-pulse text-sm text-slate-400')}>Loading the brain…</div>
+    return (
+      <div className={pageShell}>
+        <div className={cn(card, 'mx-auto max-w-screen-2xl animate-pulse text-sm text-slate-500 dark:text-slate-400')}>
+          Loading the brain…
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Cognitive Trading Brain
-          </h1>
-          <p className="text-xs text-slate-500">
-            Deterministic loop · config v{snap.config.version} · {snap.event_count} events on the
-            stream
-          </p>
-        </div>
-        <nav className="flex flex-wrap gap-1">
+    <div className={pageShell}>
+      <div className="mx-auto max-w-screen-2xl space-y-3">
+        <header className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:bg-slate-950/90 dark:shadow-black/20">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Cognitive engine</p>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Cognitive Trading Brain</h1>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Deterministic loop · config v{snap.config.version} · {snap.event_count} events on the stream
+              </p>
+            </div>
+            <span className="rounded-full border border-slate-200 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+              Reasoning and evolution
+            </span>
+          </div>
+        </header>
+        <nav className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800/80 dark:bg-slate-950/80">
           {TABS.map(({ id, label: tabLabel, Icon }) => (
             <button
               key={id}
@@ -110,8 +125,8 @@ export function CognitiveDashboard() {
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
                 tab === id
-                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800',
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200',
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -119,7 +134,6 @@ export function CognitiveDashboard() {
             </button>
           ))}
         </nav>
-      </header>
 
       {tab === 'command' && <CommandCenter snap={snap} />}
       {tab === 'agents' && <AgentsPanel snap={snap} />}
@@ -127,6 +141,7 @@ export function CognitiveDashboard() {
       {tab === 'evolution' && <EvolutionPanel snap={snap} />}
       {tab === 'traces' && <TracesPanel traces={snap.traces} />}
       {tab === 'events' && <EventsPanel events={events} />}
+      </div>
     </div>
   )
 }
@@ -146,12 +161,12 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
           <div
             className={cn(
               'mt-1 text-lg font-semibold',
-              systemHealthy ? 'text-emerald-500' : 'text-amber-500',
+              systemHealthy ? 'text-emerald-600 dark:text-emerald-500' : 'text-amber-600 dark:text-amber-500',
             )}
           >
             {systemHealthy ? 'Healthy' : 'Warming up'}
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {learning.trades_graded}/{learning.trades_closed} trades graded
           </div>
         </div>
@@ -165,7 +180,7 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
               {latest ? signed(latest.score, 3) : '—'}
             </span>
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             band [{decision.sell_threshold}, {decision.buy_threshold}]
           </div>
         </div>
@@ -174,7 +189,7 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
           <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
             v{snap.config.version}
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {pipeline.merged} merged · {pipeline.generated} proposed
           </div>
         </div>
@@ -183,7 +198,7 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
           <div className="mt-1 text-sm text-slate-700 dark:text-slate-300">
             {pipeline.approved} approved · {pipeline.rejected} rejected
           </div>
-          <div className="mt-1 text-xs text-slate-500">{pipeline.backtested} backtested</div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{pipeline.backtested} backtested</div>
         </div>
       </div>
 
@@ -197,7 +212,7 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
                 chip,
                 info.status === 'healthy'
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : 'border-slate-500/20 bg-slate-500/10 text-slate-500',
+                  : 'border-slate-500/20 bg-slate-500/10 text-slate-500 dark:text-slate-400',
               )}
             >
               {name} · {info.events}
@@ -211,13 +226,13 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
           <div className={cn(label, 'mb-2')}>Decision Flow — score = Σ signalᵢ · weightᵢ</div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {Object.entries(latest.breakdown).map(([sig, contrib]) => (
-              <span key={sig} className="rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
+              <span key={sig} className="rounded-md bg-slate-100 px-2 py-1 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                 {sig} {signed(contrib, 3)}
               </span>
             ))}
-            <span className="text-slate-400">→</span>
+            <span className="text-slate-400 dark:text-slate-500">→</span>
             <span className="font-semibold">{signed(latest.score, 3)}</span>
-            <span className="text-slate-400">→</span>
+            <span className="text-slate-400 dark:text-slate-500">→</span>
             <span className={cn(chip, actionTone(latest.action))}>
               {latest.action.toUpperCase()}
             </span>
@@ -237,14 +252,14 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
               mean regret <b>{signed(snap.learning.mean_regret_pct ?? 0)}%</b>
             </span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             share of closed trades where the chosen action beat the BUY/SELL/HOLD alternatives
           </p>
         </div>
         <div className={card}>
           <div className={cn(label, 'mb-2')}>Drift</div>
           {snap.drift.alerts.length === 0 ? (
-            <p className="text-sm text-emerald-500">No drift detected</p>
+            <p className="text-sm text-emerald-600 dark:text-emerald-500">No drift detected</p>
           ) : (
             <ul className="space-y-1 text-xs">
               {snap.drift.alerts.map((alert, i) => (
@@ -275,7 +290,7 @@ function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
               <span className="font-medium text-slate-900 dark:text-slate-100">{agent.name}</span>
               {grade ? <Grade grade={grade.grade} /> : <span className={cn(chip, gradeTone(null))}>{agent.role}</span>}
             </div>
-            <p className="mt-1 text-xs text-slate-500">{agent.description}</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{agent.description}</p>
             {grade && (
               <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-slate-600 dark:text-slate-400">
                 <span>score {grade.score}</span>
@@ -285,7 +300,7 @@ function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
               </div>
             )}
             {live && (
-              <div className="mt-2 text-xs text-slate-400">
+              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 last: {Object.entries(live)
                   .filter(([k]) => k !== 'type')
                   .map(([k, v]) => `${k} ${typeof v === 'number' ? v : String(v)}`)
@@ -302,72 +317,71 @@ function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
 function ProposalsPanel({ snap }: { snap: CognitiveSnapshot }) {
   if (snap.proposals.length === 0) {
     return (
-      <div className={cn(card, 'text-sm text-slate-400')}>
+      <div className={cn(card, 'text-sm text-slate-500 dark:text-slate-400')}>
         No proposals yet — the ProposalAgent fires once an agent shows a statistically backed edge.
       </div>
     )
   }
   return (
-    <div className="space-y-3">
-      {snap.proposals.map((entry) => (
-        <ProposalCard key={entry.proposal.proposal_id} entry={entry} />
-      ))}
-    </div>
-  )
-}
-
-function ProposalCard({ entry }: { entry: QueueEntry }) {
-  const { proposal, verdict, delta, status, proposal_grade, pull_request } = entry
-  return (
-    <div className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-slate-400">{proposal.proposal_id}</span>
-          <span className={cn(chip, 'border-slate-500/20 bg-slate-500/10 text-slate-500')}>
-            {proposal.proposal_type}
-          </span>
-          <span className={cn(chip, statusTone(status))}>{status}</span>
-        </div>
-        {proposal_grade && <Grade grade={proposal_grade.grade} />}
-      </div>
-
-      <div className="mt-2 font-mono text-sm">
-        <span className="text-slate-500">{proposal.target}: </span>
-        <span className="text-rose-500">{String(proposal.old_value)}</span>
-        <span className="text-slate-400"> → </span>
-        <span className="text-emerald-500">{String(proposal.new_value)}</span>
-      </div>
-      <p className="mt-1 text-xs text-slate-500">{proposal.reason}</p>
-
-      {delta && (
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-            ΔPnL {signed(delta.pnl_delta)}%
-          </span>
-          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-            ΔSharpe {signed(delta.sharpe_delta)}
-          </span>
-          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-            ΔDrawdown {signed(delta.drawdown_delta)}%
-          </span>
-        </div>
-      )}
-
-      {verdict && (
-        <div className="mt-2 text-xs">
-          <span className={cn(chip, verdict.approved ? statusTone('approved') : statusTone('rejected'))}>
-            challenger: {verdict.approved ? 'APPROVE' : 'REJECT'} · risk {verdict.risk_score}
-          </span>
-          <ul className="mt-1 list-disc pl-5 text-slate-500">
-            {verdict.reasons.map((reason, i) => (
-              <li key={i}>{reason}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {pull_request && (
-        <div className="mt-2 text-xs text-slate-400">PR branch: {pull_request.branch} (no auto-merge)</div>
-      )}
+    <div className={cn(card, 'overflow-x-auto p-0')}>
+      <table className="w-full min-w-[840px] text-left text-xs">
+        <thead className="bg-slate-100 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
+          <tr>
+            <th className="px-3 py-2 font-semibold">Proposal</th>
+            <th className="px-3 py-2 font-semibold">Change</th>
+            <th className="px-3 py-2 font-semibold">Backtest Delta</th>
+            <th className="px-3 py-2 font-semibold">Challenger Verdict</th>
+            <th className="px-3 py-2 font-semibold">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
+          {snap.proposals.map((entry) => {
+            const { proposal, verdict, delta, status, proposal_grade } = entry
+            return (
+              <tr key={proposal.proposal_id} className="align-top text-slate-600 dark:text-slate-300">
+                <td className="px-3 py-2">
+                  <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{proposal.proposal_id}</p>
+                  <p className="mt-1 text-slate-500 dark:text-slate-400">{proposal.proposal_type}</p>
+                </td>
+                <td className="px-3 py-2">
+                  <p className="font-mono text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">{proposal.target}: </span>
+                    <span className="text-rose-600 dark:text-rose-400">{String(proposal.old_value)}</span>
+                    <span className="text-slate-500 dark:text-slate-400"> → </span>
+                    <span className="text-emerald-600 dark:text-emerald-400">{String(proposal.new_value)}</span>
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{proposal.reason}</p>
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                  {delta ? (
+                    <span>ΔPnL {signed(delta.pnl_delta)}% · ΔSharpe {signed(delta.sharpe_delta)} · DD {signed(delta.drawdown_delta)}%</span>
+                  ) : (
+                    '--'
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {verdict ? (
+                    <div className="space-y-1">
+                      <span className={cn(chip, verdict.approved ? statusTone('approved') : statusTone('rejected'))}>
+                        {verdict.approved ? 'APPROVE' : 'REJECT'} · risk {verdict.risk_score}
+                      </span>
+                      <p className="line-clamp-2 text-slate-500 dark:text-slate-400">{verdict.reasons.join(' · ')}</p>
+                    </div>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">Pending review</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-1">
+                    <span className={cn(chip, statusTone(status))}>{status}</span>
+                    {proposal_grade && <Grade grade={proposal_grade.grade} />}
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -380,9 +394,9 @@ function EvolutionPanel({ snap }: { snap: CognitiveSnapshot }) {
         <ol className="space-y-2">
           {snap.evolution.config_versions.map((cv) => (
             <li key={cv.version} className="flex items-center gap-2 text-sm">
-              <span className="font-mono text-slate-500">v{cv.version}</span>
-              {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-400">active</span>}
-              <span className="text-xs text-slate-400">
+              <span className="font-mono text-slate-500 dark:text-slate-400">v{cv.version}</span>
+              {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-500 dark:text-slate-400">active</span>}
+              <span className="text-xs text-slate-500 dark:text-slate-400">
                 news {cv.config.weights.news} · tech {cv.config.weights.tech} · macro{' '}
                 {cv.config.weights.macro}
               </span>
@@ -393,13 +407,13 @@ function EvolutionPanel({ snap }: { snap: CognitiveSnapshot }) {
       <div className={card}>
         <div className={cn(label, 'mb-2')}>Proposal Success by Type</div>
         {Object.keys(snap.evolution.proposal_success_rates).length === 0 ? (
-          <p className="text-xs text-slate-400">No proposals scored yet.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">No proposals scored yet.</p>
         ) : (
           <ul className="space-y-1 text-sm">
             {Object.entries(snap.evolution.proposal_success_rates).map(([type, stat]) => (
               <li key={type} className="flex justify-between">
                 <span className="text-slate-600 dark:text-slate-300">{type}</span>
-                <span className="text-slate-500">
+                <span className="text-slate-500 dark:text-slate-400">
                   {(stat.success_rate * 100).toFixed(0)}% ({stat.successes}/{stat.attempts})
                 </span>
               </li>
@@ -414,7 +428,7 @@ function EvolutionPanel({ snap }: { snap: CognitiveSnapshot }) {
 function TracesPanel({ traces }: { traces: TradeTrace[] }) {
   const [open, setOpen] = useState<string | null>(traces[0]?.trace_id ?? null)
   if (traces.length === 0) {
-    return <div className={cn(card, 'text-sm text-slate-400')}>No trades traced yet.</div>
+    return <div className={cn(card, 'text-sm text-slate-500 dark:text-slate-400')}>No trades traced yet.</div>
   }
   return (
     <div className="space-y-2">
@@ -427,7 +441,7 @@ function TracesPanel({ traces }: { traces: TradeTrace[] }) {
               onClick={() => setOpen(isOpen ? null : trace.trace_id)}
               className="flex w-full items-center justify-between text-left"
             >
-              <span className="font-mono text-xs text-slate-500">{trace.trace_id}</span>
+              <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{trace.trace_id}</span>
               <span className="flex items-center gap-2">
                 {decision && (
                   <span className={cn(chip, actionTone(decision.action))}>
@@ -438,7 +452,7 @@ function TracesPanel({ traces }: { traces: TradeTrace[] }) {
               </span>
             </button>
             {isOpen && (
-              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-xs dark:border-slate-800">
+              <div className="mt-3 space-y-2 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
                 <Step name="Agent signals">
                   news {num(trace.signals.news, 'sentiment')} · tech {num(trace.signals.tech, 'trend')} ·
                   macro {num(trace.signals.macro, 'regime')} · risk {num(trace.signals.risk, 'risk_score')}
@@ -493,7 +507,7 @@ function TracesPanel({ traces }: { traces: TradeTrace[] }) {
 function Step({ name, children }: { name: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-2">
-      <span className="w-28 shrink-0 text-slate-400">{name}</span>
+      <span className="w-28 shrink-0 text-slate-500 dark:text-slate-400">{name}</span>
       <span className="text-slate-700 dark:text-slate-300">{children}</span>
     </div>
   )
@@ -504,7 +518,7 @@ function EventsPanel({ events }: { events: CognitiveEvent[] }) {
   return (
     <div className={cn(card, 'max-h-[28rem] overflow-auto')}>
       <table className="w-full text-left text-xs">
-        <thead className="sticky top-0 bg-white text-slate-400 dark:bg-slate-900/40">
+        <thead className="sticky top-0 bg-white text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">
           <tr>
             <th className="py-1 pr-2">#</th>
             <th className="py-1 pr-2">type</th>
@@ -514,13 +528,13 @@ function EventsPanel({ events }: { events: CognitiveEvent[] }) {
         </thead>
         <tbody>
           {recent.map((event) => (
-            <tr key={event.seq} className="border-t border-slate-50 dark:border-slate-800/60">
-              <td className="py-1 pr-2 font-mono text-slate-400">{event.seq}</td>
+            <tr key={event.seq} className="border-t border-slate-100 dark:border-slate-800/60">
+              <td className="py-1 pr-2 font-mono text-slate-500 dark:text-slate-400">{event.seq}</td>
               <td className="py-1 pr-2 font-medium text-slate-700 dark:text-slate-300">
                 {event.type}
               </td>
-              <td className="py-1 pr-2 text-slate-500">{event.source || '—'}</td>
-              <td className="py-1 font-mono text-slate-400">{event.trace_id || '—'}</td>
+              <td className="py-1 pr-2 text-slate-500 dark:text-slate-400">{event.source || '—'}</td>
+              <td className="py-1 font-mono text-slate-500 dark:text-slate-400">{event.trace_id || '—'}</td>
             </tr>
           ))}
         </tbody>

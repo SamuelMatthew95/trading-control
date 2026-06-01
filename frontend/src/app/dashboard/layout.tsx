@@ -106,7 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-900 md:static md:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-950 md:static md:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -125,10 +125,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 href={href}
                 onClick={() => setSidebarOpen(false)}
                 className={cn(
-                  'flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
+                  'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
-                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -148,12 +148,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {sidebarOpen && <button className="fixed inset-0 z-30 bg-slate-950/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar" />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="h-12 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 sticky top-0 z-50">
+        <header className="sticky top-0 z-50 h-12 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
           <div className="flex h-full items-center px-4">
             <div className="flex flex-1 items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 md:hidden"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100 md:hidden"
               >
                 <Menu className="h-4 w-4" />
               </button>
@@ -184,15 +184,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   className={cn(
                     'text-[11px] font-mono uppercase tracking-[0.04em]',
                     systemStatus === 'trading'
-                      ? 'text-emerald-500'
+                      ? 'text-emerald-600 dark:text-emerald-500'
                       : systemStatus === 'booting'
-                        ? 'text-amber-500'
-                        : 'text-slate-500'
+                        ? 'text-amber-600 dark:text-amber-500'
+                        : 'text-slate-500 dark:text-slate-400'
                   )}
                 >
                   {systemStatus}
                 </span>
-                <div className="h-5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                <div className="h-5 w-px bg-slate-300 dark:bg-slate-800" aria-hidden="true" />
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -200,19 +200,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       {killSwitchActive ? 'Kill Switch On' : 'Kill Switch Off'}
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                  <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
                     <AlertDialogHeader>
                       <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                         {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
                       </AlertDialogTitle>
-                      <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-300">
+                      <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-400">
                         {killSwitchActive ? 'This will resume signal processing and order placement.' : 'This will halt all signal processing and order placement.'}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel className="font-mono text-[11px] uppercase tracking-[0.04em]">Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        className="h-7 rounded-[4px] border border-slate-200 bg-slate-100 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-950 hover:bg-slate-200 disabled:opacity-50"
+                        className="h-7 rounded-[4px] border border-slate-300 bg-slate-100 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
                         disabled={killSwitchPending}
                         onClick={() => handleKillSwitch(!killSwitchActive)}
                       >

@@ -1,4 +1,4 @@
-import type { AgentStatus, Position, TradeFeedItem } from '@/stores/useCodexStore'
+import type { AgentLog, AgentStatus, Notification, Order, Position, Proposal, TradeFeedItem } from '@/stores/useCodexStore'
 
 export interface RecentEventLike {
   stream?: string | null
@@ -61,6 +61,11 @@ export interface SystemDashboardProps {
   prices: Record<string, unknown>
   positions: Position[]
   tradeFeed: TradeFeedItem[]
+  orders: Order[]
+  agentLogs: AgentLog[]
+  notifications: Notification[]
+  proposals: Proposal[]
+  riskAlerts: Array<Record<string, unknown>>
   pricesFetched: boolean
   isInMemoryMode: boolean
   resolvedPerformanceSummary: PerformanceSummaryLike | null
@@ -71,5 +76,7 @@ export interface SystemDashboardProps {
   persistedCounts: PersistedStreamCount[]
   persistedEvents: PersistedHistoryItem[]
   persistedLogs: PersistedHistoryItem[]
+  regime: string
+  killSwitchActive: boolean
   setActiveTraceId: (id: string | null) => void
 }

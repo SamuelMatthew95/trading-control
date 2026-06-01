@@ -306,3 +306,97 @@ agent is always represented. Agents section widened to `max-w-screen-2xl`.
 **Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
 `keeps an agent Live while its heartbeat is within the backend 2-min window`
 and `always registers the full agent roster, even before any agent reports`.
+
+## Light mode is broken / "weird" after the operator-console redesign
+
+**Symptom:** Toggling the header Sun/Moon into light mode produced a broken,
+half-dark UI — dark `slate-950` panels floating on a light page, invisible
+`text-slate-100` values, and legacy widgets rendering in light while the
+redesigned ones stayed dark. Dark mode was fine; light mode looked "weird".
+
+**Root cause:** The dashboard redesign (PRs #280/#281) hardcoded dark-only
+Tailwind classes and dropped the `dark:`/light variants — e.g.
+`dashboard-styles.ts` `cardClass` went `border-slate-300 bg-white … dark:bg-slate-900`
+→ `bg-slate-950/80` (dark only), `valueClass` `text-slate-950 dark:text-slate-100`
+→ `text-slate-100`, and `layout.tsx`/`SystemDashboard.tsx`/`CognitiveDashboard.tsx`
+lost every light counterpart. The app still ships `next-themes` (class strategy,
+full light palette in `globals.css`) and a Sun/Moon toggle, so light mode was
+reachable but no longer styled.
+
+**Fix:** Restored light↔`dark:` duality across the redesigned surfaces, keeping
+the redesign's dark "console" tone as the `dark:` variant: light base is the
+bare utility (`bg-white`, `border-slate-200`, `text-slate-900`, muted
+`text-slate-500`), dark is `dark:…`. Centralized the panel/label/value classes
+in `lib/dashboard-styles.ts` (`cardClass`, `consolePanelClass`,
+`consoleHeaderClass`, `sectionTitleClass`, `mutedClass`, `valueClass`) and routed
+`SystemDashboard.tsx` / `CognitiveDashboard.tsx` through them so all pages stay
+consistent. `text-white` on the emerald logo and the mobile scrim stay
+theme-agnostic by design.
+
+**Regression test:** Covered by the existing
+`frontend/src/test/components/system/SystemDashboard.test.tsx` and
+`DashboardView.test.tsx` render suites; the full `vitest` + `next build` + `tsc`
++ `next lint` gate plus a dark-only-leak grep (`bg-slate-9xx` / `text-white` /
+`text-slate-100` without a `dark:` sibling on the line, which returns empty)
+guard against regressions.
+
+## Light mode still "weird" on every page — shared `DashboardView` frame stayed dark
+
+**Symptom:** Even after the dual-theme sweep above, light mode looked broken on
+*every* dashboard page (Overview, Trading, Agents, Learning, Proposals, System):
+the whole content area sat on a dark `slate-950` background with light cards
+floating on it, and the top "Runtime agents / Agent health…" header rendered as
+a dark panel with white text while the sidebar, header bar, badges, and banner
+were correctly light.
+
+**Root cause:** The earlier sweep fixed the section *body* components and the
+shared style helpers in `lib/dashboard-styles.ts`, but missed the section
+*frame* that `DashboardView.tsx` renders around every section: the root wrapper
+`<div className="min-h-screen bg-slate-950 … text-slate-100">` and the
+`SectionHeader` (`bg-slate-950/90`, `border-slate-800/80`, `text-white`,
+`text-slate-500`). Those are dark-only with no `dark:`/light variants, so they
+ignored `next-themes` and stayed dark in light mode. Because the frame is shared
+by all six sections, the bug reappeared on every page at once.
+
+**Fix:** Restored light↔`dark:` duality on both shared spots in
+`app/dashboard/DashboardView.tsx`, matching the layout/`consolePanelClass`
+conventions — root wrapper is `bg-slate-100 text-slate-900 dark:bg-slate-950
+dark:text-slate-100` (same base as `layout.tsx`), and `SectionHeader` is
+`bg-white border-slate-200 … text-slate-900` with the console dark tone moved
+behind `dark:` (`dark:bg-slate-950/90`, `dark:border-slate-800/80`,
+`dark:text-white`). The `<pre>` prompt block, emerald logo, mobile scrim, and
+inverted active tab stay theme-agnostic by design.
+
+**Regression test:**
+`frontend/src/test/components/DashboardView.test.tsx::DashboardView — theming (light/dark duality)`
+renders the agents section and asserts the root wrapper and section header carry
+light base tokens (`bg-slate-100`/`bg-white`, `text-slate-900`) with no bare
+dark `bg-slate-8xx/9xx`, and that the dark tone is only present behind `dark:`.
+
+## System page: Daily PnL, agent activity, and dashboard-API outage were misreported
+
+**Symptom:** On `/dashboard/system` (a) "Daily PnL" summed every order in the
+recent-orders window (latest 50, no date boundary), so it included prior-session
+PnL; (b) the Agent Activity panel hardcoded `news`/`macro`/`proposal`/`risk`
+labels that match no real agent, so the 10 canonical agents showed as
+"Waiting"/"No output"; (c) a `/dashboard/state` failure (`systemFeedError` /
+`apiHealth.dashboardState='error'`) was never surfaced — the page showed only
+generic/stale status. (Raised as P2 Codex review comments on PR #280.)
+
+**Root cause:** `SystemDashboard.tsx` summed `props.orders` unfiltered for Daily
+PnL; the Agent Activity rows came from a hardcoded `OPERATOR_AGENTS` list instead
+of the canonical `ALL_AGENT_NAMES`; and the health panel read neither
+`systemFeedError` nor `apiHealth.dashboardState`.
+
+**Fix:** `SystemDashboard.tsx` — Daily PnL now filters orders to the current UTC
+trading day via `startOfUtcDayMs(Date.now())`; Agent Activity derives one row per
+canonical agent (plus any extra live agent) matched by `canonicalAgentKey` with
+`agentDisplayName` labels, and shows a real "Last seen" age instead of
+mislabelling `seconds_ago` as `ms`; added a "Dashboard API" health indicator and
+a top-of-view error banner driven by `systemFeedError` /
+`apiHealth.dashboardState` so an outage is explicit.
+
+**Regression test:** `frontend/src/test/components/system/SystemDashboard.test.tsx`
+(renders all Command Center sections, six headline metrics incl. Daily PnL,
+compact health indicators, and decision-feed entries on the empty + populated
+states).
