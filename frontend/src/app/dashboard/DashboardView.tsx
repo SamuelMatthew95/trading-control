@@ -284,6 +284,9 @@ export function DashboardView({ section }: { section: Section }) {
     notifications = [],
     proposals = [],
     tradeFeed = [],
+    riskAlerts = [],
+    regime,
+    killSwitchActive,
     agentInstances = [],
     performanceSummary,
     dashboardData,
@@ -735,6 +738,11 @@ export function DashboardView({ section }: { section: Section }) {
           prices={prices}
           positions={positions}
           tradeFeed={tradeFeed}
+          orders={orders}
+          agentLogs={agentLogs}
+          notifications={notifications}
+          proposals={proposals}
+          riskAlerts={riskAlerts}
           pricesFetched={pricesFetched}
           isInMemoryMode={isInMemoryMode}
           resolvedPerformanceSummary={resolvedPerformanceSummary}
@@ -745,6 +753,8 @@ export function DashboardView({ section }: { section: Section }) {
           persistedCounts={persistedCounts}
           persistedEvents={persistedEvents}
           persistedLogs={persistedLogs}
+          regime={regime}
+          killSwitchActive={killSwitchActive}
           setActiveTraceId={setActiveTraceId}
         />
       )}
