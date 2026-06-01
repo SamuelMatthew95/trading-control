@@ -54,6 +54,25 @@ export interface Observation {
   evidence: Record<string, unknown>
 }
 
+export interface Counterfactual {
+  chosen_action: string
+  chosen_pnl_pct: number
+  alternatives: Record<string, number>
+  best_action: string
+  best_pnl_pct: number
+  regret_pct: number
+  was_best: boolean
+  trace_id?: string
+}
+
+export interface DriftAlert {
+  metric: string
+  direction: string
+  recent: number
+  baseline: number
+  delta: number
+}
+
 export interface ProposalPayload {
   proposal_id: string
   proposal_type: string
@@ -109,6 +128,7 @@ export interface TradeTrace {
   risk_gate: Record<string, unknown> | null
   execution: Record<string, unknown> | null
   outcome: Record<string, unknown> | null
+  counterfactual: Counterfactual | null
   grade: TradeGrade | null
   event_count: number
 }
@@ -162,6 +182,17 @@ export interface CognitiveSnapshot {
     agent_grades: AgentGrade[]
     observations: Observation[]
     trade_grades: TradeGrade[]
+    mean_regret_pct?: number
+    best_action_rate?: number
+  }
+  counterfactuals: Counterfactual[]
+  drift: {
+    alerts: DriftAlert[]
+    monitor: {
+      window: number
+      min_samples: number
+      metrics: Record<string, { samples: number; latest: number | null }>
+    }
   }
   evolution: {
     config_versions: ConfigVersion[]
