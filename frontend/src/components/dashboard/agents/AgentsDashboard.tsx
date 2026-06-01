@@ -9,11 +9,13 @@ import {
   type AgentStatus,
   type Notification,
   type Proposal,
+  type RecentEvent,
   type StreamStat,
 } from '@/stores/useCodexStore'
 import type { ApiHealth, DecisionStats } from '@/hooks/useRestPoll'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { parseTimestampMs, sanitizeValue } from '@/lib/formatters'
+import { buildActivityTimeline } from '@/lib/activity-timeline'
 import { countRecentNotifications, lastNotificationLabel } from '@/lib/notification-metrics'
 import { STREAM_MARKET_EVENTS, STREAM_MARKET_TICKS } from '@/constants/streams'
 import { AgentPipeline } from '@/components/dashboard/AgentPipeline'
@@ -23,6 +25,7 @@ import { ToolGovernancePanel } from '@/components/dashboard/ToolGovernancePanel'
 import { LiveReasoningPanel } from '@/components/dashboard/LiveReasoningPanel'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
+import { ActivityTimeline } from './ActivityTimeline'
 import { KpiCard } from './KpiCard'
 import { AgentStatusTable } from './AgentStatusTable'
 import { AgentInstancesTable } from './AgentInstancesTable'
@@ -47,6 +50,7 @@ export interface AgentsDashboardProps {
   proposals: Proposal[]
   decisionStats: DecisionStats | null
   recentDecisions: Array<Record<string, unknown>>
+  recentEvents: RecentEvent[]
   apiHealth: ApiHealth
   marketTickCount: number
   lastMarketSymbol: string | null
@@ -66,6 +70,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
     proposals,
     decisionStats,
     recentDecisions,
+    recentEvents,
     apiHealth,
     marketTickCount,
     lastMarketSymbol,
@@ -73,6 +78,10 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
     wsConnected,
     isInMemoryMode,
   } = props
+
+  // One chronological story of what the pipeline is doing — built from the same
+  // decisions, notifications, and stream events the panels below show as state.
+  const activityItems = buildActivityTimeline({ recentEvents, recentDecisions, notifications })
 
   // Only surface "no agents" after a grace period — agent data can arrive a beat
   // after the WebSocket connects.
@@ -139,6 +148,11 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
             lines={[`${notifications.length} stored (max 200)`, lastNotificationLabel(notifications)]}
           />
         </div>
+      </section>
+
+      <section className="space-y-2">
+        <GroupLabel>Live Activity</GroupLabel>
+        <ActivityTimeline items={activityItems} />
       </section>
 
       <section className="space-y-2">
