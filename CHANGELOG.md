@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026-06-01] — Cognitive trading brain: deterministic GitOps-evolved loop
+
+### Added
+- `cognitive/` — a deterministic, event-stream-driven multi-agent cognitive brain that wires the full closed loop on one `EventStream`: agents → feature aggregation → math-only decision → hard risk gate → execution → attribution + multi-dimensional grading → observations → ProposalAgent → shadow backtest → challenger → GitOps PR
+- Five cognitive specialists (News/Technical/Macro/Risk/Reasoning) as advisory-only modules with deterministic default scorers and an injectable LLM seam, discovered via a central `AgentRegistry`
+- Deterministic decision engine `score = Σ signalᵢ·weightᵢ → BUY/SELL/HOLD` (no LLM/agent influence; the `risk` feature is a separate hard gate, never part of the score)
+- `LearningEngine` that produces **observations only** (never edits config/weights) + `ImportanceTracker` metadata; first-class `ProposalAgent` with a `ProposalType` hierarchy (weight/prompt/tool/backtest/risk/feature) and a `ProposalScorecard` that learns success-rate by type
+- Config-parameterized **paired shadow backtest** (`cognitive/backtest_gate.py`) producing `{pnl, sharpe, drawdown, false-positive}` deltas — the judge every proposal must clear; `cognitive/challenger.py` safety validator (sample size / overfit / risk impact / attribution consistency)
+- `cognitive/gitops.py` — branch name, full config diff, evidence-rich PR body, bounds-safe config apply; **never auto-merges**
+- Multi-dimensional grading (`cognitive/grading.py`) for trades (Direction/Risk/Execution/Timing → overall), agents, proposals, and config versions
+- Per-trade `trace.py` ("why did we?") and `health.py` cognitive-wiring health, both pure reads of the stream
+- `config/cognitive_config.json` — Git-versioned weights / thresholds / risk limits (data-not-code, bounds-validated)
+- Read-only observability API `api/routes/cognitive.py` (`/cognitive/state|events|config|agents|trace/{id}|reseed`) driven entirely by the stream snapshot
+- Tests: `tests/core/test_cognitive_*.py`, `tests/integration/test_cognitive_loop.py`, `tests/api/test_cognitive_routes.py`; docs in `cognitive/README.md` and `docs/troubleshooting/cognitive.md`
+
 ## [2026-05-23] — Decision provenance: grade trades with model awareness
 
 ### Added
