@@ -357,18 +357,22 @@ roster (news/tech/macro/risk) is intentionally unrelated to the live
 event-driven 10-agent pipeline. Surfacing it as a peer nav tab made the demo
 look like live state.
 
-**Fix:** Removed the misleading demo from the live dashboard surface — dropped
-the `Cognitive` nav item (and now-unused `Brain` icon import) in
-`frontend/src/app/dashboard/layout.tsx`, and deleted
-`frontend/src/app/dashboard/cognitive/page.tsx` plus
-`frontend/src/components/dashboard/cognitive/CognitiveDashboard.tsx`. The
-`cognitive/` backend, routes, and pure `lib/cognitive` helpers remain (dormant,
-still tested) and can be deleted wholesale later if desired. The 10 live agents
-are unaffected — they continue to surface through the Overview Agent Matrix,
-the Agents pipeline, and the live activity timeline (all keyed off the canonical
+**Fix (initial):** Dropped the `Cognitive` nav item (and now-unused `Brain`
+icon import) in `frontend/src/app/dashboard/layout.tsx`, and deleted
+`frontend/src/app/dashboard/cognitive/page.tsx` plus the `CognitiveDashboard`
+panel.
+
+**Fix (full removal):** The entire parallel demo subsystem was then deleted to
+collapse to a single agent architecture: the `cognitive/` package (22 modules),
+`api/routes/cognitive.py` and its `api/main.py` mount, all backend
+`tests/**/test_cognitive_*.py` (+ `test_cognitive_loop.py`), and the frontend
+`lib/cognitive.ts` / `types/cognitive.ts` / `cognitive.test.ts`. There is no
+seeded loop, mock cognitive state, or demo agent registry left. The 10 live
+agents are unaffected — they surface through the Overview Agent Matrix, the
+Agents pipeline, and the live activity timeline (all keyed off the canonical
 `ALL_AGENT_NAMES` constants).
 
 **Regression test:** Covered by build/lint/type guards — `npm run build` no
-longer emits a `/dashboard/cognitive` route and `frontend/src/test` (451 tests)
-stays green; `src/test/components/cognitive.test.ts` still exercises the
-retained `lib/cognitive` helpers.
+longer emits a `/dashboard/cognitive` route, `git grep cognitive` over
+`api/`/`tests/`/`frontend/src/` returns nothing, and the backend
+(1148 unit + 72 integration) and frontend (447) suites stay green.

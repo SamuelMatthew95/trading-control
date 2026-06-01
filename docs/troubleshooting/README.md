@@ -14,7 +14,6 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [signal-generation.md](signal-generation.md) | Live SignalGenerator trigger: volatility-normalized vs fixed-% thresholds, idle-bot / "no signals" |
 | [tailscale.md](tailscale.md) | tailscaled proxy noise: SOCKS5 vs HTTP-CONNECT port split, peerAPI "unknown peer" diagnosis |
 | [agents.md](agents.md) | Agent fleet lifecycle: supervision, crash detection/restart, RiskGuardian monitoring |
-| [cognitive.md](cognitive.md) | Cognitive brain (`cognitive/`): event-stream loop, deterministic decision engine, learning/observations, proposal→backtest→challenger→PR evolution |
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 
