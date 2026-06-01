@@ -57,6 +57,7 @@ class ProposalStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     MERGED = "merged"
+    BLOCKED = "blocked"  # stopped by the governor (quota / dedup / cooldown)
 
 
 @dataclass(frozen=True)
