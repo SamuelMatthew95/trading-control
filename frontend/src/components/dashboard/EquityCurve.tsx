@@ -81,6 +81,39 @@ export const buildEquitySeries = (orders: EquityOrder[]): EquityPoint[] => {
   })
 }
 
+/** One backend equity-curve point. `value` (alias `total_pnl`) is the *absolute*
+ *  cumulative PnL at `timestamp` — already a running total, NOT a per-event
+ *  delta, so it is plotted directly without re-accumulation. */
+type BackendEquityPoint = {
+  timestamp?: unknown
+  value?: unknown
+  total_pnl?: unknown
+}
+
+/**
+ * Build the chart series from the backend-computed equity curve. Unlike
+ * {@link buildEquitySeries} (which sums per-order deltas), each point already
+ * carries the absolute running total, so we plot it as-is and derive the delta
+ * by differencing consecutive points. Duplicate timestamps keep the last value.
+ */
+export const buildSeriesFromPoints = (points: BackendEquityPoint[]): EquityPoint[] => {
+  const deduped = new Map<number, number>()
+  for (const point of points) {
+    const ts = parseTimestamp(point.timestamp)
+    const value = toFinite(point.value ?? point.total_pnl)
+    if (ts == null || value == null) continue
+    deduped.set(ts, value) // last write wins for a shared timestamp
+  }
+
+  const sorted = Array.from(deduped.entries()).sort((a, b) => a[0] - b[0])
+  let prev = 0
+  return sorted.map(([timestamp, equity]) => {
+    const delta = equity - prev
+    prev = equity
+    return { timestamp, pnl: delta, delta, equity, label: formatTickTime(timestamp) }
+  })
+}
+
 export const getPaddedDomain = (series: EquityPoint[]): [number, number] => {
   if (series.length === 0) return [-1, 1]
   const values = series.map((point) => point.equity)
@@ -93,14 +126,23 @@ export const getPaddedDomain = (series: EquityPoint[]): [number, number] => {
 
 export function EquityCurve({
   orders,
+  points,
   isLoading = false,
   hasError = false,
 }: {
   orders: EquityOrder[]
+  /** Backend-computed cumulative equity curve. Preferred when non-empty; the
+   *  orders-derived series is only a fallback for clients/snapshots that don't
+   *  carry it. This is what fixed the persistent "No equity data yet". */
+  points?: BackendEquityPoint[]
   isLoading?: boolean
   hasError?: boolean
 }) {
-  const series = useMemo(() => buildEquitySeries(orders), [orders])
+  const series = useMemo(
+    () =>
+      points && points.length > 0 ? buildSeriesFromPoints(points) : buildEquitySeries(orders),
+    [points, orders],
+  )
   const domain = useMemo(() => getPaddedDomain(series), [series])
   const stats = useMemo(() => {
     if (series.length === 0) return null
