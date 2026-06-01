@@ -224,6 +224,39 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
           </div>
         </div>
       )}
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className={card}>
+          <div className={cn(label, 'mb-2')}>Decision Quality (counterfactual)</div>
+          <div className="flex gap-4 text-sm text-slate-700 dark:text-slate-300">
+            <span>
+              best-action rate{' '}
+              <b>{((snap.learning.best_action_rate ?? 0) * 100).toFixed(0)}%</b>
+            </span>
+            <span>
+              mean regret <b>{signed(snap.learning.mean_regret_pct ?? 0)}%</b>
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            share of closed trades where the chosen action beat the BUY/SELL/HOLD alternatives
+          </p>
+        </div>
+        <div className={card}>
+          <div className={cn(label, 'mb-2')}>Drift</div>
+          {snap.drift.alerts.length === 0 ? (
+            <p className="text-sm text-emerald-500">No drift detected</p>
+          ) : (
+            <ul className="space-y-1 text-xs">
+              {snap.drift.alerts.map((alert, i) => (
+                <li key={i} className="text-amber-600 dark:text-amber-400">
+                  {alert.metric} {alert.direction === 'down' ? '↓' : '↑'} {alert.recent} (was{' '}
+                  {alert.baseline})
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -434,6 +467,13 @@ function TracesPanel({ traces }: { traces: TradeTrace[] }) {
                 <Step name="Outcome">
                   {trace.outcome ? `${signed(num(trace.outcome, 'realized_pnl_pct'))}%` : '—'}
                 </Step>
+                {trace.counterfactual && (
+                  <Step name="Counterfactual">
+                    best {trace.counterfactual.best_action.toUpperCase()} · regret{' '}
+                    {signed(trace.counterfactual.regret_pct)}% ·{' '}
+                    {trace.counterfactual.was_best ? 'chose best' : 'suboptimal'}
+                  </Step>
+                )}
                 {trace.grade && (
                   <Step name="Grade">
                     overall {trace.grade.grade} · dir {trace.grade.direction_grade} · risk{' '}
