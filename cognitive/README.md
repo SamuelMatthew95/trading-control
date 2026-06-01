@@ -129,10 +129,15 @@ Hardening pass (review-driven, now implemented):
     events while `seq` stays monotonic; `dropped`/`emitted` are reported in health.
   * **Risk independence** — pinned by a stream invariant test: no EXECUTION event
     exists without a RISK_GATE in the same trace.
+  * **Decision counterfactuals** — `counterfactual.py`: every closed trade records
+    what BUY/SELL/HOLD would each have returned on the realized move, the best
+    action, and the regret of the one taken (so a good-but-unlucky decision isn't
+    mistaken for a bad one). Surfaced on the trace and as a decision-quality KPI.
+  * **Drift detection** — `drift.py`: a `DriftMonitor` watches rolling streams
+    (trade-grade quality, decision regret, direction hit-rate) and emits a typed
+    `DRIFT` alert when the recent window degrades materially vs the prior window.
 
 Roadmap (designed-for, not yet built): richer regime detection + per-regime
-grading, decision counterfactuals ("what would HOLD have done?"),
-drift/anomaly detection, meta-grading, forecasting accountability, full
-knowledge graph / lineage explorer, system replay UI, digital twin, research
-workbench. The append-only stream + config-version lineage are the substrate
-these build on.
+grading, meta-grading, forecasting accountability, full knowledge graph /
+lineage explorer, system replay UI, digital twin, research workbench. The
+append-only stream + config-version lineage are the substrate these build on.
