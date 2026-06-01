@@ -112,15 +112,28 @@ class EventStream:
     truth to drift from.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_events: int | None = None) -> None:
         self._events: list[Event] = []
         self._subscribers: list[Subscriber] = []
+        self._max_events = max_events
+        self._emitted = 0  # monotonic; survives retention eviction
+        self._dropped = 0
 
     def __len__(self) -> int:
         return len(self._events)
 
     def __iter__(self) -> Iterator[Event]:
         return iter(self._events)
+
+    @property
+    def dropped(self) -> int:
+        """Number of oldest events evicted by the retention cap."""
+        return self._dropped
+
+    @property
+    def emitted(self) -> int:
+        """Total events ever emitted, including any evicted by retention."""
+        return self._emitted
 
     def subscribe(self, subscriber: Subscriber) -> None:
         """Register a sink notified on every future emit (e.g. Redis mirror)."""
@@ -135,16 +148,24 @@ class EventStream:
         source: str = "",
         ts: str = "",
     ) -> Event:
-        """Append one event and fan out to subscribers; returns the stored Event."""
+        """Append one event and fan out to subscribers; returns the stored Event.
+
+        ``seq`` is a monotonic counter (not the list index), so it stays stable
+        and unique even after the retention cap evicts the oldest events.
+        """
         event = Event(
-            seq=len(self._events),
+            seq=self._emitted,
             kind=kind,
             payload=dict(payload or {}),
             trace_id=trace_id,
             source=source,
             ts=ts,
         )
+        self._emitted += 1
         self._events.append(event)
+        if self._max_events is not None and len(self._events) > self._max_events:
+            self._events.pop(0)
+            self._dropped += 1
         for subscriber in self._subscribers:
             subscriber(event)
         return event
