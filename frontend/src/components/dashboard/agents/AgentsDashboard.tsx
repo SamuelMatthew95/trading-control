@@ -80,8 +80,9 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
   } = props
 
   // One chronological story of what the pipeline is doing — built from the same
-  // decisions, notifications, and stream events the panels below show as state.
-  const activityItems = buildActivityTimeline({ recentEvents, recentDecisions, notifications })
+  // decisions, notifications, agent logs, and market events the panels below
+  // show as state.
+  const activityItems = buildActivityTimeline({ recentEvents, recentDecisions, notifications, agentLogs })
 
   // Only surface "no agents" after a grace period — agent data can arrive a beat
   // after the WebSocket connects.
