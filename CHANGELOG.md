@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-06-01] — Cognitive brain: decision counterfactuals + drift detection
+
+### Added
+- **Decision counterfactuals** (`cognitive/counterfactual.py`) — each closed trade records what BUY/SELL/HOLD would each have returned on the realized move, the best action, and the regret of the one taken; emitted as a `COUNTERFACTUAL` event, surfaced on the trace and as a decision-quality KPI (`mean_regret_pct`, `best_action_rate`)
+- **Drift detection** (`cognitive/drift.py`) — `DriftMonitor` watches rolling streams (trade-grade quality, decision regret, direction hit-rate) and emits a typed `DRIFT` alert when the recent window degrades vs the prior window; `CognitiveLoop.detect_drift()` assesses and emits
+- New `EventType.COUNTERFACTUAL` / `EventType.DRIFT`; snapshot gains `counterfactuals` + `drift` blocks
+- Frontend: Command Center shows a Decision-Quality card (regret / best-action rate) + a Drift card; the Trace Explorer adds a Counterfactual step
+- Tests: `tests/core/test_cognitive_intelligence.py`
+
+### Changed
+- `CognitiveLoop.close_trade` — emits the counterfactual and feeds the drift monitor; `cognitive/trace.py` surfaces the counterfactual on each trade trace
+
 ## [2026-06-01] — Cognitive brain hardening: walk-forward, governance, lineage, retention
 
 ### Added
