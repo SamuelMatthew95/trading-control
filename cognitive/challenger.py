@@ -25,6 +25,7 @@ from cognitive.events import EventType
 MIN_LEARNING_SAMPLES = 30
 MIN_TRADES = 30
 DRAWDOWN_TOLERANCE_PCT = 1.0  # candidate may add at most this much OOS drawdown
+MIN_WALK_FORWARD_CONSISTENCY = 0.6  # candidate must beat baseline in >= 60% of folds
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,8 @@ def review(
     min_learning_samples: int = MIN_LEARNING_SAMPLES,
     min_trades: int = MIN_TRADES,
     drawdown_tolerance: float = DRAWDOWN_TOLERANCE_PCT,
+    walk_forward_consistency: float = 1.0,
+    min_consistency: float = MIN_WALK_FORWARD_CONSISTENCY,
 ) -> ChallengerVerdict:
     """Validate a proposal's backtest evidence and return an approve/reject verdict."""
     reasons: list[str] = []
@@ -97,24 +100,34 @@ def review(
     if not improves_oos:
         reasons.append(f"no out-of-sample improvement ({out_sample.pnl_delta}%)")
 
+    walk_forward_ok = walk_forward_consistency >= min_consistency
+    if not walk_forward_ok:
+        reasons.append(
+            f"walk-forward consistency {walk_forward_consistency} below {min_consistency} "
+            f"— improvement does not hold across market periods (overfit risk)"
+        )
+
     checks = {
         "statistical_sanity": statistical_sanity,
         "no_overfit": no_overfit,
         "risk_impact_ok": risk_impact_ok,
         "historically_consistent": attribution_supports,
         "improves_out_of_sample": improves_oos,
+        "walk_forward_consistent": walk_forward_ok,
     }
     approved = all(checks.values())
 
     risk_score = 0.0
     if not statistical_sanity:
-        risk_score += 0.25
+        risk_score += 0.20
     if overfit:
-        risk_score += 0.40
+        risk_score += 0.35
     if not risk_impact_ok:
-        risk_score += 0.25
+        risk_score += 0.20
     if not attribution_supports:
         risk_score += 0.10
+    if not walk_forward_ok:
+        risk_score += 0.15
     risk_score = round(min(1.0, risk_score), 4)
 
     if approved:
