@@ -103,18 +103,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-800 bg-slate-950 transition-transform md:static md:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-950 md:static md:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex h-12 items-center gap-2.5 border-b border-slate-800 px-4">
+        <div className="flex h-12 items-center gap-2.5 border-b border-slate-200 px-4 dark:border-slate-800">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm">
             <BarChart3 className="h-4 w-4" />
           </div>
-          <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-100">Trading Console</p>
+          <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-slate-100">Trading Console</p>
         </div>
         <nav className="space-y-1 p-2">
           {NAV.map(({ href, label, Icon }) => {
@@ -127,8 +127,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={cn(
                   'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-slate-700 bg-slate-900 text-slate-100'
-                    : 'border-transparent text-slate-500 hover:bg-slate-900 hover:text-slate-200'
+                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -137,8 +137,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )
           })}
         </nav>
-        <div className="mt-auto border-t border-slate-800 p-3">
-          <div className="flex items-center gap-2 text-xs font-sans text-slate-500">
+        <div className="mt-auto border-t border-slate-200 p-3 dark:border-slate-800">
+          <div className="flex items-center gap-2 text-xs font-sans text-slate-500 dark:text-slate-400">
             <Activity className="h-4 w-4" />
             Phase 2 · Paper Mode
           </div>
@@ -148,32 +148,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {sidebarOpen && <button className="fixed inset-0 z-30 bg-slate-950/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar" />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-50 h-12 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+        <header className="sticky top-0 z-50 h-12 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
           <div className="flex h-full items-center px-4">
             <div className="flex flex-1 items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-900 hover:text-slate-100 md:hidden"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100 md:hidden"
               >
                 <Menu className="h-4 w-4" />
               </button>
-              <span className="text-sm font-bold uppercase tracking-widest font-sans text-white">Trading Console</span>
+              <span className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-white">Trading Console</span>
             </div>
 
             <div className="flex flex-1 justify-end">
               <div className="flex items-center gap-3">
-                <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 sm:flex">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 dark:border-slate-800 dark:bg-slate-900 sm:flex">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
                     Total P&L
                   </span>
                   <span
                     className={cn(
                       'text-xs font-mono font-bold tabular-nums',
                       dailyPnl > 0
-                        ? 'text-emerald-400'
+                        ? 'text-emerald-600 dark:text-emerald-400'
                         : dailyPnl < 0
-                          ? 'text-rose-400'
-                          : 'text-slate-500'
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-slate-500 dark:text-slate-400'
                     )}
                   >
                     {dailyPnl > 0 ? `+${formatUSD(dailyPnl)}` : dailyPnl < 0 ? `-${formatUSD(dailyPnl)}` : formatUSD(dailyPnl)}
@@ -184,15 +184,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   className={cn(
                     'text-[11px] font-mono uppercase tracking-[0.04em]',
                     systemStatus === 'trading'
-                      ? 'text-emerald-500'
+                      ? 'text-emerald-600 dark:text-emerald-500'
                       : systemStatus === 'booting'
-                        ? 'text-amber-500'
-                        : 'text-slate-500'
+                        ? 'text-amber-600 dark:text-amber-500'
+                        : 'text-slate-500 dark:text-slate-400'
                   )}
                 >
                   {systemStatus}
                 </span>
-                <div className="h-5 w-px bg-slate-800" aria-hidden="true" />
+                <div className="h-5 w-px bg-slate-300 dark:bg-slate-800" aria-hidden="true" />
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -200,19 +200,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       {killSwitchActive ? 'Kill Switch On' : 'Kill Switch Off'}
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-xl border border-slate-800 bg-slate-950">
+                  <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
                     <AlertDialogHeader>
-                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-100">
+                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                         {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
                       </AlertDialogTitle>
-                      <AlertDialogDescription className="text-sm font-sans text-slate-400">
+                      <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-400">
                         {killSwitchActive ? 'This will resume signal processing and order placement.' : 'This will halt all signal processing and order placement.'}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel className="font-mono text-[11px] uppercase tracking-[0.04em]">Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        className="h-7 rounded-[4px] border border-slate-700 bg-slate-900 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                        className="h-7 rounded-[4px] border border-slate-300 bg-slate-100 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
                         disabled={killSwitchPending}
                         onClick={() => handleKillSwitch(!killSwitchActive)}
                       >
@@ -227,7 +227,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {showReconnectBanner && (
-          <div className="border-b border-amber-900/40 bg-amber-950/30 px-4 py-2 text-xs font-sans font-semibold text-amber-300">
+          <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs font-sans font-semibold text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500 align-middle" />
             <span className="ml-2">Reconnecting to live feed…</span>
           </div>
