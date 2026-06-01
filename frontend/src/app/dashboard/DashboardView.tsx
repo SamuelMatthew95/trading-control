@@ -76,14 +76,14 @@ const SECTION_META: Record<Section, { eyebrow: string; title: string; descriptio
 function SectionHeader({ section }: { section: Section }) {
   const meta = SECTION_META[section]
   return (
-    <section className="rounded-xl border border-slate-800/80 bg-slate-950/90 px-3 py-3 shadow-sm shadow-black/20">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{meta.eyebrow}</p>
+    <section className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:bg-slate-950/90 dark:shadow-black/20">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{meta.eyebrow}</p>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-white">{meta.title}</h1>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">{meta.description}</p>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">{meta.title}</h1>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">{meta.description}</p>
         </div>
-        <span className="rounded-full border border-slate-800 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+        <span className="rounded-full border border-slate-200 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
           Professional operator console
         </span>
       </div>
@@ -810,7 +810,7 @@ export function DashboardView({ section }: { section: Section }) {
   const mainMaxWidthClass = 'max-w-screen-2xl'
 
   return (
-    <div className="min-h-screen bg-slate-950 pb-20 text-slate-100 lg:pb-4">
+    <div className="min-h-screen bg-slate-100 pb-20 text-slate-900 dark:bg-slate-950 dark:text-slate-100 lg:pb-4">
       <main className={cn('mx-auto space-y-3 px-3 py-4 sm:px-4', mainMaxWidthClass)}>
         <SectionHeader section={section} />
         <div
