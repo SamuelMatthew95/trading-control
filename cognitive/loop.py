@@ -25,7 +25,9 @@ from cognitive.aggregation import aggregate
 from cognitive.backtest_gate import evaluate_proposal, walk_forward
 from cognitive.challenger import review as challenger_review
 from cognitive.config import CognitiveConfig, load_config
+from cognitive.counterfactual import counterfactual
 from cognitive.decision import decide
+from cognitive.drift import DriftMonitor
 from cognitive.events import EventStream, EventType
 from cognitive.execution import execute
 from cognitive.gitops import apply_proposal_to_config, build_pull_request
@@ -84,6 +86,11 @@ class CognitiveLoop:
         self.queue = ProposalQueue()
         # Provenance of the active config: which merged proposal produced it.
         self._config_proposal_id: str | None = None
+        # Drift detection over rolling trade-quality / regret / hit-rate streams.
+        self.drift = DriftMonitor()
+        self.drift.register("trade_grade_score", higher_is_better=True, threshold=8.0)
+        self.drift.register("decision_regret_pct", higher_is_better=False, threshold=0.5)
+        self.drift.register("direction_correct", higher_is_better=True, threshold=0.15)
 
         signal_agents = {spec.emits: spec.instance for spec in self.registry.by_role(ROLE_SIGNAL)}
         self.news = signal_agents[EventType.NEWS_SIGNAL.value]
@@ -229,7 +236,26 @@ class CognitiveLoop:
             window_high=window_high,
         )
         self.stream.emit(EventType.GRADE, card.as_dict(), trace_id=trace_id, source=SOURCE_LEARNING)
-        return {"attribution": attribution, "grade": card}
+
+        # Counterfactual: was the chosen action the best of BUY/SELL/HOLD given the
+        # realized move? Emit the regret, and feed drift streams.
+        chosen_action = decision_payload.get("action") or side
+        result = counterfactual(chosen_action, realized_pnl_pct, side)
+        self.stream.emit(
+            EventType.COUNTERFACTUAL, result.as_dict(), trace_id=trace_id, source=SOURCE_LEARNING
+        )
+        self.drift.observe("trade_grade_score", card.overall_score)
+        self.drift.observe("decision_regret_pct", result.regret_pct)
+        self.drift.observe("direction_correct", 1.0 if realized_pnl_pct > 0 else 0.0)
+
+        return {"attribution": attribution, "grade": card, "counterfactual": result}
+
+    def detect_drift(self) -> list[Any]:
+        """Assess drift across the rolling metric streams and emit any alerts."""
+        alerts = self.drift.assess()
+        for alert in alerts:
+            self.stream.emit(EventType.DRIFT, alert.as_dict(), source=SOURCE_LEARNING)
+        return alerts
 
     # ------------------------------------------------------------------ #
     # Learning: observations + rolling agent grades (edits nothing)
@@ -434,6 +460,18 @@ class CognitiveLoop:
         agent_grades = [grade_agent(signal, stats).as_dict() for signal, stats in metadata.items()]
         config_versions = self._payloads(EventType.CONFIG_VERSION)
         latest_decision = self._payloads(EventType.DECISION, limit=1)
+        counterfactuals = self._payloads(EventType.COUNTERFACTUAL)
+        regret_n = len(counterfactuals)
+        mean_regret = (
+            round(sum(c.get("regret_pct", 0.0) for c in counterfactuals) / regret_n, 4)
+            if regret_n
+            else 0.0
+        )
+        best_rate = (
+            round(sum(1 for c in counterfactuals if c.get("was_best")) / regret_n, 4)
+            if regret_n
+            else 0.0
+        )
         return {
             "config": self.config.to_dict(),
             "agents_roster": self.registry.describe(),
@@ -462,12 +500,19 @@ class CognitiveLoop:
                     for payload in self._payloads(EventType.GRADE)
                     if payload.get("subject") == "trade"
                 ][-trace_limit:],
+                "mean_regret_pct": mean_regret,
+                "best_action_rate": best_rate,
             },
             "evolution": {
                 "config_versions": config_versions,
                 "proposal_success_rates": self.scorecard.snapshot(),
                 "agent_grades": agent_grades,
                 "governor": self.governor.snapshot(),
+            },
+            "counterfactuals": counterfactuals[-trace_limit:],
+            "drift": {
+                "alerts": self._payloads(EventType.DRIFT, limit=trace_limit),
+                "monitor": self.drift.snapshot(),
             },
             "health": assess_health(self.stream),
             "traces": [
