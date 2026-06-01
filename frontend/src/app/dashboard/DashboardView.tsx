@@ -42,6 +42,58 @@ type PerformanceCell = {
 }
 
 
+
+const SECTION_META: Record<Section, { eyebrow: string; title: string; description: string }> = {
+  overview: {
+    eyebrow: 'Operations overview',
+    title: 'Portfolio and execution snapshot',
+    description: 'Live prices, P&L, agent status, and recent activity in the same operator frame.',
+  },
+  trading: {
+    eyebrow: 'Execution',
+    title: 'Trades, fills, and traceable execution',
+    description: 'Monitor open risk, fills, grades, and execution provenance without decorative cards.',
+  },
+  agents: {
+    eyebrow: 'Runtime agents',
+    title: 'Agent health and production activity',
+    description: 'Inspect agent heartbeats, streams, decisions, and diagnostics in a dense operations layout.',
+  },
+  learning: {
+    eyebrow: 'Learning loop',
+    title: 'Performance attribution and strategy lifecycle',
+    description: 'Review outcomes, model performance, and learning-loop movement with clear evidence.',
+  },
+  proposals: {
+    eyebrow: 'Proposal review',
+    title: 'Candidate changes and challenger verdicts',
+    description: 'Approve or reject strategy mutations from a table-first queue with explicit expected impact.',
+  },
+  system: {
+    eyebrow: 'Command Center',
+    title: 'Decisions, risk, execution, and traceability',
+    description: 'Operator console for what the system is thinking, doing, and changing right now.',
+  },
+}
+
+function SectionHeader({ section }: { section: Section }) {
+  const meta = SECTION_META[section]
+  return (
+    <section className="rounded-xl border border-slate-800/80 bg-slate-950/90 px-3 py-3 shadow-sm shadow-black/20">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{meta.eyebrow}</p>
+      <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-white">{meta.title}</h1>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">{meta.description}</p>
+        </div>
+        <span className="rounded-full border border-slate-800 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+          Professional operator console
+        </span>
+      </div>
+    </section>
+  )
+}
+
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 // Liveness windows mirror the backend heartbeat contract (api/constants.py):
 //   AGENT_STALE_THRESHOLD_SECONDS = 120 → an agent stays "Live" while its last
@@ -768,8 +820,9 @@ export function DashboardView({ section }: { section: Section }) {
   const mainMaxWidthClass = 'max-w-screen-2xl'
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
-      <main className={cn('mx-auto space-y-4 px-4 py-5', mainMaxWidthClass)}>
+    <div className="min-h-screen bg-slate-950 pb-20 text-slate-100 lg:pb-4">
+      <main className={cn('mx-auto space-y-3 px-3 py-4 sm:px-4', mainMaxWidthClass)}>
+        <SectionHeader section={section} />
         <div
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
