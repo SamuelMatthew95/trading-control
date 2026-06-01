@@ -751,10 +751,11 @@ export function DashboardView({ section }: { section: Section }) {
     </>
   )
 
-  // System and Agents both pack many side-by-side cards and read better with
-  // the extra width; other sections stay constrained for comfortable reading.
-  const mainMaxWidthClass =
-    section === 'system' || section === 'agents' ? 'max-w-screen-2xl' : 'max-w-7xl'
+  // Every section is a dense ops console of side-by-side cards, so they all use
+  // the full screen width. Keeping one width across pages stops the overview (and
+  // other pages) from looking like a cramped, disconnected column next to the
+  // wider ones.
+  const mainMaxWidthClass = 'max-w-screen-2xl'
 
   return (
     <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
