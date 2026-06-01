@@ -8,8 +8,19 @@ import {
   signedUSD,
   toFiniteNum as toFiniteNumber,
 } from "@/lib/formatters";
+import {
+  consoleHeaderClass,
+  consolePanelClass,
+  sectionTitleClass,
+} from "@/lib/dashboard-styles";
+import {
+  ALL_AGENT_NAMES,
+  agentDisplayName,
+  canonicalAgentKey,
+} from "@/constants/agents";
 import type {
   AgentLog,
+  AgentStatus,
   Notification,
   Order,
   Proposal,
@@ -37,6 +48,13 @@ type HealthIndicator = {
   value: string;
 };
 
+type AgentActivityRow = {
+  key: string;
+  label: string;
+  status?: AgentStatus;
+  relatedLog?: AgentLog;
+};
+
 const SURFACED_DECISION_LIMIT = 48;
 const TRACE_COLUMNS = [
   "Signal",
@@ -46,21 +64,18 @@ const TRACE_COLUMNS = [
   "Execution",
   "Outcome",
 ] as const;
-const OPERATOR_AGENTS = [
-  { key: "news", label: "News Agent" },
-  { key: "macro", label: "Macro Agent" },
-  { key: "proposal", label: "Proposal Agent" },
-  { key: "risk", label: "Risk Agent" },
-] as const;
 
-const PANEL_CLASS =
-  "rounded-xl border border-slate-800/80 bg-slate-950/80 shadow-sm shadow-black/20";
-const PANEL_HEADER_CLASS = "border-b border-slate-800/80 px-3 py-2";
-const PANEL_TITLE_CLASS =
-  "text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400";
+// Dual-theme surface classes shared with the rest of the dashboard. Light is the
+// base utility; the dark "operator console" look is the `dark:` variant so the
+// System page renders coherently in either theme (next-themes / ThemeToggle).
+const PANEL_CLASS = consolePanelClass;
+const PANEL_HEADER_CLASS = consoleHeaderClass;
+const PANEL_TITLE_CLASS = sectionTitleClass;
 const LABEL_CLASS =
-  "text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500";
-const VALUE_CLASS = "font-mono text-sm tabular-nums text-slate-100";
+  "text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400";
+const VALUE_CLASS =
+  "font-mono text-sm tabular-nums text-slate-900 dark:text-slate-100";
+const ROW_DIVIDER_CLASS = "border-slate-200 dark:border-slate-800/70";
 
 function parseTimestamp(value: unknown): Date | null {
   if (value == null) return null;
@@ -81,6 +96,13 @@ function timestampMs(value: unknown): number {
   return parseTimestamp(value)?.getTime() ?? 0;
 }
 
+// Start of the current UTC trading day. Used to scope the Daily PnL headline to
+// today's orders instead of summing the whole recent-orders window.
+function startOfUtcDayMs(now: number): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
 function formatClock(value: string | null): string {
   const date = parseTimestamp(value);
   if (!date) return "--:--:--";
@@ -90,6 +112,15 @@ function formatClock(value: string | null): string {
     second: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+function formatAge(secondsAgo: number | null | undefined): string {
+  const seconds = toFiniteNumber(secondsAgo);
+  if (seconds == null || seconds < 0) return "--";
+  if (seconds < 60) return `${Math.round(seconds)}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
 }
 
 function normalizeAction(value: unknown): DecisionAction {
@@ -110,7 +141,7 @@ function compactReason(value: unknown, fallback: string): string[] {
   const text = String(value ?? "").trim();
   if (!text) return [fallback];
   return text
-    .split(/\n|;|\u2022|\. /)
+    .split(/\n|;|•|\. /)
     .map((part) => part.replace(/^-\s*/, "").trim())
     .filter(Boolean)
     .slice(0, 4);
@@ -119,26 +150,26 @@ function compactReason(value: unknown, fallback: string): string[] {
 function statusToneClass(tone: StatusTone): string {
   switch (tone) {
     case "ok":
-      return "bg-emerald-400 text-emerald-300 ring-emerald-400/30";
+      return "bg-emerald-500 ring-emerald-500/30 dark:bg-emerald-400 dark:ring-emerald-400/30";
     case "warn":
-      return "bg-amber-400 text-amber-300 ring-amber-400/30";
+      return "bg-amber-500 ring-amber-500/30 dark:bg-amber-400 dark:ring-amber-400/30";
     case "err":
-      return "bg-rose-400 text-rose-300 ring-rose-400/30";
+      return "bg-rose-500 ring-rose-500/30 dark:bg-rose-400 dark:ring-rose-400/30";
     default:
-      return "bg-slate-500 text-slate-300 ring-slate-500/30";
+      return "bg-slate-400 ring-slate-400/30 dark:bg-slate-500 dark:ring-slate-500/30";
   }
 }
 
 function actionClass(action: DecisionAction): string {
   switch (action) {
     case "BUY":
-      return "text-emerald-300 bg-emerald-400/10 ring-emerald-400/30";
+      return "text-emerald-700 bg-emerald-500/10 ring-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-400/10 dark:ring-emerald-400/30";
     case "SELL":
-      return "text-rose-300 bg-rose-400/10 ring-rose-400/30";
+      return "text-rose-700 bg-rose-500/10 ring-rose-500/30 dark:text-rose-300 dark:bg-rose-400/10 dark:ring-rose-400/30";
     case "SKIP":
-      return "text-amber-300 bg-amber-400/10 ring-amber-400/30";
+      return "text-amber-700 bg-amber-500/10 ring-amber-500/30 dark:text-amber-300 dark:bg-amber-400/10 dark:ring-amber-400/30";
     default:
-      return "text-slate-300 bg-slate-400/10 ring-slate-400/30";
+      return "text-slate-600 bg-slate-400/10 ring-slate-400/30 dark:text-slate-300 dark:bg-slate-400/10";
   }
 }
 
@@ -250,6 +281,41 @@ function deriveDecisionFeed({
     .slice(0, SURFACED_DECISION_LIMIT);
 }
 
+// Build one activity row per canonical agent (plus any extra agent seen in live
+// statuses), matched to heartbeats and logs by canonical key. This replaces the
+// previous hardcoded news/macro/proposal/risk labels that matched no real agent.
+function deriveAgentActivity({
+  agentStatuses,
+  agentLogs,
+}: {
+  agentStatuses: AgentStatus[];
+  agentLogs: AgentLog[];
+}): AgentActivityRow[] {
+  const canonicalStatuses = agentStatuses.map((status) => ({
+    key: canonicalAgentKey(String(status.name ?? "")),
+    status,
+  }));
+
+  const keys: string[] = [...ALL_AGENT_NAMES];
+  canonicalStatuses.forEach(({ key }) => {
+    if (key && !keys.includes(key)) keys.push(key);
+  });
+
+  return keys.map((key) => {
+    const status = canonicalStatuses.find((entry) => entry.key === key)?.status;
+    const relatedLog = agentLogs.find(
+      (log) =>
+        canonicalAgentKey(String(log.agent_name ?? log.agent ?? "")) === key,
+    );
+    return {
+      key,
+      label: agentDisplayName(key),
+      status,
+      relatedLog,
+    };
+  });
+}
+
 function proposalLabel(proposal: Proposal): string {
   return (
     proposal.content ||
@@ -275,14 +341,19 @@ function KpiStrip({
   tone?: StatusTone;
 }) {
   return (
-    <div className="border-b border-slate-800/70 px-3 py-2 last:border-b-0">
+    <div
+      className={cn(
+        "border-b px-3 py-2 last:border-b-0",
+        ROW_DIVIDER_CLASS,
+      )}
+    >
       <p className={LABEL_CLASS}>{label}</p>
       <p
         className={cn(
           VALUE_CLASS,
-          tone === "ok" && "text-emerald-300",
-          tone === "warn" && "text-amber-300",
-          tone === "err" && "text-rose-300",
+          tone === "ok" && "text-emerald-600 dark:text-emerald-300",
+          tone === "warn" && "text-amber-600 dark:text-amber-300",
+          tone === "err" && "text-rose-600 dark:text-rose-300",
         )}
       >
         {value}
@@ -293,15 +364,22 @@ function KpiStrip({
 
 function StatePill({ label, tone, value }: HealthIndicator) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-slate-800/70 px-3 py-2 last:border-b-0">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 border-b px-3 py-2 last:border-b-0",
+        ROW_DIVIDER_CLASS,
+      )}
+    >
       <div className="flex items-center gap-2">
         <span
           className={cn("h-2 w-2 rounded-full ring-4", statusToneClass(tone))}
           aria-hidden="true"
         />
-        <span className="text-xs font-medium text-slate-200">{label}</span>
+        <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+          {label}
+        </span>
       </div>
-      <span className="font-mono text-[11px] uppercase tracking-wide text-slate-400">
+      <span className="font-mono text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {value}
       </span>
     </div>
@@ -335,6 +413,15 @@ export function SystemDashboard(props: SystemDashboardProps) {
     [props.agentLogs, props.notifications, props.orders],
   );
 
+  const agentActivity = useMemo(
+    () =>
+      deriveAgentActivity({
+        agentStatuses: props.agentStatuses,
+        agentLogs: props.agentLogs,
+      }),
+    [props.agentStatuses, props.agentLogs],
+  );
+
   const selectedDecision = decisionFeed[0] ?? null;
   const netPnl =
     props.resolvedPerformanceSummary?.total_pnl ??
@@ -342,10 +429,14 @@ export function SystemDashboard(props: SystemDashboardProps) {
       (sum, order) => sum + (toFiniteNumber(order.pnl) ?? 0),
       0,
     );
-  const dailyPnl = props.orders.reduce(
-    (sum, order) => sum + (toFiniteNumber(order.pnl) ?? 0),
-    0,
-  );
+  const dayStartMs = startOfUtcDayMs(Date.now());
+  const dailyPnl = props.orders.reduce((sum, order) => {
+    const orderMs = timestampMs(
+      order.timestamp ?? order.filled_at ?? order.created_at,
+    );
+    if (orderMs < dayStartMs) return sum;
+    return sum + (toFiniteNumber(order.pnl) ?? 0);
+  }, 0);
   const openExposure = props.positions.reduce((sum, position) => {
     const quantity = Math.abs(toFiniteNumber(position.quantity) ?? 0);
     const price =
@@ -363,6 +454,12 @@ export function SystemDashboard(props: SystemDashboardProps) {
     : pipeline.pipelineStatus === "Healthy"
       ? "Acceptable"
       : "Review";
+
+  // Dashboard read-path health: a `/dashboard/state` failure surfaces as
+  // systemFeedError / apiHealth.dashboardState='error'. Surface it explicitly so
+  // an outage is not masked by otherwise-generic indicators.
+  const dashboardApiDown =
+    Boolean(props.systemFeedError) || props.apiHealth.dashboardState === "error";
 
   const healthIndicators: HealthIndicator[] = [
     {
@@ -419,6 +516,19 @@ export function SystemDashboard(props: SystemDashboardProps) {
         : "Disconnected",
     },
     {
+      label: "Dashboard API",
+      tone: dashboardApiDown
+        ? "err"
+        : props.apiHealth.dashboardState === "ok"
+          ? "ok"
+          : "warn",
+      value: dashboardApiDown
+        ? "Unreachable"
+        : props.apiHealth.dashboardState === "ok"
+          ? "Live"
+          : props.apiHealth.dashboardState,
+    },
+    {
       label: "Broker",
       tone: props.streamStats.orders?.count ? "ok" : "neutral",
       value: `${props.streamStats.orders?.count ?? 0} orders`,
@@ -462,7 +572,20 @@ export function SystemDashboard(props: SystemDashboardProps) {
       : null;
 
   return (
-    <div className="space-y-3 text-slate-100">
+    <div className="space-y-3 text-slate-900 dark:text-slate-100">
+      {dashboardApiDown && (
+        <div
+          className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300"
+          role="alert"
+        >
+          <span className="h-2 w-2 rounded-full bg-rose-500" aria-hidden="true" />
+          <span>
+            Dashboard API unreachable
+            {props.systemFeedError ? ` — ${props.systemFeedError}` : ""}. Live
+            data may be stale.
+          </span>
+        </div>
+      )}
       <section
         className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]"
         aria-label="Command Center overview"
@@ -472,16 +595,21 @@ export function SystemDashboard(props: SystemDashboardProps) {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className={PANEL_TITLE_CLASS}>Command Center</p>
-                <h1 className="mt-1 text-xl font-semibold tracking-tight text-white">
+                <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
                   Decisions, risk, execution
                 </h1>
               </div>
-              <span className="rounded-full border border-slate-700 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-400">
+              <span className="rounded-full border border-slate-300 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 {props.isInMemoryMode ? "Paper / memory" : "Live capable"}
               </span>
             </div>
           </div>
-          <div className="grid grid-cols-2 divide-x divide-y divide-slate-800/70 md:grid-cols-3 xl:grid-cols-6 xl:divide-y-0">
+          <div
+            className={cn(
+              "grid grid-cols-2 divide-x divide-y md:grid-cols-3 xl:grid-cols-6 xl:divide-y-0",
+              "divide-slate-200 dark:divide-slate-800/70",
+            )}
+          >
             <KpiStrip
               label="Net PnL"
               value={signedUSD(netPnl)}
@@ -531,7 +659,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
             )}
           >
             <p className={PANEL_TITLE_CLASS}>Live Decision Feed</p>
-            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
               Windowed {decisionFeed.length}
             </span>
           </div>
@@ -541,7 +669,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
             aria-label="Reverse chronological decision stream"
           >
             {decisionFeed.length === 0 ? (
-              <div className="px-3 py-8 text-sm text-slate-500">
+              <div className="px-3 py-8 text-sm text-slate-500 dark:text-slate-400">
                 Waiting for decisions, skips, or executions.
               </div>
             ) : (
@@ -551,9 +679,13 @@ export function SystemDashboard(props: SystemDashboardProps) {
                   type="button"
                   onClick={() => props.setActiveTraceId(item.traceId)}
                   disabled={!item.traceId}
-                  className="grid w-full grid-cols-[72px_1fr] gap-3 border-b border-slate-800/70 px-3 py-2 text-left transition hover:bg-slate-900/80 disabled:cursor-default disabled:hover:bg-transparent"
+                  className={cn(
+                    "grid w-full grid-cols-[72px_1fr] gap-3 border-b px-3 py-2 text-left transition disabled:cursor-default",
+                    ROW_DIVIDER_CLASS,
+                    "hover:bg-slate-100 disabled:hover:bg-transparent dark:hover:bg-slate-900/80",
+                  )}
                 >
-                  <time className="font-mono text-[11px] tabular-nums text-slate-500">
+                  <time className="font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
                     {formatClock(item.timestamp)}
                   </time>
                   <div className="min-w-0">
@@ -566,20 +698,22 @@ export function SystemDashboard(props: SystemDashboardProps) {
                       >
                         {item.action}
                       </span>
-                      <span className="font-mono text-sm font-semibold text-white">
+                      <span className="font-mono text-sm font-semibold text-slate-900 dark:text-white">
                         {item.symbol}
                       </span>
                       {item.confidence != null && (
-                        <span className="font-mono text-xs text-slate-400">
+                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
                           Confidence: {formatPercent(item.confidence)}
                         </span>
                       )}
-                      <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-slate-600">
+                      <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
                         {item.source}
                       </span>
                     </div>
-                    <div className="mt-1 text-xs text-slate-400">
-                      <span className="text-slate-500">Reason:</span>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <span className="text-slate-400 dark:text-slate-500">
+                        Reason:
+                      </span>
                       <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
                         {item.reason.map((reason) => (
                           <li key={reason} className="truncate">
@@ -602,16 +736,16 @@ export function SystemDashboard(props: SystemDashboardProps) {
           <div className="p-3">
             {selectedDecision ? (
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
                   <div>
-                    <p className="font-mono text-sm text-white">
+                    <p className="font-mono text-sm text-slate-900 dark:text-white">
                       {selectedDecision.action} {selectedDecision.symbol}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Trace {selectedDecision.traceId ?? "not attached"}
                     </p>
                   </div>
-                  <span className="font-mono text-xs text-slate-400">
+                  <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
                     {formatTimestamp(selectedDecision.timestamp)}
                   </span>
                 </div>
@@ -619,19 +753,19 @@ export function SystemDashboard(props: SystemDashboardProps) {
                   {TRACE_COLUMNS.map((label, index) => (
                     <details
                       key={label}
-                      className="group rounded-lg border border-slate-800 bg-slate-950 open:bg-slate-900/60"
+                      className="group rounded-lg border border-slate-200 bg-white open:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:open:bg-slate-900/60"
                       open={index < 3}
                     >
-                      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 marker:hidden">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 font-mono text-[10px] text-slate-400">
+                      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 marker:hidden dark:text-slate-200">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 font-mono text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
                           {index + 1}
                         </span>
                         {label}
-                        <span className="ml-auto text-slate-600 group-open:hidden">
+                        <span className="ml-auto text-slate-400 group-open:hidden dark:text-slate-500">
                           expand
                         </span>
                       </summary>
-                      <div className="border-t border-slate-800 px-3 py-2 text-xs leading-5 text-slate-400">
+                      <div className="border-t border-slate-200 px-3 py-2 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
                         {index === 0 && selectedDecision.reason[0]}
                         {index === 1 && selectedDecision.reason.join(" ")}
                         {index === 2 && riskState}
@@ -649,7 +783,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-800 px-3 py-8 text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-8 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 No decision trace selected yet.
               </div>
             )}
@@ -662,7 +796,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
           <div className={PANEL_HEADER_CLASS}>
             <p className={PANEL_TITLE_CLASS}>Cognitive Evolution</p>
           </div>
-          <div className="divide-y divide-slate-800/70">
+          <div className={cn("divide-y", "divide-slate-200 dark:divide-slate-800/70")}>
             <KpiStrip
               label="Current Strategy Version"
               value={`v${Math.max(1, approvedProposals.length + rejectedProposals.length + 1)}`}
@@ -692,16 +826,16 @@ export function SystemDashboard(props: SystemDashboardProps) {
                 ).map((proposal) => (
                   <li
                     key={proposal.id}
-                    className="border-l border-slate-700 pl-3 text-xs text-slate-400"
+                    className="border-l border-slate-300 pl-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400"
                   >
-                    <p className="font-medium text-slate-200">
+                    <p className="font-medium text-slate-700 dark:text-slate-200">
                       {proposalLabel(proposal)}
                     </p>
                     <p>{proposal.status} after challenger review</p>
                   </li>
                 ))}
                 {props.proposals.length === 0 && (
-                  <li className="text-xs text-slate-500">
+                  <li className="text-xs text-slate-500 dark:text-slate-400">
                     No strategy mutations recorded.
                   </li>
                 )}
@@ -714,21 +848,28 @@ export function SystemDashboard(props: SystemDashboardProps) {
           <div className={PANEL_HEADER_CLASS}>
             <p className={PANEL_TITLE_CLASS}>Agent Activity</p>
           </div>
-          <div className="divide-y divide-slate-800/70">
-            {OPERATOR_AGENTS.map((agent) => {
-              const status = props.agentStatuses.find((candidate) =>
-                candidate.name.toLowerCase().includes(agent.key),
-              );
-              const relatedLog = props.agentLogs.find((log) =>
-                String(log.agent_name ?? log.agent ?? "")
-                  .toLowerCase()
-                  .includes(agent.key),
-              );
-              const tone = resolveHealthTone(status?.status);
+          <div
+            className={cn(
+              "max-h-[520px] divide-y overflow-y-auto",
+              "divide-slate-200 dark:divide-slate-800/70",
+            )}
+          >
+            {agentActivity.map((agent) => {
+              const tone = resolveHealthTone(agent.status?.status);
+              const currentTask =
+                agent.relatedLog?.event_type ??
+                agent.status?.last_event ??
+                agent.status?.status ??
+                "Idle";
+              const lastOutput =
+                agent.relatedLog?.message ??
+                agent.status?.last_event ??
+                "No output yet";
+              const latencyMs = toFiniteNumber(agent.relatedLog?.latency_ms);
               return (
                 <div key={agent.key} className="px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-100">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {agent.label}
                     </p>
                     <span
@@ -739,19 +880,24 @@ export function SystemDashboard(props: SystemDashboardProps) {
                     />
                   </div>
                   <dl className="mt-2 grid grid-cols-[90px_1fr] gap-x-2 gap-y-1 text-xs">
-                    <dt className="text-slate-500">Current task</dt>
-                    <dd className="truncate text-slate-300">
-                      {relatedLog?.event_type ?? status?.status ?? "Waiting"}
+                    <dt className="text-slate-500 dark:text-slate-500">
+                      Current task
+                    </dt>
+                    <dd className="truncate text-slate-600 dark:text-slate-300">
+                      {currentTask}
                     </dd>
-                    <dt className="text-slate-500">Last output</dt>
-                    <dd className="truncate text-slate-400">
-                      {relatedLog?.message ??
-                        status?.last_event ??
-                        "No output yet"}
+                    <dt className="text-slate-500 dark:text-slate-500">
+                      Last output
+                    </dt>
+                    <dd className="truncate text-slate-500 dark:text-slate-400">
+                      {lastOutput}
                     </dd>
-                    <dt className="text-slate-500">Latency</dt>
-                    <dd className="font-mono text-slate-400">
-                      {relatedLog?.latency_ms ?? status?.seconds_ago ?? "--"} ms
+                    <dt className="text-slate-500 dark:text-slate-500">
+                      Last seen
+                    </dt>
+                    <dd className="font-mono text-slate-500 dark:text-slate-400">
+                      {formatAge(agent.status?.seconds_ago)}
+                      {latencyMs != null ? ` · ${latencyMs.toFixed(0)}ms` : ""}
                     </dd>
                   </dl>
                 </div>
@@ -780,13 +926,13 @@ export function SystemDashboard(props: SystemDashboardProps) {
           )}
         >
           <p className={PANEL_TITLE_CLASS}>Proposal Center</p>
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
             {props.proposals.length} candidates
           </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
-            <thead className="bg-slate-900/70 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <thead className="bg-slate-100 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:bg-slate-900/70 dark:text-slate-400">
               <tr>
                 <th className="px-3 py-2 font-semibold">Candidate Change</th>
                 <th className="px-3 py-2 font-semibold">
@@ -797,15 +943,20 @@ export function SystemDashboard(props: SystemDashboardProps) {
                 <th className="px-3 py-2 font-semibold">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/70">
+            <tbody
+              className={cn("divide-y", "divide-slate-200 dark:divide-slate-800/70")}
+            >
               {(props.proposals.length > 0
                 ? props.proposals.slice(0, 8)
                 : latestProposal
                   ? [latestProposal]
                   : []
               ).map((proposal) => (
-                <tr key={proposal.id} className="text-slate-300">
-                  <td className="px-3 py-2 font-medium text-slate-100">
+                <tr
+                  key={proposal.id}
+                  className="text-slate-600 dark:text-slate-300"
+                >
+                  <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">
                     {proposalLabel(proposal)}
                   </td>
                   <td className="px-3 py-2 font-mono">
@@ -828,11 +979,11 @@ export function SystemDashboard(props: SystemDashboardProps) {
                       className={cn(
                         "rounded px-2 py-1 font-mono text-[10px] uppercase ring-1",
                         proposal.status === "approved" &&
-                          "bg-emerald-400/10 text-emerald-300 ring-emerald-400/30",
+                          "bg-emerald-500/10 text-emerald-700 ring-emerald-500/30 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/30",
                         proposal.status === "rejected" &&
-                          "bg-rose-400/10 text-rose-300 ring-rose-400/30",
+                          "bg-rose-500/10 text-rose-700 ring-rose-500/30 dark:bg-rose-400/10 dark:text-rose-300 dark:ring-rose-400/30",
                         proposal.status === "pending" &&
-                          "bg-amber-400/10 text-amber-300 ring-amber-400/30",
+                          "bg-amber-500/10 text-amber-700 ring-amber-500/30 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/30",
                       )}
                     >
                       {proposal.status}
@@ -844,7 +995,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
                 <tr>
                   <td
                     colSpan={5}
-                    className="px-3 py-8 text-center text-sm text-slate-500"
+                    className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                   >
                     No challenger proposals are awaiting operator review.
                   </td>
