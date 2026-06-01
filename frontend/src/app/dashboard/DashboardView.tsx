@@ -7,10 +7,7 @@ import { useRestPoll } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber, sanitizeValue, formatTimestamp } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
-import { BacktestComparisonPanel } from '@/components/dashboard/BacktestComparisonPanel'
-import { DistributionPanel } from '@/components/dashboard/DistributionPanel'
-import { StrategyLifecyclePanel } from '@/components/dashboard/StrategyLifecyclePanel'
-import { LearningDashboard } from '@/components/dashboard/LearningDashboard'
+import { LearningConsole } from '@/components/dashboard/LearningConsole'
 import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
@@ -41,6 +38,58 @@ type PerformanceCell = {
   colorClass: string
 }
 
+
+
+const SECTION_META: Record<Section, { eyebrow: string; title: string; description: string }> = {
+  overview: {
+    eyebrow: 'Operations overview',
+    title: 'Portfolio and execution snapshot',
+    description: 'Live prices, P&L, agent status, and recent activity in the same operator frame.',
+  },
+  trading: {
+    eyebrow: 'Execution',
+    title: 'Trades, fills, and traceable execution',
+    description: 'Monitor open risk, fills, grades, and execution provenance without decorative cards.',
+  },
+  agents: {
+    eyebrow: 'Runtime agents',
+    title: 'Agent health and production activity',
+    description: 'Inspect agent heartbeats, streams, decisions, and diagnostics in a dense operations layout.',
+  },
+  learning: {
+    eyebrow: 'Learning loop',
+    title: 'Performance attribution and learning outcomes',
+    description: 'Review outcomes, model performance, and learning-loop movement with clear evidence.',
+  },
+  proposals: {
+    eyebrow: 'Proposal review',
+    title: 'Candidate changes and challenger verdicts',
+    description: 'Approve or reject strategy mutations from a table-first queue with explicit expected impact.',
+  },
+  system: {
+    eyebrow: 'Command Center',
+    title: 'Decisions, risk, execution, and traceability',
+    description: 'Operator console for what the system is thinking, doing, and changing right now.',
+  },
+}
+
+function SectionHeader({ section }: { section: Section }) {
+  const meta = SECTION_META[section]
+  return (
+    <section className="rounded-xl border border-slate-800/80 bg-slate-950/90 px-3 py-3 shadow-sm shadow-black/20">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{meta.eyebrow}</p>
+      <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-white">{meta.title}</h1>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">{meta.description}</p>
+        </div>
+        <span className="rounded-full border border-slate-800 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+          Professional operator console
+        </span>
+      </div>
+    </section>
+  )
+}
 
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
 // Liveness windows mirror the backend heartbeat contract (api/constants.py):
@@ -284,6 +333,9 @@ export function DashboardView({ section }: { section: Section }) {
     notifications = [],
     proposals = [],
     tradeFeed = [],
+    riskAlerts = [],
+    regime,
+    killSwitchActive,
     agentInstances = [],
     performanceSummary,
     dashboardData,
@@ -712,14 +764,7 @@ export function DashboardView({ section }: { section: Section }) {
         />
       )}
 
-      {section === 'learning' && (
-        <div className="space-y-6">
-          <LearningDashboard />
-          <BacktestComparisonPanel />
-          <DistributionPanel />
-          <StrategyLifecyclePanel />
-        </div>
-      )}
+      {section === 'learning' && <LearningConsole setActiveTraceId={setActiveTraceId} />}
 
       {section === 'proposals' && <ProposalsSection />}
 
@@ -735,6 +780,11 @@ export function DashboardView({ section }: { section: Section }) {
           prices={prices}
           positions={positions}
           tradeFeed={tradeFeed}
+          orders={orders}
+          agentLogs={agentLogs}
+          notifications={notifications}
+          proposals={proposals}
+          riskAlerts={riskAlerts}
           pricesFetched={pricesFetched}
           isInMemoryMode={isInMemoryMode}
           resolvedPerformanceSummary={resolvedPerformanceSummary}
@@ -745,6 +795,8 @@ export function DashboardView({ section }: { section: Section }) {
           persistedCounts={persistedCounts}
           persistedEvents={persistedEvents}
           persistedLogs={persistedLogs}
+          regime={regime}
+          killSwitchActive={killSwitchActive}
           setActiveTraceId={setActiveTraceId}
         />
       )}
@@ -758,8 +810,9 @@ export function DashboardView({ section }: { section: Section }) {
   const mainMaxWidthClass = 'max-w-screen-2xl'
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
-      <main className={cn('mx-auto space-y-4 px-4 py-5', mainMaxWidthClass)}>
+    <div className="min-h-screen bg-slate-950 pb-20 text-slate-100 lg:pb-4">
+      <main className={cn('mx-auto space-y-3 px-3 py-4 sm:px-4', mainMaxWidthClass)}>
+        <SectionHeader section={section} />
         <div
           className={cn(
             'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',

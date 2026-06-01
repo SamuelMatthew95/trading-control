@@ -15,6 +15,11 @@ const baseProps: SystemDashboardProps = {
   prices: {},
   positions: [],
   tradeFeed: [],
+  orders: [],
+  agentLogs: [],
+  notifications: [],
+  proposals: [],
+  riskAlerts: [],
   pricesFetched: false,
   isInMemoryMode: false,
   resolvedPerformanceSummary: null,
@@ -29,6 +34,8 @@ const baseProps: SystemDashboardProps = {
   persistedCounts: [],
   persistedEvents: [],
   persistedLogs: [],
+  regime: 'Neutral',
+  killSwitchActive: false,
   setActiveTraceId: vi.fn(),
 }
 
@@ -37,40 +44,36 @@ describe('SystemDashboard integration', () => {
     expect(() => render(<SystemDashboard {...baseProps} />)).not.toThrow()
   })
 
-  it('shows all top-level section titles', () => {
+  it('shows all command center section titles', () => {
     render(<SystemDashboard {...baseProps} />)
-    expect(screen.getByText('Pipeline Flow')).toBeInTheDocument()
-    expect(screen.getByText('Connection Diagnostics')).toBeInTheDocument()
-    expect(screen.getByText('Stream Activity')).toBeInTheDocument()
-    expect(screen.getByText('P&L Clarity')).toBeInTheDocument()
-    expect(screen.getByText('Agent Observability')).toBeInTheDocument()
-    expect(screen.getByText('Recent Events')).toBeInTheDocument()
-    expect(screen.getByText('Persisted Event History')).toBeInTheDocument()
+    expect(screen.getByText('Command Center')).toBeInTheDocument()
+    expect(screen.getByText('Live Decision Feed')).toBeInTheDocument()
+    expect(screen.getByText('Trace Explorer')).toBeInTheDocument()
+    expect(screen.getByText('Cognitive Evolution')).toBeInTheDocument()
+    expect(screen.getByText('Agent Activity')).toBeInTheDocument()
+    expect(screen.getByText('System Health')).toBeInTheDocument()
+    expect(screen.getByText('Proposal Center')).toBeInTheDocument()
   })
 
-  it('renders all six hero metrics', () => {
+  it('renders the six operator headline metrics', () => {
     render(<SystemDashboard {...baseProps} />)
-    expect(screen.getByRole('group', { name: /pipeline/i })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: /data latency/i })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: /throughput/i })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: /websocket/i })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: /database/i })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: /llm/i })).toBeInTheDocument()
+    expect(screen.getByText('Net PnL')).toBeInTheDocument()
+    expect(screen.getByText('Daily PnL')).toBeInTheDocument()
+    expect(screen.getByText('Open Exposure')).toBeInTheDocument()
+    expect(screen.getByText('Active Positions')).toBeInTheDocument()
+    expect(screen.getByText('Current Regime')).toBeInTheDocument()
+    expect(screen.getByText('Risk State')).toBeInTheDocument()
   })
 
-  it('shows Stalled pipeline status on cold start', () => {
+  it('shows stalled data health on cold start', () => {
     render(<SystemDashboard {...baseProps} />)
     expect(screen.getAllByText('Stalled').length).toBeGreaterThan(0)
+    expect(screen.getByText('No ticks')).toBeInTheDocument()
   })
 
-  it('surfaces the no-market-data alert when nothing has streamed', () => {
-    render(<SystemDashboard {...baseProps} />)
-    expect(screen.getByText(/no market data received/i)).toBeInTheDocument()
-  })
-
-  it('surfaces rule-based alert when llmAvailable=false', () => {
+  it('surfaces rule-based LLM fallback when llmAvailable=false', () => {
     render(<SystemDashboard {...baseProps} llmAvailable={false} llmProvider="anthropic" />)
-    expect(screen.getByText(/rule-based reasoning mode/i)).toBeInTheDocument()
+    expect(screen.getAllByText('Fallback').length).toBeGreaterThan(0)
   })
 
   it('reflects WS connected state and message count', () => {
@@ -82,12 +85,10 @@ describe('SystemDashboard integration', () => {
         wsDiagnostics={{ reconnectAttempts: 1, messageRate: 1.25, lastError: null }}
       />,
     )
-    // There are multiple "Connected" elements (hero + diagnostics) — at least one must exist
-    expect(screen.getAllByText(/Connected/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/42 total msgs/)).toBeInTheDocument()
+    expect(screen.getByText('42 msgs')).toBeInTheDocument()
   })
 
-  it('hides alerts when system is fully healthy', () => {
+  it('shows healthy compact indicators when system is fully healthy', () => {
     render(
       <SystemDashboard
         {...baseProps}
@@ -107,33 +108,10 @@ describe('SystemDashboard integration', () => {
         llmProvider="openai"
       />,
     )
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getAllByText('Healthy').length).toBeGreaterThan(0)
   })
 
-  it('shows the persistence-disabled alert when no persistence signals are present', () => {
-    render(
-      <SystemDashboard
-        {...baseProps}
-        wsConnected={true}
-        llmAvailable={true}
-        llmProvider="openai"
-        streamStats={{
-          market_ticks: {
-            count: 100,
-            lastMessageTimestamp: new Date().toISOString(),
-          },
-        }}
-        apiHealth={{
-          dashboardState: 'ok',
-          agentInstances: 'ok',
-          eventHistory: 'error',
-        }}
-      />,
-    )
-    expect(screen.getByText(/persistence disabled/i)).toBeInTheDocument()
-  })
-
-  it('treats in-memory mode as persistence enabled', () => {
+  it('shows database memory mode as a compact warning indicator', () => {
     render(
       <SystemDashboard
         {...baseProps}
@@ -141,19 +119,32 @@ describe('SystemDashboard integration', () => {
         wsConnected={true}
         llmAvailable={true}
         llmProvider="openai"
-        streamStats={{
-          market_ticks: {
-            count: 100,
-            lastMessageTimestamp: new Date().toISOString(),
-          },
-        }}
-        apiHealth={{
-          dashboardState: 'ok',
-          agentInstances: 'ok',
-          eventHistory: 'error',
-        }}
       />,
     )
-    expect(screen.queryByText(/persistence disabled/i)).toBeNull()
+    expect(screen.getByText('Memory')).toBeInTheDocument()
+  })
+
+  it('renders decision feed entries from agent logs', () => {
+    render(
+      <SystemDashboard
+        {...baseProps}
+        agentLogs={[
+          {
+            agent_name: 'REASONING_AGENT',
+            event_type: 'decision',
+            action: 'buy',
+            symbol: 'NVDA',
+            confidence: 0.78,
+            primary_edge: 'Momentum positive; Risk acceptable',
+            trace_id: 'trace-1',
+            timestamp: '2026-06-01T09:42:15Z',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('BUY')).toBeInTheDocument()
+    expect(screen.getByText('NVDA')).toBeInTheDocument()
+    expect(screen.getByText('Confidence: 78.0%')).toBeInTheDocument()
   })
 })
