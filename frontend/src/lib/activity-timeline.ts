@@ -3,27 +3,33 @@
  *
  * The dashboard is otherwise a wall of *state* cards (confidence, status, PnL).
  * This turns the real event streams the store already holds into a single
- * chronological story of what the pipeline is *doing* — decisions it committed
- * to, outcomes it fired, and the raw stage events flowing between agents.
+ * chronological story of what the pipeline is *doing*: market data arriving,
+ * each agent acting, decisions committed, and outcomes fired.
  *
  * No React here so the merge/normalize can be unit-tested in isolation; the
  * component only renders what this produces. Everything is grounded in real
  * store data — nothing is synthesized.
  */
 import {
-  STREAM_AGENT_GRADES,
-  STREAM_AGENT_LOGS,
-  STREAM_DECISIONS,
-  STREAM_EXECUTIONS,
+  AGENT_CHALLENGER,
+  AGENT_EXECUTION,
+  AGENT_GRADE,
+  AGENT_IC_UPDATER,
+  AGENT_PROPOSAL_APPLIER,
+  AGENT_REFLECTION,
+  AGENT_SIGNAL,
+  AGENT_STRATEGY_PROPOSER,
+  canonicalAgentKey,
+} from '@/constants/agents'
+import {
   STREAM_MARKET_EVENTS,
   STREAM_MARKET_TICKS,
-  STREAM_NOTIFICATIONS,
   STREAM_ORDERS,
   STREAM_RISK_ALERTS,
-  STREAM_SIGNALS,
+  STREAM_EXECUTIONS,
 } from '@/constants/streams'
 import { parseTimestampMs } from '@/lib/formatters'
-import type { Notification, RecentEvent } from '@/stores/useCodexStore'
+import type { AgentLog, Notification, RecentEvent } from '@/stores/useCodexStore'
 
 /** Pipeline stage an activity item belongs to — drives its colour + icon. */
 export type ActivityStage =
@@ -57,22 +63,33 @@ export interface ActivityTimelineInput {
   recentEvents?: RecentEvent[]
   recentDecisions?: Array<Record<string, unknown>>
   notifications?: Notification[]
+  agentLogs?: AgentLog[]
 }
 
 const DEFAULT_LIMIT = 40
+const MESSAGE_DETAIL_MAX = 60
 
-// Raw stream → human stage + verb. Decisions and notifications are intentionally
-// absent: they have richer dedicated sources below, so surfacing the bare stream
-// event too would just duplicate them.
+// Raw market streams → human label. Only market data has no agent log / decision
+// / notification of its own, so it is the one stream surfaced as a bare event;
+// every other stage is sourced from the richer streams below.
 const STREAM_STAGE: Record<string, { stage: ActivityStage; title: string }> = {
   [STREAM_MARKET_TICKS]: { stage: 'market', title: 'Market data updated' },
   [STREAM_MARKET_EVENTS]: { stage: 'market', title: 'Market event' },
-  [STREAM_SIGNALS]: { stage: 'signal', title: 'Signal generated' },
-  [STREAM_ORDERS]: { stage: 'execution', title: 'Order placed' },
-  [STREAM_EXECUTIONS]: { stage: 'execution', title: 'Order executed' },
-  [STREAM_AGENT_GRADES]: { stage: 'grade', title: 'Trade graded' },
-  [STREAM_RISK_ALERTS]: { stage: 'risk', title: 'Risk alert' },
-  [STREAM_AGENT_LOGS]: { stage: 'agent', title: 'Agent activity' },
+}
+
+// Canonical agent key → stage + verb for the per-agent activity lines.
+// Reasoning and Notification agents are intentionally absent: their output is
+// surfaced richer via the decisions and notifications sources, so logging them
+// here too would just duplicate those.
+const AGENT_STAGE: Record<string, { stage: ActivityStage; title: string }> = {
+  [AGENT_SIGNAL]: { stage: 'signal', title: 'Signal generated' },
+  [AGENT_EXECUTION]: { stage: 'execution', title: 'Execution' },
+  [AGENT_GRADE]: { stage: 'grade', title: 'Trade graded' },
+  [AGENT_IC_UPDATER]: { stage: 'learning', title: 'Factors reweighted' },
+  [AGENT_REFLECTION]: { stage: 'learning', title: 'Reflection' },
+  [AGENT_STRATEGY_PROPOSER]: { stage: 'proposal', title: 'Proposal drafted' },
+  [AGENT_CHALLENGER]: { stage: 'agent', title: 'Challenger' },
+  [AGENT_PROPOSAL_APPLIER]: { stage: 'proposal', title: 'Proposal applied' },
 }
 
 // A decision is a rule-based fallback (not model reasoning) when the agent
@@ -127,10 +144,30 @@ function notificationDetail(n: Notification): string | null {
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
+function agentLogDetail(log: AgentLog): string | null {
+  const action = typeof log.action === 'string' ? log.action.toLowerCase() : ''
+  const symbol = typeof log.symbol === 'string' ? log.symbol : ''
+  if (action && symbol) return `${action} ${symbol}`
+  if (symbol) return symbol
+  if (typeof log.message === 'string' && log.message) {
+    return log.message.length > MESSAGE_DETAIL_MAX
+      ? `${log.message.slice(0, MESSAGE_DETAIL_MAX - 1)}…`
+      : log.message
+  }
+  return null
+}
+
+function agentLogTone(log: AgentLog): ActivityTone {
+  const action = typeof log.action === 'string' ? log.action.toLowerCase() : ''
+  if (action === 'buy') return 'buy'
+  if (action === 'sell') return 'sell'
+  return 'neutral'
+}
+
 /**
- * Merge decisions, notifications, and raw stream events into one descending
- * chronological feed. Pure + total — bad timestamps are skipped, ids dedupe
- * across re-renders, and the result is capped at `limit`.
+ * Merge market events, per-agent activity, decisions, and notifications into one
+ * descending chronological feed. Pure + total — bad timestamps are skipped, ids
+ * dedupe across re-renders, and the result is capped at `limit`.
  */
 export function buildActivityTimeline(
   input: ActivityTimelineInput,
@@ -172,8 +209,28 @@ export function buildActivityTimeline(
     })
   }
 
-  // 3) Raw stage events — the pipeline firing between agents, for stages the
-  //    richer sources above do not already cover.
+  // 3) Per-agent activity — the signal / execution / grade / learning / proposal
+  //    work each agent did, with real symbol/action detail.
+  let logIndex = 0
+  for (const log of input.agentLogs ?? []) {
+    logIndex += 1
+    const key = canonicalAgentKey(String(log.agent_name || log.agent || ''))
+    const mapped = AGENT_STAGE[key]
+    if (!mapped) continue
+    const ts = parseTimestampMs(log.timestamp || log.created_at)
+    if (ts == null) continue
+    items.push({
+      id: `log-${String(log.id ?? `${key}-${logIndex}`)}-${ts}`,
+      ts,
+      stage: mapped.stage,
+      title: mapped.title,
+      detail: agentLogDetail(log),
+      tone: agentLogTone(log),
+      fallback: false,
+    })
+  }
+
+  // 4) Market events — the one stage with no agent log of its own.
   for (const e of input.recentEvents ?? []) {
     const mapped = STREAM_STAGE[e.stream]
     if (!mapped) continue
@@ -185,7 +242,7 @@ export function buildActivityTimeline(
       stage: mapped.stage,
       title: mapped.title,
       detail: null,
-      tone: mapped.stage === 'risk' ? 'warn' : 'neutral',
+      tone: 'neutral',
       fallback: false,
     })
   }
@@ -201,7 +258,3 @@ export function buildActivityTimeline(
   }
   return deduped.slice(0, Math.max(0, limit))
 }
-
-// Streams that map to a richer source and are intentionally not rendered as raw
-// events. Exported so the channel set has one home (used by the timeline only).
-export const TIMELINE_RICHER_STREAMS = [STREAM_DECISIONS, STREAM_NOTIFICATIONS] as const
