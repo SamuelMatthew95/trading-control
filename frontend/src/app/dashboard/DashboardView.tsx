@@ -278,6 +278,7 @@ export function DashboardView({ section }: { section: Section }) {
   const {
     agentLogs = [],
     orders = [],
+    equityCurve = [],
     prices = {},
     positions = [],
     systemMetrics = [],
@@ -595,7 +596,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="mb-3 flex items-center justify-between">
                 <p className={sectionTitleClass}>Equity Curve</p>
               </div>
-              <EquityCurve orders={orders} />
+              <EquityCurve orders={orders} points={equityCurve} />
             </div>
             <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
               <div className="mb-3 flex items-center justify-between">
