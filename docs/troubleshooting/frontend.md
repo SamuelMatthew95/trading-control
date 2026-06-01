@@ -339,3 +339,36 @@ series only when no points are present. `DashboardView` passes
 (backend); `frontend/src/test/components/EquityCurve.test.tsx` —
 `buildSeriesFromPoints (backend cumulative curve)` and
 `EquityCurve points-vs-orders precedence` (frontend).
+
+## "Cognitive" tab showed demo agents disconnected from the live system
+
+**Symptom:** The dashboard's top-level "Cognitive" tab presented agents named
+`news` / `tech` / `macro` / `risk` with grades and "live" signals — none of
+which are the 10 canonical live agents (SIGNAL_AGENT, REASONING_AGENT,
+EXECUTION_ENGINE, GRADE_AGENT, IC_UPDATER, REFLECTION_AGENT, STRATEGY_PROPOSER,
+NOTIFICATION_AGENT, CHALLENGER_AGENT, PROPOSAL_APPLIER). It read as "agents that
+aren't real". (Codex review comment #3: the panel's hardcoded
+news/macro/proposal/risk keys match none of the live agents.)
+
+**Root cause:** `/dashboard/cognitive` rendered `CognitiveDashboard`, backed by
+`api/routes/cognitive.py` → `cognitive.demo.build_seeded_loop()` — a *seeded
+deterministic demo* of the separate `cognitive/` scoring loop, whose agent
+roster (news/tech/macro/risk) is intentionally unrelated to the live
+event-driven 10-agent pipeline. Surfacing it as a peer nav tab made the demo
+look like live state.
+
+**Fix:** Removed the misleading demo from the live dashboard surface — dropped
+the `Cognitive` nav item (and now-unused `Brain` icon import) in
+`frontend/src/app/dashboard/layout.tsx`, and deleted
+`frontend/src/app/dashboard/cognitive/page.tsx` plus
+`frontend/src/components/dashboard/cognitive/CognitiveDashboard.tsx`. The
+`cognitive/` backend, routes, and pure `lib/cognitive` helpers remain (dormant,
+still tested) and can be deleted wholesale later if desired. The 10 live agents
+are unaffected — they continue to surface through the Overview Agent Matrix,
+the Agents pipeline, and the live activity timeline (all keyed off the canonical
+`ALL_AGENT_NAMES` constants).
+
+**Regression test:** Covered by build/lint/type guards — `npm run build` no
+longer emits a `/dashboard/cognitive` route and `frontend/src/test` (451 tests)
+stays green; `src/test/components/cognitive.test.ts` still exercises the
+retained `lib/cognitive` helpers.
