@@ -201,6 +201,27 @@ describe('DashboardView — trading', () => {
   })
 })
 
+
+
+describe('DashboardView — learning', () => {
+  beforeEach(() => {
+    mockStore.tradeFeed = []
+    mockStore.proposals = []
+    mockStore.agentLogs = []
+    mockStore.performanceSummary = null
+  })
+
+  it('renders a cohesive learning control plane without legacy calibration panels', () => {
+    render(<DashboardView section="learning" />)
+
+    expect(screen.getByText('Learning Control Plane')).toBeInTheDocument()
+    expect(screen.getByText('Graded Trade Outcomes')).toBeInTheDocument()
+    expect(screen.getByText('Proposal Outcomes')).toBeInTheDocument()
+    expect(screen.queryByText(/Move Distribution/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Strategy Lifecycle/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('DashboardView — agents', () => {
   beforeEach(() => {
     mockStore.wsConnected = false

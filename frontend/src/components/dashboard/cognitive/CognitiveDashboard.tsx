@@ -22,7 +22,6 @@ import {
 import type {
   CognitiveEvent,
   CognitiveSnapshot,
-  QueueEntry,
   TradeTrace,
 } from '@/types/cognitive'
 
@@ -47,10 +46,10 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id']
 
 const card =
-  'rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40'
+  'rounded-xl border border-slate-800/80 bg-slate-950/80 p-3 shadow-sm shadow-black/20 sm:p-4'
 const chip =
   'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium'
-const label = 'text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500'
+const label = 'text-[11px] uppercase tracking-[0.16em] text-slate-500'
 
 function Grade({ grade }: { grade: string | null | undefined }) {
   return <span className={cn(chip, gradeTone(grade))}>{grade || 'NR'}</span>
@@ -81,28 +80,41 @@ export function CognitiveDashboard() {
 
   if (error && !snap) {
     return (
-      <div className={cn(card, 'text-sm text-rose-500')}>
-        Could not reach the cognitive API: {error}
+      <div className="min-h-screen bg-slate-950 px-3 py-4 text-slate-100 sm:px-4">
+        <div className={cn(card, 'mx-auto max-w-screen-2xl text-sm text-rose-500')}>
+          Could not reach the cognitive API: {error}
+        </div>
       </div>
     )
   }
   if (!snap) {
-    return <div className={cn(card, 'animate-pulse text-sm text-slate-400')}>Loading the brain…</div>
+    return (
+      <div className="min-h-screen bg-slate-950 px-3 py-4 text-slate-100 sm:px-4">
+        <div className={cn(card, 'mx-auto max-w-screen-2xl animate-pulse text-sm text-slate-400')}>
+          Loading the brain…
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Cognitive Trading Brain
-          </h1>
-          <p className="text-xs text-slate-500">
-            Deterministic loop · config v{snap.config.version} · {snap.event_count} events on the
-            stream
-          </p>
-        </div>
-        <nav className="flex flex-wrap gap-1">
+    <div className="min-h-screen bg-slate-950 px-3 py-4 text-slate-100 sm:px-4">
+      <div className="mx-auto max-w-screen-2xl space-y-3">
+        <header className="rounded-xl border border-slate-800/80 bg-slate-950/90 px-3 py-3 shadow-sm shadow-black/20">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Cognitive engine</p>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-white">Cognitive Trading Brain</h1>
+              <p className="mt-1 text-xs text-slate-500">
+                Deterministic loop · config v{snap.config.version} · {snap.event_count} events on the stream
+              </p>
+            </div>
+            <span className="rounded-full border border-slate-800 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Reasoning and evolution
+            </span>
+          </div>
+        </header>
+        <nav className="flex flex-wrap gap-1 rounded-xl border border-slate-800/80 bg-slate-950/80 p-2">
           {TABS.map(({ id, label: tabLabel, Icon }) => (
             <button
               key={id}
@@ -110,8 +122,8 @@ export function CognitiveDashboard() {
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
                 tab === id
-                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800',
+                  ? 'bg-slate-100 text-slate-950'
+                  : 'text-slate-500 hover:bg-slate-900 hover:text-slate-200',
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -119,7 +131,6 @@ export function CognitiveDashboard() {
             </button>
           ))}
         </nav>
-      </header>
 
       {tab === 'command' && <CommandCenter snap={snap} />}
       {tab === 'agents' && <AgentsPanel snap={snap} />}
@@ -127,6 +138,7 @@ export function CognitiveDashboard() {
       {tab === 'evolution' && <EvolutionPanel snap={snap} />}
       {tab === 'traces' && <TracesPanel traces={snap.traces} />}
       {tab === 'events' && <EventsPanel events={events} />}
+      </div>
     </div>
   )
 }
@@ -308,66 +320,65 @@ function ProposalsPanel({ snap }: { snap: CognitiveSnapshot }) {
     )
   }
   return (
-    <div className="space-y-3">
-      {snap.proposals.map((entry) => (
-        <ProposalCard key={entry.proposal.proposal_id} entry={entry} />
-      ))}
-    </div>
-  )
-}
-
-function ProposalCard({ entry }: { entry: QueueEntry }) {
-  const { proposal, verdict, delta, status, proposal_grade, pull_request } = entry
-  return (
-    <div className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-slate-400">{proposal.proposal_id}</span>
-          <span className={cn(chip, 'border-slate-500/20 bg-slate-500/10 text-slate-500')}>
-            {proposal.proposal_type}
-          </span>
-          <span className={cn(chip, statusTone(status))}>{status}</span>
-        </div>
-        {proposal_grade && <Grade grade={proposal_grade.grade} />}
-      </div>
-
-      <div className="mt-2 font-mono text-sm">
-        <span className="text-slate-500">{proposal.target}: </span>
-        <span className="text-rose-500">{String(proposal.old_value)}</span>
-        <span className="text-slate-400"> → </span>
-        <span className="text-emerald-500">{String(proposal.new_value)}</span>
-      </div>
-      <p className="mt-1 text-xs text-slate-500">{proposal.reason}</p>
-
-      {delta && (
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-            ΔPnL {signed(delta.pnl_delta)}%
-          </span>
-          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-            ΔSharpe {signed(delta.sharpe_delta)}
-          </span>
-          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-            ΔDrawdown {signed(delta.drawdown_delta)}%
-          </span>
-        </div>
-      )}
-
-      {verdict && (
-        <div className="mt-2 text-xs">
-          <span className={cn(chip, verdict.approved ? statusTone('approved') : statusTone('rejected'))}>
-            challenger: {verdict.approved ? 'APPROVE' : 'REJECT'} · risk {verdict.risk_score}
-          </span>
-          <ul className="mt-1 list-disc pl-5 text-slate-500">
-            {verdict.reasons.map((reason, i) => (
-              <li key={i}>{reason}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {pull_request && (
-        <div className="mt-2 text-xs text-slate-400">PR branch: {pull_request.branch} (no auto-merge)</div>
-      )}
+    <div className={cn(card, 'overflow-x-auto p-0')}>
+      <table className="w-full min-w-[840px] text-left text-xs">
+        <thead className="bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+          <tr>
+            <th className="px-3 py-2 font-semibold">Proposal</th>
+            <th className="px-3 py-2 font-semibold">Change</th>
+            <th className="px-3 py-2 font-semibold">Backtest Delta</th>
+            <th className="px-3 py-2 font-semibold">Challenger Verdict</th>
+            <th className="px-3 py-2 font-semibold">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800/80">
+          {snap.proposals.map((entry) => {
+            const { proposal, verdict, delta, status, proposal_grade } = entry
+            return (
+              <tr key={proposal.proposal_id} className="align-top text-slate-300">
+                <td className="px-3 py-2">
+                  <p className="font-mono text-[11px] text-slate-500">{proposal.proposal_id}</p>
+                  <p className="mt-1 text-slate-400">{proposal.proposal_type}</p>
+                </td>
+                <td className="px-3 py-2">
+                  <p className="font-mono text-sm">
+                    <span className="text-slate-500">{proposal.target}: </span>
+                    <span className="text-rose-400">{String(proposal.old_value)}</span>
+                    <span className="text-slate-500"> → </span>
+                    <span className="text-emerald-400">{String(proposal.new_value)}</span>
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-xs text-slate-500">{proposal.reason}</p>
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-slate-400">
+                  {delta ? (
+                    <span>ΔPnL {signed(delta.pnl_delta)}% · ΔSharpe {signed(delta.sharpe_delta)} · DD {signed(delta.drawdown_delta)}%</span>
+                  ) : (
+                    '--'
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {verdict ? (
+                    <div className="space-y-1">
+                      <span className={cn(chip, verdict.approved ? statusTone('approved') : statusTone('rejected'))}>
+                        {verdict.approved ? 'APPROVE' : 'REJECT'} · risk {verdict.risk_score}
+                      </span>
+                      <p className="line-clamp-2 text-slate-500">{verdict.reasons.join(' · ')}</p>
+                    </div>
+                  ) : (
+                    <span className="text-slate-500">Pending review</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-1">
+                    <span className={cn(chip, statusTone(status))}>{status}</span>
+                    {proposal_grade && <Grade grade={proposal_grade.grade} />}
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
