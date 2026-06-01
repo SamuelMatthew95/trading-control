@@ -373,3 +373,50 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText('$12,525.00')).toBeInTheDocument()
   })
 })
+
+describe('DashboardView — theming (light/dark duality)', () => {
+  // The section frame (root wrapper + SectionHeader) is shared by EVERY section,
+  // so a dark-only class here breaks light mode on every page at once. Guard the
+  // base (non-`dark:`) tokens so the redesign's dark "console" tone can only live
+  // behind a `dark:` variant — never as the bare, theme-agnostic class.
+  const baseTokens = (className: string): string[] =>
+    className.split(/\s+/).filter((token) => token.length > 0 && !token.startsWith('dark:'))
+
+  const hasDarkSurface = (tokens: string[]): boolean =>
+    tokens.some((token) => /^bg-slate-(800|900|950)(\/\d+)?$/.test(token))
+
+  beforeEach(() => {
+    mockStore.wsConnected = false
+    mockStore.agentStatuses = []
+    mockStore.agentLogs = []
+    mockStore.agentInstances = []
+    mockStore.notifications = []
+    mockStore.proposals = []
+  })
+
+  it('renders the root content wrapper with a light background base (dark only behind dark:)', () => {
+    const { container } = render(<DashboardView section="agents" />)
+    const root = container.firstChild as HTMLElement
+    const tokens = baseTokens(root.className)
+    expect(tokens).toContain('bg-slate-100')
+    expect(tokens).toContain('text-slate-900')
+    expect(hasDarkSurface(tokens)).toBe(false)
+    expect(root.className).toContain('dark:bg-slate-950')
+  })
+
+  it('renders the section header as a light panel with a readable title in light mode', () => {
+    render(<DashboardView section="agents" />)
+    const title = screen.getByRole('heading', { name: /Agent health and production activity/i })
+    const titleTokens = baseTokens(title.className)
+    // Bare `text-white` is invisible on the light panel — the bug we are guarding.
+    expect(titleTokens).toContain('text-slate-900')
+    expect(titleTokens).not.toContain('text-white')
+    expect(title.className).toContain('dark:text-white')
+
+    const header = title.closest('section') as HTMLElement
+    const headerTokens = baseTokens(header.className)
+    expect(headerTokens).toContain('bg-white')
+    expect(hasDarkSurface(headerTokens)).toBe(false)
+    expect(header.className).toContain('dark:bg-slate-950/90')
+  })
+})
