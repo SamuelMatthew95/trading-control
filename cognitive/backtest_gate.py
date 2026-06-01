@@ -238,3 +238,76 @@ def evaluate_proposal(
             candidate.false_positive_rate - baseline.false_positive_rate, 4
         ),
     )
+
+
+@dataclass(frozen=True)
+class WalkForwardResult:
+    """Baseline-vs-candidate evaluated across several sequential OOS segments.
+
+    ``consistency`` is the fraction of folds the candidate beats the baseline on
+    — the anti-overfit metric: a candidate that only wins one lucky window scores
+    low here even if its single-split PnL delta looks great.
+    """
+
+    folds: list[BacktestDelta]
+    consistency: float
+    mean_pnl_delta: float
+    mean_sharpe_delta: float
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "consistency": self.consistency,
+            "mean_pnl_delta": self.mean_pnl_delta,
+            "mean_sharpe_delta": self.mean_sharpe_delta,
+            "folds": [fold.as_dict() for fold in self.folds],
+        }
+
+
+def walk_forward(
+    prices: Sequence[float],
+    baseline_config: CognitiveConfig,
+    candidate_config: CognitiveConfig,
+    *,
+    folds: int = 4,
+    news: Sequence[float] | None = None,
+    slippage_seed: int = 0,
+) -> WalkForwardResult:
+    """Paired baseline-vs-candidate backtest across ``folds`` contiguous segments.
+
+    The series is split into ``folds`` sequential out-of-sample windows (each with
+    its own slippage seed), so a candidate must beat the baseline across DIFFERENT
+    market periods, not just one. Short series fall back to a single paired eval.
+    """
+    n = len(prices)
+    if folds < 2 or n < folds * 2:
+        single = evaluate_proposal(
+            prices, baseline_config, candidate_config, news=news, slippage_seed=slippage_seed
+        )
+        return WalkForwardResult(
+            folds=[single],
+            consistency=1.0 if single.pnl_delta > 0 else 0.0,
+            mean_pnl_delta=single.pnl_delta,
+            mean_sharpe_delta=single.sharpe_delta,
+        )
+    seg = n // folds
+    deltas: list[BacktestDelta] = []
+    for fold in range(folds):
+        start = fold * seg
+        end = n if fold == folds - 1 else (fold + 1) * seg
+        seg_news = None if news is None else news[start:end]
+        deltas.append(
+            evaluate_proposal(
+                prices[start:end],
+                baseline_config,
+                candidate_config,
+                news=seg_news,
+                slippage_seed=slippage_seed + fold,
+            )
+        )
+    positive = sum(1 for delta in deltas if delta.pnl_delta > 0)
+    return WalkForwardResult(
+        folds=deltas,
+        consistency=round(positive / len(deltas), 4),
+        mean_pnl_delta=round(statistics.fmean(delta.pnl_delta for delta in deltas), 4),
+        mean_sharpe_delta=round(statistics.fmean(delta.sharpe_delta for delta in deltas), 4),
+    )
