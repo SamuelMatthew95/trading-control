@@ -1,7 +1,10 @@
 'use client'
 
+import { useState } from 'react'
+
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
+import { extractToolInvocations, summarizeToolOutputs } from '@/lib/decision-tools'
 import type { DecisionStats } from '@/hooks/useRestPoll'
 
 function formatTimestamp(value?: string | null): string {
@@ -43,6 +46,8 @@ export function RecentDecisionsPanel({
     return action === 'buy' || action === 'sell'
   })
   const fallbackCount = actionable.filter(isFallbackDecision).length
+  // Which decision's reasoning chain (tool ledger) is expanded. One at a time.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   return (
     <div className={cardClass}>
@@ -102,34 +107,78 @@ export function RecentDecisionsPanel({
               action === 'buy'
                 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                 : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+            const decisionId = `${String(d.id ?? d.trace_id ?? index)}-${index}`
+            const tools = extractToolInvocations(d)
+            const isOpen = openId === decisionId
             return (
               <div
-                key={`${String(d.id ?? d.trace_id ?? index)}-${index}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
+                key={decisionId}
+                className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
               >
-                <div className="flex items-center gap-3">
-                  <span className={cn('rounded px-2 py-0.5 text-xs font-black uppercase', badgeClass)}>
-                    {action || 'hold'}
-                  </span>
-                  <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {symbol}
-                  </span>
-                  {isFallbackDecision(d) && (
-                    <span
-                      title="LLM unavailable — rule-based fallback, not model reasoning."
-                      className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
-                    >
-                      rule-based
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-black uppercase', badgeClass)}>
+                      {action || 'hold'}
                     </span>
-                  )}
+                    <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {symbol}
+                    </span>
+                    {isFallbackDecision(d) && (
+                      <span
+                        title="LLM unavailable — rule-based fallback, not model reasoning."
+                        className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                      >
+                        rule-based
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 font-mono text-xs tabular-nums text-slate-600 dark:text-slate-300">
+                    {tools.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setOpenId(isOpen ? null : decisionId)}
+                        aria-expanded={isOpen}
+                        className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                      >
+                        {tools.length} tool{tools.length === 1 ? '' : 's'} {isOpen ? '▾' : '▸'}
+                      </button>
+                    )}
+                    <span>{priceTxt}</span>
+                    <span className="text-slate-400">·</span>
+                    <span>{confTxt}</span>
+                    <span className="text-slate-400">·</span>
+                    <span>{ts}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 font-mono text-xs tabular-nums text-slate-600 dark:text-slate-300">
-                  <span>{priceTxt}</span>
-                  <span className="text-slate-400">·</span>
-                  <span>{confTxt}</span>
-                  <span className="text-slate-400">·</span>
-                  <span>{ts}</span>
-                </div>
+
+                {isOpen && tools.length > 0 && (
+                  <div className="mt-2 space-y-1 rounded-md border border-slate-200 bg-slate-50/60 p-2 dark:border-slate-800 dark:bg-slate-900/40">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      Reasoning chain · tools this decision used
+                    </p>
+                    {tools.map((tool, toolIndex) => {
+                      const outputs = summarizeToolOutputs(tool.outputs)
+                      return (
+                        <div
+                          key={`${decisionId}-tool-${toolIndex}`}
+                          className="flex items-center gap-2 font-mono text-[11px] tabular-nums"
+                        >
+                          <span
+                            className={tool.success === false ? 'text-rose-500' : 'text-emerald-500'}
+                            aria-hidden
+                          >
+                            {tool.success === false ? '✗' : '✓'}
+                          </span>
+                          <span className="text-slate-700 dark:text-slate-200">{tool.name ?? 'tool'}</span>
+                          {typeof tool.latency_ms === 'number' && (
+                            <span className="text-slate-400">{tool.latency_ms.toFixed(0)}ms</span>
+                          )}
+                          {outputs && <span className="text-slate-500 dark:text-slate-400">· {outputs}</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
