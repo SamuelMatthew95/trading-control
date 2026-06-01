@@ -112,9 +112,27 @@ candidate), challenger guardrail, GitOps PR plans with full diff + evidence (no
 auto-merge), proposal lifecycle queue, evolution timeline, per-trade trace view,
 cognitive health, append-only event history (truth preservation), agent registry.
 
-Roadmap (designed-for, not yet built): regime tracking, decision counterfactuals
-("what would HOLD have done?"), drift/anomaly detection, evolution-velocity
-governor, agent retirement, meta-grading, forecasting accountability, full
+Hardening pass (review-driven, now implemented):
+  * **Walk-forward validation** — `backtest_gate.walk_forward` evaluates a
+    candidate across several sequential market periods; the challenger requires
+    ≥60% fold consistency, so a one-window fluke can't be promoted.
+  * **News is genuinely backtested** — the gate accepts a per-bar sentiment
+    series, so news-weight proposals actually move the backtest (previously news
+    was constant-0 and inert).
+  * **Proposal governance** — `governance.ProposalGovernor` enforces a per-window
+    quota, exact-duplicate dedup, and a cooldown that benches a target whose
+    proposal was rejected (novelty / retirement).
+  * **Per-trade config lineage** — every decision / execution / outcome event
+    stamps `config_version` + `config_proposal_id`; the trace surfaces it, so
+    "which merged proposal caused this drawdown?" is answerable.
+  * **Event-stream retention** — `EventStream(max_events=…)` evicts the oldest
+    events while `seq` stays monotonic; `dropped`/`emitted` are reported in health.
+  * **Risk independence** — pinned by a stream invariant test: no EXECUTION event
+    exists without a RISK_GATE in the same trace.
+
+Roadmap (designed-for, not yet built): richer regime detection + per-regime
+grading, decision counterfactuals ("what would HOLD have done?"),
+drift/anomaly detection, meta-grading, forecasting accountability, full
 knowledge graph / lineage explorer, system replay UI, digital twin, research
-workbench. The append-only stream + config-version history are the substrate
+workbench. The append-only stream + config-version lineage are the substrate
 these build on.
