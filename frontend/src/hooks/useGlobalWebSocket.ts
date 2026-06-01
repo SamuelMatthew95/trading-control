@@ -517,7 +517,7 @@ class WebSocketManager {
     }
     
     // Normalize other array fields safely
-    const arrayFields = ['agent_logs', 'system_metrics', 'signals', 'positions', 'risk_alerts', 'learning_events', 'notifications']
+    const arrayFields = ['agent_logs', 'system_metrics', 'signals', 'positions', 'risk_alerts', 'learning_events', 'notifications', 'equity_curve']
     for (const field of arrayFields) {
       if (normalized[field] && !Array.isArray(normalized[field])) {
         if (typeof normalized[field] === 'object') {
