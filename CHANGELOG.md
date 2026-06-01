@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026-06-01] — Cognitive brain hardening: walk-forward, governance, lineage, retention
+
+### Added
+- **Walk-forward validation** — `cognitive/backtest_gate.walk_forward` evaluates a candidate across several sequential market periods; `cognitive/challenger.review` adds a `walk_forward_consistent` check (candidate must beat baseline in ≥60% of folds) so a single-window fluke can't be promoted
+- **News is genuinely backtested** — the gate accepts a per-bar sentiment series; `evolve(..., news=...)` threads it through both the in/out split and walk-forward (previously news was constant-0 and a news-weight proposal was inert)
+- **Proposal governance** — `cognitive/governance.ProposalGovernor`: per-window quota, exact-duplicate dedup, and a reject cooldown that benches a target (novelty/retirement); new `ProposalStatus.BLOCKED`
+- **Per-trade config lineage** — decision/execution/outcome events and the trace stamp `config_version` + `config_proposal_id`; `CognitiveLoop.merge()` records provenance
+- **Event-stream retention** — `EventStream(max_events=…)` evicts oldest events with a monotonic `seq`; `dropped`/`emitted` surfaced in `health`
+- `tests/core/test_cognitive_hardening.py` — retention, walk-forward, governance, lineage, and a risk-independence stream invariant (no EXECUTION without a RISK_GATE)
+
+### Changed
+- `CognitiveLoop.evolve` — governor admission gate before any backtest; threads news + walk-forward; records governor + scorecard outcomes
+- `docs/troubleshooting/cognitive.md` — news-inert-in-backtest fix documented
+
 ## [2026-06-01] — Cognitive trading brain: deterministic GitOps-evolved loop
 
 ### Added
