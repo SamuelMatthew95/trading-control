@@ -250,6 +250,20 @@ export interface RecentEvent {
   timestamp: string
 }
 
+/**
+ * One point on the backend-computed equity curve. `value` is the *absolute*
+ * cumulative PnL at `timestamp` (a running total, not a per-event delta) — both
+ * the in-memory store and MetricsAggregator emit this shape so the chart
+ * hydrates identically regardless of persistence mode.
+ */
+export interface EquityPoint {
+  timestamp: string
+  value: number
+  total_pnl?: number
+  realized_pnl?: number
+  unrealized_pnl?: number
+}
+
 type DashboardData = {
   system_metrics?: SystemMetric[]
   orders?: Order[]
@@ -264,6 +278,7 @@ type DashboardData = {
   notifications?: Array<Record<string, unknown>>
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
+  equity_curve?: EquityPoint[]
   timestamp: string
   /** Runtime persistence mode — "db" | "in_memory_fallback". Present when backend is in memory mode. */
   mode?: string
@@ -364,6 +379,7 @@ interface CachedPriceData {
 type CodexState = {
   prices: PriceRecord
   orders: Order[]
+  equityCurve: EquityPoint[]
   positions: Position[]
   signals: Array<Record<string, unknown>>
   agentLogs: AgentLog[]
@@ -451,6 +467,7 @@ const _saveToStorage = (key: string, data: unknown[]): void => {
 export const useCodexStore = create<CodexState>((set) => ({
   prices: {},
   orders: [],
+  equityCurve: [],
   positions: [],
   signals: [],
   agentLogs: [],
@@ -710,6 +727,14 @@ export const useCodexStore = create<CodexState>((set) => ({
           )
         ].slice(0, 100)
         _saveToStorage('codex.orders', updates.orders)
+      }
+
+      // Equity curve is a server-computed cumulative-PnL snapshot (each point's
+      // value is the absolute running total), so replace wholesale rather than
+      // merge. Only overwrite on a non-empty payload so a transient empty/degraded
+      // response can't wipe a curve we already have.
+      if (Array.isArray(data.equity_curve) && data.equity_curve.length > 0) {
+        updates.equityCurve = data.equity_curve
       }
 
       if (data.agent_logs) {
