@@ -69,6 +69,8 @@ def assess_health(stream: EventStream) -> dict[str, Any]:
     return {
         "event_stream": {
             "total_events": len(events),
+            "emitted": stream.emitted,
+            "dropped": stream.dropped,
             "last_seq": last_seq,
             "by_type": dict(by_type),
         },
