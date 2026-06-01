@@ -64,6 +64,46 @@ def test_build_decision_payload_handles_missing_symbol() -> None:
     assert payload[FieldName.SYMBOL] == ""
 
 
+def test_build_decision_payload_attaches_tool_ledger() -> None:
+    # The decision object is the container for the reasoning chain: the tools
+    # the cycle exercised travel with the decision, outputs and all.
+    tools = [
+        {
+            FieldName.NAME: "get_ic_weights",
+            FieldName.LATENCY_MS: 12.0,
+            FieldName.SUCCESS: True,
+            FieldName.OUTPUTS: {FieldName.IC_WEIGHTS: {"momentum": 0.4}},
+        },
+        {
+            FieldName.NAME: "query_similar_trades",
+            FieldName.LATENCY_MS: 32.0,
+            FieldName.SUCCESS: True,
+            FieldName.OUTPUTS: {FieldName.COUNT: 7},
+        },
+    ]
+    payload = ReasoningAgent._build_decision_payload(
+        data={FieldName.SYMBOL: "NVDA", FieldName.PRICE: 100.0},
+        summary={FieldName.CONFIDENCE: 0.8, FieldName.PRIMARY_EDGE: "momentum"},
+        trace_id="t-tools",
+        action=AgentAction.BUY,
+        is_fallback=False,
+        tools_used=tools,
+    )
+    assert payload[FieldName.TOOLS_USED] == tools
+    assert payload[FieldName.TOOLS_USED][1][FieldName.OUTPUTS][FieldName.COUNT] == 7
+
+
+def test_build_decision_payload_defaults_tool_ledger_to_empty_list() -> None:
+    payload = ReasoningAgent._build_decision_payload(
+        data={FieldName.SYMBOL: "BTC/USD"},
+        summary={},
+        trace_id="t-empty",
+        action=AgentAction.HOLD,
+        is_fallback=False,
+    )
+    assert payload[FieldName.TOOLS_USED] == []
+
+
 def test_build_decision_notification_includes_formatted_price() -> None:
     notif = ReasoningAgent._build_decision_notification(
         action=AgentAction.BUY,
