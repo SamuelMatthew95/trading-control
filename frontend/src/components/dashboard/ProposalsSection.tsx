@@ -28,19 +28,19 @@ function formatPercent(value: number | null | undefined): string {
 
 function statusClass(status: Proposal["status"]): string {
   if (status === "approved")
-    return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
+    return "border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300";
   if (status === "rejected")
-    return "border-rose-400/30 bg-rose-400/10 text-rose-300";
-  return "border-amber-400/30 bg-amber-400/10 text-amber-300";
+    return "border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300";
+  return "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300";
 }
 
 function EmptyProposals() {
   return (
-    <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/60 px-3 py-8 text-center">
-      <p className="text-sm font-semibold text-slate-300">
+    <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-8 text-center dark:border-slate-800 dark:bg-slate-950/60">
+      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
         No proposals awaiting review.
       </p>
-      <p className="mt-1 text-xs text-slate-500">
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         The Proposal Agent will add candidate changes here after reflection and
         challenger review.
       </p>
@@ -93,19 +93,19 @@ export function ProposalsSection() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className={sectionTitleClass}>Proposal Queue</p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Table-first review of candidate strategy changes, expected impact,
             and challenger verdicts.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em]">
-          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-amber-300">
+          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-amber-700 dark:text-amber-300">
             Pending {summary.pending}
           </span>
-          <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-emerald-300">
+          <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">
             Approved {summary.approved}
           </span>
-          <span className="rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-rose-300">
+          <span className="rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-rose-700 dark:text-rose-300">
             Rejected {summary.rejected}
           </span>
         </div>
@@ -114,9 +114,9 @@ export function ProposalsSection() {
       {proposals.length === 0 ? (
         <EmptyProposals />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-800">
+        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
           <table className="w-full min-w-[860px] text-left text-xs">
-            <thead className="bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <thead className="bg-slate-100 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
               <tr>
                 <th className="px-3 py-2 font-semibold">Candidate Change</th>
                 <th className="px-3 py-2 font-semibold">Type</th>
@@ -129,29 +129,32 @@ export function ProposalsSection() {
                 <th className="px-3 py-2 text-right font-semibold">Decision</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 bg-slate-950/50">
+            <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800/80 dark:bg-slate-950/50">
               {proposals.map((proposal) => {
                 const isPending = proposal.status === "pending";
                 return (
-                  <tr key={proposal.id} className="align-top text-slate-300">
+                  <tr
+                    key={proposal.id}
+                    className="align-top text-slate-600 dark:text-slate-300"
+                  >
                     <td className="max-w-[360px] px-3 py-2">
-                      <p className="line-clamp-2 font-medium text-slate-100">
+                      <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">
                         {proposalLabel(proposal)}
                       </p>
                       <p className={cn(mutedClass, "mt-1")}>ID {proposal.id}</p>
                     </td>
-                    <td className="px-3 py-2 text-slate-400">
+                    <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                       {proposal.proposal_type.replace(/_/g, " ")}
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-300">
+                    <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
                       {formatPercent(proposal.confidence)}
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-300">
+                    <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
                       {proposal.grade_score != null
                         ? formatPercent(proposal.grade_score)
                         : "--"}
                     </td>
-                    <td className="px-3 py-2 font-mono text-[11px] text-slate-500">
+                    <td className="px-3 py-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
                       {proposal.reflection_trace_id || proposal.trace_id ? (
                         <span>
                           {String(
@@ -180,7 +183,7 @@ export function ProposalsSection() {
                             type="button"
                             disabled={pendingAction === proposal.id}
                             onClick={() => handleVote(proposal.id, "approve")}
-                            className="inline-flex items-center gap-1 rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-400/20 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-400/20 disabled:opacity-50 dark:text-emerald-300"
                           >
                             <Check className="h-3 w-3" /> Approve
                           </button>
@@ -188,13 +191,13 @@ export function ProposalsSection() {
                             type="button"
                             disabled={pendingAction === proposal.id}
                             onClick={() => handleVote(proposal.id, "reject")}
-                            className="inline-flex items-center gap-1 rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] font-semibold text-rose-300 hover:bg-rose-400/20 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-400/20 disabled:opacity-50 dark:text-rose-300"
                           >
                             <X className="h-3 w-3" /> Reject
                           </button>
                         </div>
                       ) : (
-                        <p className="text-right text-[11px] text-slate-500">
+                        <p className="text-right text-[11px] text-slate-500 dark:text-slate-400">
                           Reviewed
                         </p>
                       )}
