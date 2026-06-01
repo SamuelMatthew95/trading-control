@@ -28,8 +28,12 @@ def _latest_payload(events: list[Any], kind: EventType) -> dict[str, Any] | None
 def build_trace(stream: EventStream, trace_id: str) -> dict[str, Any]:
     """Assemble the full decision-to-grade chain for one ``trace_id``."""
     events = [event for event in stream if event.trace_id == trace_id]
+    decision = _latest_payload(events, EventType.DECISION)
     return {
         "trace_id": trace_id,
+        # Config lineage: which config version (and merged proposal) drove this trade.
+        "config_version": (decision or {}).get("config_version"),
+        "config_proposal_id": (decision or {}).get("config_proposal_id"),
         "signals": {
             "news": _latest_payload(events, EventType.NEWS_SIGNAL),
             "tech": _latest_payload(events, EventType.TECH_SIGNAL),
@@ -38,7 +42,7 @@ def build_trace(stream: EventStream, trace_id: str) -> dict[str, Any]:
         },
         "features": _latest_payload(events, EventType.FEATURES),
         "reasoning": _latest_payload(events, EventType.REASONING),
-        "decision": _latest_payload(events, EventType.DECISION),
+        "decision": decision,
         "risk_gate": _latest_payload(events, EventType.RISK_GATE),
         "execution": _latest_payload(events, EventType.EXECUTION),
         "outcome": _latest_payload(events, EventType.TRADE_OUTCOME),
