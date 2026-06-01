@@ -306,3 +306,36 @@ agent is always represented. Agents section widened to `max-w-screen-2xl`.
 **Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
 `keeps an agent Live while its heartbeat is within the backend 2-min window`
 and `always registers the full agent roster, even before any agent reports`.
+
+## Equity curve permanently "No equity data yet"
+
+**Symptom:** The dashboard's Equity Curve / Cumulative P&L panel always showed
+"No equity data yet", even with agents Live and the Execution Engine reporting
+hundreds of events. The chart never populated regardless of trading activity.
+
+**Root cause:** Two disconnects. (1) The backend already maintains a real
+`equity_curve` (running realized+unrealized PnL appended on every fill —
+`ExecutionEngine._append_equity_snapshot`, `InMemoryStore`) and ships it in the
+memory-mode snapshot, but `MetricsAggregator.get_raw_snapshot()` (the DB path)
+omitted the `equity_curve` key entirely. (2) The frontend ignored
+`equity_curve` altogether: the store never captured it and `EquityCurve`
+recomputed the series from `orders[].pnl`. Orders carry realized PnL only once
+a position closes, so the per-order series was empty/sparse → empty chart.
+
+**Fix:** Backend — `MetricsAggregator.get_raw_snapshot()` now derives a
+cumulative realized-PnL `equity_curve` from `trade_lifecycle` (ascending by
+close time) via the pure helper `build_equity_curve_points`, matching the
+in-memory point shape so both persistence modes ship the same contract.
+Frontend — `useCodexStore` captures `equity_curve` from `/dashboard/state`
+(and the WS snapshot via `_normalizeDashboardData`); `EquityCurve` gained a
+`points` prop and prefers the backend cumulative curve (plotting absolute
+`value` directly, differencing for deltas), falling back to the orders-derived
+series only when no points are present. `DashboardView` passes
+`points={equityCurve}`.
+
+**Regression test:**
+`tests/core/test_data_fetch_guardrails.py::TestBuildEquityCurvePoints` and
+`::TestRawSnapshotDataSources::test_raw_snapshot_returns_required_keys`
+(backend); `frontend/src/test/components/EquityCurve.test.tsx` —
+`buildSeriesFromPoints (backend cumulative curve)` and
+`EquityCurve points-vs-orders precedence` (frontend).
