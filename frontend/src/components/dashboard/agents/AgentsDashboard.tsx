@@ -125,7 +125,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           <KpiCard
             label="Agents Online"
             value={sanitizeValue(liveAgentCount)}
-            lines={[`${realAgents.length} reporting · live = heartbeat < 10s`]}
+            lines={[`${realAgents.length} in pipeline · live = heartbeat < 2m`]}
           />
           <KpiCard
             label="Market Data"
