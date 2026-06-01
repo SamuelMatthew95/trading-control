@@ -340,6 +340,39 @@ theme-agnostic by design.
 `text-slate-100` without a `dark:` sibling on the line, which returns empty)
 guard against regressions.
 
+## Light mode still "weird" on every page — shared `DashboardView` frame stayed dark
+
+**Symptom:** Even after the dual-theme sweep above, light mode looked broken on
+*every* dashboard page (Overview, Trading, Agents, Learning, Proposals, System):
+the whole content area sat on a dark `slate-950` background with light cards
+floating on it, and the top "Runtime agents / Agent health…" header rendered as
+a dark panel with white text while the sidebar, header bar, badges, and banner
+were correctly light.
+
+**Root cause:** The earlier sweep fixed the section *body* components and the
+shared style helpers in `lib/dashboard-styles.ts`, but missed the section
+*frame* that `DashboardView.tsx` renders around every section: the root wrapper
+`<div className="min-h-screen bg-slate-950 … text-slate-100">` and the
+`SectionHeader` (`bg-slate-950/90`, `border-slate-800/80`, `text-white`,
+`text-slate-500`). Those are dark-only with no `dark:`/light variants, so they
+ignored `next-themes` and stayed dark in light mode. Because the frame is shared
+by all six sections, the bug reappeared on every page at once.
+
+**Fix:** Restored light↔`dark:` duality on both shared spots in
+`app/dashboard/DashboardView.tsx`, matching the layout/`consolePanelClass`
+conventions — root wrapper is `bg-slate-100 text-slate-900 dark:bg-slate-950
+dark:text-slate-100` (same base as `layout.tsx`), and `SectionHeader` is
+`bg-white border-slate-200 … text-slate-900` with the console dark tone moved
+behind `dark:` (`dark:bg-slate-950/90`, `dark:border-slate-800/80`,
+`dark:text-white`). The `<pre>` prompt block, emerald logo, mobile scrim, and
+inverted active tab stay theme-agnostic by design.
+
+**Regression test:**
+`frontend/src/test/components/DashboardView.test.tsx::DashboardView — theming (light/dark duality)`
+renders the agents section and asserts the root wrapper and section header carry
+light base tokens (`bg-slate-100`/`bg-white`, `text-slate-900`) with no bare
+dark `bg-slate-8xx/9xx`, and that the dark tone is only present behind `dark:`.
+
 ## System page: Daily PnL, agent activity, and dashboard-API outage were misreported
 
 **Symptom:** On `/dashboard/system` (a) "Daily PnL" summed every order in the
