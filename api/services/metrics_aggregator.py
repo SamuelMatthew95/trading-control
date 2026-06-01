@@ -30,6 +30,38 @@ from ..observability import log_structured
 from ..runtime_state import get_runtime_store
 from .notification_summary import compute_notification_summary
 
+# Match the in-memory store's snapshot window so the equity chart hydrates with
+# the same number of points regardless of persistence mode (see
+# InMemoryStore.dashboard_fallback_snapshot).
+EQUITY_CURVE_SNAPSHOT_LIMIT = 200
+
+
+def build_equity_curve_points(rows: list[tuple[str | None, float]]) -> list[dict[str, Any]]:
+    """Accumulate realized PnL into a cumulative equity curve.
+
+    Each input row is ``(timestamp_iso, pnl)`` already sorted ascending by close
+    time. The running sum becomes the point's ``value`` / ``total_pnl`` so the
+    shape exactly matches the in-memory store's ``equity_curve`` (see
+    ``ExecutionEngine._append_equity_snapshot``); the frontend renders both
+    without caring which persistence mode produced them. Pure + total so it can
+    be unit-tested without a database.
+    """
+    points: list[dict[str, Any]] = []
+    running = 0.0
+    for ts, pnl in rows:
+        if not ts:
+            continue
+        running += pnl
+        points.append(
+            {
+                FieldName.TIMESTAMP: ts,
+                FieldName.VALUE: round(running, 8),
+                FieldName.REALIZED_PNL: round(running, 8),
+                FieldName.TOTAL_PNL: round(running, 8),
+            }
+        )
+    return points
+
 
 class MetricsAggregator:
     """Centralized metrics read layer with safe computations."""
@@ -777,6 +809,37 @@ class MetricsAggregator:
 
             notification_summary = compute_notification_summary(notifications)
 
+            # Cumulative realized-PnL equity curve from closed trades, ascending
+            # by close time. Memory mode already ships equity_curve in its
+            # snapshot; deriving it here gives the DB path the same contract so
+            # the dashboard's equity chart hydrates identically in both modes
+            # instead of showing "No equity data yet".
+            equity_curve: list[dict[str, Any]] = []
+            try:
+                eq_result = await self.session.execute(
+                    text("""
+                        SELECT COALESCE(filled_at, created_at) AS ts,
+                               COALESCE(pnl, 0.0) AS pnl
+                        FROM trade_lifecycle
+                        WHERE COALESCE(filled_at, created_at) IS NOT NULL
+                        ORDER BY ts ASC
+                        LIMIT 1000
+                    """)
+                )
+                equity_curve = build_equity_curve_points(
+                    [
+                        (
+                            row[0].isoformat()
+                            if hasattr(row[0], "isoformat")
+                            else _safe_str(row[0]),
+                            _safe_float(row[1]),
+                        )
+                        for row in eq_result
+                    ]
+                )[-EQUITY_CURVE_SNAPSHOT_LIMIT:]
+            except Exception:
+                log_structured("warning", "raw_snapshot_equity_curve_failed", exc_info=True)
+
             return {
                 FieldName.ORDERS: orders,
                 FieldName.POSITIONS: positions,
@@ -786,6 +849,7 @@ class MetricsAggregator:
                 FieldName.TRADE_FEED: trade_feed,
                 FieldName.NOTIFICATIONS: notifications,
                 FieldName.NOTIFICATION_SUMMARY: notification_summary,
+                FieldName.EQUITY_CURVE: equity_curve,
                 FieldName.SIGNALS: [],
                 FieldName.RISK_ALERTS: [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -824,6 +888,7 @@ class MetricsAggregator:
                         FieldName.CRITICAL: 0,
                     },
                 },
+                FieldName.EQUITY_CURVE: [],
                 FieldName.SIGNALS: [],
                 FieldName.RISK_ALERTS: [],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
