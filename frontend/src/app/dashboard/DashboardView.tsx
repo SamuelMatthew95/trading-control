@@ -16,7 +16,7 @@ import { TraceModal } from '@/components/dashboard/TraceModal'
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
 import { SystemDashboard } from '@/components/dashboard/system'
 import { AgentsDashboard } from '@/components/dashboard/agents'
-import { AGENT_REASONING, agentDisplayName, canonicalAgentKey } from '@/constants/agents'
+import { ALL_AGENT_NAMES, agentDisplayName, canonicalAgentKey } from '@/constants/agents'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
 import {
@@ -43,14 +43,15 @@ type PerformanceCell = {
 
 
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
-const AGENT_LIVE_THRESHOLD_MS = 10_000
-const AGENT_STALE_THRESHOLD_MS = 120_000
-// Per-agent overrides: Reasoning Agent can take 60-90s per LLM call.
-const AGENT_LIVE_THRESHOLD_OVERRIDES: Record<string, number> = {
-  [AGENT_REASONING]: 90_000,
-}
-const getLiveThresholdMs = (agentKey: string): number =>
-  AGENT_LIVE_THRESHOLD_OVERRIDES[agentKey] ?? AGENT_LIVE_THRESHOLD_MS
+// Liveness windows mirror the backend heartbeat contract (api/constants.py):
+//   AGENT_STALE_THRESHOLD_SECONDS = 120 → an agent stays "Live" while its last
+//     heartbeat is < 2 min old. Agents heartbeat every 15–60s, so the previous
+//     10s window painted every healthy agent "Stale" and contradicted the
+//     "active" Agent Instances table right next to it.
+//   AGENT_HEARTBEAT_TTL_SECONDS  = 300 → the Redis key expires after 5 min;
+//     past that the agent is treated as Idle/offline.
+const AGENT_LIVE_THRESHOLD_MS = 120_000
+const AGENT_STALE_THRESHOLD_MS = 300_000
 
 function isClosedTrade(order: Record<string, unknown> | null | undefined): boolean {
   if (!order) return false
@@ -406,10 +407,9 @@ export function DashboardView({ section }: { section: Section }) {
     }, {})
 
     const now = Date.now()
-    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([agentKey, data]) => {
+    const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const liveThreshold = getLiveThresholdMs(agentKey)
-      const status: AgentSummary['status'] = ageMs <= liveThreshold ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
+      const status: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return {
         name: data.displayName,
@@ -429,7 +429,7 @@ export function DashboardView({ section }: { section: Section }) {
       const statusDate = parseHeartbeatTimestamp(status)
       const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
       const eventCount = status.event_count ?? 0
-      const mappedStatus: AgentSummary['status'] = ageMs <= getLiveThresholdMs(agentKey) ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
+      const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       const lastSeen = [existing?.lastSeen, statusDate]
         .filter((d): d is Date => d instanceof Date)
@@ -463,6 +463,25 @@ export function DashboardView({ section }: { section: Section }) {
         tier: agentTierFromStatus(mergedStatus),
         source: existing ? 'hybrid' : 'persisted',
       })
+    }
+
+    // Backfill the full documented roster so every agent in the pipeline is
+    // always represented in the UI. An agent that has not reported yet reads as
+    // Idle rather than silently vanishing — reporting agents above are left
+    // untouched; only never-seen names get an Idle placeholder.
+    for (const name of ALL_AGENT_NAMES) {
+      const agentKey = canonicalAgentKey(name)
+      if (!normalizedByName.has(agentKey)) {
+        normalizedByName.set(agentKey, {
+          name,
+          realtimeCount: 0,
+          persistedCount: 0,
+          lastSeen: null,
+          status: 'Idle',
+          tier: 'inactive',
+          source: 'persisted',
+        })
+      }
     }
 
     const priority: Record<AgentSummary['status'], number> = {
@@ -731,9 +750,10 @@ export function DashboardView({ section }: { section: Section }) {
     </>
   )
 
-  // System page packs many side-by-side cards and benefits from extra width;
-  // other sections stay constrained for comfortable reading width.
-  const mainMaxWidthClass = section === 'system' ? 'max-w-screen-2xl' : 'max-w-7xl'
+  // System and Agents both pack many side-by-side cards and read better with
+  // the extra width; other sections stay constrained for comfortable reading.
+  const mainMaxWidthClass =
+    section === 'system' || section === 'agents' ? 'max-w-screen-2xl' : 'max-w-7xl'
 
   return (
     <div className="min-h-screen bg-slate-100 pb-20 dark:bg-slate-950 lg:pb-4">
