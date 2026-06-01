@@ -41,7 +41,10 @@ from api.constants import (
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_runtime_store
-from api.services.metrics_aggregator import MetricsAggregator
+from api.services.metrics_aggregator import (
+    MetricsAggregator,
+    build_equity_curve_points,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers — lightweight in-memory session / result fakes
@@ -332,6 +335,7 @@ class TestRawSnapshotDataSources:
             "proposals",
             "trade_feed",
             "notifications",
+            "equity_curve",
             "signals",
             "risk_alerts",
             "timestamp",
@@ -363,6 +367,7 @@ class TestRawSnapshotDataSources:
             "proposals",
             "trade_feed",
             "notifications",
+            "equity_curve",
             "signals",
             "risk_alerts",
         ):
@@ -858,3 +863,38 @@ class TestDashboardStateResponseShape:
 
         result = await dashboard_v2.get_dashboard_state()
         assert result["orders"] == order_data
+
+
+# ---------------------------------------------------------------------------
+# build_equity_curve_points — cumulative realized-PnL curve (DB-mode equity)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildEquityCurvePoints:
+    """The DB path must derive the same equity_curve shape memory mode ships,
+    so the dashboard chart hydrates identically instead of "No equity data yet".
+    """
+
+    def test_accumulates_running_total(self) -> None:
+        points = build_equity_curve_points(
+            [
+                ("2026-01-01T00:00:00Z", 10.0),
+                ("2026-01-01T00:01:00Z", -4.0),
+                ("2026-01-01T00:02:00Z", 2.5),
+            ]
+        )
+        assert [p["value"] for p in points] == [10.0, 6.0, 8.5]
+        # value / total_pnl / realized_pnl all carry the same running total and
+        # the timestamp is preserved verbatim — matches the in-memory point shape.
+        last = points[-1]
+        assert last["total_pnl"] == 8.5
+        assert last["realized_pnl"] == 8.5
+        assert last["timestamp"] == "2026-01-01T00:02:00Z"
+
+    def test_skips_rows_without_timestamp(self) -> None:
+        points = build_equity_curve_points([("2026-01-01T00:00:00Z", 5.0), (None, 99.0), ("", 1.0)])
+        assert len(points) == 1
+        assert points[0]["value"] == 5.0
+
+    def test_empty_input_returns_empty_curve(self) -> None:
+        assert build_equity_curve_points([]) == []
