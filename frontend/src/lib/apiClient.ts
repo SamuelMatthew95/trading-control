@@ -75,7 +75,8 @@ export const API_ENDPOINTS = {
   DASHBOARD_CHALLENGERS: "/dashboard/challengers",
   DASHBOARD_TOOLS: "/dashboard/tools",
   DASHBOARD_PROMPT_OS: "/dashboard/prompt-os",
-  
+  DASHBOARD_PROMPT_EVOLUTION: "/dashboard/prompt-evolution",
+
   // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
   LEARNING_GRADES: "/dashboard/learning/grades",

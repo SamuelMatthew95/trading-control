@@ -22,6 +22,7 @@ import { AgentPipeline } from '@/components/dashboard/AgentPipeline'
 import { LLMHealthPanel } from '@/components/dashboard/LLMHealthPanel'
 import { LearningLoopPanel } from '@/components/dashboard/LearningLoopPanel'
 import { ToolGovernancePanel } from '@/components/dashboard/ToolGovernancePanel'
+import { PromptEvolutionPanel } from '@/components/dashboard/PromptEvolutionPanel'
 import { LiveReasoningPanel } from '@/components/dashboard/LiveReasoningPanel'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
@@ -166,6 +167,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
           <LLMHealthPanel />
           <ToolGovernancePanel />
+          <PromptEvolutionPanel />
         </div>
       </section>
 
