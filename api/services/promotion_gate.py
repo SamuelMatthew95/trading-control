@@ -9,11 +9,12 @@ alter a live execution path without clearing this gate.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from pydantic import BaseModel
 
-from api.constants import StrategyStatus
+from api.constants import TOOL_REPLAY_REGRESSION, StrategyStatus
 from api.observability import log_structured
 from api.services.regression_validator import RegressionValidator, RegressionVerdict
 from api.services.replay_harness import ReplayHarness, ReplayMetrics
@@ -22,6 +23,7 @@ from api.services.strategy_registry import (
     StrategyRegistry,
     get_strategy_registry,
 )
+from api.services.tool_registry import get_tool_registry
 
 
 class PromotionDecision(BaseModel):
@@ -58,9 +60,21 @@ class PromotionGate:
         to_status: StrategyStatus,
     ) -> PromotionDecision:
         """Replay both sides, validate, and promote only if it clears every gate."""
+        _replay_t0 = time.monotonic()
         champion = self._harness.replay(champion_trades)
         candidate = self._harness.replay(candidate_trades)
         verdict = self._validator.validate(champion, candidate)
+        # Optimization-phase tool telemetry: the regression replay ran. Folds the
+        # replay_regression tool into governance (latency + reliability) so the
+        # OPTIMIZATION phase is live, not a permanent seeded prior.
+        try:
+            get_tool_registry().record_call(
+                TOOL_REPLAY_REGRESSION,
+                latency_ms=(time.monotonic() - _replay_t0) * 1000,
+                success=True,
+            )
+        except Exception:
+            log_structured("warning", "replay_tool_telemetry_failed", exc_info=True)
 
         transitioned = False
         if not verdict.approved:

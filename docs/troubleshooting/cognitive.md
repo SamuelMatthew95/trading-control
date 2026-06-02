@@ -158,3 +158,41 @@ no-op touching no network. All failures are swallowed — a GitOps hiccup never 
 trading loop; the queued `pr_request` artifact remains for the GitHub Action / manual review.
 
 **Regression test:** `tests/api/test_gitops_publisher.py`
+
+## Tool Governance panel shows tools that never seem to be used / alpha looks like fiction
+
+**Symptom:** The Tool Governance panel lists ~13 tools each with an alpha score, but an operator cannot tell which tools the reasoning LLM actually calls — every tool shows a number, so seeded priors are indistinguishable from earned attribution and the panel reads as meaningless.
+
+**Root cause:** Two gaps. (1) The UI rendered `alpha_score`/latency/err but never the `call_count`/`success_count` the registry already tracks, so usage was invisible. (2) `get_stream_confluence_metrics` was registered and shown to the LLM but never recorded as exercised — a "ghost" tool stuck on its seeded prior forever, even though the signal's composite confluence score informs every decision.
+
+**Fix:** `ToolGovernancePanel.tsx` now shows each tool's call ledger (`N× · M ok`) or an explicit `unused` marker, tags a never-called tool's alpha as a `prior` (seed, not earned), and summarises live coverage (`X/Y exercised live`). `ReasoningAgent._build_context` (`reasoning_agent.py`) records `TOOL_STREAM_CONFLUENCE` from the in-hand composite score (gated on its registry enabled flag, like the other perception tools). Execution/optimization-phase tools (`risk_cage`, `vwap_execution`, `bracket_order`, `replay_regression`) legitimately belong to downstream nodes and now read honestly as `unused` at the reasoning node rather than as fake earned alpha.
+
+**Regression test:** `tests/agents/test_reasoning_agent.py::test_process_records_stream_confluence_tool` + `frontend/src/test/components/ToolGovernancePanel.test.tsx`
+
+## Execution / optimization tools sit forever as seeded priors (`unused`)
+
+**Symptom:** After making the reasoning-node tools live, the RISK/EXECUTION/OPTIMIZATION-phase tools (`risk_cage`, `vwap_execution`, `bracket_order`, `replay_regression`) still showed as `unused` in tool governance — the panel only ever reflected perception/memory tools.
+
+**Root cause:** Those tools were registered and grouped by phase but never recorded a call: nothing in the execution engine or promotion gate folded them into the registry. `vwap_execution` also carried a misleading `0.8` alpha prior, so once it *did* go live it would have displayed fake earned edge — execution mechanics have no directional alpha (they run at entry; PnL realizes at exit, with no entry→exit tool threading).
+
+**Fix:** Execution-phase tools are now graded on **telemetry (latency + reliability), not alpha**. `ExecutionEngine._check_pre_execution_gates` is a timing wrapper over `_evaluate_pre_execution_gates` that records `risk_cage` once per evaluated trade; `_build_vwap_plan` records `vwap_execution` when a slicing plan is built; each `broker.place_order` call records `bracket_order` with measured submit latency (`execution_engine.py`). `PromotionGate.evaluate` and `GradeAgent._recent_backtest_evidence` record `replay_regression` when a regression/backtest replay runs (`promotion_gate.py`, `pipeline_agents.py`). All recordings are best-effort (never raise into the trading path). The `vwap_execution` seed alpha is now `0.0` (neutral) so a live mechanics call never shows fake earned edge — the top directional-alpha tool is now the perception confluence metric.
+
+**Regression test:** `tests/agents/test_execution_engine_helpers.py::test_risk_cage_tool_recorded_on_every_gate_evaluation`, `::test_vwap_tool_recorded_only_when_a_slicing_plan_is_built`, `::test_vwap_execution_tool_seeds_neutral_alpha`, `tests/api/test_promotion_gate.py::test_promotion_gate_records_replay_regression_tool`
+
+## A TOOL_GOVERNANCE proposal is approved but the dead tool never gets disabled
+
+**Symptom:** GradeAgent emits a `TOOL_GOVERNANCE` proposal (e.g. "disable scan_sector_correlation — negative alpha"), it shows on the proposal queue, but approving it does nothing — the tool stays enabled and keeps reaching the reasoning prompt. The worker logs `proposal_skipped_unknown_type`.
+
+**Root cause:** `ProposalApplier._handlers` had no entry for `ProposalType.TOOL_GOVERNANCE`, so the proposal fell through to the `handler is None` branch and was silently dropped. The dead-tool loop never closed through the applier.
+
+**Fix:** Added `_apply_tool_governance` (`proposal_applier.py`) wired into the handler map. It disables every tool a suggestion flagged with `action == "disable"` via the new `ToolRegistry.set_enabled(name, False)` (`tool_registry.py`); `review` suggestions stay advisory. Returns None when nothing changed so no misleading "applied" log fires. The next reasoning prompt drops the disabled tool.
+
+**Regression test:** `tests/agents/test_proposal_applier.py::test_tool_governance_disables_flagged_tools`
+
+## The proposal queue doesn't say where an approved proposal goes (config PR vs issue)
+
+**Symptom:** The proposal table shows the proposal `Type` but not its destination, so an operator can't tell whether approving will open a config pull request, flip a control-plane flag, or file a GitHub issue for human design.
+
+**Fix:** Added `frontend/src/lib/proposal-routing.ts` — a pure map mirroring the backend handler map — and an "On Approve" column in `ProposalsSection.tsx` that badges each row: `Config auto-PR` (parameter_change), `Control plane` (weight/suspension/retirement), `Prompt store` (prompt_evolution), `Tool registry` (tool_governance), `Challenger / issue` (new_agent), `GitHub issue` (code_change / regime_adjustment).
+
+**Regression test:** `frontend/src/test/helpers/proposal-routing.test.ts`

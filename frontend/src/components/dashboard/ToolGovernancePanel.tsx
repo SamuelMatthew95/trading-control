@@ -17,6 +17,7 @@ interface Tool {
   latency_ms: number
   failure_rate: number
   call_count: number
+  success_count: number
   required_state_flags: string[]
   unlocks: string[]
 }
@@ -112,17 +113,35 @@ function ToolRow({ tool }: { tool: Tool }) {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-3 font-mono text-[11px] tabular-nums">
-        <span className={alphaClass(tool.alpha_score)} title="alpha attribution">
+        {tool.call_count > 0 ? (
+          <span
+            className="text-slate-500 dark:text-slate-400"
+            title="decision-time calls (successful)"
+          >
+            {tool.call_count}× · {tool.success_count} ok
+          </span>
+        ) : (
+          <span className="italic text-slate-400 dark:text-slate-600" title="never exercised">
+            unused
+          </span>
+        )}
+        <span
+          className={cn(tool.call_count > 0 ? alphaClass(tool.alpha_score) : 'text-slate-400')}
+          title={
+            tool.call_count > 0
+              ? 'realized-PnL alpha attribution'
+              : 'seeded prior — no live trades have informed this tool yet'
+          }
+        >
           α {tool.alpha_score >= 0 ? '+' : ''}
           {tool.alpha_score.toFixed(2)}
+          {tool.call_count === 0 && <span className="ml-0.5 not-italic">prior</span>}
         </span>
         <span className="text-slate-500 dark:text-slate-400" title="avg latency">
           {tool.latency_ms.toFixed(0)}ms
         </span>
         <span
-          className={cn(
-            tool.failure_rate > 0.5 ? 'text-rose-500' : 'text-slate-400',
-          )}
+          className={cn(tool.failure_rate > 0.5 ? 'text-rose-500' : 'text-slate-400')}
           title="failure rate"
         >
           {(tool.failure_rate * 100).toFixed(0)}% err
@@ -160,6 +179,7 @@ export function ToolGovernancePanel() {
   const tools = data?.tools ?? []
   const suggestions = data?.suggestions ?? []
   const enabledCount = tools.filter((t) => t.enabled).length
+  const exercisedCount = tools.filter((t) => t.call_count > 0).length
   const byPhase = PHASE_ORDER.map((phase) => ({
     phase,
     tools: tools.filter((t) => t.phase === phase),
@@ -178,8 +198,11 @@ export function ToolGovernancePanel() {
         )}
       </div>
       <p className={cn(mutedClass, 'mb-3')}>
-        Tools exposed per DAG phase — the LLM only ever sees the eligible subset. α = realized
-        alpha attribution.
+        Tools exposed per DAG phase — the reasoning LLM only ever sees the eligible subset for the
+        current phase/state. <span className="font-mono">N×</span> = times the LLM called the tool;{' '}
+        <span className="font-mono">α</span> = realized-PnL attribution once closed trades inform it
+        (a <span className="font-mono">prior</span> tag means the score is a seed, not yet earned).{' '}
+        {exercisedCount}/{tools.length} exercised live.
       </p>
 
       {suggestions.length > 0 && (

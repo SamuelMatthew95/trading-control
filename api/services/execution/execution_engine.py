@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -48,6 +49,9 @@ from api.constants import (
     SOURCE_EXECUTION,
     STREAM_DECISIONS,
     STREAM_SELL_REJECTED,
+    TOOL_BRACKET_ORDER,
+    TOOL_RISK_CAGE,
+    TOOL_VWAP_EXECUTION,
     FieldName,
     OrderSide,
     OrderStatus,
@@ -92,6 +96,7 @@ from api.services.execution.position_math import (
 )
 from api.services.market_status import get_market_status
 from api.services.risk_filters import is_cooling_off
+from api.services.tool_registry import get_tool_registry
 
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
@@ -348,7 +353,13 @@ class ExecutionEngine(BaseStreamConsumer):
                 await session.flush()
 
                 await self.redis.set(REDIS_KEY_IN_FLIGHT_ORDER, "1", ex=IN_FLIGHT_TTL_SECONDS)
+                _bracket_t0 = time.monotonic()
                 broker_result = await self.broker.place_order(symbol, side, qty, price)
+                self._record_exec_tool(
+                    TOOL_BRACKET_ORDER,
+                    latency_ms=(time.monotonic() - _bracket_t0) * 1000,
+                    success=True,
+                )
                 _db_broker_result = broker_result
                 filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 fill_price = float(broker_result[FieldName.FILL_PRICE])
@@ -827,7 +838,13 @@ class ExecutionEngine(BaseStreamConsumer):
             # reflects the actual executed quantity, not the requested qty.
             vwap_plan = self._build_vwap_plan(qty)
             await self.redis.set(REDIS_KEY_IN_FLIGHT_ORDER, "1", ex=IN_FLIGHT_TTL_SECONDS)
+            _bracket_t0 = time.monotonic()
             broker_result = await self.broker.place_order(symbol, side, qty, price)
+            self._record_exec_tool(
+                TOOL_BRACKET_ORDER,
+                latency_ms=(time.monotonic() - _bracket_t0) * 1000,
+                success=True,
+            )
             fill_price = float(broker_result[FieldName.FILL_PRICE])
             filled_at = datetime.now(timezone.utc)
 
@@ -1115,7 +1132,54 @@ class ExecutionEngine(BaseStreamConsumer):
             log_structured("warning", "kelly_sizing_fallback_to_nominal_qty", exc_info=True)
         return nominal_qty
 
+    @staticmethod
+    def _record_exec_tool(name: str, *, latency_ms: float, success: bool) -> None:
+        """Best-effort telemetry for an execution-phase tool (risk cage / VWAP /
+        bracket). These are deterministic mechanics, not directional-alpha
+        sources, so they are graded on latency + reliability — never raise into
+        the trading path."""
+        try:
+            get_tool_registry().record_call(name, latency_ms=latency_ms, success=success)
+        except Exception:
+            log_structured("warning", "execution_tool_telemetry_failed", tool=name, exc_info=True)
+
     async def _check_pre_execution_gates(
+        self,
+        side: str,
+        symbol: str,
+        signal_confidence: float,
+        reasoning_score: float,
+        trace_id: str,
+        *,
+        atr_regime_ratio: float | None = None,
+        abs_pct_move: float = 0.0,
+    ) -> str | None:
+        """The deterministic risk cage: run every pre-execution gate and return a
+        gate reason string (block) or None (proceed).
+
+        Thin timing wrapper over :meth:`_evaluate_pre_execution_gates` so the
+        risk-cage tool records one telemetry sample per evaluated trade
+        regardless of which gate fires — making it live in tool governance."""
+        t0 = time.monotonic()
+        cage_ok = False
+        try:
+            result = await self._evaluate_pre_execution_gates(
+                side,
+                symbol,
+                signal_confidence,
+                reasoning_score,
+                trace_id,
+                atr_regime_ratio=atr_regime_ratio,
+                abs_pct_move=abs_pct_move,
+            )
+            cage_ok = True  # the cage evaluated cleanly (a gate verdict is not a failure)
+            return result
+        finally:
+            self._record_exec_tool(
+                TOOL_RISK_CAGE, latency_ms=(time.monotonic() - t0) * 1000, success=cage_ok
+            )
+
+    async def _evaluate_pre_execution_gates(
         self,
         side: str,
         symbol: str,
@@ -1303,7 +1367,11 @@ class ExecutionEngine(BaseStreamConsumer):
         if qty <= LARGE_ORDER_THRESHOLD:
             return None
         slice_qty = round(qty / 3, 8)
-        return [slice_qty, slice_qty, round(qty - (slice_qty * 2), 8)]
+        plan = [slice_qty, slice_qty, round(qty - (slice_qty * 2), 8)]
+        # Record the VWAP tool only when a slicing plan is actually produced (a
+        # large order); small orders skip VWAP, so they are not a tool call.
+        self._record_exec_tool(TOOL_VWAP_EXECUTION, latency_ms=0.0, success=True)
+        return plan
 
     def _parse_timestamp(self, value: Any) -> datetime:
         if value is None:

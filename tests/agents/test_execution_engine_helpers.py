@@ -347,3 +347,48 @@ async def test_engine_gate_low_score_returns_reason(engine):
 async def test_engine_gate_all_clear_returns_none(engine):
     reason = await engine._check_pre_execution_gates("buy", "BTC/USD", 0.8, 0.8, "t1")
     assert reason is None
+
+
+# ============================================================================
+# Execution-phase tool telemetry — risk cage / VWAP / bracket go live in the
+# tool registry so the governance panel stops showing them as permanent priors.
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_risk_cage_tool_recorded_on_every_gate_evaluation(engine):
+    """The deterministic risk cage records one telemetry sample per evaluated
+    trade regardless of whether a gate fires."""
+    from api.constants import TOOL_RISK_CAGE  # noqa: PLC0415
+    from api.services.tool_registry import get_tool_registry  # noqa: PLC0415
+
+    before = get_tool_registry().get(TOOL_RISK_CAGE).call_count
+    await engine._check_pre_execution_gates("buy", "BTC/USD", 0.8, 0.8, "t1")  # clears
+    await engine._check_pre_execution_gates("buy", "BTC/USD", 0.2, 0.2, "t2")  # gated
+    cage = get_tool_registry().get(TOOL_RISK_CAGE)
+    assert cage.call_count == before + 2
+    assert cage.success_count >= before + 2  # cage executes successfully either way
+
+
+def test_vwap_tool_recorded_only_when_a_slicing_plan_is_built(engine):
+    from api.constants import LARGE_ORDER_THRESHOLD, TOOL_VWAP_EXECUTION  # noqa: PLC0415
+    from api.services.tool_registry import get_tool_registry  # noqa: PLC0415
+
+    before = get_tool_registry().get(TOOL_VWAP_EXECUTION).call_count
+    # Small order: no VWAP slicing, so no tool call.
+    assert engine._build_vwap_plan(LARGE_ORDER_THRESHOLD) is None
+    assert get_tool_registry().get(TOOL_VWAP_EXECUTION).call_count == before
+    # Large order: a slicing plan is produced and the tool is recorded.
+    plan = engine._build_vwap_plan(LARGE_ORDER_THRESHOLD * 10)
+    assert plan is not None
+    assert get_tool_registry().get(TOOL_VWAP_EXECUTION).call_count == before + 1
+
+
+def test_vwap_execution_tool_seeds_neutral_alpha():
+    """Execution mechanics are graded on reliability, not directional alpha — the
+    VWAP prior must be neutral so a live call never displays fake earned edge."""
+    from api.constants import TOOL_VWAP_EXECUTION  # noqa: PLC0415
+    from api.services.tool_registry import default_tools  # noqa: PLC0415
+
+    vwap = next(t for t in default_tools() if t.name == TOOL_VWAP_EXECUTION)
+    assert vwap.alpha_score == 0.0

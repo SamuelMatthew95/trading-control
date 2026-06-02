@@ -103,6 +103,16 @@ class ToolRegistry:
     def get(self, name: str) -> ToolMetadata | None:
         return self._tools.get(name)
 
+    def set_enabled(self, name: str, enabled: bool) -> bool:
+        """Enable/disable a tool by name. Returns True if the tool exists and its
+        state changed — used by the ProposalApplier to action an approved
+        TOOL_GOVERNANCE proposal (e.g. disable a negative-alpha tool)."""
+        tool = self._tools.get(name)
+        if tool is None or tool.enabled == enabled:
+            return False
+        tool.enabled = enabled
+        return True
+
     def all_tools(self) -> list[ToolMetadata]:
         return list(self._tools.values())
 
@@ -347,7 +357,9 @@ def default_tools() -> list[ToolMetadata]:
             name=TOOL_VWAP_EXECUTION,
             phase=ToolPhase.EXECUTION,
             description="VWAP execution plan to minimize slippage.",
-            alpha_score=0.8,
+            # Execution mechanics are graded on reliability/latency, not directional
+            # alpha — seed neutral so a live VWAP call never shows fake earned edge.
+            alpha_score=0.0,
             latency_ms=30.0,
             required_state_flags=[TOOL_FLAG_RISK_APPROVED],
         ),

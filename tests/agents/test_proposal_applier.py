@@ -163,6 +163,40 @@ async def test_unknown_proposal_type_is_logged_not_applied(monkeypatch):
     assert await redis.get(REDIS_KEY_TRADING_PAUSED) is None
 
 
+async def test_tool_governance_disables_flagged_tools(monkeypatch):
+    """An approved TOOL_GOVERNANCE proposal disables the flagged tools in the
+    registry, closing the dead-tool loop (previously dropped as unknown type)."""
+    from api.services.tool_registry import (  # noqa: PLC0415
+        ToolMetadata,
+        ToolPhase,
+        ToolRegistry,
+        set_tool_registry,
+    )
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+
+    registry = ToolRegistry()
+    registry.register(ToolMetadata(name="dead_tool", phase=ToolPhase.PERCEPTION, alpha_score=-0.3))
+    registry.register(ToolMetadata(name="good_tool", phase=ToolPhase.PERCEPTION, alpha_score=0.5))
+    set_tool_registry(registry)
+
+    applier = _make_applier(_FakeRedis())
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.TOOL_GOVERNANCE,
+        FieldName.CONTENT: {
+            FieldName.SUGGESTIONS: [
+                {FieldName.TOOL: "dead_tool", FieldName.ACTION: "disable"},
+                {FieldName.TOOL: "good_tool", FieldName.ACTION: "review"},  # advisory only
+            ],
+        },
+    }
+    await applier.process("proposals", "1-0", proposal)
+
+    assert registry.get("dead_tool").enabled is False  # disabled
+    assert registry.get("good_tool").enabled is True  # review is advisory, untouched
+
+
 async def test_apply_writes_agent_log_with_applied_at(monkeypatch):
     """Each applied proposal generates an agent_logs row with applied_at."""
     write_log_mock = AsyncMock()

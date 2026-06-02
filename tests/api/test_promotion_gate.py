@@ -136,6 +136,21 @@ def test_promotion_gate_promotes_when_clean():
     assert registry.status(vid) == StrategyStatus.SHADOW
 
 
+def test_promotion_gate_records_replay_regression_tool():
+    """Running the regression replay folds the optimization-phase replay tool
+    into governance telemetry instead of leaving it a permanent seeded prior."""
+    from api.constants import TOOL_REPLAY_REGRESSION  # noqa: PLC0415
+    from api.services.tool_registry import get_tool_registry  # noqa: PLC0415
+
+    before = get_tool_registry().get(TOOL_REPLAY_REGRESSION).call_count
+    gate, _registry, vid = _gate_with_registered_version(StrategyStatus.BACKTESTED)
+    trades = _trades(9, 3)
+    gate.evaluate(
+        vid, champion_trades=trades, candidate_trades=trades, to_status=StrategyStatus.SHADOW
+    )
+    assert get_tool_registry().get(TOOL_REPLAY_REGRESSION).call_count == before + 1
+
+
 def test_promotion_gate_blocks_on_regression():
     gate, registry, vid = _gate_with_registered_version(StrategyStatus.BACKTESTED)
     champion = _trades(10, 2)

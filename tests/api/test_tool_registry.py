@@ -163,8 +163,10 @@ def test_suggest_tool_changes_flags_negative_alpha_and_top_performer(registry: T
     by_tool = {(s.tool, s.action) for s in suggestions}
     # Negative-alpha sector scan is suggested for removal from the prompt.
     assert ("scan_sector_correlation", "disable") in by_tool
-    # Highest-alpha tool is highlighted to keep at the top of the prompt.
-    assert ("calculate_vwap_execution", "prioritize") in by_tool
+    # Highest-alpha tool is highlighted to keep at the top of the prompt. Execution
+    # mechanics (VWAP/bracket) seed neutral alpha, so the top directional-alpha tool
+    # is the perception confluence metric.
+    assert ("get_stream_confluence_metrics", "prioritize") in by_tool
 
 
 def test_suggest_tool_changes_flags_unreliable_tool():

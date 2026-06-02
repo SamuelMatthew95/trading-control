@@ -109,7 +109,19 @@ export interface Notification {
 }
 
 export type ProposalStatus = 'pending' | 'approved' | 'rejected'
-export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment' | 'new_agent' | 'challenger_result' | 'tool_governance' | 'prompt_evolution'
+// Mirrors backend api.constants.ProposalType plus the informational
+// "challenger_result" event (emitted as a raw type by ChallengerAgent).
+export type ProposalType =
+  | 'parameter_change'
+  | 'code_change'
+  | 'regime_adjustment'
+  | 'signal_weight_reduction'
+  | 'agent_suspension'
+  | 'agent_retirement'
+  | 'new_agent'
+  | 'tool_governance'
+  | 'prompt_evolution'
+  | 'challenger_result'
 
 export interface Proposal {
   id: string

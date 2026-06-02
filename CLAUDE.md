@@ -290,8 +290,11 @@ Key invariants:
   **dynamically** via `ChallengerSpawner` when its strategy is in
   `backtest.strategies.STRATEGIES` (config, no deploy), else file an issue;
   `CODE_CHANGE`/`REGIME_ADJUSTMENT` → GitHub issue for human design;
-  `PROMPT_EVOLUTION` → prompt store; weight/suspension/retirement → Redis
-  control plane. GitOps is gated on `GITHUB_TOKEN` (Render) — dry-run locally.
+  `PROMPT_EVOLUTION` → prompt store; `TOOL_GOVERNANCE` → disables the flagged
+  tools in the in-process `ToolRegistry` (`set_enabled(name, False)`);
+  weight/suspension/retirement → Redis control plane. GitOps is gated on
+  `GITHUB_TOKEN` (Render) — dry-run locally. The proposal queue UI badges each
+  row's destination ("On Approve" column → `frontend/src/lib/proposal-routing.ts`).
 - **Fail closed.** `LLM_FALLBACK_MODE` defaults to `reject_signal`: when the
   reasoning LLM is down, the agent emits `REJECT` (no order), never a naive
   momentum buy. Provider throttle degrades reason→instruct model, not to a

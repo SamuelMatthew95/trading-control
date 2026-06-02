@@ -43,6 +43,14 @@ describe('summarizeToolOutputs', () => {
     expect(summary?.split(' · ')).toHaveLength(3)
   })
 
+  it('summarizes cross-stream confluence (composite score + signal type)', () => {
+    expect(summarizeToolOutputs({ composite_score: 0.75, signal_type: 'momentum_buy' })).toBe(
+      'confluence 0.75 · momentum_buy',
+    )
+    // Score alone (signal type absent or empty) still renders.
+    expect(summarizeToolOutputs({ composite_score: 0.5, signal_type: '' })).toBe('confluence 0.50')
+  })
+
   it('returns null when there is nothing decision-relevant to show', () => {
     expect(summarizeToolOutputs(undefined)).toBeNull()
     expect(summarizeToolOutputs({})).toBeNull()

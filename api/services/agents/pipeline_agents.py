@@ -8,6 +8,7 @@ and the poll loop in ``base``.
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections import OrderedDict, deque
 from datetime import datetime, timezone
@@ -57,6 +58,7 @@ from api.constants import (
     STREAM_SIGNALS,
     STREAM_TRADE_COMPLETED,
     STREAM_TRADE_PERFORMANCE,
+    TOOL_REPLAY_REGRESSION,
     FieldName,
     Grade,
     HypothesisType,
@@ -586,7 +588,18 @@ class GradeAgent(MultiStreamAgent):
         promotion gate uses, so every proposal carries a MEASURED verdict
         (win rate, total PnL, Sharpe, drawdown, false-positive rate) — not just
         an LLM/heuristic guess. Pure; safe to call on each proposal."""
-        return ReplayHarness().replay(list(self._eval_buffer)).model_dump()
+        _replay_t0 = time.monotonic()
+        metrics = ReplayHarness().replay(list(self._eval_buffer))
+        # Optimization-phase tool telemetry: the proposal backtest replay ran.
+        try:
+            get_tool_registry().record_call(
+                TOOL_REPLAY_REGRESSION,
+                latency_ms=(time.monotonic() - _replay_t0) * 1000,
+                success=True,
+            )
+        except Exception:
+            log_structured("warning", "replay_tool_telemetry_failed", exc_info=True)
+        return metrics.model_dump()
 
     async def _information_coefficient(self, lookback_n: int) -> float:
         """Spearman correlation between agent confidence and realized returns."""
