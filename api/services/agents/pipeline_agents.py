@@ -521,6 +521,19 @@ class GradeAgent(MultiStreamAgent):
             }
             for s in suggestions
         ]
+        # Full per-tool attribution (alpha / failure / usage), ranked, so the
+        # proposal shows HOW each tool is performing — the operator can act on a
+        # disable, or use the gaps to decide which new tools to add/enable.
+        attribution = [
+            {
+                FieldName.TOOL: t.name,
+                FieldName.ALPHA: round(t.alpha_score, 6),
+                FieldName.FAILURE_RATE: round(t.failure_rate, 4),
+                FieldName.CALL_COUNT: t.call_count,
+                FieldName.ENABLED: t.enabled,
+            }
+            for t in get_tool_registry().attribution()
+        ]
         now_iso = datetime.now(timezone.utc).isoformat()
         await self.bus.publish(
             STREAM_PROPOSALS,
@@ -532,6 +545,7 @@ class GradeAgent(MultiStreamAgent):
                 FieldName.REQUIRES_APPROVAL: True,
                 FieldName.CONTENT: {
                     FieldName.SUGGESTIONS: serialized,
+                    FieldName.ATTRIBUTION: attribution,
                     FieldName.REASON: (
                         f"{len(actionable)} tool-governance action(s) from live "
                         "reasoning telemetry (alpha / reliability / usage)"
