@@ -12,7 +12,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
  */
 const guardDoublePrefix = (url: string): void => {
   if (url.includes("/api/api/")) {
-    console.warn("🚨 Double /api detected:", url);
+    console.warn("[apiClient] Double /api prefix detected:", url);
     // In development, throw an error to catch this immediately
     if (process.env.NODE_ENV === "development") {
       throw new Error(`Double API prefix detected: ${url}`);
@@ -28,7 +28,7 @@ const guardDoublePrefix = (url: string): void => {
  */
 export const api = (path: string): string => {
   if (!path.startsWith("/")) {
-    console.warn("🚨 API path should start with /:", path);
+    console.warn("[apiClient] API path should start with '/':", path);
     path = `/${path}`;
   }
   
