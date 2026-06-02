@@ -283,6 +283,15 @@ Key invariants:
 - **Proposals are backtest-backed.** Every `GradeAgent` proposal carries a
   measured `ReplayHarness` verdict (win rate / PnL / Sharpe / drawdown / FPR)
   over the recent trade buffer — evidence, not a blind guess.
+- **Proposal routing (ProposalApplier handler-map, never edits code):**
+  `PARAMETER_CHANGE` → config-only auto-PR (`GitOpsPublisher`, writes under
+  `config/parameter_overrides/`, applied at next startup by
+  `apply_parameter_overrides`); `NEW_AGENT` → spawn a shadow challenger
+  **dynamically** via `ChallengerSpawner` when its strategy is in
+  `backtest.strategies.STRATEGIES` (config, no deploy), else file an issue;
+  `CODE_CHANGE`/`REGIME_ADJUSTMENT` → GitHub issue for human design;
+  `PROMPT_EVOLUTION` → prompt store; weight/suspension/retirement → Redis
+  control plane. GitOps is gated on `GITHUB_TOKEN` (Render) — dry-run locally.
 - **Fail closed.** `LLM_FALLBACK_MODE` defaults to `reject_signal`: when the
   reasoning LLM is down, the agent emits `REJECT` (no order), never a naive
   momentum buy. Provider throttle degrades reason→instruct model, not to a
