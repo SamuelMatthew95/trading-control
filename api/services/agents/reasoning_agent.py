@@ -51,6 +51,7 @@ from api.constants import (
     TOOL_NEWS_SENTIMENT,
     TOOL_ORDER_BOOK_DEPTH,
     TOOL_QUERY_SIMILAR_TRADES,
+    TOOL_STREAM_CONFLUENCE,
     AgentAction,
     FieldName,
     ToolPhase,
@@ -737,6 +738,24 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.SIGNAL_STRENGTH: data.get(FieldName.STRENGTH, "NORMAL"),
             "signal_type": data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE, "UNKNOWN"),
         }
+
+        # Cross-stream confluence: the composite score SignalGenerator folds from
+        # multiple market streams is already on the signal, so record the
+        # confluence tool as exercised (gated on its registry flag, like the other
+        # perception tools). Without this it would sit in tool governance as a
+        # permanent seeded prior despite informing every reasoning decision.
+        if self._tool_enabled(TOOL_STREAM_CONFLUENCE):
+            composite = data.get(FieldName.COMPOSITE_SCORE)
+            self._record_tool(
+                TOOL_STREAM_CONFLUENCE,
+                latency_ms=0.0,  # already in the signal payload — no fetch
+                success=composite is not None,
+                outputs={
+                    FieldName.COMPOSITE_SCORE: float(composite or 0.0),
+                    FieldName.SIGNAL_TYPE: data.get(FieldName.TYPE)
+                    or data.get(FieldName.SIGNAL_TYPE, "UNKNOWN"),
+                },
+            )
 
         log_structured(
             "info",
