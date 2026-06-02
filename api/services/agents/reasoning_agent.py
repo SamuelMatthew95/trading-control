@@ -114,6 +114,12 @@ class ReasoningAgent(BaseStreamConsumer):
         # attached to the decision so an operator can see the reasoning chain
         # ("this decision consulted these tools"), not just the final verdict.
         self._cycle_tools: list[dict[str, Any]] = []
+        # Per-symbol monotonic timestamp of the last full reasoning cycle.
+        # Enforces REASONING_COOLDOWN_SECONDS so a burst of repeat signals for
+        # the same symbol does not fire one LLM call each — the dominant cause
+        # of provider-quota burn. Safe as instance state: process() runs one
+        # event at a time per consumer.
+        self._last_reason_at: dict[str, float] = {}
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
@@ -133,6 +139,30 @@ class ReasoningAgent(BaseStreamConsumer):
                 symbol=data.get(FieldName.SYMBOL),
             )
             return
+
+        # Per-symbol reasoning cooldown — the dominant LLM-spend lever. Momentum
+        # signals for one symbol can fire every few seconds; without this gate
+        # each one woke a full LLM reasoning call (plus a self-critique call),
+        # which burned the Groq quota. Within the window we drop the repeat
+        # signal entirely (no LLM, no degraded-fallback decision); the next
+        # signal after the window gets full reasoning. The base consumer's idle
+        # heartbeat keeps the agent ACTIVE on the dashboard during skips.
+        symbol = data.get(FieldName.SYMBOL)
+        cooldown_s = float(settings.REASONING_COOLDOWN_SECONDS)
+        if cooldown_s > 0 and symbol:
+            now_mono = time.monotonic()
+            last_at = self._last_reason_at.get(symbol)
+            if last_at is not None and (now_mono - last_at) < cooldown_s:
+                log_structured(
+                    "info",
+                    "reasoning_skipped_cooldown",
+                    trace_id=trace_id,
+                    symbol=symbol,
+                    since_last_s=round(now_mono - last_at, 2),
+                    cooldown_s=cooldown_s,
+                )
+                return
+            self._last_reason_at[symbol] = now_mono
 
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         # Reset per-decision provenance; _call_llm sets it to the real provider.
