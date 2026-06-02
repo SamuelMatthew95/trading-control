@@ -120,6 +120,10 @@ class ReasoningAgent(BaseStreamConsumer):
         # of provider-quota burn. Safe as instance state: process() runs one
         # event at a time per consumer.
         self._last_reason_at: dict[str, float] = {}
+        # Per-symbol fingerprint (side, price) of the last signal we actually
+        # reasoned on. Lets us skip an LLM call when a fresh signal carries no
+        # new information (same side, price within REASONING_DEDUP_PRICE_PCT).
+        self._last_signal_fp: dict[str, tuple[str, float]] = {}
 
     async def process(self, data: dict[str, Any]) -> None:
         today = date.today().isoformat()
@@ -148,6 +152,21 @@ class ReasoningAgent(BaseStreamConsumer):
         # signal after the window gets full reasoning. The base consumer's idle
         # heartbeat keeps the agent ACTIVE on the dashboard during skips.
         symbol = data.get(FieldName.SYMBOL)
+
+        # Signal-change dedup — a fresh signal whose side AND price (within
+        # REASONING_DEDUP_PRICE_PCT) match the last one we reasoned for this
+        # symbol carries no new information, so skip the LLM call even outside
+        # the cooldown window. 0 disables.
+        dedup_pct = float(settings.REASONING_DEDUP_PRICE_PCT)
+        if dedup_pct > 0 and symbol and self._is_duplicate_signal(symbol, data, dedup_pct):
+            log_structured(
+                "info",
+                "reasoning_skipped_duplicate_signal",
+                trace_id=trace_id,
+                symbol=symbol,
+            )
+            return
+
         cooldown_s = float(settings.REASONING_COOLDOWN_SECONDS)
         if cooldown_s > 0 and symbol:
             now_mono = time.monotonic()
@@ -163,6 +182,11 @@ class ReasoningAgent(BaseStreamConsumer):
                 )
                 return
             self._last_reason_at[symbol] = now_mono
+
+        # Committing to a full reasoning cycle — remember this signal so the
+        # next identical one for the symbol can be deduped.
+        if symbol:
+            self._last_signal_fp[symbol] = self._signal_fingerprint(data)
 
         budget_used = int(await self.redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
         # Reset per-decision provenance; _call_llm sets it to the real provider.
@@ -223,12 +247,15 @@ class ReasoningAgent(BaseStreamConsumer):
 
         is_fallback = fallback_reason is not None
 
-        # ReAct Step 2: Self-critique for high-confidence actionable decisions
-        # Only runs when: not a fallback, action is buy/sell, confidence is high enough
+        # ReAct Step 2: Self-critique for high-confidence actionable decisions.
+        # This is a SECOND LLM call per actionable decision; REASONING_SELF_CRITIQUE_ENABLED
+        # gates it so the extra spend can be turned off when provider budget is tight.
+        # Only runs when: enabled, not a fallback, action is buy/sell, confidence high enough.
         action = str(summary.get(FieldName.ACTION, "")).lower()
         confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
         if (
-            not is_fallback
+            settings.REASONING_SELF_CRITIQUE_ENABLED
+            and not is_fallback
             and action not in NO_ORDER_ACTIONS
             and confidence >= REACT_CRITIQUE_CONFIDENCE_THRESHOLD
         ):
@@ -627,6 +654,29 @@ class ReasoningAgent(BaseStreamConsumer):
             sort_keys=True,
             default=str,
         )
+
+    def _signal_fingerprint(self, data: dict[str, Any]) -> tuple[str, float]:
+        """(side, price) identity of a signal — the basis for dedup."""
+        side = str(
+            data.get(FieldName.ACTION)
+            or data.get(FieldName.SIDE)
+            or data.get(FieldName.SIGNAL)
+            or ""
+        ).lower()
+        price = float(data.get(FieldName.PRICE) or 0.0)
+        return side, price
+
+    def _is_duplicate_signal(self, symbol: str, data: dict[str, Any], dedup_pct: float) -> bool:
+        """True when this signal matches the last-reasoned one for the symbol —
+        same side and price within ``dedup_pct`` percent."""
+        prev = self._last_signal_fp.get(symbol)
+        if not prev:
+            return False
+        prev_side, prev_price = prev
+        side, price = self._signal_fingerprint(data)
+        if side != prev_side or prev_price <= 0:
+            return False
+        return abs(price - prev_price) / prev_price <= (dedup_pct / 100.0)
 
     async def _gather_context(self, data: dict[str, Any]) -> dict[str, Any]:
         """ReAct context gathering: fetch IC weights and derive risk state from signal.
