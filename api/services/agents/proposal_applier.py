@@ -56,15 +56,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
-
-# Proposals that need CODE (human design) — filed as GitHub issues, never applied.
-_ISSUE_PROPOSAL_TYPES = frozenset(
-    {
-        ProposalType.CODE_CHANGE,
-        ProposalType.NEW_AGENT,
-        ProposalType.REGIME_ADJUSTMENT,
-    }
-)
+from backtest.strategies import STRATEGIES
 
 
 class ProposalApplier(MultiStreamAgent):
@@ -89,6 +81,21 @@ class ProposalApplier(MultiStreamAgent):
         )
         self.redis = redis_client
         self._applied_count = 0
+        # Injected at startup so an approved NEW_AGENT can spawn a challenger
+        # dynamically (config, no deploy). None → fall back to filing an issue.
+        self.spawner: Any = None
+        # Elegant dispatch: proposal_type → handler(content, trace_id) -> dict|None.
+        # Each handler returns an "applied" summary, or None to skip logging.
+        self._handlers: dict[str, Any] = {
+            ProposalType.SIGNAL_WEIGHT_REDUCTION: self._apply_signal_weight_reduction,
+            ProposalType.AGENT_SUSPENSION: self._apply_agent_suspension,
+            ProposalType.AGENT_RETIREMENT: self._apply_trading_pause,
+            ProposalType.PARAMETER_CHANGE: self._emit_param_change_artifact,
+            ProposalType.PROMPT_EVOLUTION: self._apply_prompt_evolution,
+            ProposalType.NEW_AGENT: self._apply_new_agent,
+            ProposalType.CODE_CHANGE: self._file_code_change_issue,
+            ProposalType.REGIME_ADJUSTMENT: self._file_regime_issue,
+        }
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         # Ignore our own log entries in case a downstream consumer ever
@@ -98,32 +105,19 @@ class ProposalApplier(MultiStreamAgent):
         action = content.get(FieldName.ACTION) if isinstance(content, dict) else None
         trace_id = data.get(FieldName.TRACE_ID) or f"applier_{uuid.uuid4().hex[:8]}"
 
+        handler = self._handlers.get(proposal_type)
+        if handler is None:
+            log_structured(
+                "info",
+                "proposal_skipped_unknown_type",
+                proposal_type=proposal_type,
+                trace_id=trace_id,
+            )
+            return
+
         applied: dict[str, Any] | None = None
         try:
-            if proposal_type == ProposalType.SIGNAL_WEIGHT_REDUCTION:
-                applied = await self._apply_signal_weight_reduction(content)
-            elif proposal_type == ProposalType.AGENT_SUSPENSION:
-                applied = await self._apply_agent_suspension(content)
-            elif proposal_type == ProposalType.AGENT_RETIREMENT:
-                applied = await self._apply_trading_pause(content)
-            elif proposal_type == ProposalType.PARAMETER_CHANGE:
-                # Don't mutate the live system — turn it into a GitOps PR artifact.
-                applied = await self._emit_param_change_artifact(content, trace_id)
-            elif proposal_type == ProposalType.PROMPT_EVOLUTION:
-                applied = await self._apply_prompt_evolution(content, trace_id)
-            elif proposal_type in _ISSUE_PROPOSAL_TYPES:
-                # code_change / new_agent / regime_adjustment need CODE — the
-                # system never edits code itself, so it files a GitHub issue for
-                # a human to design + implement (a new tool, agent, or feature).
-                applied = await self._file_feature_issue(proposal_type, content, trace_id)
-            else:
-                log_structured(
-                    "info",
-                    "proposal_skipped_requires_review",
-                    proposal_type=proposal_type,
-                    trace_id=trace_id,
-                )
-                return
+            applied = await handler(content, trace_id)
         except Exception:
             log_structured(
                 "error",
@@ -221,6 +215,34 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.VERSION: record[FieldName.VERSION],
         }
 
+    async def _apply_new_agent(
+        self, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        """A NEW_AGENT proposal spawns a shadow challenger DYNAMICALLY when its
+        strategy already exists (pure config, no deploy); a brand-new strategy
+        needs code, so it falls back to a GitHub issue."""
+        config = content.get(FieldName.CHALLENGER_CONFIG) or {}
+        strategy = str(config.get(FieldName.STRATEGY) or "")
+        if self.spawner is not None and strategy in STRATEGIES:
+            descriptor = await self.spawner.spawn(config)
+            return {
+                FieldName.MESSAGE: f"challenger spawned for strategy '{strategy}'",
+                FieldName.PROPOSAL_TYPE: ProposalType.NEW_AGENT,
+                **descriptor,
+            }
+        # No spawner (e.g. tests) or unknown strategy → needs human code work.
+        return await self._file_feature_issue(ProposalType.NEW_AGENT, content, trace_id)
+
+    async def _file_code_change_issue(
+        self, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        return await self._file_feature_issue(ProposalType.CODE_CHANGE, content, trace_id)
+
+    async def _file_regime_issue(
+        self, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        return await self._file_feature_issue(ProposalType.REGIME_ADJUSTMENT, content, trace_id)
+
     async def _file_feature_issue(
         self, proposal_type: str, content: dict[str, Any], trace_id: str
     ) -> dict[str, Any] | None:
@@ -251,7 +273,9 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.PR_URL: result.get(FieldName.PR_URL),
         }
 
-    async def _apply_signal_weight_reduction(self, content: dict[str, Any]) -> dict[str, Any]:
+    async def _apply_signal_weight_reduction(
+        self, content: dict[str, Any], trace_id: str = ""
+    ) -> dict[str, Any]:
         """Multiply the global signal-weight scale by SIGNAL_WEIGHT_REDUCTION_FACTOR."""
         current_raw = await self.redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE)
         try:
@@ -271,7 +295,9 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.REASON: content.get(FieldName.REASON, ""),
         }
 
-    async def _apply_agent_suspension(self, content: dict[str, Any]) -> dict[str, Any]:
+    async def _apply_agent_suspension(
+        self, content: dict[str, Any], trace_id: str = ""
+    ) -> dict[str, Any]:
         """Mark a specific agent suspended for AGENT_SUSPEND_TTL_SECONDS."""
         agent_name = (
             content.get(FieldName.AGENT_NAME)
@@ -292,7 +318,9 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.REASON: content.get(FieldName.REASON, ""),
         }
 
-    async def _apply_trading_pause(self, content: dict[str, Any]) -> dict[str, Any]:
+    async def _apply_trading_pause(
+        self, content: dict[str, Any], trace_id: str = ""
+    ) -> dict[str, Any]:
         """System-wide trading pause — ExecutionEngine refuses new orders."""
         reason = content.get(FieldName.REASON) or "grade F retirement proposal"
         await self.redis.set(REDIS_KEY_TRADING_PAUSED, "1", ex=LEARNING_CONTROL_TTL_SECONDS)
