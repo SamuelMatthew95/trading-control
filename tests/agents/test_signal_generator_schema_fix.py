@@ -34,10 +34,11 @@ class TestSignalGeneratorSchemaFix:
             f"Found agent_id parameter usage: {agent_id_param_lines}"
         )
 
-        # Should find strategy_id usage
+        # Should find strategy_id usage (agent_runs INSERT). SignalGenerator no
+        # longer writes an agent_grades row, so there is exactly one such param.
         strategy_id_lines = [line.strip() for line in lines if '"strategy_id":' in line]
-        assert len(strategy_id_lines) >= 2, (
-            f"Should find at least 2 strategy_id parameter usages. Found: {strategy_id_lines}"
+        assert len(strategy_id_lines) >= 1, (
+            f"Should find at least 1 strategy_id parameter usage. Found: {strategy_id_lines}"
         )
 
     def test_branch_documentation(self):
@@ -90,10 +91,10 @@ class TestSignalGeneratorSchemaFix:
             "agent_runs INSERT should NOT use trigger_event column"
         )
 
-        # Check agent_grades INSERT statement
-        assert "INSERT INTO agent_grades" in source_code, "Should have agent_grades INSERT"
-        assert ":strategy_id," in source_code, (
-            "agent_grades INSERT should use strategy_id parameter"
+        # SignalGenerator must NOT write an agent_grades row — the signal-strength
+        # score is a prior, not a graded outcome. Real grades come from GradeAgent.
+        assert "INSERT INTO agent_grades" not in source_code, (
+            "SignalGenerator must not write agent_grades (fake-grade regression)"
         )
 
     def test_error_message_pattern_fixed(self):
