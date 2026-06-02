@@ -5,14 +5,8 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { extractToolInvocations, summarizeToolOutputs } from '@/lib/decision-tools'
+import { formatTimestamp } from '@/lib/formatters'
 import type { DecisionStats } from '@/hooks/useRestPoll'
-
-function formatTimestamp(value?: string | null): string {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
-  return date.toLocaleTimeString()
-}
 
 // A decision is a rule-based fallback (not real model reasoning) when the agent
 // couldn't run the LLM: it sets llm_succeeded=false and prefixes its reasoning
