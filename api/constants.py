@@ -1122,6 +1122,9 @@ TOOL_RISK_CAGE = "evaluate_risk_cage"
 TOOL_VWAP_EXECUTION = "calculate_vwap_execution"
 TOOL_BRACKET_ORDER = "execute_bracket_order"
 TOOL_REPLAY_REGRESSION = "replay_regression_check"
+TOOL_ORDER_BOOK_DEPTH = "get_order_book_depth"
+TOOL_NEWS_SENTIMENT = "get_news_sentiment"
+TOOL_CORRELATION_CHECK = "check_cross_asset_correlation"
 
 # State-flag gates a tool requires before it becomes eligible at a node.
 TOOL_FLAG_CONFLUENCE_LOADED = "confluence_loaded"
