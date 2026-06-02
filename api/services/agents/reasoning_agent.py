@@ -82,6 +82,7 @@ from api.services.market_intel import (
     fetch_order_book_depth,
 )
 from api.services.prompt_assembly import build_runtime_prompt
+from api.services.prompt_store import get_prompt_store
 from api.services.redis_store import get_redis_store
 from api.services.risk_filters import compute_dynamic_position_size
 from api.services.tool_registry import ToolMetadata, get_tool_registry
@@ -721,6 +722,14 @@ class ReasoningAgent(BaseStreamConsumer):
         if symbol:
             await self._gather_market_intel(symbol, context)
 
+        # The self-evolving adaptive directive (learned guidance the learning
+        # loop refines and an approved PROMPT_EVOLUTION proposal writes). Sits
+        # beneath the immutable constitution at assembly time. Best-effort: a
+        # missing store/directive just means we reason on the constitution alone.
+        directive = await self._get_adaptive_directive()
+        if directive:
+            context[FieldName.PROMPT_VARIANT] = directive
+
         # Derive risk state from the signal itself
         context[FieldName.RISK_STATE] = {
             "composite_score": float(data.get(FieldName.COMPOSITE_SCORE) or 0.0),
@@ -742,6 +751,22 @@ class ReasoningAgent(BaseStreamConsumer):
         """Whether the registry currently has this tool enabled (governance gate)."""
         tool = get_tool_registry().get(name)
         return bool(tool and tool.enabled)
+
+    @staticmethod
+    async def _get_adaptive_directive() -> str | None:
+        """The active learned directive for the reasoning node, or None.
+
+        Best-effort: no store installed, no directive, or a Redis hiccup all
+        degrade to None so the decision runs on the constitution alone.
+        """
+        store = get_prompt_store()
+        if store is None:
+            return None
+        try:
+            return await store.get_active_text(REASONING_NODE)
+        except Exception:
+            log_structured("warning", "reasoning_adaptive_directive_fetch_failed", exc_info=True)
+            return None
 
     async def _gather_market_intel(self, symbol: str, context: dict[str, Any]) -> None:
         """Invoke the live perception tools (order-book / news / correlation).
@@ -895,6 +920,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 regime=self._reasoning_regime(context),
                 portfolio_summary=portfolio_summary,
                 telemetry_summary=telemetry_summary,
+                # The learned, self-evolving directive — assembled beneath the
+                # immutable constitution. None → constitution-only prompt.
+                challenger_variant=context.get(FieldName.PROMPT_VARIANT) or None,
             )
             return f"{runtime_prompt}\n\n{DECISION_OUTPUT_CONTRACT}"
         except Exception:
