@@ -45,8 +45,11 @@ from api.constants import (
     STREAM_RISK_ALERTS,
     STREAM_SIGNALS,
     STREAM_SYSTEM_METRICS,
+    TOOL_CORRELATION_CHECK,
     TOOL_FLAG_CONFLUENCE_LOADED,
     TOOL_GET_IC_WEIGHTS,
+    TOOL_NEWS_SENTIMENT,
+    TOOL_ORDER_BOOK_DEPTH,
     TOOL_QUERY_SIMILAR_TRADES,
     AgentAction,
     FieldName,
@@ -73,6 +76,11 @@ from api.services.agents.vector_helpers import (
     search_vector_memory,
 )
 from api.services.llm_router import active_model_label, call_llm_with_system
+from api.services.market_intel import (
+    compute_cross_asset_correlation,
+    fetch_news_sentiment,
+    fetch_order_book_depth,
+)
 from api.services.prompt_assembly import build_runtime_prompt
 from api.services.redis_store import get_redis_store
 from api.services.risk_filters import compute_dynamic_position_size
@@ -705,6 +713,14 @@ class ReasoningAgent(BaseStreamConsumer):
             outputs={FieldName.IC_WEIGHTS: context.get(FieldName.IC_WEIGHTS) or {}},
         )
 
+        # Live market-intel perception tools — each gated on its registry
+        # enabled flag, so when governance disables a dead tool the agent stops
+        # paying for its fetch (closing the loop), and each records telemetry so
+        # the grade loop can attribute realized PnL back to it.
+        symbol = data.get(FieldName.SYMBOL)
+        if symbol:
+            await self._gather_market_intel(symbol, context)
+
         # Derive risk state from the signal itself
         context[FieldName.RISK_STATE] = {
             "composite_score": float(data.get(FieldName.COMPOSITE_SCORE) or 0.0),
@@ -720,6 +736,54 @@ class ReasoningAgent(BaseStreamConsumer):
             signal_type=context[FieldName.RISK_STATE][FieldName.SIGNAL_TYPE],
         )
         return context
+
+    @staticmethod
+    def _tool_enabled(name: str) -> bool:
+        """Whether the registry currently has this tool enabled (governance gate)."""
+        tool = get_tool_registry().get(name)
+        return bool(tool and tool.enabled)
+
+    async def _gather_market_intel(self, symbol: str, context: dict[str, Any]) -> None:
+        """Invoke the live perception tools (order-book / news / correlation).
+
+        Each is best-effort and individually gated on its registry enabled flag.
+        Results land in ``context`` (fed to the LLM prompt) and each invocation
+        is recorded so its latency/reliability — and, after the trade closes,
+        its realized-PnL alpha — show up in tool governance.
+        """
+        intel: list[tuple[str, str, Any]] = [
+            (TOOL_ORDER_BOOK_DEPTH, FieldName.ORDER_BOOK, fetch_order_book_depth(symbol)),
+            (
+                TOOL_NEWS_SENTIMENT,
+                FieldName.NEWS_SENTIMENT,
+                fetch_news_sentiment(symbol, self.redis),
+            ),
+            (
+                TOOL_CORRELATION_CHECK,
+                FieldName.CORRELATION,
+                compute_cross_asset_correlation(symbol, self.redis),
+            ),
+        ]
+        for tool_name, ctx_key, coro in intel:
+            if not self._tool_enabled(tool_name):
+                coro.close()  # not eligible — don't pay for the fetch
+                continue
+            t0 = time.monotonic()
+            result: dict[str, Any] = {}
+            try:
+                result = await coro
+            except Exception:
+                log_structured(
+                    "warning", "reasoning_market_intel_failed", tool=tool_name, exc_info=True
+                )
+            if result:
+                context[ctx_key] = result
+            self._record_tool(
+                tool_name,
+                latency_ms=(time.monotonic() - t0) * 1000,
+                success=bool(result),
+                outputs=result,
+            )
 
     # ------------------------------------------------------------------
     # Prompt-OS: tool-governed runtime prompt assembly + tool telemetry
@@ -974,12 +1038,17 @@ class ReasoningAgent(BaseStreamConsumer):
             # No memory matches: bias to smaller sizing while preserving direction signal context.
             risk_state.setdefault("size_pct_scale", 0.5)
 
+        ctx = context or {}
         prompt = json.dumps(
             {
                 "signal": data,
                 FieldName.SIMILAR_TRADES: similar_trades_payload,
                 FieldName.IC_WEIGHTS: ic_weights,
                 FieldName.RISK_STATE: risk_state,
+                # Live market-intel from the perception tools, when present.
+                FieldName.ORDER_BOOK: ctx.get(FieldName.ORDER_BOOK) or {},
+                FieldName.NEWS_SENTIMENT: ctx.get(FieldName.NEWS_SENTIMENT) or {},
+                FieldName.CORRELATION: ctx.get(FieldName.CORRELATION) or {},
                 FieldName.SYSTEM_DIRECTIVE: "CAPITAL_PRESERVATION_FIRST",
             },
             default=str,
