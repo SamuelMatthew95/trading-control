@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import fakeredis.aioredis
 import pytest
 
 from api.events.bus import EventBus
@@ -492,17 +493,16 @@ async def test_pnl_percent_oversell_uses_closed_qty(engine):
 # ---------------------------------------------------------------------------
 
 
-async def test_process_in_memory_writes_order_to_store(
-    engine, mock_bus, mock_redis, mock_broker, monkeypatch
-):
-    """With is_db_available=False, process() writes one order to InMemoryStore."""
-    # Override the autouse _force_db_available fixture for this test
+async def test_process_in_memory_writes_order_to_store(mock_bus, mock_dlq, mock_redis, monkeypatch):
+    """With is_db_available=False, process() writes one order to InMemoryStore.
+
+    Uses a real PaperBroker on fakeredis (not a stub) so the fill path exercises
+    the canonical broker, and the order's fill price reflects real slippage.
+    """
     monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
 
-    mock_broker.get_position = AsyncMock(return_value={})
-    mock_broker.place_order = AsyncMock(
-        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
-    )
+    broker = PaperBroker(redis_client=fakeredis.aioredis.FakeRedis(decode_responses=True))
+    engine = ExecutionEngine(bus=mock_bus, dlq=mock_dlq, redis_client=mock_redis, broker=broker)
 
     from api.runtime_state import get_runtime_store
 
@@ -513,21 +513,22 @@ async def test_process_in_memory_writes_order_to_store(
     order = orders[0]
     assert order["symbol"] == "BTC/USD"
     assert order["side"] == "buy"
-    assert order["filled_price"] == pytest.approx(50001.0)
+    # Buy fill price is the requested price plus slippage (real broker).
+    assert order["filled_price"] > 50000.0
     assert "pnl" in order
     assert "pnl_percent" in order
 
 
-async def test_process_in_memory_upserts_position(
-    engine, mock_bus, mock_redis, mock_broker, monkeypatch
-):
-    """After a buy in memory mode, the InMemoryStore position for BTC/USD has positive qty."""
+async def test_process_in_memory_upserts_position(mock_bus, mock_dlq, mock_redis, monkeypatch):
+    """After a buy in memory mode, the store mirrors the broker's open position.
+
+    The store position is sourced from the PaperBroker (single source of truth),
+    so it must reflect the long the broker opened.
+    """
     monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
 
-    mock_broker.get_position = AsyncMock(return_value={})
-    mock_broker.place_order = AsyncMock(
-        return_value={"broker_order_id": "x", "fill_price": 50001.0, "status": "filled"}
-    )
+    broker = PaperBroker(redis_client=fakeredis.aioredis.FakeRedis(decode_responses=True))
+    engine = ExecutionEngine(bus=mock_bus, dlq=mock_dlq, redis_client=mock_redis, broker=broker)
 
     from api.runtime_state import get_runtime_store
 
@@ -536,6 +537,9 @@ async def test_process_in_memory_upserts_position(
     positions = get_runtime_store().positions
     assert "BTC/USD" in positions
     assert float(positions["BTC/USD"]["qty"]) > 0
+    # The store mirror agrees with the broker (single source of truth).
+    broker_pos = await broker.get_position("BTC/USD")
+    assert float(positions["BTC/USD"]["qty"]) == pytest.approx(abs(float(broker_pos["qty"])))
 
 
 async def test_process_in_memory_publishes_streams(
