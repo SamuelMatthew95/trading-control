@@ -29,7 +29,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
         FieldName.WINNING_TRADES: stats.winning,
         FieldName.LOSING_TRADES: stats.losing,
         "win_rate": round(stats.win_rate, 4),
-        FieldName.ACTIVE_POSITIONS: len(open_positions),
+        FieldName.ACTIVE_POSITIONS: store.get_active_position_count(),
         FieldName.BEST_TRADE: round(stats.best, 2),
         FieldName.WORST_TRADE: round(stats.worst, 2),
         FieldName.EQUITY_CURVE: equity_curve,
