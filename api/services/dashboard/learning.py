@@ -12,6 +12,7 @@ from api.constants import (
     REDIS_KEY_SIGNAL_WEIGHT_SCALE,
     REDIS_KEY_TRADING_PAUSED,
     REDIS_KEY_TRADING_PAUSED_REASON,
+    SOURCE_SIGNAL,
     FieldName,
     LogType,
     OrderStatus,
@@ -104,10 +105,11 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
                     text("""
                         SELECT trace_id, score, metrics, created_at
                         FROM agent_grades
+                        WHERE source IS DISTINCT FROM :signal_source
                         ORDER BY created_at DESC
                         LIMIT :limit
                     """),
-                    {FieldName.LIMIT: limit},
+                    {FieldName.LIMIT: limit, "signal_source": SOURCE_SIGNAL},
                 )
                 for row in fallback_result.all():
                     metrics = _as_dict(row[2])
