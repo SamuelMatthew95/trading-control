@@ -46,6 +46,7 @@ from api.services.agents.pipeline_agents import (
 from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
+from api.services.challenger_spawner import ChallengerSpawner
 from api.services.config_overrides import apply_parameter_overrides
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
@@ -356,6 +357,14 @@ async def lifespan(app: FastAPI):
                 streams=getattr(agent, "streams", None),
             )
         app.state.agents = agents
+
+        # Wire the dynamic challenger spawner (shared by the dashboard route and
+        # an approved NEW_AGENT proposal) onto the live agents list + the applier.
+        spawner = ChallengerSpawner(event_bus, dlq_manager, agents, agent_state)
+        app.state.challenger_spawner = spawner
+        for agent in agents:
+            if isinstance(agent, ProposalApplier):
+                agent.spawner = spawner
 
         # RiskGuardian: periodic position monitor (stop-loss, take-profit, daily loss).
         risk_guardian = RiskGuardian(event_bus, redis_client)
