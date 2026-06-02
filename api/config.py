@@ -21,7 +21,12 @@ class Settings(BaseSettings):
     USE_MEMORY_MODE: bool = Field(default=False)
     ANTHROPIC_API_KEY: str | None = Field(default=None)
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
-    LLM_FALLBACK_MODE: str = "skip_reasoning"
+    # When the reasoning LLM is unavailable, FAIL CLOSED: emit REJECT (no order),
+    # recorded + visible on the dashboard — never a naive momentum buy/sell. The
+    # constitution is capital-preservation-first; guessing direction without the
+    # brain loses money. "use_last_reflection" (reuse the last LLM guidance) and
+    # "skip_reasoning" (naive directional) remain opt-in for operators who want them.
+    LLM_FALLBACK_MODE: str = "reject_signal"
     ALLOW_FALLBACK_TRADES: bool = False
     MAX_FALLBACK_ORDER_QTY: float = 0.01
     MAX_SYMBOL_EXPOSURE: float = 1.0

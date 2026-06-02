@@ -1484,7 +1484,7 @@ MIN_RR_RATIO: Final[float] = 2.0
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"
 LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
 LLM_FALLBACK_MODE_USE_LAST_REFLECTION: Final[str] = "use_last_reflection"
-LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
+LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_REJECT_SIGNAL  # fail closed — no naive trades
 
 # Alpaca HTTP transport hardening — price_poller fetch layer
 # Root cause addressed: SSLZeroReturnError(6) from stale keepalive reuse under Render NAT.
