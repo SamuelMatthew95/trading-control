@@ -46,6 +46,7 @@ from api.services.agents.pipeline_agents import (
 from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
+from api.services.config_overrides import apply_parameter_overrides
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -276,6 +277,12 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Sequence startup, yield to serve requests, then tear everything down."""
+    # Apply any merged config overrides (auto-PR GitOps) over settings before
+    # anything reads them. Defensive: bad/unknown overrides are skipped.
+    applied_overrides = apply_parameter_overrides(settings)
+    if applied_overrides:
+        log_structured("info", "config_overrides_applied", params=applied_overrides)
+
     app.state.db_engine = engine
     app.state.in_memory_store = InMemoryStore()
     set_runtime_store(app.state.in_memory_store)
