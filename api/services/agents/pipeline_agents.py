@@ -113,6 +113,7 @@ from api.services.agents.trade_scorer import (
 )
 from api.services.llm_metrics import llm_metrics as _llm_metrics
 from api.services.redis_store import get_redis_store as _get_redis_store
+from api.services.tool_registry import get_tool_registry
 
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
@@ -153,6 +154,10 @@ class GradeAgent(MultiStreamAgent):
         # Edge-trigger latch: alert once when the diagnostic enters a drop/decay
         # state, stay quiet until it recovers (avoids per-cycle notification spam).
         self._self_correction_active: bool = False
+        # Last emitted tool-governance suggestion set (";"-joined tool:action).
+        # Edge-triggers the tool-governance proposal so an unchanged set is not
+        # re-proposed every grading cycle.
+        self._last_tool_governance_key: str | None = None
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -297,6 +302,7 @@ class GradeAgent(MultiStreamAgent):
         )
         await self._take_grade_action(grade, payload)
         await self._emit_self_correction_alert(self_correction, trace_id)
+        await self._emit_tool_governance(trace_id)
         await self._adjust_llm_call_rate(llm_snap)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
@@ -416,6 +422,79 @@ class GradeAgent(MultiStreamAgent):
                 },
                 FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             },
+        )
+
+    async def _emit_tool_governance(self, trace_id: str) -> None:
+        """Turn the ToolRegistry's read-only advice into an actionable proposal.
+
+        The registry already scores each tool's alpha + reliability from live
+        reasoning telemetry, but the only consumer was a passive dashboard
+        panel — the loop never closed ("it's not automating"). Each grade cycle
+        we surface the actionable suggestions (disable / review) as a single
+        human-approval proposal + notification, edge-triggered so an unchanged
+        set does not re-propose every cycle. The full suggestion list (incl.
+        the ``prioritize`` hint) rides along in the proposal content.
+        """
+        try:
+            suggestions = get_tool_registry().suggest_tool_changes()
+        except Exception:
+            log_structured("warning", "tool_governance_suggest_failed", exc_info=True)
+            return
+
+        # 'prioritize' alone is informational; only disable/review are actionable.
+        actionable = [s for s in suggestions if s.action in ("disable", "review")]
+        if not actionable:
+            self._last_tool_governance_key = None
+            return
+
+        key = ";".join(f"{s.tool}:{s.action}" for s in actionable)
+        if key == self._last_tool_governance_key:
+            return  # unchanged set — already proposed this episode
+        self._last_tool_governance_key = key
+
+        serialized = [
+            {
+                FieldName.TOOL: s.tool,
+                FieldName.ACTION: s.action,
+                FieldName.SEVERITY: s.severity,
+                FieldName.REASON: s.reason,
+            }
+            for s in suggestions
+        ]
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await self.bus.publish(
+            STREAM_PROPOSALS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_GRADE,
+                FieldName.TYPE: "proposal",
+                FieldName.PROPOSAL_TYPE: ProposalType.TOOL_GOVERNANCE,
+                FieldName.REQUIRES_APPROVAL: True,
+                FieldName.CONTENT: {
+                    FieldName.SUGGESTIONS: serialized,
+                    FieldName.REASON: (
+                        f"{len(actionable)} tool-governance action(s) from live "
+                        "reasoning telemetry (alpha / reliability / usage)"
+                    ),
+                },
+                FieldName.TRACE_ID: trace_id,
+                FieldName.TIMESTAMP: now_iso,
+            },
+        )
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_GRADE,
+                FieldName.TYPE: "notification",
+                FieldName.SEVERITY: Severity.INFO,
+                FieldName.NOTIFICATION_TYPE: "tool_governance",
+                FieldName.MESSAGE: f"Tool governance suggests: {key}",
+                FieldName.TIMESTAMP: now_iso,
+            },
+        )
+        log_structured(
+            "info", "tool_governance_proposal_published", suggestions=key, trace_id=trace_id
         )
 
     def _win_rate(self, lookback_n: int) -> float:
