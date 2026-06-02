@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Check, X } from "lucide-react";
 
 import { api } from "@/lib/apiClient";
+import { formatPercent } from "@/lib/formatters";
 import {
   cardClass,
   mutedClass,
@@ -30,12 +31,6 @@ function proposalLabel(proposal: Proposal): string {
     proposal.strategy_name ||
     proposal.proposal_type.replace(/_/g, " ")
   );
-}
-
-function formatPercent(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "--";
-  const normalized = Math.abs(value) <= 1 ? value * 100 : value;
-  return `${normalized.toFixed(1)}%`;
 }
 
 function statusClass(status: Proposal["status"]): string {
