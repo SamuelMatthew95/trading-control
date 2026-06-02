@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     # the provider quota. Within the cooldown window a fresh signal reuses the
     # deterministic fallback path instead of calling the LLM. 0 disables it.
     REASONING_COOLDOWN_SECONDS: float = 60.0
+    # Skip the LLM when a fresh signal's side matches the last-reasoned one and
+    # its price is within this percent — a materially identical signal carries
+    # no new information. 0 disables. Complements the cooldown for slow but
+    # repetitive signals.
+    REASONING_DEDUP_PRICE_PCT: float = 0.05
+    # The ReAct self-critique is a SECOND LLM call on high-confidence buy/sells.
+    # Disabled by default to halve actionable-decision LLM spend; re-enable when
+    # provider budget allows and decision-quality review is worth the extra call.
+    REASONING_SELF_CRITIQUE_ENABLED: bool = False
 
     # Grade system
     GRADE_LOOKBACK_N: int = 20
