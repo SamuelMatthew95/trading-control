@@ -472,7 +472,7 @@ def _cloud_fallback_chain(primary: str) -> list[str]:
     for candidate in _CLOUD_PROVIDER_PREFERENCE:
         if candidate == primary:
             continue
-        if candidate in _PROVIDERS and _get_provider_key(candidate).strip():
+        if candidate in _PROVIDERS and (_get_provider_key(candidate) or "").strip():
             chain.append(candidate)
     return chain
 
