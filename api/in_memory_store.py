@@ -186,6 +186,24 @@ class InMemoryStore:
             if self._has_open_quantity(p)
         ]
 
+    def has_active_position(self, symbol: str) -> bool:
+        """Canonical 'do we hold this symbol?' — ``abs(qty) > 0``, side-agnostic.
+
+        Distinct from ``has_open_position`` (which is LONG-only, used for SELL
+        validation). This is the rule the active-position COUNT uses: a flat
+        position has qty 0, so its side is irrelevant.
+        """
+        pos = self.positions.get(symbol)
+        return pos is not None and self._has_open_quantity(pos)
+
+    def get_active_position_count(self) -> int:
+        """Canonical active-position count — ``abs(qty) > 0`` (side-agnostic).
+
+        Single source for the dashboard's "active positions" number so it can
+        never disagree with the length of the open-positions list.
+        """
+        return sum(1 for p in self.positions.values() if self._has_open_quantity(p))
+
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
         self.agents[agent_id] = {**existing, **data}
@@ -630,17 +648,21 @@ class InMemoryStore:
         return entry
 
     def open_positions(self) -> list[dict[str, Any]]:
-        """Return in-memory open positions (long/short, non-zero qty), marked to market.
+        """Return in-memory open positions (``abs(qty) > 0``), marked to market.
 
-        Each row's unrealized_pnl/pnl is recomputed from avg_cost vs last_price
-        so every position read path agrees with the paired-PnL / equity-curve
-        figures instead of returning the stale value stored at fill time.
+        Uses the same canonical rule as normalized_open_positions /
+        get_active_position_count so the positions list and the active-position
+        count never disagree. Each row's unrealized_pnl/pnl is recomputed from
+        avg_cost vs last_price so every position read path agrees with the
+        paired-PnL / equity-curve figures instead of returning the stale value
+        stored at fill time.
         """
         rows: list[dict[str, Any]] = []
         for position in self.positions.values():
-            side = str(position.get(FieldName.SIDE, "")).lower()
-            qty = self._safe_float(position.get(FieldName.QTY))
-            if side not in {"long", "short"} or qty is None or abs(qty) <= 0:
+            # Canonical active rule: abs(qty) > 0 (side-agnostic), matching
+            # normalized_open_positions / get_active_position_count so the list
+            # and the count can never disagree.
+            if not self._has_open_quantity(position):
                 continue
             row = dict(position)
             computed = self._position_unrealized_pnl(row)
