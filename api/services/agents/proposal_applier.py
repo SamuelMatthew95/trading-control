@@ -56,6 +56,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
+from api.services.tool_registry import get_tool_registry
 from backtest.strategies import STRATEGIES
 
 
@@ -95,6 +96,7 @@ class ProposalApplier(MultiStreamAgent):
             ProposalType.NEW_AGENT: self._apply_new_agent,
             ProposalType.CODE_CHANGE: self._file_code_change_issue,
             ProposalType.REGIME_ADJUSTMENT: self._file_regime_issue,
+            ProposalType.TOOL_GOVERNANCE: self._apply_tool_governance,
         }
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -271,6 +273,35 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.PROPOSAL_TYPE: proposal_type,
             FieldName.STATUS: result.get(FieldName.STATUS),
             FieldName.PR_URL: result.get(FieldName.PR_URL),
+        }
+
+    async def _apply_tool_governance(
+        self, content: dict[str, Any], trace_id: str = ""
+    ) -> dict[str, Any] | None:
+        """Disable the tools a TOOL_GOVERNANCE proposal flagged for removal.
+
+        Closes the dead-tool loop: GradeAgent flags a negative-alpha or unreliable
+        tool, this handler disables it in the in-process registry, and the next
+        reasoning prompt stops paying for it. Only ``disable`` suggestions are
+        actioned (``review`` is advisory). Returns None when nothing changed so no
+        misleading "applied" log is emitted."""
+        suggestions = content.get(FieldName.SUGGESTIONS) or []
+        registry = get_tool_registry()
+        disabled: list[str] = []
+        for suggestion in suggestions:
+            if not isinstance(suggestion, dict):
+                continue
+            if suggestion.get(FieldName.ACTION) != "disable":
+                continue
+            name = suggestion.get(FieldName.TOOL)
+            if name and registry.set_enabled(name, False):
+                disabled.append(name)
+        if not disabled:
+            return None
+        return {
+            FieldName.MESSAGE: f"disabled {len(disabled)} tool(s): {', '.join(disabled)}",
+            FieldName.TOOLS: disabled,
+            FieldName.REASON: content.get(FieldName.REASON, ""),
         }
 
     async def _apply_signal_weight_reduction(
