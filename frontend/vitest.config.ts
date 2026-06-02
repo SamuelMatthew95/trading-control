@@ -14,7 +14,6 @@ export default defineConfig({
       include: [
         'src/app/dashboard/DashboardView.tsx',
         'src/components/WebSocketProvider.tsx',
-        'src/utils/dashboard.ts',
         'src/types/dashboard.ts'
       ],
       exclude: [
