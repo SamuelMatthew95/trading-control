@@ -527,3 +527,24 @@ async def test_trade_without_known_decision_tools_is_noop(grade_agent):
         assert registry.get("get_ic_weights").alpha_score == 0.33  # unchanged
     finally:
         set_tool_registry(None)
+
+
+async def test_grade_proposals_carry_measured_backtest_evidence(grade_agent):
+    """Every grade proposal must carry a MEASURED ReplayHarness verdict from the
+    recent trade buffer — proposals are backtest-backed, not blind guesses."""
+    from api.constants import FieldName
+
+    # Seed the eval buffer with a few scored trades (mix of win/loss).
+    grade_agent._eval_buffer.extend(
+        [
+            {FieldName.PNL: 12.0, FieldName.SIDE: "buy"},
+            {FieldName.PNL: -4.0, FieldName.SIDE: "sell"},
+            {FieldName.PNL: 8.0, FieldName.SIDE: "buy"},
+        ]
+    )
+    evidence = grade_agent._recent_backtest_evidence()
+    # The measured block has the gate metrics and reflects the seeded trades.
+    assert evidence[FieldName.TRADE_COUNT] == 3
+    assert evidence[FieldName.TOTAL_PNL] == pytest.approx(16.0)
+    assert "win_rate" in evidence
+    assert "false_positive_rate" in evidence
