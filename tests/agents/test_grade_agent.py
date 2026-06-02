@@ -383,3 +383,77 @@ async def test_self_correction_alert_is_edge_triggered(grade_agent, mock_bus):
     assert notif_count() == 1  # recovered → latch resets, no alert
     await grade_agent._emit_self_correction_alert(drop, "t4")
     assert notif_count() == 2  # new episode after recovery → fires again
+
+
+# ---------------------------------------------------------------------------
+# Tool-governance proposal emission (closes the "it's not automating" loop)
+# ---------------------------------------------------------------------------
+
+
+def _suggestion(tool, action, severity="warning", reason="r"):
+    from api.services.tool_registry import ToolSuggestion
+
+    return ToolSuggestion(tool=tool, action=action, severity=severity, reason=reason)
+
+
+@pytest.mark.asyncio
+async def test_tool_governance_emits_proposal_for_actionable_suggestions(grade_agent, mock_bus):
+    """Actionable tool suggestions (disable/review) are published as a proposal
+    + notification — the registry's advice now reaches the operator as an
+    approval-gated proposal, not just a passive panel."""
+    from api.constants import STREAM_PROPOSALS, ProposalType
+
+    suggestions = [
+        _suggestion("get_ic_weights", "disable", reason="negative alpha"),
+        _suggestion("top_tool", "prioritize", severity="info", reason="highest alpha"),
+    ]
+    with patch(
+        "api.services.agents.pipeline_agents.get_tool_registry",
+        return_value=MagicMock(suggest_tool_changes=MagicMock(return_value=suggestions)),
+    ):
+        await grade_agent._emit_tool_governance("trace-tg")
+
+    proposal_calls = [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ]
+    assert len(proposal_calls) == 1
+    payload = proposal_calls[0].args[1]
+    assert payload[FieldName.PROPOSAL_TYPE] == ProposalType.TOOL_GOVERNANCE
+    assert payload[FieldName.REQUIRES_APPROVAL] is True
+    # The full suggestion list (incl. the prioritize hint) rides along.
+    assert len(payload[FieldName.CONTENT][FieldName.SUGGESTIONS]) == 2
+
+
+@pytest.mark.asyncio
+async def test_tool_governance_noop_when_only_informational(grade_agent, mock_bus):
+    """A 'prioritize'-only set is informational — no proposal is emitted."""
+    from api.constants import STREAM_PROPOSALS
+
+    with patch(
+        "api.services.agents.pipeline_agents.get_tool_registry",
+        return_value=MagicMock(
+            suggest_tool_changes=MagicMock(return_value=[_suggestion("t", "prioritize", "info")])
+        ),
+    ):
+        await grade_agent._emit_tool_governance("trace-tg")
+
+    assert [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ] == []
+
+
+@pytest.mark.asyncio
+async def test_tool_governance_is_edge_triggered(grade_agent, mock_bus):
+    """An unchanged suggestion set is not re-proposed every cycle."""
+    from api.constants import STREAM_PROPOSALS
+
+    suggestions = [_suggestion("dead_tool", "disable")]
+    registry = MagicMock(suggest_tool_changes=MagicMock(return_value=suggestions))
+    with patch("api.services.agents.pipeline_agents.get_tool_registry", return_value=registry):
+        await grade_agent._emit_tool_governance("trace-1")
+        await grade_agent._emit_tool_governance("trace-2")  # same set — skipped
+
+    proposal_calls = [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ]
+    assert len(proposal_calls) == 1
