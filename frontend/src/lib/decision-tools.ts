@@ -37,9 +37,10 @@ export function extractToolInvocations(decision: Record<string, unknown>): Decis
 }
 
 /**
- * Compact, human summary of a tool's decision-relevant output. Knows the two
- * grounded shapes the backend emits today (similar-trade count, IC weights) and
- * degrades to `null` for anything else so the row simply omits it.
+ * Compact, human summary of a tool's decision-relevant output. Knows the
+ * grounded shapes the backend emits today (similar-trade count, IC weights,
+ * cross-stream confluence score + signal type) and degrades to `null` for
+ * anything else so the row simply omits it.
  */
 export function summarizeToolOutputs(outputs: Record<string, unknown> | undefined): string | null {
   if (!outputs || typeof outputs !== 'object') return null
@@ -47,6 +48,15 @@ export function summarizeToolOutputs(outputs: Record<string, unknown> | undefine
 
   if (typeof outputs.count === 'number') {
     parts.push(`${outputs.count} example${outputs.count === 1 ? '' : 's'}`)
+  }
+
+  // Cross-stream confluence tool: the composite score (and the signal type it
+  // resolved to) the reasoning node folded from multiple market streams.
+  if (typeof outputs.composite_score === 'number') {
+    parts.push(`confluence ${outputs.composite_score.toFixed(2)}`)
+  }
+  if (typeof outputs.signal_type === 'string' && outputs.signal_type) {
+    parts.push(outputs.signal_type)
   }
 
   const weights = outputs.ic_weights
