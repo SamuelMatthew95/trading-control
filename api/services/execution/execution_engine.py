@@ -86,7 +86,6 @@ from api.services.execution.order_writer import (
     upsert_position_db,
 )
 from api.services.execution.position_math import (
-    apply_signed_delta,
     clamp_buy_to_position_limit,
     compute_pnl_percent,
     compute_realized_pnl,
@@ -575,59 +574,9 @@ class ExecutionEngine(BaseStreamConsumer):
         pnl_percent = compute_pnl_percent(prior_position, side, qty, entry_price, realized_pnl)
         fallback_order_id = str(uuid.uuid4())
 
-        store = get_runtime_store()
-        # add_order only — do NOT call apply_decision, which also appends
-        # to store.orders on SELL and would double-count realized PnL.
-        store.add_order(
-            {
-                FieldName.SYMBOL: symbol,
-                FieldName.SIDE: side,
-                FieldName.QTY: qty,
-                FieldName.PRICE: fill_price,
-                FieldName.FILL_PRICE: fill_price,
-                FieldName.STATUS: broker_result[FieldName.STATUS],
-                FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
-                FieldName.PNL: pnl_value,
-                FieldName.FILLED_AT: filled_at.isoformat(),
-                FieldName.TRACE_ID: trace_id,
-                FieldName.STRATEGY_ID: strategy_id,
-            }
-        )
-        store.upsert_trade_fill(
-            {
-                FieldName.ID: trace_id,
-                FieldName.SYMBOL: symbol,
-                FieldName.SIDE: side,
-                FieldName.QTY: qty,
-                FieldName.ENTRY_PRICE: entry_price,
-                FieldName.EXIT_PRICE: fill_price if is_close else None,
-                FieldName.PNL: pnl_value,
-                FieldName.PNL_PERCENT: pnl_percent,
-                FieldName.SESSION_ID: strategy_id,
-                FieldName.ORDER_ID: fallback_order_id,
-                FieldName.EXECUTION_TRACE_ID: trace_id,
-                FieldName.STATUS: OrderStatus.FILLED,
-                FieldName.FILLED_AT: filled_at.isoformat(),
-            }
-        )
-
-        # Reconcile position in InMemoryStore (mirrors _process_in_memory logic).
-        _existing = store.positions.get(symbol) or prior_position
-        new_pos = apply_signed_delta(
-            _existing,
-            side,
-            qty,
-            fill_price,
-            strategy_id=strategy_id,
-            symbol=symbol,
-        )
-        if new_pos is None:
-            store.positions.pop(symbol, None)
-        else:
-            store.upsert_position(symbol, new_pos)
-
-        self._append_equity_snapshot(store, filled_at)
-
+        # Record via the single in-memory fill path — the broker already filled
+        # before the DB failure, so its position is authoritative and mirrored
+        # into the store (no apply_decision, no recompute, no double-count).
         ctx = FillContext(
             order_id=fallback_order_id,
             strategy_id=strategy_id,
@@ -649,6 +598,9 @@ class ExecutionEngine(BaseStreamConsumer):
             model_used=str(data.get(FieldName.MODEL_USED) or ""),
             primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
             decision_cost_usd=float(data.get(FieldName.DECISION_COST_USD) or 0.0),
+        )
+        await self._record_fill_to_store(
+            ctx, broker_order_id=str(broker_result[FieldName.BROKER_ORDER_ID])
         )
         await publish_fill_events(self.bus, ctx)
 
@@ -854,60 +806,6 @@ class ExecutionEngine(BaseStreamConsumer):
             pnl_value = realized_pnl if is_close else None
             pnl_percent = compute_pnl_percent(prior_position, side, qty, entry_price, realized_pnl)
 
-            store = get_runtime_store()
-            store.add_order(
-                {
-                    FieldName.ORDER_ID: order_id,
-                    FieldName.STRATEGY_ID: strategy_id,
-                    FieldName.SYMBOL: symbol,
-                    FieldName.SIDE: side,
-                    FieldName.QTY: qty,
-                    FieldName.QUANTITY: qty,
-                    FieldName.PRICE: fill_price,
-                    FieldName.FILLED_PRICE: fill_price,
-                    FieldName.STATUS: broker_result[FieldName.STATUS],
-                    FieldName.BROKER_ORDER_ID: broker_result[FieldName.BROKER_ORDER_ID],
-                    FieldName.PNL: pnl_value,
-                    FieldName.SESSION_ID: strategy_id,
-                    FieldName.PNL_PERCENT: pnl_percent,
-                    FieldName.FILLED_AT: filled_at.isoformat(),
-                    FieldName.TRACE_ID: trace_id,
-                }
-            )
-            store.upsert_trade_fill(
-                {
-                    FieldName.ID: trace_id,
-                    FieldName.SYMBOL: symbol,
-                    FieldName.SIDE: side,
-                    FieldName.QTY: qty,
-                    FieldName.ENTRY_PRICE: entry_price,
-                    FieldName.EXIT_PRICE: fill_price if is_close else None,
-                    FieldName.PNL: pnl_value,
-                    FieldName.PNL_PERCENT: pnl_percent,
-                    FieldName.SESSION_ID: strategy_id,
-                    FieldName.ORDER_ID: order_id,
-                    FieldName.EXECUTION_TRACE_ID: trace_id,
-                    FieldName.STATUS: OrderStatus.FILLED,
-                    FieldName.FILLED_AT: filled_at.isoformat(),
-                }
-            )
-
-            existing_pos = store.positions.get(symbol, {})
-            new_pos = apply_signed_delta(
-                existing_pos,
-                side,
-                qty,
-                fill_price,
-                strategy_id=strategy_id,
-                symbol=symbol,
-            )
-            if new_pos is None:
-                store.positions.pop(symbol, None)
-            else:
-                store.upsert_position(symbol, new_pos)
-
-            self._append_equity_snapshot(store, filled_at)
-
             ctx = FillContext(
                 order_id=order_id,
                 strategy_id=strategy_id,
@@ -929,6 +827,9 @@ class ExecutionEngine(BaseStreamConsumer):
                 model_used=str(data.get(FieldName.MODEL_USED) or ""),
                 primary_edge=str(data.get(FieldName.PRIMARY_EDGE) or ""),
                 decision_cost_usd=float(data.get(FieldName.DECISION_COST_USD) or 0.0),
+            )
+            await self._record_fill_to_store(
+                ctx, broker_order_id=str(broker_result[FieldName.BROKER_ORDER_ID])
             )
             await publish_fill_events(self.bus, ctx)
 
@@ -1109,6 +1010,59 @@ class ExecutionEngine(BaseStreamConsumer):
         )
         if len(store.equity_curve) > 1000:
             store.equity_curve = store.equity_curve[-1000:]
+
+    async def _record_fill_to_store(self, ctx: FillContext, *, broker_order_id: str = "") -> None:
+        """Record one in-memory fill: order, trade-feed row, broker-mirrored
+        position, and an equity snapshot.
+
+        The single in-memory fill-recording path, shared by ``_process_in_memory``
+        and the DB-failure fallback so a fill is recorded identically regardless
+        of which path saw it. The position is mirrored from the PaperBroker (the
+        single source of truth) — never recomputed locally — so the dashboard
+        ledger cannot drift from what the engine actually holds.
+        """
+        store = get_runtime_store()
+        store.add_order(
+            {
+                FieldName.ORDER_ID: ctx.order_id,
+                FieldName.STRATEGY_ID: ctx.strategy_id,
+                FieldName.SYMBOL: ctx.symbol,
+                FieldName.SIDE: ctx.side,
+                FieldName.QTY: ctx.qty,
+                FieldName.QUANTITY: ctx.qty,
+                FieldName.PRICE: ctx.fill_price,
+                FieldName.FILLED_PRICE: ctx.fill_price,
+                FieldName.STATUS: OrderStatus.FILLED,
+                FieldName.BROKER_ORDER_ID: broker_order_id,
+                FieldName.PNL: ctx.pnl_value,
+                FieldName.SESSION_ID: ctx.strategy_id,
+                FieldName.PNL_PERCENT: ctx.pnl_percent,
+                FieldName.FILLED_AT: ctx.filled_at.isoformat(),
+                FieldName.TRACE_ID: ctx.trace_id,
+            }
+        )
+        store.upsert_trade_fill(
+            {
+                FieldName.ID: ctx.trace_id,
+                FieldName.SYMBOL: ctx.symbol,
+                FieldName.SIDE: ctx.side,
+                FieldName.QTY: ctx.qty,
+                FieldName.ENTRY_PRICE: ctx.entry_price,
+                FieldName.EXIT_PRICE: ctx.fill_price if ctx.is_round_trip_close else None,
+                FieldName.PNL: ctx.pnl_value,
+                FieldName.PNL_PERCENT: ctx.pnl_percent,
+                FieldName.SESSION_ID: ctx.strategy_id,
+                FieldName.ORDER_ID: ctx.order_id,
+                FieldName.EXECUTION_TRACE_ID: ctx.trace_id,
+                FieldName.STATUS: OrderStatus.FILLED,
+                FieldName.FILLED_AT: ctx.filled_at.isoformat(),
+            }
+        )
+        # PaperBroker (Redis) is the position source of truth — mirror its
+        # authoritative post-fill state instead of recomputing it locally.
+        broker_position = await self.broker.get_position(ctx.symbol)
+        store.mirror_broker_position(ctx.symbol, broker_position, strategy_id=ctx.strategy_id)
+        self._append_equity_snapshot(store, ctx.filled_at)
 
     async def _apply_kelly_sizing(
         self, data: dict[str, Any], nominal_qty: float, price: float
