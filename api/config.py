@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     GRADE_EVERY_N_FILLS: int = 5
     IC_UPDATE_EVERY_N_FILLS: int = 10
     REFLECT_EVERY_N_FILLS: int = 10
+    # Per-symbol reasoning cooldown — minimum seconds between LLM reasoning
+    # calls for the SAME symbol. Decouples LLM spend from raw signal volume:
+    # momentum signals can fire every few seconds per symbol, and previously
+    # each one woke a full LLM call (plus a self-critique call), which burned
+    # the provider quota. Within the cooldown window a fresh signal reuses the
+    # deterministic fallback path instead of calling the LLM. 0 disables it.
+    REASONING_COOLDOWN_SECONDS: float = 60.0
 
     # Grade system
     GRADE_LOOKBACK_N: int = 20
@@ -76,12 +83,14 @@ class Settings(BaseSettings):
     # system never silently routes to a cloud provider.
     LLM_FALLBACK_ENABLED: bool = Field(default=True)
     GROQ_API_KEY: str = ""
-    # llama-3.1-8b-instant is the higher-throughput instruct model on Groq —
-    # far larger rate-limit / quota allowance than llama-3.3-70b-versatile,
-    # which was hitting quota and returning 100% errors (every reasoning call
-    # fell back to skip_reasoning, starving the grade/IC/reflection loop). The
-    # 8b instruct model is sufficient for a clean JSON trading decision.
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    # Two-tier Groq routing: call the capable model first, and if it is
+    # throttled (429 / quota / rate-limit) transparently retry the SAME call on
+    # the lighter instruct model instead of hard-failing. A hard failure made
+    # every reasoning call fall back to skip_reasoning, which starved the
+    # grade/IC/reflection learning loop. The instruct model has a far larger
+    # rate-limit allowance and is sufficient for a clean JSON trading decision.
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
     GEMINI_API_KEY: str | None = Field(default=None)
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
