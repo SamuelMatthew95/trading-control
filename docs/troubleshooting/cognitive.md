@@ -158,3 +158,13 @@ no-op touching no network. All failures are swallowed — a GitOps hiccup never 
 trading loop; the queued `pr_request` artifact remains for the GitHub Action / manual review.
 
 **Regression test:** `tests/api/test_gitops_publisher.py`
+
+## Tool Governance panel shows tools that never seem to be used / alpha looks like fiction
+
+**Symptom:** The Tool Governance panel lists ~13 tools each with an alpha score, but an operator cannot tell which tools the reasoning LLM actually calls — every tool shows a number, so seeded priors are indistinguishable from earned attribution and the panel reads as meaningless.
+
+**Root cause:** Two gaps. (1) The UI rendered `alpha_score`/latency/err but never the `call_count`/`success_count` the registry already tracks, so usage was invisible. (2) `get_stream_confluence_metrics` was registered and shown to the LLM but never recorded as exercised — a "ghost" tool stuck on its seeded prior forever, even though the signal's composite confluence score informs every decision.
+
+**Fix:** `ToolGovernancePanel.tsx` now shows each tool's call ledger (`N× · M ok`) or an explicit `unused` marker, tags a never-called tool's alpha as a `prior` (seed, not earned), and summarises live coverage (`X/Y exercised live`). `ReasoningAgent._build_context` (`reasoning_agent.py`) records `TOOL_STREAM_CONFLUENCE` from the in-hand composite score (gated on its registry enabled flag, like the other perception tools). Execution/optimization-phase tools (`risk_cage`, `vwap_execution`, `bracket_order`, `replay_regression`) legitimately belong to downstream nodes and now read honestly as `unused` at the reasoning node rather than as fake earned alpha.
+
+**Regression test:** `tests/agents/test_reasoning_agent.py::test_process_records_stream_confluence_tool` + `frontend/src/test/components/ToolGovernancePanel.test.tsx`
