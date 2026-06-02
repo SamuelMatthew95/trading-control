@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.config import settings
-from api.constants import TOOL_GET_IC_WEIGHTS, TOOL_QUERY_SIMILAR_TRADES
+from api.constants import (
+    TOOL_GET_IC_WEIGHTS,
+    TOOL_QUERY_SIMILAR_TRADES,
+    TOOL_STREAM_CONFLUENCE,
+)
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.agents.prompts import (
@@ -489,6 +493,28 @@ async def test_process_records_tool_telemetry(
     assert mem_tool.call_count >= 1
     assert ic_tool.success_count >= 1
     assert mem_tool.success_count >= 1
+
+
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.reasoning_agent.search_vector_memory")
+@patch("api.services.agents.reasoning_agent.embed_text")
+async def test_process_records_stream_confluence_tool(
+    mock_embed, mock_search, mock_call_llm, agent, mock_redis
+):
+    """The signal's composite confluence score is exercised as a real tool call,
+    so get_stream_confluence_metrics shows live usage in tool governance instead
+    of sitting forever as a seeded prior."""
+    mock_embed.return_value = [0.1] * 1536
+    mock_search.return_value = []
+    mock_call_llm.return_value = (json.dumps(_valid_summary("buy")), 100, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    await agent.process(_make_signal("buy"))
+
+    confluence = get_tool_registry().get(TOOL_STREAM_CONFLUENCE)
+    assert confluence.call_count >= 1
+    # _make_signal carries composite_score=0.75, so the call is a success.
+    assert confluence.success_count >= 1
 
 
 @patch("api.services.agents.reasoning_agent.call_llm_with_system")
