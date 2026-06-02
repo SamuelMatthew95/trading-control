@@ -316,3 +316,56 @@ async def test_code_change_proposal_files_issue(monkeypatch):
     assert logged.await_count == 1
     payload = logged.await_args.args[2]
     assert payload[FieldName.PROPOSAL_TYPE] == ProposalType.CODE_CHANGE
+
+
+async def test_new_agent_spawns_challenger_dynamically(monkeypatch):
+    """A NEW_AGENT proposal with a KNOWN strategy spawns a challenger via the
+    injected spawner (config, no deploy) — not a GitHub issue."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    # A known strategy is in the registry.
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.STRATEGIES", {"strong_only": object()}
+    )
+
+    applier = _make_applier(_FakeRedis())
+    spawner = _AsyncMock()
+    spawner.spawn = _AsyncMock(
+        return_value={FieldName.CHALLENGER_ID: "abc", FieldName.STATUS: "spawned"}
+    )
+    applier.spawner = spawner
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.NEW_AGENT,
+        FieldName.CONTENT: {FieldName.CHALLENGER_CONFIG: {FieldName.STRATEGY: "strong_only"}},
+        FieldName.TRACE_ID: "t-new",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    spawner.spawn.assert_awaited_once()
+
+
+async def test_new_agent_unknown_strategy_files_issue(monkeypatch):
+    """A NEW_AGENT for a strategy that needs code falls back to a GitHub issue."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {"existing": object()})
+
+    applier = _make_applier(_FakeRedis())
+    applier.spawner = _AsyncMock()
+    applier.spawner.spawn = _AsyncMock()
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.NEW_AGENT,
+        FieldName.CONTENT: {FieldName.CHALLENGER_CONFIG: {FieldName.STRATEGY: "brand_new_strat"}},
+        FieldName.TRACE_ID: "t-new2",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    applier.spawner.spawn.assert_not_awaited()  # unknown strategy → issue, not spawn
