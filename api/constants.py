@@ -1261,6 +1261,11 @@ LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
 # scans (the GitHub Action de-dupes, so this only bounds the read window).
 PARAM_PR_REQUESTS_SCAN_LIMIT: Final[int] = 200
 
+# Auto-PR writes ONLY under this directory — a config ledger the app reads at
+# startup, never source code. GitOpsPublisher hard-guards every commit path
+# against this prefix so the learning loop can never edit code.
+PARAMETER_OVERRIDES_DIR: Final[str] = "config/parameter_overrides"
+
 # ---------------------------------------------------------------------------
 # Candidate Sharpe may be at most this far BELOW the champion's.
 REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
