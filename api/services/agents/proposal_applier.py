@@ -54,6 +54,7 @@ from api.services.agent_heartbeat import write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
+from api.services.gitops_publisher import GitOpsPublisher
 
 
 class ProposalApplier(MultiStreamAgent):
@@ -292,6 +293,18 @@ class ProposalApplier(MultiStreamAgent):
                 FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             },
         )
+        # Open a real config-only PR when GitOps auto-PR is configured (token in
+        # Render). Best-effort: a dry-run/no-op locally, and any failure leaves
+        # the queued artifact intact for the GitHub Action / manual review.
+        pr_result = await GitOpsPublisher().open_parameter_pr(
+            {
+                FieldName.PARAMETER: parameter,
+                FieldName.PREVIOUS_VALUE: previous_value,
+                FieldName.PROPOSED_VALUE: proposed_value,
+                FieldName.REASON: reason,
+                FieldName.TRACE_ID: trace_id,
+            }
+        )
         return {
             FieldName.MESSAGE: (
                 f"PR artifact queued for {parameter}: {previous_value} -> {proposed_value}"
@@ -301,4 +314,5 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.PROPOSED_VALUE: proposed_value,
             FieldName.STATUS: "pending_pr",
             FieldName.REASON: reason,
+            FieldName.PR_URL: pr_result.get(FieldName.PR_URL),
         }
