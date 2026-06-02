@@ -178,3 +178,21 @@ trading loop; the queued `pr_request` artifact remains for the GitHub Action / m
 **Fix:** Execution-phase tools are now graded on **telemetry (latency + reliability), not alpha**. `ExecutionEngine._check_pre_execution_gates` is a timing wrapper over `_evaluate_pre_execution_gates` that records `risk_cage` once per evaluated trade; `_build_vwap_plan` records `vwap_execution` when a slicing plan is built; each `broker.place_order` call records `bracket_order` with measured submit latency (`execution_engine.py`). `PromotionGate.evaluate` and `GradeAgent._recent_backtest_evidence` record `replay_regression` when a regression/backtest replay runs (`promotion_gate.py`, `pipeline_agents.py`). All recordings are best-effort (never raise into the trading path). The `vwap_execution` seed alpha is now `0.0` (neutral) so a live mechanics call never shows fake earned edge — the top directional-alpha tool is now the perception confluence metric.
 
 **Regression test:** `tests/agents/test_execution_engine_helpers.py::test_risk_cage_tool_recorded_on_every_gate_evaluation`, `::test_vwap_tool_recorded_only_when_a_slicing_plan_is_built`, `::test_vwap_execution_tool_seeds_neutral_alpha`, `tests/api/test_promotion_gate.py::test_promotion_gate_records_replay_regression_tool`
+
+## A TOOL_GOVERNANCE proposal is approved but the dead tool never gets disabled
+
+**Symptom:** GradeAgent emits a `TOOL_GOVERNANCE` proposal (e.g. "disable scan_sector_correlation — negative alpha"), it shows on the proposal queue, but approving it does nothing — the tool stays enabled and keeps reaching the reasoning prompt. The worker logs `proposal_skipped_unknown_type`.
+
+**Root cause:** `ProposalApplier._handlers` had no entry for `ProposalType.TOOL_GOVERNANCE`, so the proposal fell through to the `handler is None` branch and was silently dropped. The dead-tool loop never closed through the applier.
+
+**Fix:** Added `_apply_tool_governance` (`proposal_applier.py`) wired into the handler map. It disables every tool a suggestion flagged with `action == "disable"` via the new `ToolRegistry.set_enabled(name, False)` (`tool_registry.py`); `review` suggestions stay advisory. Returns None when nothing changed so no misleading "applied" log fires. The next reasoning prompt drops the disabled tool.
+
+**Regression test:** `tests/agents/test_proposal_applier.py::test_tool_governance_disables_flagged_tools`
+
+## The proposal queue doesn't say where an approved proposal goes (config PR vs issue)
+
+**Symptom:** The proposal table shows the proposal `Type` but not its destination, so an operator can't tell whether approving will open a config pull request, flip a control-plane flag, or file a GitHub issue for human design.
+
+**Fix:** Added `frontend/src/lib/proposal-routing.ts` — a pure map mirroring the backend handler map — and an "On Approve" column in `ProposalsSection.tsx` that badges each row: `Config auto-PR` (parameter_change), `Control plane` (weight/suspension/retirement), `Prompt store` (prompt_evolution), `Tool registry` (tool_governance), `Challenger / issue` (new_agent), `GitHub issue` (code_change / regime_adjustment).
+
+**Regression test:** `frontend/src/test/helpers/proposal-routing.test.ts`
