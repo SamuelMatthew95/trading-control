@@ -13,9 +13,13 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 
 **Root cause:** The configured Groq model (`llama-3.3-70b-versatile`) was hitting its quota/rate-limit, so the only enabled LLM provider returned a 100% error rate (`success_rate: 0.0`, `last_success_timestamp: null`). Every ReasoningAgent call fell back to skip_reasoning → all trades blocked to `hold` → no fills → the grade/IC/reflection learning loop had nothing to consume. The grading agents themselves were healthy; they were starved at the source.
 
-**Fix:** Switched the default `GROQ_MODEL` to the higher-throughput instruct model `llama-3.1-8b-instant` (`api/config.py`), which has a much larger rate-limit/quota allowance and is sufficient for a clean JSON trading decision. If `GROQ_MODEL` is pinned via an env var in the deployment, update it there too (or unset it to pick up the new default). Diagnose with `get_llm_health` (per-provider success/error rate) before assuming a grading-agent bug.
+**Fix (three layers):**
+1. **Throttle → instruct fallback** — `_groq_completion` (`api/services/llm_router.py`) now calls the capable `GROQ_MODEL` (`llama-3.3-70b-versatile`) first and, on a 429/quota/rate-limit error, transparently retries the same call on `GROQ_FALLBACK_MODEL` (`llama-3.1-8b-instant`) instead of raising. A throttled primary degrades to a lighter model rather than cascading into skip_reasoning. The model that actually served the call is stamped on the decision's `model_used` label so the learning loop's per-model grading stays truthful.
+2. **Per-symbol reasoning cooldown** — `REASONING_COOLDOWN_SECONDS` (default 60s, `api/config.py`) gates the ReasoningAgent so repeat signals for the same symbol within the window are dropped (no LLM call, no degraded-fallback decision). This decouples LLM spend from raw signal volume, which is what burned the quota — momentum signals can fire every few seconds per symbol and each previously triggered a full reasoning call + self-critique call.
 
-**Regression test:** `tests/agents/test_reasoning_agent.py` + `tests/api/test_llm_health.py` (model passthrough + provider health reporting).
+If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ_FALLBACK_MODEL`) there too. Diagnose with `get_llm_health` (per-provider success/error rate) before assuming a grading-agent bug.
+
+**Regression tests:** `tests/core/test_llm_router_rate_limit.py::test_groq_falls_back_to_instruct_when_primary_throttled` (+ healthy / non-rate-limit cases); `tests/agents/test_reasoning_agent.py::test_per_symbol_cooldown_skips_repeat_llm_call` (+ per-symbol scoping).
 
 ---
 
