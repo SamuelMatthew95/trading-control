@@ -143,3 +143,26 @@ export function formatTimestamp(value?: string | null): string {
   if (Number.isNaN(date.getTime())) return '--'
   return date.toLocaleTimeString()
 }
+
+/**
+ * Format a ratio or percentage as a percent string.
+ *
+ * Auto-scales fractional inputs: any |value| <= 1 is treated as a ratio and
+ * multiplied by 100 (0.42 → "42.0%"), while larger magnitudes are assumed to
+ * already be in percent (42 → "42.0%"). Returns '--' for null/undefined/
+ * non-finite (via toFiniteNum), so callers never null-guard.
+ *
+ * @param value    ratio (|v| <= 1) or percent (|v| > 1); anything coercible by toFiniteNum
+ * @param decimals fixed decimal places (default 1)
+ * @param signed   prefix non-negative values with '+' (default false)
+ */
+export function formatPercent(
+  value: unknown,
+  { decimals = 1, signed = false }: { decimals?: number; signed?: boolean } = {},
+): string {
+  const n = toFiniteNum(value)
+  if (n == null) return '--'
+  const scaled = Math.abs(n) <= 1 ? n * 100 : n
+  const sign = signed && scaled >= 0 ? '+' : ''
+  return `${sign}${scaled.toFixed(decimals)}%`
+}
