@@ -647,3 +647,90 @@ async def test_cooldown_is_per_symbol_not_global(
 
     # The different symbol triggered a fresh reasoning cycle (more LLM calls).
     assert mock_call_llm_with_system.call_count > calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_duplicate_signal_skips_llm(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """A materially-identical repeat signal (same side+price) is deduped — no
+    second LLM call — even with the cooldown disabled."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)  # isolate dedup
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.1)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy", symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(_make_signal(action="buy", symbol="BTC/USD"))  # identical — deduped
+
+    assert calls_after_first > 0
+    assert mock_call_llm_with_system.call_count == calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_materially_changed_signal_still_reasons(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """A signal whose price moved well beyond the dedup tolerance still reasons."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.1)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    sig2 = _make_signal(action="buy", symbol="BTC/USD")
+    sig2["price"] = 60000.0  # ~20% move >> 0.1% tolerance
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy", symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(sig2)
+
+    assert mock_call_llm_with_system.call_count > calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_self_critique_disabled_by_default_one_llm_call(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """With self-critique off (default), a high-confidence buy makes ONE LLM call."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.0)
+    monkeypatch.setattr(settings, "REASONING_SELF_CRITIQUE_ENABLED", False)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy"))
+
+    assert mock_call_llm_with_system.call_count == 1
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_self_critique_runs_when_enabled(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """Enabling self-critique adds the second LLM call on a high-confidence buy."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.0)
+    monkeypatch.setattr(settings, "REASONING_SELF_CRITIQUE_ENABLED", True)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy"))
+
+    assert mock_call_llm_with_system.call_count == 2
