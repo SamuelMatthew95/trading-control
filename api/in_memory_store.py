@@ -19,6 +19,7 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
+    SOURCE_SIGNAL,
     FieldName,
     LogType,
 )
@@ -38,6 +39,18 @@ DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
 }
 DEFAULT_TRADE_NOTIONAL: float = float(getattr(settings, "EQUITY_PER_TRADE", 1000.0) or 1000.0)
 POSITION_EPSILON: float = 1e-9
+
+
+def _is_learning_grade(grade: dict[str, Any]) -> bool:
+    """True for real graded outcomes; False for SignalGenerator strength scores.
+
+    SignalGenerator no longer writes grades, but a long-lived store (or a DB
+    hydrated before this change) can still hold ``source=signal_generator``
+    accuracy rows — the static 55.0 priors that drowned the learning view. Filter
+    them out at read time so the dashboard only ever shows real GradeAgent
+    outcomes.
+    """
+    return grade.get(FieldName.SOURCE) != SOURCE_SIGNAL
 
 
 @dataclass(slots=True)
@@ -255,7 +268,8 @@ class InMemoryStore:
 
     def get_grades(self, limit: int = 50) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))
-        return list(reversed(self.grade_history[-safe_limit:]))
+        learning_grades = [g for g in self.grade_history if _is_learning_grade(g)]
+        return list(reversed(learning_grades[-safe_limit:]))
 
     def add_event(self, event_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(event_payload)
@@ -388,7 +402,9 @@ class InMemoryStore:
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
             FieldName.POSITIONS: self.normalized_open_positions(),
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
-            FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
+            FieldName.LEARNING_EVENTS: list(
+                reversed([g for g in self.grade_history if _is_learning_grade(g)][-20:])
+            ),
             FieldName.PROPOSALS: [
                 e
                 for e in reversed(self.event_history[-100:])
