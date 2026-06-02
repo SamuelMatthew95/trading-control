@@ -94,6 +94,7 @@ class ProposalType(StrEnum):
     AGENT_SUSPENSION = "agent_suspension"
     AGENT_RETIREMENT = "agent_retirement"
     NEW_AGENT = "new_agent"
+    TOOL_GOVERNANCE = "tool_governance"
 
 
 class HypothesisType(StrEnum):
@@ -903,6 +904,7 @@ class FieldName(StrEnum):
     SUCCESS_RATE = "success_rate"
     SUCCESS_RATE_PCT = "success_rate_pct"
     SUGGESTED_CHANNELS = "suggested_channels"
+    SUGGESTIONS = "suggestions"
     SUMMARY = "summary"
     SUMMARY_VERSION = "summary_version"
     SUSPENDED_AGENTS = "suspended_agents"
@@ -945,6 +947,7 @@ class FieldName(StrEnum):
     TODAY_PNL = "today_pnl"
     TOKENS_USED = "tokens_used"
     TONE = "tone"
+    TOOL = "tool"
     TOOLS = "tools"
     TOOLS_USED = "tools_used"
     TOTAL = "total"
