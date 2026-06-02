@@ -23,6 +23,18 @@ If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ
 
 ---
 
+## Tools were tracked but never graded by outcome (alpha frozen at the prior)
+
+**Symptom:** `suggest_tool_changes()` could "disable negative-alpha tools", but in practice no tool's `alpha_score` ever moved off its seeded prior, so the negative-alpha branch never fired and the attribution panel showed priors, not learned value.
+
+**Root cause:** `ToolRegistry.record_call` only updates `alpha_score` when passed `realized_pnl`, and the **only** caller (`ReasoningAgent._record_tool`) runs at *decision* time — before the outcome is known — so it never passed `realized_pnl`. Nothing connected a closed trade's PnL back to the tools that informed the decision. The tool-grading loop was wired up to the registry but never closed.
+
+**Fix:** GradeAgent now consumes `STREAM_DECISIONS` purely to cache `trace_id → tool names` (bounded LRU, `_remember_decision_tools`). When the matching trade closes on `STREAM_TRADE_COMPLETED` / `STREAM_TRADE_PERFORMANCE`, `_attribute_pnl_to_tools` folds the realized PnL into each of those tools' alpha via `record_call(..., realized_pnl=pnl)` and pops the trace so the paired events attribute exactly once. Tool alpha is now outcome-driven, which makes the tool-governance proposal (above) act on real signal. Full closed loop: signal → reasoning (records tools) → decision (`tools_used`) → execution → trade close (PnL) → GradeAgent attributes PnL to tools → `suggest_tool_changes` → tool-governance proposal → operator/ProposalApplier.
+
+**Regression tests:** `tests/agents/test_grade_agent.py::test_trade_pnl_attributed_to_decision_tools` (+ unknown-trace no-op).
+
+---
+
 ## Tool governance produced advice but never acted ("it's not automating")
 
 **Symptom:** The ToolRegistry scored each tool's alpha/reliability from live reasoning telemetry and `suggest_tool_changes()` produced disable/review/prioritize advice — but the only consumer was the passive `GET /dashboard/tools` panel. `disable_dead_tools()` was never called anywhere, so the governance loop never closed.
