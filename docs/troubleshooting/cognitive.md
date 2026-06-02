@@ -23,6 +23,18 @@ If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ
 
 ---
 
+## Tool governance produced advice but never acted ("it's not automating")
+
+**Symptom:** The ToolRegistry scored each tool's alpha/reliability from live reasoning telemetry and `suggest_tool_changes()` produced disable/review/prioritize advice — but the only consumer was the passive `GET /dashboard/tools` panel. `disable_dead_tools()` was never called anywhere, so the governance loop never closed.
+
+**Root cause:** No agent turned tool suggestions into proposals or actions; the advice just sat in a panel.
+
+**Fix:** `GradeAgent._emit_tool_governance()` (`api/services/agents/pipeline_agents.py`) now runs every grade cycle, publishing actionable tool suggestions (disable / review) as a single `ProposalType.TOOL_GOVERNANCE` approval-gated proposal on `STREAM_PROPOSALS` + an INFO notification. Edge-triggered on the suggestion set so an unchanged set is not re-proposed every cycle. The operator stays in the loop (human approval), and the full suggestion list (incl. the `prioritize` hint) rides along in the proposal content.
+
+**Regression tests:** `tests/agents/test_grade_agent.py::test_tool_governance_emits_proposal_for_actionable_suggestions` (+ informational-only no-op + edge-trigger cases).
+
+---
+
 ## Profitable short graded as wrong-direction
 
 **Symptom:** A short position that made money received an `F` direction grade.
