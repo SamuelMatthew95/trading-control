@@ -76,7 +76,12 @@ class Settings(BaseSettings):
     # system never silently routes to a cloud provider.
     LLM_FALLBACK_ENABLED: bool = Field(default=True)
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    # llama-3.1-8b-instant is the higher-throughput instruct model on Groq —
+    # far larger rate-limit / quota allowance than llama-3.3-70b-versatile,
+    # which was hitting quota and returning 100% errors (every reasoning call
+    # fell back to skip_reasoning, starving the grade/IC/reflection loop). The
+    # 8b instruct model is sufficient for a clean JSON trading decision.
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
     GEMINI_API_KEY: str | None = Field(default=None)
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
