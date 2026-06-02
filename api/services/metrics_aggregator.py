@@ -28,6 +28,7 @@ from ..constants import (
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 from ..runtime_state import get_runtime_store
+from .metrics_calc import closed_trade_stats
 from .notification_summary import compute_notification_summary
 
 
@@ -44,15 +45,13 @@ class MetricsAggregator:
     def _memory_pnl_metrics(self) -> dict[str, Any]:
         store = get_runtime_store()
         orders = list(store.orders)
-        total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
-        winning_trades = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
-        win_rate = (winning_trades / len(orders) * 100) if orders else 0.0
+        stats = closed_trade_stats(orders)
         return {
-            FieldName.TOTAL_PNL: total_pnl,
-            FieldName.TODAY_PNL: total_pnl,
+            FieldName.TOTAL_PNL: stats.realized_pnl,
+            FieldName.TODAY_PNL: stats.realized_pnl,
             FieldName.TOTAL_TRADES: len(orders),
-            FieldName.WINNING_TRADES: winning_trades,
-            FieldName.WIN_RATE_PERCENT: win_rate,
+            FieldName.WINNING_TRADES: stats.winning,
+            FieldName.WIN_RATE_PERCENT: round(stats.win_rate * 100, 2),
             "status": "memory_mode",
             FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
             "source": Source.IN_MEMORY,
@@ -97,8 +96,7 @@ class MetricsAggregator:
     def _memory_paired_pnl(self) -> dict[str, Any]:
         store = get_runtime_store()
         closed_trades = list(reversed(store.trade_feed[-100:]))
-        realized_pnl = sum(float(trade.get(FieldName.PNL) or 0.0) for trade in closed_trades)
-        winning = sum(1 for trade in closed_trades if float(trade.get(FieldName.PNL) or 0.0) > 0)
+        stats = closed_trade_stats(closed_trades)
         open_positions = list(store.positions.values())
         unrealized_pnl = sum(
             float(position.get(FieldName.UNREALIZED_PNL) or 0.0) for position in open_positions
@@ -107,14 +105,12 @@ class MetricsAggregator:
             FieldName.CLOSED_TRADES: closed_trades,
             FieldName.OPEN_POSITIONS: open_positions,
             "summary": {
-                FieldName.REALIZED_PNL: round(realized_pnl, 8),
+                FieldName.REALIZED_PNL: round(stats.realized_pnl, 8),
                 "unrealized_pnl": round(unrealized_pnl, 8),
-                FieldName.TOTAL_PNL: round(realized_pnl + unrealized_pnl, 8),
-                FieldName.CLOSED_TRADES: len(closed_trades),
-                FieldName.WINNING_TRADES: winning,
-                FieldName.WIN_RATE_PERCENT: round(
-                    (winning / len(closed_trades) * 100) if closed_trades else 0.0, 2
-                ),
+                FieldName.TOTAL_PNL: round(stats.realized_pnl + unrealized_pnl, 8),
+                FieldName.CLOSED_TRADES: stats.closed,
+                FieldName.WINNING_TRADES: stats.winning,
+                FieldName.WIN_RATE_PERCENT: round(stats.win_rate * 100, 2),
                 FieldName.OPEN_POSITIONS: len(open_positions),
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
