@@ -17,6 +17,10 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 1. **Throttle → instruct fallback** — `_groq_completion` (`api/services/llm_router.py`) now calls the capable `GROQ_MODEL` (`llama-3.3-70b-versatile`) first and, on a 429/quota/rate-limit error, transparently retries the same call on `GROQ_FALLBACK_MODEL` (`llama-3.1-8b-instant`) instead of raising. A throttled primary degrades to a lighter model rather than cascading into skip_reasoning. The model that actually served the call is stamped on the decision's `model_used` label so the learning loop's per-model grading stays truthful.
 2. **Per-symbol reasoning cooldown** — `REASONING_COOLDOWN_SECONDS` (default 60s, `api/config.py`) gates the ReasoningAgent so repeat signals for the same symbol within the window are dropped (no LLM call, no degraded-fallback decision). This decouples LLM spend from raw signal volume, which is what burned the quota — momentum signals can fire every few seconds per symbol and each previously triggered a full reasoning call + self-critique call.
 
+Two further spend levers (also `api/config.py`):
+- `REASONING_DEDUP_PRICE_PCT` (default 0.05) — skip the LLM when a fresh signal's side matches the last-reasoned one and its price is within this percent (materially identical → no new information). Complements the cooldown for slow-but-repetitive signals.
+- `REASONING_SELF_CRITIQUE_ENABLED` (default **False**) — the ReAct self-critique is a *second* LLM call on high-confidence buy/sells; disabled by default to halve actionable-decision spend. Re-enable when provider budget allows.
+
 If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ_FALLBACK_MODEL`) there too. Diagnose with `get_llm_health` (per-provider success/error rate) before assuming a grading-agent bug.
 
 **Regression tests:** `tests/core/test_llm_router_rate_limit.py::test_groq_falls_back_to_instruct_when_primary_throttled` (+ healthy / non-rate-limit cases); `tests/agents/test_reasoning_agent.py::test_per_symbol_cooldown_skips_repeat_llm_call` (+ per-symbol scoping).
