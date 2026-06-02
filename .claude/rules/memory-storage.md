@@ -90,8 +90,20 @@ survives overnight so ReasoningAgent always has weights even if no trades ran.
 | Constant | Key Pattern | TTL | Owner |
 |----------|------------|-----|-------|
 | `REDIS_KEY_IC_WEIGHTS` | `alpha:ic_weights` | 25h | ICUpdater |
+| `REDIS_KEY_PROMPT_DIRECTIVE` | `prompt:directive:{node}` | None | ProposalApplier (writes), ReasoningAgent (reads) |
+| `REDIS_KEY_PROMPT_DIRECTIVE_HISTORY` | `prompt:directive:history:{node}` | None | ProposalApplier (capped {PROMPT_DIRECTIVE_HISTORY_CAP}) |
+| `REDIS_KEY_NEWS_SENTIMENT` | `news_sentiment:{symbol}` | 300s | market_intel (reasoning perception tool) |
+| `REDIS_KEY_CORRELATION` | `correlation:{symbol}` | 120s | market_intel (reasoning perception tool) |
 
 **Fallback if absent:** Proceed with empty weights (no crash; degraded reasoning).
+
+**Self-evolving prompt directive (`prompt:directive:{node}`):** the learned
+"adaptive directive" — guidance assembled BENEATH the immutable constitution.
+Written via `PromptStore.set_directive()` (versioned, history-capped) only by
+the ProposalApplier on an approved/auto `PROMPT_EVOLUTION` proposal; read by
+`ReasoningAgent._get_adaptive_directive()` at prompt-assembly time. Absent →
+constitution-only prompt (never crashes). Managed exclusively through
+`api.services.prompt_store` (`get_prompt_store()` / `set_prompt_store()`).
 
 ```python
 await redis.set(REDIS_KEY_IC_WEIGHTS, json.dumps(weights), ex=REDIS_IC_WEIGHTS_TTL_SECONDS)

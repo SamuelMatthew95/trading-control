@@ -383,3 +383,168 @@ async def test_self_correction_alert_is_edge_triggered(grade_agent, mock_bus):
     assert notif_count() == 1  # recovered → latch resets, no alert
     await grade_agent._emit_self_correction_alert(drop, "t4")
     assert notif_count() == 2  # new episode after recovery → fires again
+
+
+# ---------------------------------------------------------------------------
+# Tool-governance proposal emission (closes the "it's not automating" loop)
+# ---------------------------------------------------------------------------
+
+
+def _suggestion(tool, action, severity="warning", reason="r"):
+    from api.services.tool_registry import ToolSuggestion
+
+    return ToolSuggestion(tool=tool, action=action, severity=severity, reason=reason)
+
+
+@pytest.mark.asyncio
+async def test_tool_governance_emits_proposal_for_actionable_suggestions(grade_agent, mock_bus):
+    """Actionable tool suggestions (disable/review) are published as a proposal
+    + notification — the registry's advice now reaches the operator as an
+    approval-gated proposal, not just a passive panel."""
+    from api.constants import STREAM_PROPOSALS, ProposalType
+
+    suggestions = [
+        _suggestion("get_ic_weights", "disable", reason="negative alpha"),
+        _suggestion("top_tool", "prioritize", severity="info", reason="highest alpha"),
+    ]
+    with patch(
+        "api.services.agents.pipeline_agents.get_tool_registry",
+        return_value=MagicMock(suggest_tool_changes=MagicMock(return_value=suggestions)),
+    ):
+        await grade_agent._emit_tool_governance("trace-tg")
+
+    proposal_calls = [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ]
+    assert len(proposal_calls) == 1
+    payload = proposal_calls[0].args[1]
+    assert payload[FieldName.PROPOSAL_TYPE] == ProposalType.TOOL_GOVERNANCE
+    assert payload[FieldName.REQUIRES_APPROVAL] is True
+    # The full suggestion list (incl. the prioritize hint) rides along.
+    assert len(payload[FieldName.CONTENT][FieldName.SUGGESTIONS]) == 2
+    # Per-tool attribution (how each tool is performing) rides along too.
+    assert FieldName.ATTRIBUTION in payload[FieldName.CONTENT]
+
+
+@pytest.mark.asyncio
+async def test_tool_governance_noop_when_only_informational(grade_agent, mock_bus):
+    """A 'prioritize'-only set is informational — no proposal is emitted."""
+    from api.constants import STREAM_PROPOSALS
+
+    with patch(
+        "api.services.agents.pipeline_agents.get_tool_registry",
+        return_value=MagicMock(
+            suggest_tool_changes=MagicMock(return_value=[_suggestion("t", "prioritize", "info")])
+        ),
+    ):
+        await grade_agent._emit_tool_governance("trace-tg")
+
+    assert [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ] == []
+
+
+@pytest.mark.asyncio
+async def test_tool_governance_is_edge_triggered(grade_agent, mock_bus):
+    """An unchanged suggestion set is not re-proposed every cycle."""
+    from api.constants import STREAM_PROPOSALS
+
+    suggestions = [_suggestion("dead_tool", "disable")]
+    registry = MagicMock(suggest_tool_changes=MagicMock(return_value=suggestions))
+    with patch("api.services.agents.pipeline_agents.get_tool_registry", return_value=registry):
+        await grade_agent._emit_tool_governance("trace-1")
+        await grade_agent._emit_tool_governance("trace-2")  # same set — skipped
+
+    proposal_calls = [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ]
+    assert len(proposal_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tool grading — realized trade PnL attributed back to the decision's tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trade_pnl_attributed_to_decision_tools(grade_agent):
+    """A decision records which tools it used; when that trade closes, the
+    realized PnL is folded into those tools' alpha — outcome-driven tool grading,
+    not a decision-time-only signal."""
+    from api.constants import STREAM_DECISIONS, STREAM_TRADE_COMPLETED, ToolPhase
+    from api.services.tool_registry import ToolMetadata, ToolRegistry, set_tool_registry
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolMetadata(
+            name="get_ic_weights", phase=ToolPhase.MEMORY, description="d", alpha_score=0.0
+        )
+    )
+    set_tool_registry(registry)
+    try:
+        # 1) decision for trace-T used get_ic_weights
+        await grade_agent.process(
+            STREAM_DECISIONS,
+            "1-0",
+            {
+                FieldName.TRACE_ID: "trace-T",
+                FieldName.TOOLS_USED: [{FieldName.NAME: "get_ic_weights"}],
+            },
+        )
+        # 2) that trade closes with a positive realized PnL
+        await grade_agent.process(
+            STREAM_TRADE_COMPLETED,
+            "2-0",
+            {FieldName.TRACE_ID: "trace-T", FieldName.PNL: 12.5},
+        )
+
+        tool = registry.get("get_ic_weights")
+        assert tool.alpha_score > 0.0  # PnL was attributed
+        # trace consumed — a duplicate trade event must not double-attribute
+        assert "trace-T" not in grade_agent._trace_tools
+    finally:
+        set_tool_registry(None)
+
+
+@pytest.mark.asyncio
+async def test_trade_without_known_decision_tools_is_noop(grade_agent):
+    """A trade whose trace was never seen on the decisions stream attributes
+    nothing — no crash, no phantom grading."""
+    from api.constants import STREAM_TRADE_COMPLETED, ToolPhase
+    from api.services.tool_registry import ToolMetadata, ToolRegistry, set_tool_registry
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolMetadata(
+            name="get_ic_weights", phase=ToolPhase.MEMORY, description="d", alpha_score=0.33
+        )
+    )
+    set_tool_registry(registry)
+    try:
+        await grade_agent.process(
+            STREAM_TRADE_COMPLETED, "3-0", {FieldName.TRACE_ID: "unknown", FieldName.PNL: 9.0}
+        )
+        assert registry.get("get_ic_weights").alpha_score == 0.33  # unchanged
+    finally:
+        set_tool_registry(None)
+
+
+async def test_grade_proposals_carry_measured_backtest_evidence(grade_agent):
+    """Every grade proposal must carry a MEASURED ReplayHarness verdict from the
+    recent trade buffer — proposals are backtest-backed, not blind guesses."""
+    from api.constants import FieldName
+
+    # Seed the eval buffer with a few scored trades (mix of win/loss).
+    grade_agent._eval_buffer.extend(
+        [
+            {FieldName.PNL: 12.0, FieldName.SIDE: "buy"},
+            {FieldName.PNL: -4.0, FieldName.SIDE: "sell"},
+            {FieldName.PNL: 8.0, FieldName.SIDE: "buy"},
+        ]
+    )
+    evidence = grade_agent._recent_backtest_evidence()
+    # The measured block has the gate metrics and reflects the seeded trades.
+    assert evidence[FieldName.TRADE_COUNT] == 3
+    assert evidence[FieldName.TOTAL_PNL] == pytest.approx(16.0)
+    assert "win_rate" in evidence
+    assert "false_positive_rate" in evidence

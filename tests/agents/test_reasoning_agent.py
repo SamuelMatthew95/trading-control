@@ -520,7 +520,9 @@ async def test_call_llm_json_array_returns_safe_hold(mock_call_llm_with_system, 
     assert "invalid_llm_json" in decision["risk_factors"]
 
 
-async def test_fallback_derives_directional_action_when_llm_unavailable(agent):
+async def test_fallback_rejects_by_default_no_phantom_trade(agent):
+    """SAFETY: with the default fail-closed mode, an LLM-unavailable signal
+    yields REJECT — never a naive momentum buy/sell that could lose money."""
     bullish = await agent._apply_fallback(
         {"direction": "bullish", "pct": 0.3, "action": "hold"},
         trace_id="trace-fallback-buy",
@@ -531,7 +533,24 @@ async def test_fallback_derives_directional_action_when_llm_unavailable(agent):
         trace_id="trace-fallback-sell",
         reason="missing_api_key",
     )
+    assert bullish["action"] == "reject"
+    assert bearish["action"] == "reject"
 
+
+async def test_fallback_directional_is_opt_in_only(agent, monkeypatch):
+    """Naive directional fallback is reachable ONLY when an operator explicitly
+    opts into skip_reasoning mode."""
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", "skip_reasoning")
+    bullish = await agent._apply_fallback(
+        {"direction": "bullish", "pct": 0.3, "action": "hold"},
+        trace_id="trace-fallback-buy",
+        reason="missing_api_key",
+    )
+    bearish = await agent._apply_fallback(
+        {"direction": "bearish", "pct": -0.2, "action": "hold"},
+        trace_id="trace-fallback-sell",
+        reason="missing_api_key",
+    )
     assert bullish["action"] == "buy"
     assert bearish["action"] == "sell"
 
@@ -601,3 +620,175 @@ async def test_weight_scale_applied_to_published_decision(agent, mock_bus, mock_
     assert decision_payload["reasoning_score"] == pytest.approx(0.4, abs=1e-6)
     assert decision_payload["signal_confidence"] == pytest.approx(0.375, abs=1e-6)
     assert decision_payload["weight_scale"] == pytest.approx(0.5, abs=1e-6)
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_per_symbol_cooldown_skips_repeat_llm_call(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """A second signal for the same symbol within the cooldown window must NOT
+    trigger a second LLM call — this is the lever that decoupled LLM spend from
+    raw signal volume and stopped the Groq quota burn."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 9999.0)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(_make_signal(symbol="BTC/USD"))  # within cooldown — skipped
+
+    # The repeat signal added zero LLM calls (a full cycle, decision +
+    # self-critique, would have added at least one).
+    assert calls_after_first > 0
+    assert mock_call_llm_with_system.call_count == calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_cooldown_is_per_symbol_not_global(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """The cooldown is keyed per symbol — a different symbol still reasons."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 9999.0)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(_make_signal(symbol="ETH/USD"))  # different symbol — reasons
+
+    # The different symbol triggered a fresh reasoning cycle (more LLM calls).
+    assert mock_call_llm_with_system.call_count > calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_duplicate_signal_skips_llm(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """A materially-identical repeat signal (same side+price) is deduped — no
+    second LLM call — even with the cooldown disabled."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)  # isolate dedup
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.1)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy", symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(_make_signal(action="buy", symbol="BTC/USD"))  # identical — deduped
+
+    assert calls_after_first > 0
+    assert mock_call_llm_with_system.call_count == calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_materially_changed_signal_still_reasons(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """A signal whose price moved well beyond the dedup tolerance still reasons."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.1)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    sig2 = _make_signal(action="buy", symbol="BTC/USD")
+    sig2["price"] = 60000.0  # ~20% move >> 0.1% tolerance
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy", symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(sig2)
+
+    assert mock_call_llm_with_system.call_count > calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_self_critique_disabled_by_default_one_llm_call(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """With self-critique off (default), a high-confidence buy makes ONE LLM call."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.0)
+    monkeypatch.setattr(settings, "REASONING_SELF_CRITIQUE_ENABLED", False)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy"))
+
+    assert mock_call_llm_with_system.call_count == 1
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_self_critique_runs_when_enabled(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """Enabling self-critique adds the second LLM call on a high-confidence buy."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "REASONING_DEDUP_PRICE_PCT", 0.0)
+    monkeypatch.setattr(settings, "REASONING_SELF_CRITIQUE_ENABLED", True)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(action="buy"))
+
+    assert mock_call_llm_with_system.call_count == 2
+
+
+async def test_adaptive_directive_injected_into_decision_prompt(agent):
+    """An installed adaptive directive is assembled into the system prompt
+    (beneath the constitution) as the challenger variant."""
+    from api.constants import REASONING_NODE, FieldName
+    from api.services.prompt_store import PromptStore, set_prompt_store
+
+    class _FakeRedis:
+        def __init__(self):
+            self.kv = {}
+
+        async def get(self, k):
+            return self.kv.get(k)
+
+        async def set(self, k, v, **_):
+            self.kv[k] = v
+
+        async def lpush(self, *a):
+            pass
+
+        async def ltrim(self, *a):
+            pass
+
+    store = PromptStore(_FakeRedis())
+    await store.set_directive(REASONING_NODE, "ALWAYS_SCALE_DOWN_IN_HIGH_SPREAD", source="test")
+    set_prompt_store(store)
+    try:
+        directive = await agent._get_adaptive_directive()
+        assert directive == "ALWAYS_SCALE_DOWN_IN_HIGH_SPREAD"
+        prompt = agent._assemble_decision_prompt(
+            _make_signal("buy"),
+            {FieldName.PROMPT_VARIANT: directive, FieldName.RISK_STATE: {}},
+            [],
+        )
+        assert "ALWAYS_SCALE_DOWN_IN_HIGH_SPREAD" in prompt
+        assert "CHALLENGER VARIANT" in prompt  # placed beneath the constitution
+    finally:
+        set_prompt_store(None)

@@ -174,3 +174,52 @@ async def test_notification_published_per_proposal(strategy_proposer, mock_bus):
 
     assert len(proposals_calls) == 2
     assert len(notifications_calls) == 2
+
+
+async def test_emits_prompt_evolution_proposal(strategy_proposer, mock_bus, monkeypatch):
+    """StrategyProposer asks the LLM to draft a directive and publishes it as a
+    PROMPT_EVOLUTION proposal — the LLM suggesting its own prompt."""
+    from api.config import settings
+    from api.constants import STREAM_PROPOSALS, FieldName, ProposalType
+
+    monkeypatch.setattr(settings, "PROMPT_EVOLUTION_ENABLED", True)
+    monkeypatch.setattr("api.services.agents.pipeline_agents.persist_proposal", AsyncMock())
+    monkeypatch.setattr(
+        "api.services.llm_router.call_llm_with_system",
+        AsyncMock(
+            return_value=(
+                '{"directive": "Favor high-confluence longs.", "rationale": "wins"}',
+                10,
+                0.0,
+            )
+        ),
+    )
+    reflection = {
+        "trace_id": "t-evo",
+        "winning_factors": ["confluence"],
+        "losing_factors": ["news_spike"],
+        "summary": "ok",
+    }
+    await strategy_proposer._emit_prompt_evolution_proposal(reflection, "2026-01-01T00:00:00Z")
+
+    pubs = [
+        c.args for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ]
+    assert pubs, "expected a PROMPT_EVOLUTION proposal to be published"
+    proposal = pubs[0][1]
+    assert proposal[FieldName.PROPOSAL_TYPE] == ProposalType.PROMPT_EVOLUTION
+    assert proposal[FieldName.CONTENT][FieldName.TEXT] == "Favor high-confluence longs."
+
+
+async def test_prompt_evolution_disabled_emits_nothing(strategy_proposer, mock_bus, monkeypatch):
+    from api.config import settings
+    from api.constants import STREAM_PROPOSALS
+
+    monkeypatch.setattr(settings, "PROMPT_EVOLUTION_ENABLED", False)
+    await strategy_proposer._emit_prompt_evolution_proposal(
+        {"trace_id": "t"}, "2026-01-01T00:00:00Z"
+    )
+    pubs = [
+        c.args for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
+    ]
+    assert not pubs

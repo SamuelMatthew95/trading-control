@@ -35,6 +35,7 @@ from api.services.dashboard.learning import (
     update_proposal_status_payload,
 )
 from api.services.dashboard.pnl import get_paired_pnl_payload, get_pnl_payload
+from api.services.dashboard.prompt_evolution import get_prompt_evolution_payload
 from api.services.dashboard.prompt_os import get_prompt_os_payload
 from api.services.dashboard.proposals import (
     approve_proposal_payload,
@@ -231,6 +232,13 @@ async def get_prompt_os(request: Request) -> dict[str, Any]:
     vs the live strategy, and what the pending proposals change."""
     agents: list[Any] = getattr(request.app.state, "agents", [])
     return await get_prompt_os_payload(agents)
+
+
+@router.get("/prompt-evolution")
+async def get_prompt_evolution() -> dict[str, Any]:
+    """The self-evolving reasoning directive: active text + version + full
+    history + loop config — so an operator can see how the prompt has evolved."""
+    return await get_prompt_evolution_payload()
 
 
 @router.get("/kill-switch")

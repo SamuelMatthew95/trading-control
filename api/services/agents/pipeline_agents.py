@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,6 +30,7 @@ from api.constants import (
     LLM_RATE_LIMIT_GRADE_THRESHOLD,
     NOTIFICATION_DEDUP_TTL_SECONDS,
     NOTIFICATIONS_STREAM_MAXLEN,
+    REASONING_NODE,
     REDIS_IC_WEIGHTS_TTL_SECONDS,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
@@ -91,6 +92,7 @@ from api.services.agents.notification_payloads import (
 )
 from api.services.agents.prompts import (
     FALLBACK_REFLECTION,
+    PROMPT_EVOLUTION_PROMPT,
     REFLECTION_IMPROVE_PROMPT,
     REFLECTION_SYSTEM_PROMPT,
     STRATEGY_PLANNING_PROMPT,
@@ -113,6 +115,8 @@ from api.services.agents.trade_scorer import (
 )
 from api.services.llm_metrics import llm_metrics as _llm_metrics
 from api.services.redis_store import get_redis_store as _get_redis_store
+from api.services.replay_harness import ReplayHarness
+from api.services.tool_registry import get_tool_registry
 
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
@@ -133,7 +137,15 @@ class GradeAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED],
+            streams=[
+                STREAM_EXECUTIONS,
+                STREAM_TRADE_PERFORMANCE,
+                STREAM_TRADE_COMPLETED,
+                # Consumed only to learn which tools informed each decision, so a
+                # completed trade's realized PnL can be attributed back to those
+                # tools (tool grading). No grade cycle is triggered by decisions.
+                STREAM_DECISIONS,
+            ],
             consumer="grade-agent",
             agent_state=agent_state,
         )
@@ -153,6 +165,16 @@ class GradeAgent(MultiStreamAgent):
         # Edge-trigger latch: alert once when the diagnostic enters a drop/decay
         # state, stay quiet until it recovers (avoids per-cycle notification spam).
         self._self_correction_active: bool = False
+        # Last emitted tool-governance suggestion set (";"-joined tool:action).
+        # Edge-triggers the tool-governance proposal so an unchanged set is not
+        # re-proposed every grading cycle.
+        self._last_tool_governance_key: str | None = None
+        # trace_id -> tool names used in that decision, captured from the
+        # decisions stream. When the matching trade closes we attribute its
+        # realized PnL back to these tools so tool alpha is OUTCOME-driven
+        # (not just decision-time latency/reliability). Bounded so a long run
+        # cannot grow it without limit.
+        self._trace_tools: OrderedDict[str, list[str]] = OrderedDict()
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -165,6 +187,10 @@ class GradeAgent(MultiStreamAgent):
             await self._score_and_persist_trade(data)
         elif stream == STREAM_EXECUTIONS:
             self._confidence_buffer.append(float(data.get(FieldName.CONFIDENCE) or 0.5))
+        elif stream == STREAM_DECISIONS:
+            # Cache the tools used so a later trade can be graded against them.
+            self._remember_decision_tools(data)
+            return  # decisions never trigger a grade cycle
 
         trigger = max(int(settings.GRADE_EVERY_N_FILLS), 1)
         if self._fills == 0 or self._fills % trigger != 0:
@@ -202,6 +228,48 @@ class GradeAgent(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "trade_score_failed", exc_info=True)
+
+        # Tool grading — attribute this trade's realized PnL back to the tools
+        # that informed the decision behind it, closing the loop from outcome to
+        # tool alpha. This is what makes suggest_tool_changes (negative-alpha →
+        # disable) and the tool-governance proposal driven by real outcomes.
+        self._attribute_pnl_to_tools(data)
+
+    def _remember_decision_tools(self, data: dict[str, Any]) -> None:
+        """Cache trace_id -> tool names from a decision event (bounded LRU)."""
+        trace_id = data.get(FieldName.TRACE_ID)
+        if not trace_id:
+            return
+        tools = data.get(FieldName.TOOLS_USED) or []
+        names = [
+            t.get(FieldName.NAME) for t in tools if isinstance(t, dict) and t.get(FieldName.NAME)
+        ]
+        if not names:
+            return
+        self._trace_tools[trace_id] = names
+        self._trace_tools.move_to_end(trace_id)
+        while len(self._trace_tools) > 500:  # bound the map on long runs
+            self._trace_tools.popitem(last=False)
+
+    def _attribute_pnl_to_tools(self, data: dict[str, Any]) -> None:
+        """Fold a completed trade's realized PnL into the alpha of each tool that
+        informed its decision. Pops the trace so the paired trade_completed /
+        trade_performance events for one trade attribute exactly once."""
+        trace_id = data.get(FieldName.TRACE_ID)
+        if not trace_id:
+            return
+        names = self._trace_tools.pop(trace_id, None)
+        if not names:
+            return
+        pnl = data.get(FieldName.PNL)
+        if pnl is None:
+            return
+        try:
+            registry = get_tool_registry()
+            for name in names:
+                registry.record_call(name, latency_ms=0.0, success=True, realized_pnl=float(pnl))
+        except Exception:
+            log_structured("warning", "tool_pnl_attribution_failed", exc_info=True)
 
     async def _compute_and_publish_grade(self) -> None:
         trace_id = f"grade_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
@@ -297,6 +365,7 @@ class GradeAgent(MultiStreamAgent):
         )
         await self._take_grade_action(grade, payload)
         await self._emit_self_correction_alert(self_correction, trace_id)
+        await self._emit_tool_governance(trace_id)
         await self._adjust_llm_call_rate(llm_snap)
         await self._backfill_grade_to_lifecycle(grade, payload, trace_id)
 
@@ -418,11 +487,106 @@ class GradeAgent(MultiStreamAgent):
             },
         )
 
+    async def _emit_tool_governance(self, trace_id: str) -> None:
+        """Turn the ToolRegistry's read-only advice into an actionable proposal.
+
+        The registry already scores each tool's alpha + reliability from live
+        reasoning telemetry, but the only consumer was a passive dashboard
+        panel — the loop never closed ("it's not automating"). Each grade cycle
+        we surface the actionable suggestions (disable / review) as a single
+        human-approval proposal + notification, edge-triggered so an unchanged
+        set does not re-propose every cycle. The full suggestion list (incl.
+        the ``prioritize`` hint) rides along in the proposal content.
+        """
+        try:
+            suggestions = get_tool_registry().suggest_tool_changes()
+        except Exception:
+            log_structured("warning", "tool_governance_suggest_failed", exc_info=True)
+            return
+
+        # 'prioritize' alone is informational; only disable/review are actionable.
+        actionable = [s for s in suggestions if s.action in ("disable", "review")]
+        if not actionable:
+            self._last_tool_governance_key = None
+            return
+
+        key = ";".join(f"{s.tool}:{s.action}" for s in actionable)
+        if key == self._last_tool_governance_key:
+            return  # unchanged set — already proposed this episode
+        self._last_tool_governance_key = key
+
+        serialized = [
+            {
+                FieldName.TOOL: s.tool,
+                FieldName.ACTION: s.action,
+                FieldName.SEVERITY: s.severity,
+                FieldName.REASON: s.reason,
+            }
+            for s in suggestions
+        ]
+        # Full per-tool attribution (alpha / failure / usage), ranked, so the
+        # proposal shows HOW each tool is performing — the operator can act on a
+        # disable, or use the gaps to decide which new tools to add/enable.
+        attribution = [
+            {
+                FieldName.TOOL: t.name,
+                FieldName.ALPHA: round(t.alpha_score, 6),
+                FieldName.FAILURE_RATE: round(t.failure_rate, 4),
+                FieldName.CALL_COUNT: t.call_count,
+                FieldName.ENABLED: t.enabled,
+            }
+            for t in get_tool_registry().attribution()
+        ]
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await self.bus.publish(
+            STREAM_PROPOSALS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_GRADE,
+                FieldName.TYPE: "proposal",
+                FieldName.PROPOSAL_TYPE: ProposalType.TOOL_GOVERNANCE,
+                FieldName.REQUIRES_APPROVAL: True,
+                FieldName.CONTENT: {
+                    FieldName.SUGGESTIONS: serialized,
+                    FieldName.ATTRIBUTION: attribution,
+                    FieldName.BACKTEST: self._recent_backtest_evidence(),
+                    FieldName.REASON: (
+                        f"{len(actionable)} tool-governance action(s) from live "
+                        "reasoning telemetry (alpha / reliability / usage)"
+                    ),
+                },
+                FieldName.TRACE_ID: trace_id,
+                FieldName.TIMESTAMP: now_iso,
+            },
+        )
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            {
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_GRADE,
+                FieldName.TYPE: "notification",
+                FieldName.SEVERITY: Severity.INFO,
+                FieldName.NOTIFICATION_TYPE: "tool_governance",
+                FieldName.MESSAGE: f"Tool governance suggests: {key}",
+                FieldName.TIMESTAMP: now_iso,
+            },
+        )
+        log_structured(
+            "info", "tool_governance_proposal_published", suggestions=key, trace_id=trace_id
+        )
+
     def _win_rate(self, lookback_n: int) -> float:
         recent = list(self._pnl_buffer)[-lookback_n:]
         if not recent:
             return 0.5
         return sum(1 for pnl in recent if pnl > 0) / len(recent)
+
+    def _recent_backtest_evidence(self) -> dict[str, Any]:
+        """Replay the recent trade buffer through the same ReplayHarness the
+        promotion gate uses, so every proposal carries a MEASURED verdict
+        (win rate, total PnL, Sharpe, drawdown, false-positive rate) — not just
+        an LLM/heuristic guess. Pure; safe to call on each proposal."""
+        return ReplayHarness().replay(list(self._eval_buffer)).model_dump()
 
     async def _information_coefficient(self, lookback_n: int) -> float:
         """Spearman correlation between agent confidence and realized returns."""
@@ -603,6 +767,7 @@ class GradeAgent(MultiStreamAgent):
                         FieldName.REDUCTION_PCT: 30,
                         "reason": f"Grade {grade}: score {payload[FieldName.SCORE_PCT]}%",
                         FieldName.GRADE_PAYLOAD: payload,
+                        FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
@@ -623,6 +788,7 @@ class GradeAgent(MultiStreamAgent):
                             "action": "suspend_from_live_stream",
                             FieldName.CONSECUTIVE_LOW_GRADES: self._consecutive_low_grades,
                             "reason": f"{self._consecutive_low_grades} consecutive D grades",
+                            FieldName.BACKTEST: self._recent_backtest_evidence(),
                         },
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
@@ -640,6 +806,7 @@ class GradeAgent(MultiStreamAgent):
                     "content": {
                         "action": "retire_immediately",
                         "reason": f"Grade F: score {payload[FieldName.SCORE_PCT]}%",
+                        FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
@@ -1239,6 +1406,11 @@ class StrategyProposer(MultiStreamAgent):
             reflection_trace_id=data.get(FieldName.TRACE_ID),
         )
 
+        # Self-evolving prompt: draft an improved reasoning directive from this
+        # reflection and propose it. This is the LLM suggesting its own prompt —
+        # the missing link that makes the loop self-improving.
+        await self._emit_prompt_evolution_proposal(data, now_iso)
+
         # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE
         try:
             from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
@@ -1252,6 +1424,98 @@ class StrategyProposer(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "strategy_proposer_heartbeat_failed", exc_info=True)
+
+    async def _emit_prompt_evolution_proposal(
+        self, reflection_data: dict[str, Any], now_iso: str
+    ) -> None:
+        """Ask the LLM to draft an improved reasoning directive from this
+        reflection, and publish it as a PROMPT_EVOLUTION proposal.
+
+        This is the LLM suggesting its OWN prompt — the link that makes the loop
+        self-improving. Best-effort: any failure logs and returns without
+        disturbing the rest of the proposal cycle.
+        """
+        if not settings.PROMPT_EVOLUTION_ENABLED:
+            return
+        trace_id = str(reflection_data.get(FieldName.TRACE_ID) or uuid.uuid4())
+        try:
+            from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
+            from api.services.prompt_store import get_prompt_store  # noqa: PLC0415
+
+            store = get_prompt_store()
+            current = (await store.get_active_text(REASONING_NODE) or "") if store else ""
+
+            evo_prompt = json.dumps(
+                {
+                    FieldName.DIRECTIVE: current,
+                    FieldName.WINNING_FACTORS: reflection_data.get(FieldName.WINNING_FACTORS, []),
+                    FieldName.LOSING_FACTORS: reflection_data.get(FieldName.LOSING_FACTORS, []),
+                    FieldName.SUMMARY: reflection_data.get(FieldName.SUMMARY, ""),
+                },
+                default=str,
+            )
+            raw_text, _, _ = await call_llm_with_system(
+                evo_prompt, PROMPT_EVOLUTION_PROMPT, trace_id
+            )
+            parsed = self._parse_evolution_response(raw_text)
+        except Exception:
+            log_structured(
+                "warning", "prompt_evolution_llm_failed", trace_id=trace_id, exc_info=True
+            )
+            return
+
+        proposed = str(parsed.get(FieldName.DIRECTIVE) or "").strip()
+        rationale = str(parsed.get(FieldName.RATIONALE) or "").strip()
+        if not proposed or proposed == current.strip():
+            log_structured("info", "prompt_evolution_no_change", trace_id=trace_id)
+            return
+
+        proposal = {
+            "msg_id": str(uuid.uuid4()),
+            "source": SOURCE_STRATEGY_PROPOSER,
+            "type": "proposal",
+            FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
+            FieldName.REQUIRES_APPROVAL: not settings.PROMPT_EVOLUTION_AUTO_APPLY,
+            "reflection_trace_id": reflection_data.get(FieldName.TRACE_ID),
+            "trace_id": trace_id,
+            "timestamp": now_iso,
+            FieldName.CONTENT: {
+                FieldName.NODE: REASONING_NODE,
+                FieldName.TEXT: proposed,
+                FieldName.RATIONALE: rationale,
+            },
+        }
+        await self.bus.publish(STREAM_PROPOSALS, proposal)
+        await persist_proposal(proposal)
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": SOURCE_STRATEGY_PROPOSER,
+                "type": "notification",
+                "severity": Severity.INFO,
+                "notification_type": "proposal",
+                "message": f"Prompt-evolution proposal for {REASONING_NODE}: {rationale[:100]}",
+                "timestamp": now_iso,
+            },
+        )
+        log_structured(
+            "info", "prompt_evolution_proposal_published", node=REASONING_NODE, trace_id=trace_id
+        )
+
+    @staticmethod
+    def _parse_evolution_response(raw_text: str) -> dict[str, Any]:
+        """Tolerant JSON parse of the evolution LLM reply (strips md fences)."""
+        cleaned = (raw_text or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3]
+        try:
+            parsed = json.loads(cleaned.strip())
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
 
     async def _plan_and_rank(
         self,

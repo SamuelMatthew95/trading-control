@@ -109,7 +109,7 @@ export interface Notification {
 }
 
 export type ProposalStatus = 'pending' | 'approved' | 'rejected'
-export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment' | 'new_agent' | 'challenger_result'
+export type ProposalType = 'parameter_change' | 'code_change' | 'regime_adjustment' | 'new_agent' | 'challenger_result' | 'tool_governance' | 'prompt_evolution'
 
 export interface Proposal {
   id: string

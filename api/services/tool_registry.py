@@ -17,11 +17,14 @@ from pydantic import BaseModel, Field
 
 from api.constants import (
     TOOL_BRACKET_ORDER,
+    TOOL_CORRELATION_CHECK,
     TOOL_FLAG_CONFLUENCE_LOADED,
     TOOL_FLAG_RISK_APPROVED,
     TOOL_FLAG_THESIS_COMMITTED,
     TOOL_GET_IC_WEIGHTS,
     TOOL_MACRO_REGIME,
+    TOOL_NEWS_SENTIMENT,
+    TOOL_ORDER_BOOK_DEPTH,
     TOOL_QUERY_SIMILAR_TRADES,
     TOOL_REPLAY_REGRESSION,
     TOOL_RISK_CAGE,
@@ -290,6 +293,32 @@ def default_tools() -> list[ToolMetadata]:
             description="Sector-correlation scan. Flagged as low/negative alpha.",
             alpha_score=-0.2,
             latency_ms=120.0,
+            required_state_flags=[TOOL_FLAG_CONFLUENCE_LOADED],
+        ),
+        ToolMetadata(
+            name=TOOL_ORDER_BOOK_DEPTH,
+            phase=ToolPhase.PERCEPTION,
+            description="Order-book depth / bid-ask spread for the symbol — gauge "
+            "liquidity before sizing.",
+            alpha_score=0.35,
+            latency_ms=50.0,
+        ),
+        ToolMetadata(
+            name=TOOL_NEWS_SENTIMENT,
+            phase=ToolPhase.PERCEPTION,
+            description="Recent news sentiment score for the symbol. Cached — news "
+            "moves slower than ticks.",
+            alpha_score=0.2,
+            latency_ms=110.0,
+            cache_ttl=300,
+        ),
+        ToolMetadata(
+            name=TOOL_CORRELATION_CHECK,
+            phase=ToolPhase.PERCEPTION,
+            description="Cross-asset correlation (e.g. BTC vs ETH) so the agent avoids "
+            "stacking correlated risk.",
+            alpha_score=0.25,
+            latency_ms=90.0,
             required_state_flags=[TOOL_FLAG_CONFLUENCE_LOADED],
         ),
         ToolMetadata(

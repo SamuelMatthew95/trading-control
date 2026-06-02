@@ -134,18 +134,66 @@ def _get_provider_key(provider: str) -> str:
     return keys.get(provider, "")
 
 
-async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
+# Tracks the Groq model that actually served the most recent call, so a
+# throttle-triggered fallback to the instruct model is attributed correctly in
+# the decision's model_used label (the learning loop grades per-model). Best
+# effort, consistent with the rest of the label resolution.
+_last_groq_model: str | None = None
+
+
+async def _groq_completion(
+    *, system_prompt: str, prompt: str, max_tokens: int, temperature: float, trace_id: str
+):
+    """Call Groq with the capable model, transparently retrying on the instruct
+    fallback model when the primary is throttled (429 / quota / rate-limit).
+
+    A throttled primary therefore degrades to a lighter model instead of raising
+    — which previously cascaded into skip_reasoning and starved the learning loop.
+    """
+    global _last_groq_model
     from groq import AsyncGroq  # noqa: PLC0415
 
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
-    response = await client.chat.completions.create(
-        model=settings.GROQ_MODEL,
+    primary = settings.GROQ_MODEL
+    fallback = settings.GROQ_FALLBACK_MODEL
+
+    async def _create(model: str):
+        return await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[
+                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
+                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
+            ],
+        )
+
+    try:
+        response = await _create(primary)
+        _last_groq_model = primary
+        return response
+    except Exception as exc:
+        if fallback and fallback != primary and _is_rate_limit_error(exc):
+            log_structured(
+                "warning",
+                "groq_primary_throttled_falling_back_to_instruct",
+                trace_id=trace_id,
+                primary_model=primary,
+                fallback_model=fallback,
+            )
+            response = await _create(fallback)
+            _last_groq_model = fallback
+            return response
+        raise
+
+
+async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
+    response = await _groq_completion(
+        system_prompt=SYSTEM_PROMPT,
+        prompt=prompt,
         max_tokens=LLM_MAX_TOKENS_TRADING,
         temperature=LLM_TEMPERATURE_TRADING,
-        messages=[
-            {FieldName.ROLE: "system", FieldName.CONTENT: SYSTEM_PROMPT},
-            {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
-        ],
+        trace_id=trace_id,
     )
     text = response.choices[0].message.content
     tokens = (
@@ -367,7 +415,14 @@ def _set_model_label(meta: dict | None, provider: str) -> None:
     lmstudio-primary request transparently fell back to a cloud provider.
     """
     if meta is not None:
-        meta["model_label"] = f"{provider}:{_model_name_for(provider)}"
+        # For Groq, prefer the model that actually served the call — a throttle
+        # fallback may have downgraded the capable model to the instruct one,
+        # and the learning loop grades per-model, so the label must be truthful.
+        if provider == FieldName.GROQ and _last_groq_model:
+            model = _last_groq_model
+        else:
+            model = _model_name_for(provider)
+        meta["model_label"] = f"{provider}:{model}"
 
 
 def _find_cloud_fallback() -> str | None:
@@ -392,17 +447,12 @@ async def _call_provider_raw(
 ) -> tuple[str, int, float]:
     """Call a provider and return raw text (not parsed as trading JSON)."""
     if provider == "groq":
-        from groq import AsyncGroq  # noqa: PLC0415
-
-        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
-        response = await client.chat.completions.create(
-            model=settings.GROQ_MODEL,
+        response = await _groq_completion(
+            system_prompt=system_prompt,
+            prompt=prompt,
             max_tokens=LLM_MAX_TOKENS_ANALYSIS,
             temperature=LLM_TEMPERATURE_ANALYSIS,
-            messages=[
-                {FieldName.ROLE: "system", FieldName.CONTENT: system_prompt},
-                {FieldName.ROLE: "user", FieldName.CONTENT: prompt},
-            ],
+            trace_id=trace_id,
         )
         text = response.choices[0].message.content or ""
         tokens = (

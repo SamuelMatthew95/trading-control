@@ -94,6 +94,8 @@ class ProposalType(StrEnum):
     AGENT_SUSPENSION = "agent_suspension"
     AGENT_RETIREMENT = "agent_retirement"
     NEW_AGENT = "new_agent"
+    TOOL_GOVERNANCE = "tool_governance"
+    PROMPT_EVOLUTION = "prompt_evolution"
 
 
 class HypothesisType(StrEnum):
@@ -231,6 +233,7 @@ class FieldName(StrEnum):
     ACKNOWLEDGED = "acknowledged"
     ACTION = "action"
     ACTIVE = "active"
+    ALPHA = "alpha"
     ACTIVE_AGENTS = "active_agents"
     ACTIVE_AGENT_COUNT = "active_agent_count"
     ACTIVE_PROVIDER = "active_provider"
@@ -276,6 +279,7 @@ class FieldName(StrEnum):
     ATR = "atr"
     ATR_REGIME_RATIO = "atr_regime_ratio"
     ATTRIBUTION = "attribution"
+    ARTICLE_COUNT = "article_count"
     AUTO_APPLIED = "auto_applied"
     AVAILABLE_MODELS = "available_models"
     AVG_COST = "avg_cost"
@@ -289,6 +293,7 @@ class FieldName(StrEnum):
     AVG_WIN = "avg_win"
     BACKLOG = "backlog"
     BADGES = "badges"
+    BACKTEST = "backtest"
     BAD_RISK_REWARD = "bad_risk_reward"
     BARS = "bars"
     BASELINE = "baseline"
@@ -301,6 +306,7 @@ class FieldName(StrEnum):
     BEST_TRADE = "best_trade"
     BIAS = "bias"
     BID = "bid"
+    BRANCH = "branch"
     BLOCKED_TOOLS = "blocked_tools"
     BLOCKS = "blocks"
     BLOCKED_REASON = "blocked_reason"
@@ -347,6 +353,10 @@ class FieldName(StrEnum):
     CONSECUTIVE_LOW_GRADES = "consecutive_low_grades"
     CONSENSUS = "consensus"
     CONSISTENCY = "consistency"
+    CALL_COUNT = "call_count"
+    CLOSE = "close"
+    CORRELATION = "correlation"
+    CORRELATIONS = "correlations"
     CONSUMER = "consumer"
     CONTENT = "content"
     CONTENT_TYPE = "content_type"
@@ -400,6 +410,7 @@ class FieldName(StrEnum):
     DESCRIPTION = "description"
     DETAILS = "details"
     DIMENSION = "dimension"
+    DIRECTIVE = "directive"
     DIRECTION = "direction"
     DISCREPANCY = "discrepancy"
     DISPLAY = "display"
@@ -435,6 +446,7 @@ class FieldName(StrEnum):
     EXCHANGE = "exchange"
     EXECUTED = "executed"
     EXECUTED_AT = "executed_at"
+    ENABLED = "enabled"
     EXECUTION_TIME_MS = "execution_time_ms"
     EXECUTION_TRACE_ID = "execution_trace_id"
     EXEC_STATUS = "exec_status"
@@ -447,6 +459,7 @@ class FieldName(StrEnum):
     EXPIRES_AT = "expires_at"
     EXTERNAL_ORDER_ID = "external_order_id"
     FACTOR = "factor"
+    FAILURE_RATE = "failure_rate"
     FACTOR_ID = "factor_id"
     FACTOR_NAME = "factor_name"
     FACTS = "facts"
@@ -517,6 +530,7 @@ class FieldName(StrEnum):
     IC_NORMALIZED = "ic_normalized"
     IC_SCORE = "ic_score"
     IC_WEIGHTS = "ic_weights"
+    IMBALANCE = "imbalance"
     ID = "id"
     IDEMPOTENCY_KEY = "idempotency_key"
     IDEM_KEY = "idem_key"
@@ -620,6 +634,7 @@ class FieldName(StrEnum):
     MARKET_VALUE = "market_value"
     MASKED_URL = "masked_url"
     MAXLEN = "maxlen"
+    MAX_CORRELATION = "max_correlation"
     MAX_DRAWDOWN = "max_drawdown"
     MAX_FILLS = "max_fills"
     MAX_RETRIES = "max_retries"
@@ -652,12 +667,14 @@ class FieldName(StrEnum):
     MOMENTUM = "momentum"
     MOMENTUM_PCT = "momentum_pct"
     MONITORING_ACTIVE = "monitoring_active"
+    MOST_CORRELATED = "most_correlated"
     MSG_ID = "msg_id"
     N = "n"
     NAME = "name"
     NEW_AVG_COST = "new_avg_cost"
     NEW_QUANTITY = "new_quantity"
     NEW_VALUE = "new_value"
+    NEWS_SENTIMENT = "news_sentiment"
     NEXT_TIMEFRAME = "next_timeframe"
     NET_EV = "net_ev"
     NORM_RETURN = "norm_return"
@@ -666,6 +683,7 @@ class FieldName(StrEnum):
     NOTIFICATIONS_COUNT = "notifications_count"
     NOTIFICATION_ID = "notification_id"
     NOTIFICATION_SUMMARY = "notification_summary"
+    NODE = "node"
     NOTIFICATION_TYPE = "notification_type"
     NOTIONAL = "notional"
     OBSERVED_MSG_ID = "observed_msg_id"
@@ -679,6 +697,7 @@ class FieldName(StrEnum):
     ORCHESTRATOR = "orchestrator"
     ORDERS = "orders"
     ORDERS_LAST_HOUR = "orders_last_hour"
+    ORDER_BOOK = "order_book"
     ORDER_ID = "order_id"
     ORDER_TYPE = "order_type"
     ORIGINAL_ID = "original_id"
@@ -731,6 +750,7 @@ class FieldName(StrEnum):
     PRICES = "prices"
     PRICE_HINT = "price_hint"
     PRIMARY_EDGE = "primary_edge"
+    PR_URL = "pr_url"
     PROCESSED_COUNT = "processed_count"
     PROCESSED_EVENTS_LAST_HOUR = "processed_events_last_hour"
     PROCESSING_ATTEMPT = "processing_attempt"
@@ -748,6 +768,7 @@ class FieldName(StrEnum):
     RATE_LIMITED_COUNT = "rate_limited_count"
     RATE_LIMITS = "rate_limits"
     RATIO = "ratio"
+    RATIONALE = "rationale"
     RAW_DATA = "raw_data"
     REACHABLE = "reachable"
     READ = "read"
@@ -863,8 +884,10 @@ class FieldName(StrEnum):
     SLIPPAGE_BPS = "slippage_bps"
     SLIPPAGE_VARIANCE = "slippage_variance"
     SLOPE = "slope"
+    SENTIMENT = "sentiment"
     SNIPPET = "snippet"
     SOURCE = "source"
+    SPREAD_BPS = "spread_bps"
     STAGE = "stage"
     STAGES = "stages"
     STALE_SYMBOLS = "stale_symbols"
@@ -903,6 +926,7 @@ class FieldName(StrEnum):
     SUCCESS_RATE = "success_rate"
     SUCCESS_RATE_PCT = "success_rate_pct"
     SUGGESTED_CHANNELS = "suggested_channels"
+    SUGGESTIONS = "suggestions"
     SUMMARY = "summary"
     SUMMARY_VERSION = "summary_version"
     SUSPENDED_AGENTS = "suspended_agents"
@@ -945,6 +969,7 @@ class FieldName(StrEnum):
     TODAY_PNL = "today_pnl"
     TOKENS_USED = "tokens_used"
     TONE = "tone"
+    TOOL = "tool"
     TOOLS = "tools"
     TOOLS_USED = "tools_used"
     TOTAL = "total"
@@ -1115,6 +1140,9 @@ TOOL_RISK_CAGE = "evaluate_risk_cage"
 TOOL_VWAP_EXECUTION = "calculate_vwap_execution"
 TOOL_BRACKET_ORDER = "execute_bracket_order"
 TOOL_REPLAY_REGRESSION = "replay_regression_check"
+TOOL_ORDER_BOOK_DEPTH = "get_order_book_depth"
+TOOL_NEWS_SENTIMENT = "get_news_sentiment"
+TOOL_CORRELATION_CHECK = "check_cross_asset_correlation"
 
 # State-flag gates a tool requires before it becomes eligible at a node.
 TOOL_FLAG_CONFLUENCE_LOADED = "confluence_loaded"
@@ -1233,6 +1261,11 @@ LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
 # scans (the GitHub Action de-dupes, so this only bounds the read window).
 PARAM_PR_REQUESTS_SCAN_LIMIT: Final[int] = 200
 
+# Auto-PR writes ONLY under this directory — a config ledger the app reads at
+# startup, never source code. GitOpsPublisher hard-guards every commit path
+# against this prefix so the learning loop can never edit code.
+PARAMETER_OVERRIDES_DIR: Final[str] = "config/parameter_overrides"
+
 # ---------------------------------------------------------------------------
 # Candidate Sharpe may be at most this far BELOW the champion's.
 REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
@@ -1247,7 +1280,20 @@ REGRESSION_MAX_SLIPPAGE_DELTA_BPS: Final[float] = 2.0
 REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
+# Market-intel caches (Category 1 market-data cache) — written by the reasoning
+# node's new perception tools after a live Alpaca fetch, so repeated decisions
+# inside the cache window reuse one API call instead of re-hitting Alpaca.
+REDIS_KEY_NEWS_SENTIMENT: Final[str] = "news_sentiment:{symbol}"  # use .format(symbol=symbol)
+REDIS_KEY_CORRELATION: Final[str] = "correlation:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
+# Self-evolving prompt store (Category 2 computed configuration). The active
+# learned "adaptive directive" per reasoning node + a capped history for audit
+# and rollback. Written by ProposalApplier on an approved PROMPT_EVOLUTION
+# proposal; read by ReasoningAgent at prompt-assembly time (as challenger_variant
+# beneath the immutable constitution). No TTL — a learned directive persists.
+REDIS_KEY_PROMPT_DIRECTIVE: Final[str] = "prompt:directive:{node}"  # .format(node=node)
+REDIS_KEY_PROMPT_DIRECTIVE_HISTORY: Final[str] = "prompt:directive:history:{node}"
+PROMPT_DIRECTIVE_HISTORY_CAP: Final[int] = 20  # prior versions kept for rollback
 REDIS_PUBSUB_PRICE_UPDATES: Final[str] = "price_updates"  # pub/sub channel for SSE streaming
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
 REDIS_KEY_DLQ_RETRIES: Final[str] = "dlq:retries:{event_id}"
@@ -1340,6 +1386,10 @@ WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key
 # (The buy/sell momentum delta no longer depends on this TTL — the poller keeps
 # its own in-memory prev-price anchor. See docs/troubleshooting/price-poller.md.)
 REDIS_PRICES_TTL_SECONDS: Final[int] = 150
+# News moves far slower than ticks; correlation is slow-moving and the bar
+# fetch is the heaviest of the three — cache both to bound Alpaca calls.
+REDIS_NEWS_SENTIMENT_TTL_SECONDS: Final[int] = 300  # 5 min
+REDIS_CORRELATION_TTL_SECONDS: Final[int] = 120  # 2 min
 REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
@@ -1442,7 +1492,7 @@ MIN_RR_RATIO: Final[float] = 2.0
 LLM_FALLBACK_MODE_SKIP_REASONING: Final[str] = "skip_reasoning"
 LLM_FALLBACK_MODE_REJECT_SIGNAL: Final[str] = "reject_signal"
 LLM_FALLBACK_MODE_USE_LAST_REFLECTION: Final[str] = "use_last_reflection"
-LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_SKIP_REASONING
+LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_REJECT_SIGNAL  # fail closed — no naive trades
 
 # Alpaca HTTP transport hardening — price_poller fetch layer
 # Root cause addressed: SSLZeroReturnError(6) from stale keepalive reuse under Render NAT.

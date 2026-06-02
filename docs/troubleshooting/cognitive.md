@@ -7,6 +7,74 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 
 ---
 
+## LLM-down fallback emitted phantom directional trades (fail OPEN)
+
+**Symptom:** When the reasoning LLM was unavailable, the dashboard showed `buy`/`sell`
+decisions tagged `fallback:skip_reasoning` — the system *looked* like it wanted to trade
+on raw momentum with no reasoning behind it ("random fallback to just buy").
+
+**Root cause:** `LLM_FALLBACK_MODE` defaulted to `skip_reasoning`, whose `_apply_fallback`
+branch derives a directional action from signal direction / `pct` momentum. The
+ExecutionEngine's `ALLOW_FALLBACK_TRADES=False` guard blocked the *order*, but the
+ReasoningAgent still *emitted* a misleading directional decision — failing open at the
+cognition layer.
+
+**Fix:** Default `LLM_FALLBACK_MODE = "reject_signal"` (`api/config.py`, mirrored in
+`api/constants.py`). Brain-down now emits a transparent `REJECT` (no order, recorded and
+visible) instead of a naive momentum buy/sell — capital-preservation-first, the
+constitution's top rule. Naive directional (`skip_reasoning`) and last-reflection reuse
+(`use_last_reflection`) remain opt-in. Two layers of safety now: cognition emits REJECT,
+and the ExecutionEngine still blocks fallback buys.
+
+**Regression test:** `tests/agents/test_reasoning_agent.py::test_fallback_rejects_by_default_no_phantom_trade`
+(+ `::test_fallback_directional_is_opt_in_only`).
+
+---
+
+## Learning loop starved — Grade/IC/Reflection agents idle with event_count 0
+
+**Symptom:** GradeAgent, ICUpdater, ReflectionAgent and StrategyProposer all show `event_count: 0` and ACTIVE heartbeats, but produce no real grades/IC weights/reflections. Every decision in the feed is `reasoning_summary: "fallback:skip_reasoning"`, `llm_succeeded: false`, and fires a `fallback_trade_blocked` notification (action coerced to `hold`). `orders` stream length 0; `factor_ic_history` / `reflection_outputs` empty.
+
+**Root cause:** The configured Groq model (`llama-3.3-70b-versatile`) was hitting its quota/rate-limit, so the only enabled LLM provider returned a 100% error rate (`success_rate: 0.0`, `last_success_timestamp: null`). Every ReasoningAgent call fell back to skip_reasoning → all trades blocked to `hold` → no fills → the grade/IC/reflection learning loop had nothing to consume. The grading agents themselves were healthy; they were starved at the source.
+
+**Fix (three layers):**
+1. **Throttle → instruct fallback** — `_groq_completion` (`api/services/llm_router.py`) now calls the capable `GROQ_MODEL` (`llama-3.3-70b-versatile`) first and, on a 429/quota/rate-limit error, transparently retries the same call on `GROQ_FALLBACK_MODEL` (`llama-3.1-8b-instant`) instead of raising. A throttled primary degrades to a lighter model rather than cascading into skip_reasoning. The model that actually served the call is stamped on the decision's `model_used` label so the learning loop's per-model grading stays truthful.
+2. **Per-symbol reasoning cooldown** — `REASONING_COOLDOWN_SECONDS` (default 60s, `api/config.py`) gates the ReasoningAgent so repeat signals for the same symbol within the window are dropped (no LLM call, no degraded-fallback decision). This decouples LLM spend from raw signal volume, which is what burned the quota — momentum signals can fire every few seconds per symbol and each previously triggered a full reasoning call + self-critique call.
+
+Two further spend levers (also `api/config.py`):
+- `REASONING_DEDUP_PRICE_PCT` (default 0.05) — skip the LLM when a fresh signal's side matches the last-reasoned one and its price is within this percent (materially identical → no new information). Complements the cooldown for slow-but-repetitive signals.
+- `REASONING_SELF_CRITIQUE_ENABLED` (default **False**) — the ReAct self-critique is a *second* LLM call on high-confidence buy/sells; disabled by default to halve actionable-decision spend. Re-enable when provider budget allows.
+
+If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ_FALLBACK_MODEL`) there too. Diagnose with `get_llm_health` (per-provider success/error rate) before assuming a grading-agent bug.
+
+**Regression tests:** `tests/core/test_llm_router_rate_limit.py::test_groq_falls_back_to_instruct_when_primary_throttled` (+ healthy / non-rate-limit cases); `tests/agents/test_reasoning_agent.py::test_per_symbol_cooldown_skips_repeat_llm_call` (+ per-symbol scoping).
+
+---
+
+## Tools were tracked but never graded by outcome (alpha frozen at the prior)
+
+**Symptom:** `suggest_tool_changes()` could "disable negative-alpha tools", but in practice no tool's `alpha_score` ever moved off its seeded prior, so the negative-alpha branch never fired and the attribution panel showed priors, not learned value.
+
+**Root cause:** `ToolRegistry.record_call` only updates `alpha_score` when passed `realized_pnl`, and the **only** caller (`ReasoningAgent._record_tool`) runs at *decision* time — before the outcome is known — so it never passed `realized_pnl`. Nothing connected a closed trade's PnL back to the tools that informed the decision. The tool-grading loop was wired up to the registry but never closed.
+
+**Fix:** GradeAgent now consumes `STREAM_DECISIONS` purely to cache `trace_id → tool names` (bounded LRU, `_remember_decision_tools`). When the matching trade closes on `STREAM_TRADE_COMPLETED` / `STREAM_TRADE_PERFORMANCE`, `_attribute_pnl_to_tools` folds the realized PnL into each of those tools' alpha via `record_call(..., realized_pnl=pnl)` and pops the trace so the paired events attribute exactly once. Tool alpha is now outcome-driven, which makes the tool-governance proposal (above) act on real signal. Full closed loop: signal → reasoning (records tools) → decision (`tools_used`) → execution → trade close (PnL) → GradeAgent attributes PnL to tools → `suggest_tool_changes` → tool-governance proposal → operator/ProposalApplier.
+
+**Regression tests:** `tests/agents/test_grade_agent.py::test_trade_pnl_attributed_to_decision_tools` (+ unknown-trace no-op).
+
+---
+
+## Tool governance produced advice but never acted ("it's not automating")
+
+**Symptom:** The ToolRegistry scored each tool's alpha/reliability from live reasoning telemetry and `suggest_tool_changes()` produced disable/review/prioritize advice — but the only consumer was the passive `GET /dashboard/tools` panel. `disable_dead_tools()` was never called anywhere, so the governance loop never closed.
+
+**Root cause:** No agent turned tool suggestions into proposals or actions; the advice just sat in a panel.
+
+**Fix:** `GradeAgent._emit_tool_governance()` (`api/services/agents/pipeline_agents.py`) now runs every grade cycle, publishing actionable tool suggestions (disable / review) as a single `ProposalType.TOOL_GOVERNANCE` approval-gated proposal on `STREAM_PROPOSALS` + an INFO notification. Edge-triggered on the suggestion set so an unchanged set is not re-proposed every cycle. The operator stays in the loop (human approval), and the full suggestion list (incl. the `prioritize` hint) rides along in the proposal content.
+
+**Regression tests:** `tests/agents/test_grade_agent.py::test_tool_governance_emits_proposal_for_actionable_suggestions` (+ informational-only no-op + edge-trigger cases).
+
+---
+
 ## Profitable short graded as wrong-direction
 
 **Symptom:** A short position that made money received an `F` direction grade.
@@ -76,3 +144,17 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 **Fix:** Proposals are admitted only within a per-window quota, exact duplicates (same target + rounded value) are dropped, and a rejected target is benched for a cooldown. Blocked proposals appear in the queue with `ProposalStatus.BLOCKED` and the reason in `verdict.blocked`; counts are in `snapshot()["evolution"]["governor"]`.
 
 **Regression test:** `tests/core/test_cognitive_hardening.py::test_governor_quota_dedup_and_cooldown`
+
+## Auto-PR for parameter changes (GitOps)
+
+**What:** When the learning loop approves a `PARAMETER_CHANGE`, `ProposalApplier`
+now opens a real pull request via `GitOpsPublisher` (`api/services/gitops_publisher.py`)
+that writes a JSON entry under `config/parameter_overrides/` — a **config file, never
+source code** — version-controlled and human-reviewed.
+
+**Safety:** Acts only when `GITHUB_AUTOPR_ENABLED` is set AND `GITHUB_TOKEN` (in Render)
++ `GITHUB_REPO` are present. Locally / in tests / CI (no token) every call is a dry-run
+no-op touching no network. All failures are swallowed — a GitOps hiccup never breaks the
+trading loop; the queued `pr_request` artifact remains for the GitHub Action / manual review.
+
+**Regression test:** `tests/api/test_gitops_publisher.py`

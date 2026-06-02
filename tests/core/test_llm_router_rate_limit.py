@@ -206,3 +206,94 @@ async def test_call_provider_raw_gemini_rate_limit_then_success():
     mock_sleep.assert_called_once()
     assert mock_sleep.call_args[0][0] == pytest.approx(25.0)
     assert text == "raw text output"
+
+
+# ---------------------------------------------------------------------------
+# Groq throttle → instruct-model fallback
+# ---------------------------------------------------------------------------
+
+
+def _make_groq_response(text: str = "ok", prompt_tokens: int = 10, completion_tokens: int = 5):
+    resp = MagicMock()
+    resp.choices = [MagicMock(message=MagicMock(content=text))]
+    resp.usage = MagicMock(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+    return resp
+
+
+def _make_fake_groq_module(create_side_effect):
+    fake_mod = MagicMock()
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
+    fake_mod.AsyncGroq.return_value = client
+    return fake_mod
+
+
+@pytest.mark.asyncio
+async def test_groq_falls_back_to_instruct_when_primary_throttled(monkeypatch):
+    """A 429 on the capable Groq model transparently retries on the instruct
+    model instead of raising — preventing the skip_reasoning cascade that
+    starved the learning loop."""
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key")
+
+    def _create(*args, **kwargs):
+        if kwargs.get("model") == "llama-3.3-70b-versatile":
+            raise Exception("Error code: 429 - rate limit exceeded")
+        return _make_groq_response("fallback-text")
+
+    with patch.dict("sys.modules", {"groq": _make_fake_groq_module(_create)}):
+        text, tokens, cost = await llm_router._call_provider_raw(
+            "groq", "prompt", "system", "trace-1"
+        )
+
+    assert text == "fallback-text"
+    assert tokens == 15
+    assert llm_router._last_groq_model == "llama-3.1-8b-instant"
+
+
+@pytest.mark.asyncio
+async def test_groq_uses_capable_model_when_healthy(monkeypatch):
+    """No throttle — the capable primary model serves the call and is labelled."""
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key")
+
+    calls = []
+
+    def _create(*args, **kwargs):
+        calls.append(kwargs.get("model"))
+        return _make_groq_response("primary-text")
+
+    with patch.dict("sys.modules", {"groq": _make_fake_groq_module(_create)}):
+        text, _tokens, _cost = await llm_router._call_provider_raw(
+            "groq", "prompt", "system", "trace-2"
+        )
+
+    assert text == "primary-text"
+    assert calls == ["llama-3.3-70b-versatile"]  # fallback never invoked
+    assert llm_router._last_groq_model == "llama-3.3-70b-versatile"
+
+
+@pytest.mark.asyncio
+async def test_groq_non_rate_limit_error_does_not_fall_back(monkeypatch):
+    """A non-throttle error (e.g. auth) must propagate, not silently downgrade."""
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key")
+
+    def _create(*args, **kwargs):
+        raise Exception("invalid_api_key: authentication failed")
+
+    with patch.dict("sys.modules", {"groq": _make_fake_groq_module(_create)}):
+        with pytest.raises(Exception, match="authentication failed"):
+            await llm_router._call_provider_raw("groq", "prompt", "system", "trace-3")

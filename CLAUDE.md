@@ -256,6 +256,50 @@ Names are SCREAMING_SNAKE_CASE (`SIGNAL_AGENT`, not `SignalGenerator`).
 `AGENT_HEARTBEAT_TTL_SECONDS` > `AGENT_STALE_THRESHOLD_SECONDS` always — otherwise a slow-but-running
 agent expires before the dashboard can ever show it as STALE (goes straight to "offline").
 
+## Self-Evolving Cognition Loop (LLM-driven, prompt evolves)
+
+Each cognition stage that needs judgement is LLM-powered with its own prompt; the
+loop closes on itself and the reasoning prompt **evolves**:
+
+```
+signal → ReasoningAgent (LLM; constitution + ADAPTIVE DIRECTIVE + tool-governed prompt)
+       → decision (records tools_used + model_used)
+       → ExecutionEngine → trade closes (realized PnL)
+       → GradeAgent (deterministic 4-D score) ── attributes PnL to each tool (alpha)
+                                            └── emits backtest-backed proposals
+       → ReflectionAgent (LLM) → StrategyProposer (LLM)
+              ├─ ranks hypotheses → PARAMETER/CODE/NEW_AGENT/REGIME proposals
+              └─ LLM drafts an improved adaptive directive → PROMPT_EVOLUTION proposal
+       → ProposalApplier → PromptStore.set_directive() (versioned, history-capped)
+       → the NEXT ReasoningAgent decision assembles the evolved directive → …
+```
+
+Key invariants:
+- **Constitution is immutable.** The evolved directive is `challenger_variant`,
+  assembled BENEATH it; safety/capital-preservation can never be weakened.
+- **Tools are graded by outcome.** `GradeAgent` folds realized PnL into each
+  tool's alpha; negative-alpha tools are filtered from the prompt AND proposed
+  for disable (closes the tool loop). New tools are registered + governable.
+- **Proposals are backtest-backed.** Every `GradeAgent` proposal carries a
+  measured `ReplayHarness` verdict (win rate / PnL / Sharpe / drawdown / FPR)
+  over the recent trade buffer — evidence, not a blind guess.
+- **Proposal routing (ProposalApplier handler-map, never edits code):**
+  `PARAMETER_CHANGE` → config-only auto-PR (`GitOpsPublisher`, writes under
+  `config/parameter_overrides/`, applied at next startup by
+  `apply_parameter_overrides`); `NEW_AGENT` → spawn a shadow challenger
+  **dynamically** via `ChallengerSpawner` when its strategy is in
+  `backtest.strategies.STRATEGIES` (config, no deploy), else file an issue;
+  `CODE_CHANGE`/`REGIME_ADJUSTMENT` → GitHub issue for human design;
+  `PROMPT_EVOLUTION` → prompt store; weight/suspension/retirement → Redis
+  control plane. GitOps is gated on `GITHUB_TOKEN` (Render) — dry-run locally.
+- **Fail closed.** `LLM_FALLBACK_MODE` defaults to `reject_signal`: when the
+  reasoning LLM is down, the agent emits `REJECT` (no order), never a naive
+  momentum buy. Provider throttle degrades reason→instruct model, not to a
+  phantom trade. Cooldown + signal-dedup + self-critique toggle bound spend.
+- Flags: `PROMPT_EVOLUTION_ENABLED` / `PROMPT_EVOLUTION_AUTO_APPLY`,
+  `REASONING_COOLDOWN_SECONDS` / `REASONING_DEDUP_PRICE_PCT` /
+  `REASONING_SELF_CRITIQUE_ENABLED` (all `api/config.py`).
+
 ## Data Fetch Pipeline (PostgreSQL → API → Frontend)
 How the dashboard is hydrated on load / reconnect:
 
@@ -273,8 +317,9 @@ How the dashboard is hydrated on load / reconnect:
 | `notifications` (REST catch-up) | Redis list `notifications:recent` (cap 200) | `GET /notifications` |
 | `decisions` (REST catch-up) | Redis list `decisions:recent` (cap 500) | `GET /decisions` |
 | `llm_metrics` (durable) | Redis hash `llm:metrics` | `GET /llm/health` (`redis_metrics` block) |
-| `tools` + `suggestions` | in-process `ToolRegistry` (seeded catalog; telemetry from `ReasoningAgent`) | `GET /dashboard/tools` → `ToolGovernancePanel` |
-| `proposals` (voteable) | `agent_logs WHERE log_type='proposal'` / memory `event_history` | `/dashboard/state` → `/dashboard/proposals` page |
+| `tools` + `suggestions` + `attribution` | in-process `ToolRegistry` (seeded catalog; telemetry + realized-PnL alpha from `GradeAgent`) | `GET /dashboard/tools` → `ToolGovernancePanel` |
+| `prompt_evolution` (active directive + version + history) | Redis `REDIS_KEY_PROMPT_DIRECTIVE` via `PromptStore` | `GET /dashboard/prompt-evolution` → `PromptEvolutionPanel` |
+| `proposals` (voteable, backtest-backed) | `agent_logs WHERE log_type='proposal'` / memory `event_history` (each carries a `backtest` `ReplayMetrics` block) | `/dashboard/state` → `/dashboard/proposals` page |
 
 REST hydration endpoint: `GET /dashboard/state`
 Guardrail tests: `tests/core/test_data_fetch_guardrails.py` + `tests/core/test_agent_constants.py`

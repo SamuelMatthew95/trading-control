@@ -21,7 +21,12 @@ class Settings(BaseSettings):
     USE_MEMORY_MODE: bool = Field(default=False)
     ANTHROPIC_API_KEY: str | None = Field(default=None)
     ANTHROPIC_DAILY_TOKEN_BUDGET: int = 5_000_000
-    LLM_FALLBACK_MODE: str = "skip_reasoning"
+    # When the reasoning LLM is unavailable, FAIL CLOSED: emit REJECT (no order),
+    # recorded + visible on the dashboard — never a naive momentum buy/sell. The
+    # constitution is capital-preservation-first; guessing direction without the
+    # brain loses money. "use_last_reflection" (reuse the last LLM guidance) and
+    # "skip_reasoning" (naive directional) remain opt-in for operators who want them.
+    LLM_FALLBACK_MODE: str = "reject_signal"
     ALLOW_FALLBACK_TRADES: bool = False
     MAX_FALLBACK_ORDER_QTY: float = 0.01
     MAX_SYMBOL_EXPOSURE: float = 1.0
@@ -53,6 +58,31 @@ class Settings(BaseSettings):
     GRADE_EVERY_N_FILLS: int = 5
     IC_UPDATE_EVERY_N_FILLS: int = 10
     REFLECT_EVERY_N_FILLS: int = 10
+    # Per-symbol reasoning cooldown — minimum seconds between LLM reasoning
+    # calls for the SAME symbol. Decouples LLM spend from raw signal volume:
+    # momentum signals can fire every few seconds per symbol, and previously
+    # each one woke a full LLM call (plus a self-critique call), which burned
+    # the provider quota. Within the cooldown window a fresh signal reuses the
+    # deterministic fallback path instead of calling the LLM. 0 disables it.
+    REASONING_COOLDOWN_SECONDS: float = 60.0
+    # Skip the LLM when a fresh signal's side matches the last-reasoned one and
+    # its price is within this percent — a materially identical signal carries
+    # no new information. 0 disables. Complements the cooldown for slow but
+    # repetitive signals.
+    REASONING_DEDUP_PRICE_PCT: float = 0.05
+    # The ReAct self-critique is a SECOND LLM call on high-confidence buy/sells.
+    # Disabled by default to halve actionable-decision LLM spend; re-enable when
+    # provider budget allows and decision-quality review is worth the extra call.
+    REASONING_SELF_CRITIQUE_ENABLED: bool = False
+    # Self-evolving prompt loop. When enabled, StrategyProposer asks the LLM to
+    # draft an improved reasoning-node directive from each reflection's
+    # winning/losing factors and emits a PROMPT_EVOLUTION proposal.
+    PROMPT_EVOLUTION_ENABLED: bool = True
+    # When True the ProposalApplier applies an approved/auto PROMPT_EVOLUTION
+    # directly to the prompt store (the directive is always subordinate to the
+    # immutable constitution and fully version-historied for rollback), closing
+    # the self-improving loop autonomously. Set False to require manual apply.
+    PROMPT_EVOLUTION_AUTO_APPLY: bool = True
 
     # Grade system
     GRADE_LOOKBACK_N: int = 20
@@ -69,6 +99,15 @@ class Settings(BaseSettings):
     # Reflection / strategy
     HYPOTHESIS_MIN_CONFIDENCE: float = 0.7
 
+    # GitOps auto-PR — when a PARAMETER_CHANGE proposal is applied, open a real
+    # PR that edits a CONFIG file (never raw code), version-controlled + human-
+    # reviewed. Activates only when a token + repo are present (GITHUB_TOKEN is
+    # set in Render); locally/in tests it is a safe dry-run no-op.
+    GITHUB_TOKEN: str = ""
+    GITHUB_REPO: str = "SamuelMatthew95/trading-control"  # "owner/repo"
+    GITHUB_AUTOPR_ENABLED: bool = True
+    GITHUB_AUTOPR_BASE_BRANCH: str = "main"
+
     # LLM provider routing
     LLM_PROVIDER: str = "gemini"
     # When True (default), fall back to a cloud provider if LM Studio is
@@ -76,7 +115,14 @@ class Settings(BaseSettings):
     # system never silently routes to a cloud provider.
     LLM_FALLBACK_ENABLED: bool = Field(default=True)
     GROQ_API_KEY: str = ""
+    # Two-tier Groq routing: call the capable model first, and if it is
+    # throttled (429 / quota / rate-limit) transparently retry the SAME call on
+    # the lighter instruct model instead of hard-failing. A hard failure made
+    # every reasoning call fall back to skip_reasoning, which starved the
+    # grade/IC/reflection learning loop. The instruct model has a far larger
+    # rate-limit allowance and is sufficient for a clean JSON trading decision.
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
     GEMINI_API_KEY: str | None = Field(default=None)
     GEMINI_MODEL: str = "gemini-1.5-flash"
 

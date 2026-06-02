@@ -46,6 +46,8 @@ from api.services.agents.pipeline_agents import (
 from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
+from api.services.challenger_spawner import ChallengerSpawner
+from api.services.config_overrides import apply_parameter_overrides
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -58,6 +60,7 @@ from api.services.lmstudio_provider import (
 from api.services.lmstudio_provider import (
     log_startup_config as lm_studio_log_startup_config,
 )
+from api.services.prompt_store import PromptStore, set_prompt_store
 from api.services.redis_store import RedisStore, set_redis_store
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
@@ -150,6 +153,11 @@ async def _init_redis(app: FastAPI):
     redis_store = RedisStore(redis_client)
     app.state.redis_store = redis_store
     set_redis_store(redis_store)
+    # Install the self-evolving prompt store so ReasoningAgent can read the
+    # learned adaptive directive and ProposalApplier can promote new ones.
+    prompt_store = PromptStore(redis_client)
+    app.state.prompt_store = prompt_store
+    set_prompt_store(prompt_store)
     log_structured(
         "info",
         "redis_connected",
@@ -270,6 +278,12 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Sequence startup, yield to serve requests, then tear everything down."""
+    # Apply any merged config overrides (auto-PR GitOps) over settings before
+    # anything reads them. Defensive: bad/unknown overrides are skipped.
+    applied_overrides = apply_parameter_overrides(settings)
+    if applied_overrides:
+        log_structured("info", "config_overrides_applied", params=applied_overrides)
+
     app.state.db_engine = engine
     app.state.in_memory_store = InMemoryStore()
     set_runtime_store(app.state.in_memory_store)
@@ -343,6 +357,14 @@ async def lifespan(app: FastAPI):
                 streams=getattr(agent, "streams", None),
             )
         app.state.agents = agents
+
+        # Wire the dynamic challenger spawner (shared by the dashboard route and
+        # an approved NEW_AGENT proposal) onto the live agents list + the applier.
+        spawner = ChallengerSpawner(event_bus, dlq_manager, agents, agent_state)
+        app.state.challenger_spawner = spawner
+        for agent in agents:
+            if isinstance(agent, ProposalApplier):
+                agent.spawner = spawner
 
         # RiskGuardian: periodic position monitor (stop-loss, take-profit, daily loss).
         risk_guardian = RiskGuardian(event_bus, redis_client)

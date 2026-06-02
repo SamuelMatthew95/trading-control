@@ -239,3 +239,133 @@ async def test_parameter_change_without_parameter_is_noop(monkeypatch):
 
     pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
     assert pr_calls == []
+
+
+async def test_prompt_evolution_applied_to_store(monkeypatch):
+    """An auto-apply PROMPT_EVOLUTION proposal promotes the directive into the store."""
+    from api.config import settings
+    from api.constants import REASONING_NODE
+    from api.services.prompt_store import PromptStore, set_prompt_store
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(settings, "PROMPT_EVOLUTION_AUTO_APPLY", True)
+
+    store = PromptStore(_FakeRedis())
+    set_prompt_store(store)
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
+            FieldName.CONTENT: {
+                FieldName.NODE: REASONING_NODE,
+                FieldName.TEXT: "Favor high-confluence longs; avoid news-spike entries.",
+                FieldName.RATIONALE: "winning factor",
+            },
+        }
+        await applier.process("proposals", "1-0", proposal)
+        assert (
+            await store.get_active_text(REASONING_NODE)
+            == "Favor high-confluence longs; avoid news-spike entries."
+        )
+    finally:
+        set_prompt_store(None)
+
+
+async def test_prompt_evolution_skipped_when_manual_apply(monkeypatch):
+    """With auto-apply off, the directive is NOT written (left for manual apply)."""
+    from api.config import settings
+    from api.constants import REASONING_NODE
+    from api.services.prompt_store import PromptStore, set_prompt_store
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(settings, "PROMPT_EVOLUTION_AUTO_APPLY", False)
+
+    store = PromptStore(_FakeRedis())
+    set_prompt_store(store)
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
+            FieldName.CONTENT: {FieldName.NODE: REASONING_NODE, FieldName.TEXT: "x"},
+        }
+        await applier.process("proposals", "1-0", proposal)
+        assert await store.get_active_text(REASONING_NODE) is None
+    finally:
+        set_prompt_store(None)
+
+
+async def test_code_change_proposal_files_issue(monkeypatch):
+    """A CODE_CHANGE proposal is filed as a GitHub issue (dry-run no-op when
+    GitOps unconfigured), never silently dropped, never editing code."""
+    from api.constants import FieldName, ProposalType
+
+    logged = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", logged)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+
+    applier = _make_applier(_FakeRedis())
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.CODE_CHANGE,
+        FieldName.CONTENT: {FieldName.DESCRIPTION: "add an order-book imbalance tool"},
+        FieldName.TRACE_ID: "t-issue",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    # It produced an applied record (issue filed / dry-run) rather than skipping.
+    assert logged.await_count == 1
+    payload = logged.await_args.args[2]
+    assert payload[FieldName.PROPOSAL_TYPE] == ProposalType.CODE_CHANGE
+
+
+async def test_new_agent_spawns_challenger_dynamically(monkeypatch):
+    """A NEW_AGENT proposal with a KNOWN strategy spawns a challenger via the
+    injected spawner (config, no deploy) — not a GitHub issue."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    # A known strategy is in the registry.
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.STRATEGIES", {"strong_only": object()}
+    )
+
+    applier = _make_applier(_FakeRedis())
+    spawner = _AsyncMock()
+    spawner.spawn = _AsyncMock(
+        return_value={FieldName.CHALLENGER_ID: "abc", FieldName.STATUS: "spawned"}
+    )
+    applier.spawner = spawner
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.NEW_AGENT,
+        FieldName.CONTENT: {FieldName.CHALLENGER_CONFIG: {FieldName.STRATEGY: "strong_only"}},
+        FieldName.TRACE_ID: "t-new",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    spawner.spawn.assert_awaited_once()
+
+
+async def test_new_agent_unknown_strategy_files_issue(monkeypatch):
+    """A NEW_AGENT for a strategy that needs code falls back to a GitHub issue."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {"existing": object()})
+
+    applier = _make_applier(_FakeRedis())
+    applier.spawner = _AsyncMock()
+    applier.spawner.spawn = _AsyncMock()
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.NEW_AGENT,
+        FieldName.CONTENT: {FieldName.CHALLENGER_CONFIG: {FieldName.STRATEGY: "brand_new_strat"}},
+        FieldName.TRACE_ID: "t-new2",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    applier.spawner.spawn.assert_not_awaited()  # unknown strategy → issue, not spawn
