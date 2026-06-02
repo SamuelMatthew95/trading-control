@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 
 from api.config import settings
-from api.constants import FieldName
+from api.constants import PARAMETER_OVERRIDES_DIR, FieldName
 from api.observability import log_structured
 
 _GITHUB_API = "https://api.github.com"
@@ -70,7 +70,7 @@ class GitOpsPublisher:
 
         short = uuid.uuid4().hex[:8]
         branch = f"auto/param-{parameter.lower()}-{short}"
-        path = f"config/parameter_overrides/{parameter}.{short}.json"
+        path = f"{PARAMETER_OVERRIDES_DIR}/{parameter}.{short}.json"
         proposed = artifact.get(FieldName.PROPOSED_VALUE)
         previous = artifact.get(FieldName.PREVIOUS_VALUE)
         reason = str(artifact.get(FieldName.REASON) or "")
@@ -112,6 +112,33 @@ class GitOpsPublisher:
         )
         return {FieldName.STATUS: "opened", FieldName.PR_URL: pr_url, FieldName.BRANCH: branch}
 
+    async def open_feature_issue(
+        self, title: str, body: str, labels: list[str] | None = None
+    ) -> dict[str, Any]:
+        """File a GitHub issue for a proposal that needs CODE (a new tool, prompt,
+        agent, or feature) — the system never edits code itself, it asks a human.
+
+        Same safety contract as ``open_parameter_pr``: dry-run no-op when no
+        token/repo, swallows all failures, never raises.
+        """
+        if not _autopr_ready():
+            return {FieldName.STATUS: "dry_run"}
+        payload: dict[str, Any] = {"title": title, "body": body}
+        if labels:
+            payload["labels"] = labels
+        try:
+            async with httpx.AsyncClient(
+                base_url=_GITHUB_API, headers=self._headers(), timeout=_HTTP_TIMEOUT
+            ) as client:
+                resp = await client.post(f"/repos/{self.repo}/issues", json=payload)
+                resp.raise_for_status()
+                issue_url = str(resp.json().get("html_url") or "")
+        except Exception:
+            log_structured("warning", "gitops_issue_failed", title=title, exc_info=True)
+            return {FieldName.STATUS: "error", FieldName.REASON: "github_api_error"}
+        log_structured("info", "gitops_issue_opened", title=title, issue_url=issue_url)
+        return {FieldName.STATUS: "opened", FieldName.PR_URL: issue_url}
+
     # -- GitHub REST helpers (response keys are GitHub API contract strings) --
 
     async def _base_sha(self, client: httpx.AsyncClient) -> str | None:
@@ -130,6 +157,10 @@ class GitOpsPublisher:
     async def _put_file(
         self, client: httpx.AsyncClient, path: str, content: dict[str, Any], branch: str, msg: str
     ) -> None:
+        # Structural config-only guarantee: auto-PR may ONLY write under the
+        # config-overrides dir, never source code. Anything else needs an issue.
+        if not path.startswith(f"{PARAMETER_OVERRIDES_DIR}/"):
+            raise ValueError(f"auto-PR refused: {path} is outside {PARAMETER_OVERRIDES_DIR}")
         encoded = base64.b64encode(json.dumps(content, indent=2).encode()).decode()
         resp = await client.put(
             f"/repos/{self.repo}/contents/{path}",
