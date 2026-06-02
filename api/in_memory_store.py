@@ -22,6 +22,7 @@ from api.constants import (
     FieldName,
     LogType,
 )
+from api.services.metrics_calc import win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
@@ -694,7 +695,7 @@ class InMemoryStore:
                 FieldName.CLOSED_TRADES: total_trades,
                 FieldName.WINNING_TRADES: winning_trades,
                 FieldName.WIN_RATE_PERCENT: round(
-                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
+                    win_rate_from_counts(winning_trades, losing_trades) * 100.0, 2
                 ),
                 FieldName.OPEN_POSITIONS: len(open_positions),
             },
