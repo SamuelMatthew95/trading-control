@@ -58,6 +58,7 @@ from api.services.lmstudio_provider import (
 from api.services.lmstudio_provider import (
     log_startup_config as lm_studio_log_startup_config,
 )
+from api.services.prompt_store import PromptStore, set_prompt_store
 from api.services.redis_store import RedisStore, set_redis_store
 from api.services.signal_generator import SignalGenerator
 from api.services.websocket_broadcaster import get_broadcaster
@@ -150,6 +151,11 @@ async def _init_redis(app: FastAPI):
     redis_store = RedisStore(redis_client)
     app.state.redis_store = redis_store
     set_redis_store(redis_store)
+    # Install the self-evolving prompt store so ReasoningAgent can read the
+    # learned adaptive directive and ProposalApplier can promote new ones.
+    prompt_store = PromptStore(redis_client)
+    app.state.prompt_store = prompt_store
+    set_prompt_store(prompt_store)
     log_structured(
         "info",
         "redis_connected",
