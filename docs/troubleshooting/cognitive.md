@@ -63,6 +63,20 @@ If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ
 
 ---
 
+## Dashboard grades were fake — SignalGenerator strength scores shown as "grades"
+
+**Symptom:** The learning/grades view (and `get_agent_grades`) showed a flood of identical `score: 55.0`, `grade_type: accuracy`, `source: signal_generator` rows — "every grade is half printed, all the same." No real GradeAgent outcome grades were visible, so the screen looked like the system graded everything 55/100 and never learned.
+
+**Root cause:** `SignalGenerator._db_write_signal` / `_persist_signal_complete` wrote the signal's *strength* score (80/55/30 tiers) into `agent_grades` / `grade_history` tagged `grade_type=accuracy`. That score is a **prior** (the signal's own confidence), not a graded outcome — but it landed in the same store as GradeAgent's realized-PnL grades and, being far more frequent, drowned them out. (The `/learning/trades` bridge already filtered these by `grade_type`, but the grade-history panel, the dashboard `learning_events` block, and the MCP `get_agent_grades` tool did not.)
+
+**Fix (producer + read defense):**
+1. **Stop faking** — SignalGenerator no longer writes any `agent_grades` row (both DB and memory paths). The strength score still drives the signal payload's `composite_score`/`confidence`; it is simply not recorded as a grade.
+2. **Filter persisted/hydrated fakes at read** — `_is_learning_grade()` (`api/in_memory_store.py`) drops `source=signal_generator` rows in `get_grades()` and `dashboard_fallback_snapshot()`; the DB grade-history fallback query (`api/services/dashboard/learning.py`) adds `WHERE source IS DISTINCT FROM :signal_source`. This cleans a store/DB that still holds old signal rows without waiting for them to age out. The learning view now shows only real GradeAgent grades, with an honest empty state until a trade closes.
+
+**Regression tests:** `tests/agents/test_signal_generator_db_writes.py::TestSignalGeneratorDBWrites::test_signal_generator_does_not_write_agent_grades`; `tests/agents/test_in_memory_persistence.py::test_get_grades_filters_out_signal_generator_source` (+ `::test_dashboard_snapshot_learning_events_exclude_signal_grades`); `tests/agents/test_signal_generator_schema_fix.py::test_insert_statements_use_correct_columns`.
+
+---
+
 ## Tools were tracked but never graded by outcome (alpha frozen at the prior)
 
 **Symptom:** `suggest_tool_changes()` could "disable negative-alpha tools", but in practice no tool's `alpha_score` ever moved off its seeded prior, so the negative-alpha branch never fired and the attribution panel showed priors, not learned value.
