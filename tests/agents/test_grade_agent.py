@@ -457,3 +457,71 @@ async def test_tool_governance_is_edge_triggered(grade_agent, mock_bus):
         c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
     ]
     assert len(proposal_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tool grading — realized trade PnL attributed back to the decision's tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trade_pnl_attributed_to_decision_tools(grade_agent):
+    """A decision records which tools it used; when that trade closes, the
+    realized PnL is folded into those tools' alpha — outcome-driven tool grading,
+    not a decision-time-only signal."""
+    from api.constants import STREAM_DECISIONS, STREAM_TRADE_COMPLETED, ToolPhase
+    from api.services.tool_registry import ToolMetadata, ToolRegistry, set_tool_registry
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolMetadata(
+            name="get_ic_weights", phase=ToolPhase.MEMORY, description="d", alpha_score=0.0
+        )
+    )
+    set_tool_registry(registry)
+    try:
+        # 1) decision for trace-T used get_ic_weights
+        await grade_agent.process(
+            STREAM_DECISIONS,
+            "1-0",
+            {
+                FieldName.TRACE_ID: "trace-T",
+                FieldName.TOOLS_USED: [{FieldName.NAME: "get_ic_weights"}],
+            },
+        )
+        # 2) that trade closes with a positive realized PnL
+        await grade_agent.process(
+            STREAM_TRADE_COMPLETED,
+            "2-0",
+            {FieldName.TRACE_ID: "trace-T", FieldName.PNL: 12.5},
+        )
+
+        tool = registry.get("get_ic_weights")
+        assert tool.alpha_score > 0.0  # PnL was attributed
+        # trace consumed — a duplicate trade event must not double-attribute
+        assert "trace-T" not in grade_agent._trace_tools
+    finally:
+        set_tool_registry(None)
+
+
+@pytest.mark.asyncio
+async def test_trade_without_known_decision_tools_is_noop(grade_agent):
+    """A trade whose trace was never seen on the decisions stream attributes
+    nothing — no crash, no phantom grading."""
+    from api.constants import STREAM_TRADE_COMPLETED, ToolPhase
+    from api.services.tool_registry import ToolMetadata, ToolRegistry, set_tool_registry
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolMetadata(
+            name="get_ic_weights", phase=ToolPhase.MEMORY, description="d", alpha_score=0.33
+        )
+    )
+    set_tool_registry(registry)
+    try:
+        await grade_agent.process(
+            STREAM_TRADE_COMPLETED, "3-0", {FieldName.TRACE_ID: "unknown", FieldName.PNL: 9.0}
+        )
+        assert registry.get("get_ic_weights").alpha_score == 0.33  # unchanged
+    finally:
+        set_tool_registry(None)
