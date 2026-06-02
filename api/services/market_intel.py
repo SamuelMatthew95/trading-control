@@ -279,7 +279,7 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     xs, ys = xs[:n], ys[:n]
     mean_x = sum(xs) / n
     mean_y = sum(ys) / n
-    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True))
     std_x = math.sqrt(sum((x - mean_x) ** 2 for x in xs))
     std_y = math.sqrt(sum((y - mean_y) ** 2 for y in ys))
     if std_x == 0 or std_y == 0:
