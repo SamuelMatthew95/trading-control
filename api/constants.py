@@ -95,6 +95,7 @@ class ProposalType(StrEnum):
     AGENT_RETIREMENT = "agent_retirement"
     NEW_AGENT = "new_agent"
     TOOL_GOVERNANCE = "tool_governance"
+    PROMPT_EVOLUTION = "prompt_evolution"
 
 
 class HypothesisType(StrEnum):
@@ -679,6 +680,7 @@ class FieldName(StrEnum):
     NOTIFICATIONS_COUNT = "notifications_count"
     NOTIFICATION_ID = "notification_id"
     NOTIFICATION_SUMMARY = "notification_summary"
+    NODE = "node"
     NOTIFICATION_TYPE = "notification_type"
     NOTIONAL = "notional"
     OBSERVED_MSG_ID = "observed_msg_id"
@@ -762,6 +764,7 @@ class FieldName(StrEnum):
     RATE_LIMITED_COUNT = "rate_limited_count"
     RATE_LIMITS = "rate_limits"
     RATIO = "ratio"
+    RATIONALE = "rationale"
     RAW_DATA = "raw_data"
     REACHABLE = "reachable"
     READ = "read"
@@ -1274,6 +1277,14 @@ REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_NEWS_SENTIMENT: Final[str] = "news_sentiment:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_CORRELATION: Final[str] = "correlation:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
+# Self-evolving prompt store (Category 2 computed configuration). The active
+# learned "adaptive directive" per reasoning node + a capped history for audit
+# and rollback. Written by ProposalApplier on an approved PROMPT_EVOLUTION
+# proposal; read by ReasoningAgent at prompt-assembly time (as challenger_variant
+# beneath the immutable constitution). No TTL — a learned directive persists.
+REDIS_KEY_PROMPT_DIRECTIVE: Final[str] = "prompt:directive:{node}"  # .format(node=node)
+REDIS_KEY_PROMPT_DIRECTIVE_HISTORY: Final[str] = "prompt:directive:history:{node}"
+PROMPT_DIRECTIVE_HISTORY_CAP: Final[int] = 20  # prior versions kept for rollback
 REDIS_PUBSUB_PRICE_UPDATES: Final[str] = "price_updates"  # pub/sub channel for SSE streaming
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
 REDIS_KEY_DLQ_RETRIES: Final[str] = "dlq:retries:{event_id}"
