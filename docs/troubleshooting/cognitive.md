@@ -7,6 +7,18 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 
 ---
 
+## Learning loop starved — Grade/IC/Reflection agents idle with event_count 0
+
+**Symptom:** GradeAgent, ICUpdater, ReflectionAgent and StrategyProposer all show `event_count: 0` and ACTIVE heartbeats, but produce no real grades/IC weights/reflections. Every decision in the feed is `reasoning_summary: "fallback:skip_reasoning"`, `llm_succeeded: false`, and fires a `fallback_trade_blocked` notification (action coerced to `hold`). `orders` stream length 0; `factor_ic_history` / `reflection_outputs` empty.
+
+**Root cause:** The configured Groq model (`llama-3.3-70b-versatile`) was hitting its quota/rate-limit, so the only enabled LLM provider returned a 100% error rate (`success_rate: 0.0`, `last_success_timestamp: null`). Every ReasoningAgent call fell back to skip_reasoning → all trades blocked to `hold` → no fills → the grade/IC/reflection learning loop had nothing to consume. The grading agents themselves were healthy; they were starved at the source.
+
+**Fix:** Switched the default `GROQ_MODEL` to the higher-throughput instruct model `llama-3.1-8b-instant` (`api/config.py`), which has a much larger rate-limit/quota allowance and is sufficient for a clean JSON trading decision. If `GROQ_MODEL` is pinned via an env var in the deployment, update it there too (or unset it to pick up the new default). Diagnose with `get_llm_health` (per-provider success/error rate) before assuming a grading-agent bug.
+
+**Regression test:** `tests/agents/test_reasoning_agent.py` + `tests/api/test_llm_health.py` (model passthrough + provider health reporting).
+
+---
+
 ## Profitable short graded as wrong-direction
 
 **Symptom:** A short position that made money received an `F` direction grade.
