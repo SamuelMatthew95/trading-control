@@ -1,17 +1,20 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import {
   Activity,
   Brain,
   GitPullRequest,
   History,
   Radio,
+  Repeat,
   Workflow,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { cardClass } from '@/lib/dashboard-styles'
+import { PromptEvolutionPanel } from '@/components/dashboard/PromptEvolutionPanel'
+import { ToolGovernancePanel } from '@/components/dashboard/ToolGovernancePanel'
 import {
   actionTone,
   fetchCognitiveEvents,
@@ -37,11 +40,23 @@ const str = (obj: Record<string, unknown> | null | undefined, key: string): stri
 
 const TABS = [
   { id: 'command', label: 'Command Center', Icon: Activity },
+  { id: 'loop', label: 'Cognition Loop', Icon: Repeat },
   { id: 'agents', label: 'Cognitive Agents', Icon: Brain },
   { id: 'proposals', label: 'Proposals', Icon: GitPullRequest },
   { id: 'evolution', label: 'Evolution', Icon: History },
   { id: 'traces', label: 'Trace Explorer', Icon: Workflow },
   { id: 'events', label: 'Event Stream', Icon: Radio },
+] as const
+
+// The self-evolving cognition loop, stage by stage (mirrors CLAUDE.md).
+const LOOP_STAGES = [
+  { label: 'Reasoning', note: 'LLM + evolving directive' },
+  { label: 'Decision', note: 'records tools used' },
+  { label: 'Execution', note: 'fills → realized PnL' },
+  { label: 'Grade', note: '4-D score + tool alpha' },
+  { label: 'Reflection', note: 'LLM hypotheses' },
+  { label: 'Proposer', note: 'LLM drafts directive' },
+  { label: 'Apply', note: 'prompt store / PR / issue' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -136,6 +151,7 @@ export function CognitiveDashboard() {
         </nav>
 
       {tab === 'command' && <CommandCenter snap={snap} />}
+      {tab === 'loop' && <CognitionLoopPanel />}
       {tab === 'agents' && <AgentsPanel snap={snap} />}
       {tab === 'proposals' && <ProposalsPanel snap={snap} />}
       {tab === 'evolution' && <EvolutionPanel snap={snap} />}
@@ -271,6 +287,41 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
             </ul>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function CognitionLoopPanel() {
+  return (
+    <div className="space-y-4">
+      <div className={card}>
+        <div className={cn(label, 'mb-3')}>Self-Evolving Cognition Loop</div>
+        <div className="flex flex-wrap items-center gap-2">
+          {LOOP_STAGES.map((stage, i) => (
+            <Fragment key={stage.label}>
+              <div className="rounded-lg border border-slate-200 px-3 py-1.5 dark:border-slate-800">
+                <div className="text-sm font-medium text-slate-800 dark:text-slate-100">{stage.label}</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">{stage.note}</div>
+              </div>
+              {i < LOOP_STAGES.length - 1 && (
+                <span className="text-slate-400 dark:text-slate-500">→</span>
+              )}
+            </Fragment>
+          ))}
+          <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+            <Repeat className="h-3 w-3" /> directive evolves
+          </span>
+        </div>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Each cycle the LLM grades tools by realized PnL and drafts a sharper reasoning directive
+          (assembled beneath the immutable constitution). An approved proposal promotes it and the
+          next decision uses it — config changes ship as auto-PRs, code/feature work as issues.
+        </p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
+        <PromptEvolutionPanel />
+        <ToolGovernancePanel />
       </div>
     </div>
   )
