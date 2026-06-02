@@ -108,3 +108,47 @@ async def test_missing_base_ref_returns_error(monkeypatch):
     with patch.object(gitops_publisher.httpx, "AsyncClient", lambda **_: _CM()):
         result = await GitOpsPublisher().open_parameter_pr(_artifact())
     assert result[FieldName.STATUS] == "error"
+
+
+async def test_open_feature_issue_dry_run_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+    result = await GitOpsPublisher().open_feature_issue("new tool", "please add X")
+    assert result[FieldName.STATUS] == "dry_run"
+
+
+async def test_open_feature_issue_creates_issue(monkeypatch):
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(settings, "GITHUB_REPO", "o/r")
+    monkeypatch.setattr(settings, "GITHUB_AUTOPR_ENABLED", True)
+
+    issue_resp = MagicMock()
+    issue_resp.raise_for_status = MagicMock()
+    issue_resp.json.return_value = {"html_url": "https://github.com/o/r/issues/3"}
+    client = MagicMock()
+    client.post = AsyncMock(return_value=issue_resp)
+
+    class _CM:
+        async def __aenter__(self):
+            return client
+
+        async def __aexit__(self, *a):
+            return False
+
+    with patch.object(gitops_publisher.httpx, "AsyncClient", lambda **_: _CM()):
+        result = await GitOpsPublisher().open_feature_issue("new tool", "add X", labels=["auto"])
+
+    assert result[FieldName.STATUS] == "opened"
+    assert result[FieldName.PR_URL] == "https://github.com/o/r/issues/3"
+    assert client.post.await_args.args[0] == "/repos/o/r/issues"
+
+
+async def test_autopr_refuses_to_write_outside_config_dir(monkeypatch):
+    """Structural guarantee: _put_file rejects any path outside the overrides dir."""
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(settings, "GITHUB_REPO", "o/r")
+    pub = GitOpsPublisher()
+    client = MagicMock()
+    client.put = AsyncMock()
+    with pytest.raises(ValueError, match="outside"):
+        await pub._put_file(client, "api/constants.py", {"x": 1}, "br", "msg")
+    client.put.assert_not_awaited()

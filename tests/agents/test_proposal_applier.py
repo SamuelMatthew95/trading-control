@@ -294,3 +294,25 @@ async def test_prompt_evolution_skipped_when_manual_apply(monkeypatch):
         assert await store.get_active_text(REASONING_NODE) is None
     finally:
         set_prompt_store(None)
+
+
+async def test_code_change_proposal_files_issue(monkeypatch):
+    """A CODE_CHANGE proposal is filed as a GitHub issue (dry-run no-op when
+    GitOps unconfigured), never silently dropped, never editing code."""
+    from api.constants import FieldName, ProposalType
+
+    logged = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", logged)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+
+    applier = _make_applier(_FakeRedis())
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.CODE_CHANGE,
+        FieldName.CONTENT: {FieldName.DESCRIPTION: "add an order-book imbalance tool"},
+        FieldName.TRACE_ID: "t-issue",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    # It produced an applied record (issue filed / dry-run) rather than skipping.
+    assert logged.await_count == 1
+    payload = logged.await_args.args[2]
+    assert payload[FieldName.PROPOSAL_TYPE] == ProposalType.CODE_CHANGE
