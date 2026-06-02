@@ -734,3 +734,42 @@ async def test_self_critique_runs_when_enabled(
         await agent.process(_make_signal(action="buy"))
 
     assert mock_call_llm_with_system.call_count == 2
+
+
+async def test_adaptive_directive_injected_into_decision_prompt(agent):
+    """An installed adaptive directive is assembled into the system prompt
+    (beneath the constitution) as the challenger variant."""
+    from api.constants import REASONING_NODE, FieldName
+    from api.services.prompt_store import PromptStore, set_prompt_store
+
+    class _FakeRedis:
+        def __init__(self):
+            self.kv = {}
+
+        async def get(self, k):
+            return self.kv.get(k)
+
+        async def set(self, k, v, **_):
+            self.kv[k] = v
+
+        async def lpush(self, *a):
+            pass
+
+        async def ltrim(self, *a):
+            pass
+
+    store = PromptStore(_FakeRedis())
+    await store.set_directive(REASONING_NODE, "ALWAYS_SCALE_DOWN_IN_HIGH_SPREAD", source="test")
+    set_prompt_store(store)
+    try:
+        directive = await agent._get_adaptive_directive()
+        assert directive == "ALWAYS_SCALE_DOWN_IN_HIGH_SPREAD"
+        prompt = agent._assemble_decision_prompt(
+            _make_signal("buy"),
+            {FieldName.PROMPT_VARIANT: directive, FieldName.RISK_STATE: {}},
+            [],
+        )
+        assert "ALWAYS_SCALE_DOWN_IN_HIGH_SPREAD" in prompt
+        assert "CHALLENGER VARIANT" in prompt  # placed beneath the constitution
+    finally:
+        set_prompt_store(None)
