@@ -1161,8 +1161,9 @@ class ExecutionEngine(BaseStreamConsumer):
         risk-cage tool records one telemetry sample per evaluated trade
         regardless of which gate fires — making it live in tool governance."""
         t0 = time.monotonic()
+        cage_ok = False
         try:
-            return await self._evaluate_pre_execution_gates(
+            result = await self._evaluate_pre_execution_gates(
                 side,
                 symbol,
                 signal_confidence,
@@ -1171,9 +1172,11 @@ class ExecutionEngine(BaseStreamConsumer):
                 atr_regime_ratio=atr_regime_ratio,
                 abs_pct_move=abs_pct_move,
             )
+            cage_ok = True  # the cage evaluated cleanly (a gate verdict is not a failure)
+            return result
         finally:
             self._record_exec_tool(
-                TOOL_RISK_CAGE, latency_ms=(time.monotonic() - t0) * 1000, success=True
+                TOOL_RISK_CAGE, latency_ms=(time.monotonic() - t0) * 1000, success=cage_ok
             )
 
     async def _evaluate_pre_execution_gates(
