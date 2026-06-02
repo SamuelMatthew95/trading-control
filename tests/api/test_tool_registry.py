@@ -195,3 +195,34 @@ def test_get_tool_registry_seeds_defaults():
     reg = get_tool_registry()
     assert reg.get("get_stream_confluence_metrics") is not None
     set_tool_registry(None)
+
+
+def test_new_perception_tools_registered_and_governable(registry: ToolRegistry):
+    """Order-book depth, news sentiment, and cross-asset correlation are seeded
+    as perception tools — so they appear in the reasoning prompt and are graded
+    / suggested like any other tool."""
+    from api.constants import (
+        TOOL_CORRELATION_CHECK,
+        TOOL_FLAG_CONFLUENCE_LOADED,
+        TOOL_NEWS_SENTIMENT,
+        TOOL_ORDER_BOOK_DEPTH,
+    )
+
+    # Order-book depth + news sentiment are eligible at the perception node.
+    perception = {t.name for t in registry.select_tools(ToolPhase.PERCEPTION)}
+    assert TOOL_ORDER_BOOK_DEPTH in perception
+    assert TOOL_NEWS_SENTIMENT in perception
+
+    # Correlation check is gated on confluence-loaded (cross-asset context).
+    assert TOOL_CORRELATION_CHECK not in perception
+    gated = {
+        t.name
+        for t in registry.select_tools(
+            ToolPhase.PERCEPTION, available_state_flags={TOOL_FLAG_CONFLUENCE_LOADED}
+        )
+    }
+    assert TOOL_CORRELATION_CHECK in gated
+
+    # Governable: they carry telemetry and appear in the attribution ranking.
+    attributed = {t.name for t in registry.attribution()}
+    assert {TOOL_ORDER_BOOK_DEPTH, TOOL_NEWS_SENTIMENT, TOOL_CORRELATION_CHECK} <= attributed
