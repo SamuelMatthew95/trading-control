@@ -27,11 +27,13 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from api.config import settings
 from api.constants import (
     AGENT_PROPOSAL_APPLIER,
     AGENT_REASONING,
     AGENT_SUSPEND_TTL_SECONDS,
     LEARNING_CONTROL_TTL_SECONDS,
+    REASONING_NODE,
     REDIS_KEY_AGENT_SUSPENDED,
     REDIS_KEY_SIGNAL_WEIGHT_SCALE,
     REDIS_KEY_TRADING_PAUSED,
@@ -96,6 +98,8 @@ class ProposalApplier(MultiStreamAgent):
             elif proposal_type == ProposalType.PARAMETER_CHANGE:
                 # Don't mutate the live system — turn it into a GitOps PR artifact.
                 applied = await self._emit_param_change_artifact(content, trace_id)
+            elif proposal_type == ProposalType.PROMPT_EVOLUTION:
+                applied = await self._apply_prompt_evolution(content, trace_id)
             else:
                 # code_change / regime_adjustment / new_agent need human DESIGN, not
                 # a mechanical value edit — record but don't auto-emit a PR.
@@ -167,6 +171,41 @@ class ProposalApplier(MultiStreamAgent):
     # ------------------------------------------------------------------
     # Action handlers — each returns a dict describing what changed.
     # ------------------------------------------------------------------
+
+    async def _apply_prompt_evolution(
+        self, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        """Promote an LLM-drafted adaptive directive into the prompt store.
+
+        Gated on PROMPT_EVOLUTION_AUTO_APPLY — when off, the proposal is left for
+        a manual apply (via the proposals UI) rather than taking effect live. The
+        directive is always subordinate to the immutable constitution and fully
+        version-historied, so this is safe to automate and reversible.
+        """
+        if not settings.PROMPT_EVOLUTION_AUTO_APPLY:
+            log_structured("info", "prompt_evolution_skipped_manual_apply", trace_id=trace_id)
+            return None
+        from api.services.prompt_store import get_prompt_store  # noqa: PLC0415
+
+        store = get_prompt_store()
+        if store is None:
+            log_structured("warning", "prompt_evolution_no_store", trace_id=trace_id)
+            return None
+        node = content.get(FieldName.NODE) or REASONING_NODE
+        text = str(content.get(FieldName.TEXT) or "").strip()
+        if not text:
+            return None
+        record = await store.set_directive(
+            node,
+            text,
+            rationale=str(content.get(FieldName.RATIONALE) or ""),
+            source=AGENT_PROPOSAL_APPLIER,
+        )
+        return {
+            FieldName.MESSAGE: f"adaptive directive for {node} → v{record[FieldName.VERSION]}",
+            FieldName.NODE: node,
+            FieldName.VERSION: record[FieldName.VERSION],
+        }
 
     async def _apply_signal_weight_reduction(self, content: dict[str, Any]) -> dict[str, Any]:
         """Multiply the global signal-weight scale by SIGNAL_WEIGHT_REDUCTION_FACTOR."""
