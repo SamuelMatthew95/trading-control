@@ -51,6 +51,18 @@ If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ
 
 ---
 
+## Learning loop starved (part 2) — primary provider down, configured peer never tried
+
+**Symptom:** `get_llm_health` shows the configured provider (`LLM_PROVIDER=groq`) `unhealthy` with a ~67% error rate; every decision in the feed is `action: reject`, `reasoning_summary: "fallback:reject_signal"`, `llm_succeeded: false`. Zero executed trades, so GradeAgent/ICUpdater/Reflection have nothing to grade — and the only "grades" on the dashboard are SignalGenerator's static `accuracy` heuristic (all `55.0`), which carry no outcome signal. A `GEMINI_API_KEY` is configured but `get_llm_health` only lists groq.
+
+**Root cause:** The router's cross-provider failover (`_find_cloud_fallback`) was gated behind `lm_primary` — it only fired when `LLM_PROVIDER=lmstudio`. With a cloud provider as primary (`groq`), `call_llm` / `call_llm_with_system` tried *only* that provider and re-raised on failure, so the ReasoningAgent fell straight through to `reject_signal`. The two-tier groq model fallback (above) doesn't help when groq is throttled at the *provider* level (both models 429) or otherwise erroring — there was no path to the healthy Gemini key.
+
+**Fix:** `_cloud_fallback_chain(primary)` (`api/services/llm_router.py`) builds an ordered list — the configured primary first, then every *other* cloud provider that has an API key configured (`_CLOUD_PROVIDER_PREFERENCE`: groq → gemini → anthropic → openai). Both `call_llm` (parsed) and `call_llm_with_system` (raw) now loop the chain: a throttled/erroring primary degrades to a healthy keyed peer instead of hard-failing into `reject_signal`. A healthy primary still serves on the first attempt (zero added latency), and the parsed decision is stamped with the provider that actually served it (`FieldName.PROVIDER`) so per-model grading stays truthful. Gated on `LLM_FALLBACK_ENABLED` (default True); with it off, only the primary is tried (prior behaviour). Diagnose with `get_llm_health` and `get_decisions` (`reasoning_summary`/`llm_succeeded`) before assuming a grading-agent bug — the loop is *starved at the source*, not broken.
+
+**Regression tests:** `tests/core/test_llm_router_fallback_chain.py::test_call_llm_fails_over_to_gemini_when_groq_throttled` (+ chain ordering, key-skipping, fallback-disabled, all-providers-fail cases).
+
+---
+
 ## Tools were tracked but never graded by outcome (alpha frozen at the prior)
 
 **Symptom:** `suggest_tool_changes()` could "disable negative-alpha tools", but in practice no tool's `alpha_score` ever moved off its seeded prior, so the negative-alpha branch never fired and the attribution panel showed priors, not learned value.
