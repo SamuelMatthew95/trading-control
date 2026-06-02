@@ -21,6 +21,7 @@ dashboard can show pending vs applied at a glance.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -55,6 +56,15 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
+
+# Proposals that need CODE (human design) — filed as GitHub issues, never applied.
+_ISSUE_PROPOSAL_TYPES = frozenset(
+    {
+        ProposalType.CODE_CHANGE,
+        ProposalType.NEW_AGENT,
+        ProposalType.REGIME_ADJUSTMENT,
+    }
+)
 
 
 class ProposalApplier(MultiStreamAgent):
@@ -101,9 +111,12 @@ class ProposalApplier(MultiStreamAgent):
                 applied = await self._emit_param_change_artifact(content, trace_id)
             elif proposal_type == ProposalType.PROMPT_EVOLUTION:
                 applied = await self._apply_prompt_evolution(content, trace_id)
+            elif proposal_type in _ISSUE_PROPOSAL_TYPES:
+                # code_change / new_agent / regime_adjustment need CODE — the
+                # system never edits code itself, so it files a GitHub issue for
+                # a human to design + implement (a new tool, agent, or feature).
+                applied = await self._file_feature_issue(proposal_type, content, trace_id)
             else:
-                # code_change / regime_adjustment / new_agent need human DESIGN, not
-                # a mechanical value edit — record but don't auto-emit a PR.
                 log_structured(
                     "info",
                     "proposal_skipped_requires_review",
@@ -206,6 +219,36 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.MESSAGE: f"adaptive directive for {node} → v{record[FieldName.VERSION]}",
             FieldName.NODE: node,
             FieldName.VERSION: record[FieldName.VERSION],
+        }
+
+    async def _file_feature_issue(
+        self, proposal_type: str, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        """File a GitHub issue for a code/feature/tool/agent proposal.
+
+        Best-effort: dry-run no-op when GitOps is unconfigured. Returns an
+        applied-summary dict; ``None`` only when the issue could not be opened.
+        """
+        description = str(
+            content.get(FieldName.DESCRIPTION) or content.get(FieldName.REASON) or ""
+        ).strip()
+        title = f"[auto] {proposal_type}: {description[:80] or 'learning-loop proposal'}"
+        body = (
+            f"Automated **{proposal_type}** proposal from the learning loop — this "
+            f"needs code (a new tool, prompt, agent, or feature), so it is filed as an "
+            f"issue rather than edited automatically.\n\n"
+            f"- **description**: {description or 'n/a'}\n"
+            f"- **trace_id**: `{trace_id}`\n\n"
+            f"```json\n{json.dumps(content, indent=2, default=str)[:2000]}\n```"
+        )
+        result = await GitOpsPublisher().open_feature_issue(
+            title, body, labels=["auto-proposal", proposal_type]
+        )
+        return {
+            FieldName.MESSAGE: f"feature issue ({result.get(FieldName.STATUS)}) for {proposal_type}",
+            FieldName.PROPOSAL_TYPE: proposal_type,
+            FieldName.STATUS: result.get(FieldName.STATUS),
+            FieldName.PR_URL: result.get(FieldName.PR_URL),
         }
 
     async def _apply_signal_weight_reduction(self, content: dict[str, Any]) -> dict[str, Any]:
