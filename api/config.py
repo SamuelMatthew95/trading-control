@@ -99,6 +99,15 @@ class Settings(BaseSettings):
     # Reflection / strategy
     HYPOTHESIS_MIN_CONFIDENCE: float = 0.7
 
+    # GitOps auto-PR — when a PARAMETER_CHANGE proposal is applied, open a real
+    # PR that edits a CONFIG file (never raw code), version-controlled + human-
+    # reviewed. Activates only when a token + repo are present (GITHUB_TOKEN is
+    # set in Render); locally/in tests it is a safe dry-run no-op.
+    GITHUB_TOKEN: str = ""
+    GITHUB_REPO: str = "SamuelMatthew95/trading-control"  # "owner/repo"
+    GITHUB_AUTOPR_ENABLED: bool = True
+    GITHUB_AUTOPR_BASE_BRANCH: str = "main"
+
     # LLM provider routing
     LLM_PROVIDER: str = "gemini"
     # When True (default), fall back to a cloud provider if LM Studio is
