@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -134,7 +134,15 @@ class GradeAgent(MultiStreamAgent):
         super().__init__(
             bus,
             dlq,
-            streams=[STREAM_EXECUTIONS, STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED],
+            streams=[
+                STREAM_EXECUTIONS,
+                STREAM_TRADE_PERFORMANCE,
+                STREAM_TRADE_COMPLETED,
+                # Consumed only to learn which tools informed each decision, so a
+                # completed trade's realized PnL can be attributed back to those
+                # tools (tool grading). No grade cycle is triggered by decisions.
+                STREAM_DECISIONS,
+            ],
             consumer="grade-agent",
             agent_state=agent_state,
         )
@@ -158,6 +166,12 @@ class GradeAgent(MultiStreamAgent):
         # Edge-triggers the tool-governance proposal so an unchanged set is not
         # re-proposed every grading cycle.
         self._last_tool_governance_key: str | None = None
+        # trace_id -> tool names used in that decision, captured from the
+        # decisions stream. When the matching trade closes we attribute its
+        # realized PnL back to these tools so tool alpha is OUTCOME-driven
+        # (not just decision-time latency/reliability). Bounded so a long run
+        # cannot grow it without limit.
+        self._trace_tools: OrderedDict[str, list[str]] = OrderedDict()
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream == STREAM_TRADE_COMPLETED:
@@ -170,6 +184,10 @@ class GradeAgent(MultiStreamAgent):
             await self._score_and_persist_trade(data)
         elif stream == STREAM_EXECUTIONS:
             self._confidence_buffer.append(float(data.get(FieldName.CONFIDENCE) or 0.5))
+        elif stream == STREAM_DECISIONS:
+            # Cache the tools used so a later trade can be graded against them.
+            self._remember_decision_tools(data)
+            return  # decisions never trigger a grade cycle
 
         trigger = max(int(settings.GRADE_EVERY_N_FILLS), 1)
         if self._fills == 0 or self._fills % trigger != 0:
@@ -207,6 +225,48 @@ class GradeAgent(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "trade_score_failed", exc_info=True)
+
+        # Tool grading — attribute this trade's realized PnL back to the tools
+        # that informed the decision behind it, closing the loop from outcome to
+        # tool alpha. This is what makes suggest_tool_changes (negative-alpha →
+        # disable) and the tool-governance proposal driven by real outcomes.
+        self._attribute_pnl_to_tools(data)
+
+    def _remember_decision_tools(self, data: dict[str, Any]) -> None:
+        """Cache trace_id -> tool names from a decision event (bounded LRU)."""
+        trace_id = data.get(FieldName.TRACE_ID)
+        if not trace_id:
+            return
+        tools = data.get(FieldName.TOOLS_USED) or []
+        names = [
+            t.get(FieldName.NAME) for t in tools if isinstance(t, dict) and t.get(FieldName.NAME)
+        ]
+        if not names:
+            return
+        self._trace_tools[trace_id] = names
+        self._trace_tools.move_to_end(trace_id)
+        while len(self._trace_tools) > 500:  # bound the map on long runs
+            self._trace_tools.popitem(last=False)
+
+    def _attribute_pnl_to_tools(self, data: dict[str, Any]) -> None:
+        """Fold a completed trade's realized PnL into the alpha of each tool that
+        informed its decision. Pops the trace so the paired trade_completed /
+        trade_performance events for one trade attribute exactly once."""
+        trace_id = data.get(FieldName.TRACE_ID)
+        if not trace_id:
+            return
+        names = self._trace_tools.pop(trace_id, None)
+        if not names:
+            return
+        pnl = data.get(FieldName.PNL)
+        if pnl is None:
+            return
+        try:
+            registry = get_tool_registry()
+            for name in names:
+                registry.record_call(name, latency_ms=0.0, success=True, realized_pnl=float(pnl))
+        except Exception:
+            log_structured("warning", "tool_pnl_attribution_failed", exc_info=True)
 
     async def _compute_and_publish_grade(self) -> None:
         trace_id = f"grade_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
