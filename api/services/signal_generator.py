@@ -33,7 +33,6 @@ from api.constants import (
     EntityType,
     EventType,
     FieldName,
-    GradeType,
     LogType,
     MarketDirection,
     SignalStrength,
@@ -540,19 +539,9 @@ class SignalGenerator(BaseStreamConsumer):
                 FieldName.SOURCE: SOURCE_SIGNAL,
             }
         )
-        store.add_grade(
-            {
-                FieldName.TRACE_ID: trace_id,
-                FieldName.GRADE_TYPE: GradeType.ACCURACY,
-                FieldName.SCORE: score,
-                FieldName.METRICS: {
-                    "signal_type": signal_payload[FieldName.TYPE],
-                    "symbol": symbol,
-                },
-                FieldName.SOURCE: SOURCE_SIGNAL,
-                FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
-            }
-        )
+        # No grade write here — the signal-strength score is a prior, not a
+        # graded outcome (see _db_write_signal). Real grades come from GradeAgent
+        # when a trade closes, so the learning view stays honest.
         for run in store.agent_runs:
             if run.get(FieldName.RUN_ID) == run_id:
                 run.update(
@@ -665,31 +654,12 @@ class SignalGenerator(BaseStreamConsumer):
                             "source": SOURCE_SIGNAL,
                         },
                     )
-                    await session.execute(
-                        text("""
-                            INSERT INTO agent_grades
-                                (agent_id, agent_run_id, grade_type, score, metrics,
-                                 source, trace_id, schema_version)
-                            VALUES
-                                (:strategy_id, :agent_run_id, :grade_type, :score,
-                                 CAST(:metrics AS JSONB), :source, :trace_id, :schema_version)
-                        """),
-                        {
-                            "strategy_id": agent_pool_id or None,
-                            "agent_run_id": run_id,
-                            "grade_type": GradeType.ACCURACY,
-                            "score": score,
-                            "metrics": json.dumps(
-                                {
-                                    "signal_type": signal_payload[FieldName.TYPE],
-                                    "symbol": signal_payload[FieldName.SYMBOL],
-                                }
-                            ),
-                            "source": SOURCE_SIGNAL,
-                            "trace_id": trace_id,
-                            "schema_version": DB_SCHEMA_VERSION,
-                        },
-                    )
+                    # NOTE: SignalGenerator deliberately does NOT write an
+                    # agent_grades row. The signal-strength score (e.g. 55.0 for a
+                    # normal momentum signal) is a *prior*, not a graded outcome —
+                    # surfacing it as an "accuracy grade" made the learning view show
+                    # a flood of identical 55.0s with no outcome signal. Real grades
+                    # come only from GradeAgent once a trade closes (realized PnL).
                     await session.execute(
                         text("""
                             INSERT INTO processed_events (msg_id, stream)
