@@ -38,6 +38,7 @@ const REGISTRY = {
       latency_ms: 42,
       failure_rate: 0,
       call_count: 0,
+      success_count: 0,
       required_state_flags: [],
       unlocks: ['calculate_vwap_execution'],
     },
@@ -50,6 +51,7 @@ const REGISTRY = {
       latency_ms: 120,
       failure_rate: 0.6,
       call_count: 30,
+      success_count: 12,
       required_state_flags: ['confluence_loaded'],
       unlocks: [],
     },
@@ -62,6 +64,7 @@ const REGISTRY = {
       latency_ms: 30,
       failure_rate: 0,
       call_count: 0,
+      success_count: 0,
       required_state_flags: ['risk_approved'],
       unlocks: [],
     },
@@ -90,6 +93,20 @@ describe('ToolGovernancePanel', () => {
     expect(container.textContent).toContain('unlocks calculate_vwap_execution')
     expect(container.textContent).toContain('requires: risk_approved')
     expect(container.textContent).toContain('42ms')
+  })
+
+  it('distinguishes exercised tools from never-called tools with prior alpha', async () => {
+    mockApiFetch.mockResolvedValue(REGISTRY)
+    const { container } = render(<ToolGovernancePanel />)
+
+    await screen.findByText('get_stream_confluence_metrics')
+    // Never-called tools are flagged "unused" with a "prior" alpha tag…
+    expect(container.textContent).toContain('unused')
+    expect(container.textContent).toContain('prior')
+    // …while an exercised tool shows its call/success ledger.
+    expect(container.textContent).toContain('30× · 12 ok')
+    // Header summarises live coverage (1 of 3 tools has been exercised).
+    expect(container.textContent).toContain('1/3 exercised live')
   })
 
   it('renders runtime tool suggestions (which tools to keep/drop)', async () => {
