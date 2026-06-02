@@ -158,6 +158,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/llm_router.py",
         "api/services/lmstudio_provider.py",
         "api/services/market_ingestor.py",
+        "api/services/market_intel.py",
         "api/services/market_status.py",
         "api/services/metrics_aggregator.py",
         "api/services/multi_agent_orchestrator.py",
