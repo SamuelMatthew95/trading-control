@@ -442,6 +442,41 @@ def _find_cloud_fallback() -> str | None:
     return None
 
 
+# Stable preference order for cross-provider failover. Groq first (cheapest /
+# fastest), then Gemini, then the paid APIs.
+_CLOUD_PROVIDER_PREFERENCE: tuple[str, ...] = (
+    FieldName.GROQ,
+    FieldName.GEMINI,
+    FieldName.ANTHROPIC,
+    FieldName.OPENAI,
+)
+
+
+def _cloud_fallback_chain(primary: str) -> list[str]:
+    """Ordered cloud providers to try for ONE logical LLM call.
+
+    Starts with the configured ``primary`` provider, then — when
+    ``LLM_FALLBACK_ENABLED`` — appends every OTHER cloud provider that has an
+    API key configured (in :data:`_CLOUD_PROVIDER_PREFERENCE` order).
+
+    This is the cross-provider failover the router previously only had for the
+    LM-Studio-primary path: when ``LLM_PROVIDER=groq`` and Groq is throttled or
+    erroring, the call degrades to Gemini (or another keyed provider) instead of
+    hard-failing into ``reject_signal`` and starving the learning loop. The
+    primary is always tried first, so a healthy primary behaves exactly as
+    before — there is zero extra latency on the happy path.
+    """
+    chain = [primary]
+    if not settings.LLM_FALLBACK_ENABLED:
+        return chain
+    for candidate in _CLOUD_PROVIDER_PREFERENCE:
+        if candidate == primary:
+            continue
+        if candidate in _PROVIDERS and _get_provider_key(candidate).strip():
+            chain.append(candidate)
+    return chain
+
+
 async def _call_provider_raw(
     provider: str, prompt: str, system_prompt: str, trace_id: str
 ) -> tuple[str, int, float]:
@@ -669,34 +704,50 @@ async def call_llm_with_system(
     else:
         provider = settings.LLM_PROVIDER.lower().strip()
 
-    api_key = _get_provider_key(provider)
-    if not api_key and provider not in _LOCAL_PROVIDERS:
-        msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
-        llm_metrics.record_error(message=msg, kind="config")
-        raise RuntimeError(msg)
-    await _inter_call_delay()
-    t0 = _time.monotonic()
-    try:
-        log_structured("info", "Calling LLM with custom prompt", provider=provider)
-        result = await _call_provider_raw(provider, prompt, system_prompt, trace_id)
-        latency_ms = (_time.monotonic() - t0) * 1000
-        llm_metrics.record_success(latency_ms=latency_ms)
-        _set_model_label(result_meta, provider)
-        log_structured(
-            "info", "LLM custom call succeeded", provider=provider, latency_ms=round(latency_ms)
-        )
-        return result
-    except Exception as exc:
-        if _is_rate_limit_error(exc):
-            llm_metrics.record_rate_limit()
-            log_structured("warning", "LLM rate limit hit", provider=provider, exc_info=True)
-        elif _is_timeout_error(exc):
-            llm_metrics.record_timeout()
-            log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
-        else:
-            llm_metrics.record_error(message=str(exc), kind="provider_error")
-            log_structured("warning", "LLM custom call failed", provider=provider, exc_info=True)
-        raise
+    # Cross-provider failover (see call_llm): try the configured provider first,
+    # then any other keyed cloud provider before giving up.
+    chain = _cloud_fallback_chain(provider)
+    last_exc: Exception | None = None
+    for prov in chain:
+        api_key = _get_provider_key(prov)
+        if not api_key and prov not in _LOCAL_PROVIDERS:
+            if prov == provider and len(chain) == 1:
+                msg = f"missing_api_key: set {prov.upper()}_API_KEY in environment"
+                llm_metrics.record_error(message=msg, kind="config")
+                raise RuntimeError(msg)
+            continue
+        if prov != provider:
+            log_structured(
+                "warning", "LLM failing over to next provider", from_provider=provider, to=prov
+            )
+        await _inter_call_delay()
+        t0 = _time.monotonic()
+        try:
+            log_structured("info", "Calling LLM with custom prompt", provider=prov)
+            result = await _call_provider_raw(prov, prompt, system_prompt, trace_id)
+            latency_ms = (_time.monotonic() - t0) * 1000
+            llm_metrics.record_success(latency_ms=latency_ms)
+            _set_model_label(result_meta, prov)
+            log_structured(
+                "info", "LLM custom call succeeded", provider=prov, latency_ms=round(latency_ms)
+            )
+            return result
+        except Exception as exc:
+            last_exc = exc
+            if _is_rate_limit_error(exc):
+                llm_metrics.record_rate_limit()
+                log_structured("warning", "LLM rate limit hit", provider=prov, exc_info=True)
+            elif _is_timeout_error(exc):
+                llm_metrics.record_timeout()
+                log_structured("warning", "LLM timeout", provider=prov, exc_info=True)
+            else:
+                llm_metrics.record_error(message=str(exc), kind="provider_error")
+                log_structured("warning", "LLM custom call failed", provider=prov, exc_info=True)
+    if last_exc is not None:
+        raise last_exc
+    msg = "no_cloud_provider_available: no keyed cloud provider in the fallback chain"
+    llm_metrics.record_error(message=msg, kind="config")
+    raise RuntimeError(msg)
 
 
 async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
@@ -775,28 +826,47 @@ async def call_llm(prompt: str, trace_id: str) -> tuple[dict, int, float]:
 
     if provider not in _PROVIDERS:
         raise RuntimeError(f"unknown_provider: '{provider}' - supported: {list(_PROVIDERS.keys())}")
-    api_key = _get_provider_key(provider)
-    if not api_key and provider not in _LOCAL_PROVIDERS:
-        msg = f"missing_api_key: set {provider.upper()}_API_KEY in environment"
-        llm_metrics.record_error(message=msg, kind="config")
-        raise RuntimeError(msg)
-    await _inter_call_delay()
-    t0 = _time.monotonic()
-    try:
-        log_structured("info", "Calling LLM", provider=provider)
-        result = await _PROVIDERS[provider](prompt, trace_id)
-        latency_ms = (_time.monotonic() - t0) * 1000
-        llm_metrics.record_success(latency_ms=latency_ms)
-        log_structured("info", "LLM succeeded", provider=provider, latency_ms=round(latency_ms))
-        return result
-    except Exception as exc:
-        if _is_rate_limit_error(exc):
-            llm_metrics.record_rate_limit()
-            log_structured("warning", "LLM rate limit hit", provider=provider, exc_info=True)
-        elif _is_timeout_error(exc):
-            llm_metrics.record_timeout()
-            log_structured("warning", "LLM timeout", provider=provider, exc_info=True)
-        else:
-            llm_metrics.record_error(message=str(exc), kind="provider_error")
-            log_structured("warning", "LLM call failed", provider=provider, exc_info=True)
-        raise
+
+    # Cross-provider failover: try the configured provider first, then any other
+    # keyed cloud provider, so a throttled/erroring primary degrades to a healthy
+    # peer instead of hard-failing into reject_signal.
+    chain = _cloud_fallback_chain(provider)
+    last_exc: Exception | None = None
+    for prov in chain:
+        api_key = _get_provider_key(prov)
+        if not api_key and prov not in _LOCAL_PROVIDERS:
+            if prov == provider and len(chain) == 1:
+                msg = f"missing_api_key: set {prov.upper()}_API_KEY in environment"
+                llm_metrics.record_error(message=msg, kind="config")
+                raise RuntimeError(msg)
+            continue
+        if prov != provider:
+            log_structured(
+                "warning", "LLM failing over to next provider", from_provider=provider, to=prov
+            )
+        await _inter_call_delay()
+        t0 = _time.monotonic()
+        try:
+            log_structured("info", "Calling LLM", provider=prov)
+            result, tokens, cost = await _PROVIDERS[prov](prompt, trace_id)
+            latency_ms = (_time.monotonic() - t0) * 1000
+            llm_metrics.record_success(latency_ms=latency_ms)
+            result.setdefault(FieldName.PROVIDER, prov)
+            log_structured("info", "LLM succeeded", provider=prov, latency_ms=round(latency_ms))
+            return result, tokens, cost
+        except Exception as exc:
+            last_exc = exc
+            if _is_rate_limit_error(exc):
+                llm_metrics.record_rate_limit()
+                log_structured("warning", "LLM rate limit hit", provider=prov, exc_info=True)
+            elif _is_timeout_error(exc):
+                llm_metrics.record_timeout()
+                log_structured("warning", "LLM timeout", provider=prov, exc_info=True)
+            else:
+                llm_metrics.record_error(message=str(exc), kind="provider_error")
+                log_structured("warning", "LLM call failed", provider=prov, exc_info=True)
+    if last_exc is not None:
+        raise last_exc
+    msg = "no_cloud_provider_available: no keyed cloud provider in the fallback chain"
+    llm_metrics.record_error(message=msg, kind="config")
+    raise RuntimeError(msg)
