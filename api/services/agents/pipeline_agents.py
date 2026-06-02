@@ -30,6 +30,7 @@ from api.constants import (
     LLM_RATE_LIMIT_GRADE_THRESHOLD,
     NOTIFICATION_DEDUP_TTL_SECONDS,
     NOTIFICATIONS_STREAM_MAXLEN,
+    REASONING_NODE,
     REDIS_IC_WEIGHTS_TTL_SECONDS,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
@@ -91,6 +92,7 @@ from api.services.agents.notification_payloads import (
 )
 from api.services.agents.prompts import (
     FALLBACK_REFLECTION,
+    PROMPT_EVOLUTION_PROMPT,
     REFLECTION_IMPROVE_PROMPT,
     REFLECTION_SYSTEM_PROMPT,
     STRATEGY_PLANNING_PROMPT,
@@ -1392,6 +1394,11 @@ class StrategyProposer(MultiStreamAgent):
             reflection_trace_id=data.get(FieldName.TRACE_ID),
         )
 
+        # Self-evolving prompt: draft an improved reasoning directive from this
+        # reflection and propose it. This is the LLM suggesting its own prompt —
+        # the missing link that makes the loop self-improving.
+        await self._emit_prompt_evolution_proposal(data, now_iso)
+
         # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE
         try:
             from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
@@ -1405,6 +1412,98 @@ class StrategyProposer(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "strategy_proposer_heartbeat_failed", exc_info=True)
+
+    async def _emit_prompt_evolution_proposal(
+        self, reflection_data: dict[str, Any], now_iso: str
+    ) -> None:
+        """Ask the LLM to draft an improved reasoning directive from this
+        reflection, and publish it as a PROMPT_EVOLUTION proposal.
+
+        This is the LLM suggesting its OWN prompt — the link that makes the loop
+        self-improving. Best-effort: any failure logs and returns without
+        disturbing the rest of the proposal cycle.
+        """
+        if not settings.PROMPT_EVOLUTION_ENABLED:
+            return
+        trace_id = str(reflection_data.get(FieldName.TRACE_ID) or uuid.uuid4())
+        try:
+            from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
+            from api.services.prompt_store import get_prompt_store  # noqa: PLC0415
+
+            store = get_prompt_store()
+            current = (await store.get_active_text(REASONING_NODE) or "") if store else ""
+
+            evo_prompt = json.dumps(
+                {
+                    FieldName.DIRECTIVE: current,
+                    FieldName.WINNING_FACTORS: reflection_data.get(FieldName.WINNING_FACTORS, []),
+                    FieldName.LOSING_FACTORS: reflection_data.get(FieldName.LOSING_FACTORS, []),
+                    FieldName.SUMMARY: reflection_data.get(FieldName.SUMMARY, ""),
+                },
+                default=str,
+            )
+            raw_text, _, _ = await call_llm_with_system(
+                evo_prompt, PROMPT_EVOLUTION_PROMPT, trace_id
+            )
+            parsed = self._parse_evolution_response(raw_text)
+        except Exception:
+            log_structured(
+                "warning", "prompt_evolution_llm_failed", trace_id=trace_id, exc_info=True
+            )
+            return
+
+        proposed = str(parsed.get(FieldName.DIRECTIVE) or "").strip()
+        rationale = str(parsed.get(FieldName.RATIONALE) or "").strip()
+        if not proposed or proposed == current.strip():
+            log_structured("info", "prompt_evolution_no_change", trace_id=trace_id)
+            return
+
+        proposal = {
+            "msg_id": str(uuid.uuid4()),
+            "source": SOURCE_STRATEGY_PROPOSER,
+            "type": "proposal",
+            FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
+            FieldName.REQUIRES_APPROVAL: not settings.PROMPT_EVOLUTION_AUTO_APPLY,
+            "reflection_trace_id": reflection_data.get(FieldName.TRACE_ID),
+            "trace_id": trace_id,
+            "timestamp": now_iso,
+            FieldName.CONTENT: {
+                FieldName.NODE: REASONING_NODE,
+                FieldName.TEXT: proposed,
+                FieldName.RATIONALE: rationale,
+            },
+        }
+        await self.bus.publish(STREAM_PROPOSALS, proposal)
+        await persist_proposal(proposal)
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": SOURCE_STRATEGY_PROPOSER,
+                "type": "notification",
+                "severity": Severity.INFO,
+                "notification_type": "proposal",
+                "message": f"Prompt-evolution proposal for {REASONING_NODE}: {rationale[:100]}",
+                "timestamp": now_iso,
+            },
+        )
+        log_structured(
+            "info", "prompt_evolution_proposal_published", node=REASONING_NODE, trace_id=trace_id
+        )
+
+    @staticmethod
+    def _parse_evolution_response(raw_text: str) -> dict[str, Any]:
+        """Tolerant JSON parse of the evolution LLM reply (strips md fences)."""
+        cleaned = (raw_text or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3]
+        try:
+            parsed = json.loads(cleaned.strip())
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
 
     async def _plan_and_rank(
         self,
