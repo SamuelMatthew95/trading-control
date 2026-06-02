@@ -422,6 +422,8 @@ async def test_tool_governance_emits_proposal_for_actionable_suggestions(grade_a
     assert payload[FieldName.REQUIRES_APPROVAL] is True
     # The full suggestion list (incl. the prioritize hint) rides along.
     assert len(payload[FieldName.CONTENT][FieldName.SUGGESTIONS]) == 2
+    # Per-tool attribution (how each tool is performing) rides along too.
+    assert FieldName.ATTRIBUTION in payload[FieldName.CONTENT]
 
 
 @pytest.mark.asyncio
