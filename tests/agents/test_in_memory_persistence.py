@@ -26,6 +26,9 @@ from api.constants import (
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
     ALL_AGENT_NAMES,
+    SOURCE_SIGNAL,
+    FieldName,
+    GradeType,
     LogType,
 )
 from api.in_memory_store import DEFAULT_AGENTS, InMemoryStore
@@ -669,10 +672,10 @@ async def test_signal_generator_persist_signal_complete_memory_mode(monkeypatch)
     assert len(signal_events) == 1
     assert signal_events[0]["entity_id"] == "trace-mem"
 
-    # 2. grade written
-    assert len(store.grade_history) == 1
-    assert store.grade_history[0]["score"] == 80.0
-    assert store.grade_history[0]["trace_id"] == "trace-mem"
+    # 2. NO grade written — the signal-strength score is a prior, not a graded
+    # outcome. SignalGenerator must not pollute grade_history; real grades come
+    # from GradeAgent on a closed trade.
+    assert len(store.grade_history) == 0
 
     # 3. run updated to completed
     run = next(r for r in store.agent_runs if r["run_id"] == "run-mem")
@@ -808,3 +811,59 @@ def test_reasoning_agent_build_signal_summary_prefers_signal_type_key():
     data = {"symbol": "ETH/USD", "price": 3000.0, "signal_type": "MOMENTUM", "type": "event"}
     parsed = json.loads(agent._build_signal_summary(data))
     assert parsed["signal_type"] == "MOMENTUM"
+
+
+# ---------------------------------------------------------------------------
+# Read-side filter: SignalGenerator strength scores must not appear as grades
+# ---------------------------------------------------------------------------
+
+
+def test_get_grades_filters_out_signal_generator_source():
+    """Legacy/hydrated signal_generator accuracy rows must not surface as grades."""
+    store = InMemoryStore()
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "sig-1",
+            FieldName.GRADE_TYPE: GradeType.ACCURACY,
+            FieldName.SCORE: 55.0,
+            FieldName.SOURCE: SOURCE_SIGNAL,
+        }
+    )
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "real-1",
+            FieldName.GRADE_TYPE: GradeType.OVERALL,
+            FieldName.SCORE: 82.0,
+            FieldName.SOURCE: "grade_agent",
+        }
+    )
+
+    grades = store.get_grades(limit=50)
+
+    assert len(grades) == 1, "signal_generator strength score must be filtered out"
+    assert grades[0][FieldName.TRACE_ID] == "real-1"
+
+
+def test_dashboard_snapshot_learning_events_exclude_signal_grades():
+    """dashboard_fallback_snapshot must not show signal_generator strength scores."""
+    store = InMemoryStore()
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "sig-2",
+            FieldName.SCORE: 55.0,
+            FieldName.SOURCE: SOURCE_SIGNAL,
+        }
+    )
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "real-2",
+            FieldName.SCORE: 90.0,
+            FieldName.SOURCE: "grade_agent",
+        }
+    )
+
+    snapshot = store.dashboard_fallback_snapshot()
+    events = snapshot[FieldName.LEARNING_EVENTS]
+
+    assert all(e.get(FieldName.SOURCE) != SOURCE_SIGNAL for e in events)
+    assert any(e.get(FieldName.TRACE_ID) == "real-2" for e in events)
