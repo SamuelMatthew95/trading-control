@@ -9,8 +9,20 @@ import {
   mutedClass,
   sectionTitleClass,
 } from "@/lib/dashboard-styles";
+import { proposalRouting, type ProposalRouting } from "@/lib/proposal-routing";
 import { cn } from "@/lib/utils";
 import { useCodexStore, type Proposal } from "@/stores/useCodexStore";
+
+function routingBadgeClass(kind: ProposalRouting["kind"]): string {
+  if (kind === "config-pr")
+    return "border-sky-400/30 bg-sky-400/10 text-sky-700 dark:text-sky-300";
+  if (kind === "issue")
+    return "border-violet-400/30 bg-violet-400/10 text-violet-700 dark:text-violet-300";
+  if (kind === "unknown")
+    return "border-slate-300/40 bg-slate-400/10 text-slate-600 dark:text-slate-400";
+  // control-plane / prompt / tool / mixed are all system-applied state changes
+  return "border-teal-400/30 bg-teal-400/10 text-teal-700 dark:text-teal-300";
+}
 
 function proposalLabel(proposal: Proposal): string {
   return (
@@ -120,6 +132,7 @@ export function ProposalsSection() {
               <tr>
                 <th className="px-3 py-2 font-semibold">Candidate Change</th>
                 <th className="px-3 py-2 font-semibold">Type</th>
+                <th className="px-3 py-2 font-semibold">On Approve</th>
                 <th className="px-3 py-2 font-semibold">
                   Expected Improvement
                 </th>
@@ -145,6 +158,22 @@ export function ProposalsSection() {
                     </td>
                     <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                       {proposal.proposal_type.replace(/_/g, " ")}
+                    </td>
+                    <td className="px-3 py-2">
+                      {(() => {
+                        const routing = proposalRouting(proposal.proposal_type);
+                        return (
+                          <span
+                            title={routing.hint}
+                            className={cn(
+                              "inline-block rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-wide",
+                              routingBadgeClass(routing.kind),
+                            )}
+                          >
+                            {routing.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
                       {formatPercent(proposal.confidence)}
