@@ -115,6 +115,7 @@ from api.services.agents.trade_scorer import (
 )
 from api.services.llm_metrics import llm_metrics as _llm_metrics
 from api.services.redis_store import get_redis_store as _get_redis_store
+from api.services.replay_harness import ReplayHarness
 from api.services.tool_registry import get_tool_registry
 
 # ---------------------------------------------------------------------------
@@ -548,6 +549,7 @@ class GradeAgent(MultiStreamAgent):
                 FieldName.CONTENT: {
                     FieldName.SUGGESTIONS: serialized,
                     FieldName.ATTRIBUTION: attribution,
+                    FieldName.BACKTEST: self._recent_backtest_evidence(),
                     FieldName.REASON: (
                         f"{len(actionable)} tool-governance action(s) from live "
                         "reasoning telemetry (alpha / reliability / usage)"
@@ -578,6 +580,13 @@ class GradeAgent(MultiStreamAgent):
         if not recent:
             return 0.5
         return sum(1 for pnl in recent if pnl > 0) / len(recent)
+
+    def _recent_backtest_evidence(self) -> dict[str, Any]:
+        """Replay the recent trade buffer through the same ReplayHarness the
+        promotion gate uses, so every proposal carries a MEASURED verdict
+        (win rate, total PnL, Sharpe, drawdown, false-positive rate) — not just
+        an LLM/heuristic guess. Pure; safe to call on each proposal."""
+        return ReplayHarness().replay(list(self._eval_buffer)).model_dump()
 
     async def _information_coefficient(self, lookback_n: int) -> float:
         """Spearman correlation between agent confidence and realized returns."""
@@ -758,6 +767,7 @@ class GradeAgent(MultiStreamAgent):
                         FieldName.REDUCTION_PCT: 30,
                         "reason": f"Grade {grade}: score {payload[FieldName.SCORE_PCT]}%",
                         FieldName.GRADE_PAYLOAD: payload,
+                        FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
@@ -778,6 +788,7 @@ class GradeAgent(MultiStreamAgent):
                             "action": "suspend_from_live_stream",
                             FieldName.CONSECUTIVE_LOW_GRADES: self._consecutive_low_grades,
                             "reason": f"{self._consecutive_low_grades} consecutive D grades",
+                            FieldName.BACKTEST: self._recent_backtest_evidence(),
                         },
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
@@ -795,6 +806,7 @@ class GradeAgent(MultiStreamAgent):
                     "content": {
                         "action": "retire_immediately",
                         "reason": f"Grade F: score {payload[FieldName.SCORE_PCT]}%",
+                        FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },

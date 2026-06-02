@@ -293,6 +293,7 @@ class FieldName(StrEnum):
     AVG_WIN = "avg_win"
     BACKLOG = "backlog"
     BADGES = "badges"
+    BACKTEST = "backtest"
     BAD_RISK_REWARD = "bad_risk_reward"
     BARS = "bars"
     BASELINE = "baseline"
