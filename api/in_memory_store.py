@@ -21,7 +21,10 @@ from api.constants import (
     AGENT_STRATEGY_PROPOSER,
     FieldName,
     LogType,
+    OrderSide,
+    PositionSide,
 )
+from api.services.execution.position_math import compute_realized_pnl
 from api.services.metrics_calc import win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
 
@@ -203,6 +206,44 @@ class InMemoryStore:
         never disagree with the length of the open-positions list.
         """
         return sum(1 for p in self.positions.values() if self._has_open_quantity(p))
+
+    def mirror_broker_position(
+        self, symbol: str, broker_position: dict[str, Any], *, strategy_id: str | None = None
+    ) -> None:
+        """Mirror the PaperBroker's authoritative position into the store.
+
+        The PaperBroker (Redis ``paper:positions``) is the single source of
+        truth for positions; the InMemoryStore is a read mirror for the
+        dashboard. A flat broker position (qty 0) removes the row. Called after
+        every in-memory fill and on startup hydration so the dashboard's
+        position / PnL view can never drift from what the execution engine
+        actually holds. (The old apply_signed_delta recomputed entry price
+        independently and diverged from the broker on add-to-position and after
+        a restart.)
+        """
+        qty = self._safe_float(broker_position.get(FieldName.QTY)) or 0.0
+        if abs(qty) <= POSITION_EPSILON:
+            self.positions.pop(symbol, None)
+            return
+        entry = self._safe_float(broker_position.get(FieldName.ENTRY_PRICE)) or 0.0
+        last = self._safe_float(broker_position.get(FieldName.CURRENT_PRICE)) or entry
+        side = str(broker_position.get(FieldName.SIDE) or "").lower()
+        mirrored: dict[str, Any] = {
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: side,
+            FieldName.QTY: abs(qty),
+            FieldName.QUANTITY: abs(qty),
+            FieldName.ENTRY_PRICE: entry,
+            FieldName.AVG_COST: entry,
+            FieldName.AVG_ENTRY_PRICE: entry,
+            FieldName.LAST_PRICE: last,
+            FieldName.CURRENT_PRICE: last,
+            FieldName.UNREALIZED_PNL: 0.0,
+            FieldName.PNL: 0.0,
+        }
+        if strategy_id is not None:
+            mirrored[FieldName.STRATEGY_ID] = strategy_id
+        self.positions[symbol] = mirrored
 
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
@@ -449,6 +490,15 @@ class InMemoryStore:
         }
 
     def apply_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Replay an advisory decision INTO the ledger (dedup + open/close + PnL).
+
+        This is a decision-REPLAY / test helper, not the production fill path:
+        the live engine records fills via ``ExecutionEngine._record_fill_to_store``
+        (broker-mirrored positions). Realized PnL here uses the same canonical
+        ``compute_realized_pnl`` so the two can never diverge numerically. The
+        reasoning stream uses ``record_decision`` (advisory only, no portfolio
+        mutation); only this method mutates positions/PnL from a decision.
+        """
         decision_key = self._decision_key(payload)
         if decision_key in self.applied_decision_keys:
             return {
@@ -514,7 +564,18 @@ class InMemoryStore:
             event[FieldName.QTY] = sell_qty
             if sell_qty <= 0:
                 return event
-            realized = (price - avg) * sell_qty
+            # Canonical realized-PnL math (shared with the execution fill path)
+            # so this replay helper can never compute PnL differently from prod.
+            realized = compute_realized_pnl(
+                {
+                    FieldName.SIDE: PositionSide.LONG,
+                    FieldName.ENTRY_PRICE: avg,
+                    FieldName.QTY: pos_qty,
+                },
+                OrderSide.SELL,
+                sell_qty,
+                price,
+            )
             remaining = max(pos_qty - sell_qty, 0.0)
             self.closed_trades.append(
                 {
