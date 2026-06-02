@@ -347,7 +347,9 @@ def default_tools() -> list[ToolMetadata]:
             name=TOOL_VWAP_EXECUTION,
             phase=ToolPhase.EXECUTION,
             description="VWAP execution plan to minimize slippage.",
-            alpha_score=0.8,
+            # Execution mechanics are graded on reliability/latency, not directional
+            # alpha — seed neutral so a live VWAP call never shows fake earned edge.
+            alpha_score=0.0,
             latency_ms=30.0,
             required_state_flags=[TOOL_FLAG_RISK_APPROVED],
         ),
