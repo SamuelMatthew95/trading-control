@@ -239,3 +239,58 @@ async def test_parameter_change_without_parameter_is_noop(monkeypatch):
 
     pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
     assert pr_calls == []
+
+
+async def test_prompt_evolution_applied_to_store(monkeypatch):
+    """An auto-apply PROMPT_EVOLUTION proposal promotes the directive into the store."""
+    from api.config import settings
+    from api.constants import REASONING_NODE
+    from api.services.prompt_store import PromptStore, set_prompt_store
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(settings, "PROMPT_EVOLUTION_AUTO_APPLY", True)
+
+    store = PromptStore(_FakeRedis())
+    set_prompt_store(store)
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
+            FieldName.CONTENT: {
+                FieldName.NODE: REASONING_NODE,
+                FieldName.TEXT: "Favor high-confluence longs; avoid news-spike entries.",
+                FieldName.RATIONALE: "winning factor",
+            },
+        }
+        await applier.process("proposals", "1-0", proposal)
+        assert (
+            await store.get_active_text(REASONING_NODE)
+            == "Favor high-confluence longs; avoid news-spike entries."
+        )
+    finally:
+        set_prompt_store(None)
+
+
+async def test_prompt_evolution_skipped_when_manual_apply(monkeypatch):
+    """With auto-apply off, the directive is NOT written (left for manual apply)."""
+    from api.config import settings
+    from api.constants import REASONING_NODE
+    from api.services.prompt_store import PromptStore, set_prompt_store
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(settings, "PROMPT_EVOLUTION_AUTO_APPLY", False)
+
+    store = PromptStore(_FakeRedis())
+    set_prompt_store(store)
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
+            FieldName.CONTENT: {FieldName.NODE: REASONING_NODE, FieldName.TEXT: "x"},
+        }
+        await applier.process("proposals", "1-0", proposal)
+        assert await store.get_active_text(REASONING_NODE) is None
+    finally:
+        set_prompt_store(None)
