@@ -601,3 +601,49 @@ async def test_weight_scale_applied_to_published_decision(agent, mock_bus, mock_
     assert decision_payload["reasoning_score"] == pytest.approx(0.4, abs=1e-6)
     assert decision_payload["signal_confidence"] == pytest.approx(0.375, abs=1e-6)
     assert decision_payload["weight_scale"] == pytest.approx(0.5, abs=1e-6)
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_per_symbol_cooldown_skips_repeat_llm_call(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """A second signal for the same symbol within the cooldown window must NOT
+    trigger a second LLM call — this is the lever that decoupled LLM spend from
+    raw signal volume and stopped the Groq quota burn."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 9999.0)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(_make_signal(symbol="BTC/USD"))  # within cooldown — skipped
+
+    # The repeat signal added zero LLM calls (a full cycle, decision +
+    # self-critique, would have added at least one).
+    assert calls_after_first > 0
+    assert mock_call_llm_with_system.call_count == calls_after_first
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_cooldown_is_per_symbol_not_global(
+    mock_embed, mock_call_llm_with_system, agent, mock_bus, mock_redis, monkeypatch
+):
+    """The cooldown is keyed per symbol — a different symbol still reasons."""
+    monkeypatch.setattr(settings, "REASONING_COOLDOWN_SECONDS", 9999.0)
+    mock_embed.return_value = [0.1] * 1536
+    mock_call_llm_with_system.return_value = (json.dumps(_valid_summary("buy")), 500, 0.001)
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory()):
+        await agent.process(_make_signal(symbol="BTC/USD"))
+        calls_after_first = mock_call_llm_with_system.call_count
+        await agent.process(_make_signal(symbol="ETH/USD"))  # different symbol — reasons
+
+    # The different symbol triggered a fresh reasoning cycle (more LLM calls).
+    assert mock_call_llm_with_system.call_count > calls_after_first
