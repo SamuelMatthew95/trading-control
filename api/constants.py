@@ -278,6 +278,7 @@ class FieldName(StrEnum):
     ATR = "atr"
     ATR_REGIME_RATIO = "atr_regime_ratio"
     ATTRIBUTION = "attribution"
+    ARTICLE_COUNT = "article_count"
     AUTO_APPLIED = "auto_applied"
     AVAILABLE_MODELS = "available_models"
     AVG_COST = "avg_cost"
@@ -350,6 +351,9 @@ class FieldName(StrEnum):
     CONSENSUS = "consensus"
     CONSISTENCY = "consistency"
     CALL_COUNT = "call_count"
+    CLOSE = "close"
+    CORRELATION = "correlation"
+    CORRELATIONS = "correlations"
     CONSUMER = "consumer"
     CONTENT = "content"
     CONTENT_TYPE = "content_type"
@@ -522,6 +526,7 @@ class FieldName(StrEnum):
     IC_NORMALIZED = "ic_normalized"
     IC_SCORE = "ic_score"
     IC_WEIGHTS = "ic_weights"
+    IMBALANCE = "imbalance"
     ID = "id"
     IDEMPOTENCY_KEY = "idempotency_key"
     IDEM_KEY = "idem_key"
@@ -625,6 +630,7 @@ class FieldName(StrEnum):
     MARKET_VALUE = "market_value"
     MASKED_URL = "masked_url"
     MAXLEN = "maxlen"
+    MAX_CORRELATION = "max_correlation"
     MAX_DRAWDOWN = "max_drawdown"
     MAX_FILLS = "max_fills"
     MAX_RETRIES = "max_retries"
@@ -657,12 +663,14 @@ class FieldName(StrEnum):
     MOMENTUM = "momentum"
     MOMENTUM_PCT = "momentum_pct"
     MONITORING_ACTIVE = "monitoring_active"
+    MOST_CORRELATED = "most_correlated"
     MSG_ID = "msg_id"
     N = "n"
     NAME = "name"
     NEW_AVG_COST = "new_avg_cost"
     NEW_QUANTITY = "new_quantity"
     NEW_VALUE = "new_value"
+    NEWS_SENTIMENT = "news_sentiment"
     NEXT_TIMEFRAME = "next_timeframe"
     NET_EV = "net_ev"
     NORM_RETURN = "norm_return"
@@ -684,6 +692,7 @@ class FieldName(StrEnum):
     ORCHESTRATOR = "orchestrator"
     ORDERS = "orders"
     ORDERS_LAST_HOUR = "orders_last_hour"
+    ORDER_BOOK = "order_book"
     ORDER_ID = "order_id"
     ORDER_TYPE = "order_type"
     ORIGINAL_ID = "original_id"
@@ -868,8 +877,10 @@ class FieldName(StrEnum):
     SLIPPAGE_BPS = "slippage_bps"
     SLIPPAGE_VARIANCE = "slippage_variance"
     SLOPE = "slope"
+    SENTIMENT = "sentiment"
     SNIPPET = "snippet"
     SOURCE = "source"
+    SPREAD_BPS = "spread_bps"
     STAGE = "stage"
     STAGES = "stages"
     STALE_SYMBOLS = "stale_symbols"
@@ -1257,6 +1268,11 @@ REGRESSION_MAX_SLIPPAGE_DELTA_BPS: Final[float] = 2.0
 REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
+# Market-intel caches (Category 1 market-data cache) — written by the reasoning
+# node's new perception tools after a live Alpaca fetch, so repeated decisions
+# inside the cache window reuse one API call instead of re-hitting Alpaca.
+REDIS_KEY_NEWS_SENTIMENT: Final[str] = "news_sentiment:{symbol}"  # use .format(symbol=symbol)
+REDIS_KEY_CORRELATION: Final[str] = "correlation:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
 REDIS_PUBSUB_PRICE_UPDATES: Final[str] = "price_updates"  # pub/sub channel for SSE streaming
 REDIS_KEY_DLQ: Final[str] = "dlq:{stream}"
@@ -1350,6 +1366,10 @@ WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key
 # (The buy/sell momentum delta no longer depends on this TTL — the poller keeps
 # its own in-memory prev-price anchor. See docs/troubleshooting/price-poller.md.)
 REDIS_PRICES_TTL_SECONDS: Final[int] = 150
+# News moves far slower than ticks; correlation is slow-moving and the bar
+# fetch is the heaviest of the three — cache both to bound Alpaca calls.
+REDIS_NEWS_SENTIMENT_TTL_SECONDS: Final[int] = 300  # 5 min
+REDIS_CORRELATION_TTL_SECONDS: Final[int] = 120  # 2 min
 REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
