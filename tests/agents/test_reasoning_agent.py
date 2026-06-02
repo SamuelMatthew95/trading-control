@@ -520,7 +520,9 @@ async def test_call_llm_json_array_returns_safe_hold(mock_call_llm_with_system, 
     assert "invalid_llm_json" in decision["risk_factors"]
 
 
-async def test_fallback_derives_directional_action_when_llm_unavailable(agent):
+async def test_fallback_rejects_by_default_no_phantom_trade(agent):
+    """SAFETY: with the default fail-closed mode, an LLM-unavailable signal
+    yields REJECT — never a naive momentum buy/sell that could lose money."""
     bullish = await agent._apply_fallback(
         {"direction": "bullish", "pct": 0.3, "action": "hold"},
         trace_id="trace-fallback-buy",
@@ -531,7 +533,24 @@ async def test_fallback_derives_directional_action_when_llm_unavailable(agent):
         trace_id="trace-fallback-sell",
         reason="missing_api_key",
     )
+    assert bullish["action"] == "reject"
+    assert bearish["action"] == "reject"
 
+
+async def test_fallback_directional_is_opt_in_only(agent, monkeypatch):
+    """Naive directional fallback is reachable ONLY when an operator explicitly
+    opts into skip_reasoning mode."""
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", "skip_reasoning")
+    bullish = await agent._apply_fallback(
+        {"direction": "bullish", "pct": 0.3, "action": "hold"},
+        trace_id="trace-fallback-buy",
+        reason="missing_api_key",
+    )
+    bearish = await agent._apply_fallback(
+        {"direction": "bearish", "pct": -0.2, "action": "hold"},
+        trace_id="trace-fallback-sell",
+        reason="missing_api_key",
+    )
     assert bullish["action"] == "buy"
     assert bearish["action"] == "sell"
 
