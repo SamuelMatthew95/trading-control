@@ -141,6 +141,27 @@ STRATEGY_PLANNING_PROMPT = (
     "Return ONLY the JSON object, no markdown fences."
 )
 
+# ---------------------------------------------------------------------------
+# Prompt-evolution prompt — used by StrategyProposer to DRAFT an improved
+# adaptive directive for the reasoning node from a reflection's findings. The
+# directive is advisory guidance that sits BENEATH the immutable constitution;
+# it must never contradict capital-preservation/safety rules.
+# ---------------------------------------------------------------------------
+
+PROMPT_EVOLUTION_PROMPT = (
+    "You are a trading-system prompt engineer improving the reasoning agent's "
+    "ADAPTIVE DIRECTIVE — a short block of guidance that sits BENEATH an immutable "
+    "safety constitution (capital preservation first; the directive can never weaken "
+    "a safety rule). You are given the current directive (may be empty) and the latest "
+    "reflection on live trading performance (winning_factors, losing_factors, summary). "
+    "Write a SHARPER directive that leans into the winning factors and explicitly guards "
+    "against the losing ones. Keep it concise (max 6 imperative sentences), concrete, and "
+    "self-contained. Return ONLY valid JSON with exactly these keys: "
+    "directive (string — the new directive text), "
+    "rationale (string — one sentence on what changed and why). "
+    "Return ONLY the JSON object, no markdown fences."
+)
+
 FALLBACK_REFLECTION: dict[str, Any] = {
     FieldName.WINNING_FACTORS: ["composite_score"],
     FieldName.LOSING_FACTORS: [],

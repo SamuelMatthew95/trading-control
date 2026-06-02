@@ -408,6 +408,7 @@ class FieldName(StrEnum):
     DESCRIPTION = "description"
     DETAILS = "details"
     DIMENSION = "dimension"
+    DIRECTIVE = "directive"
     DIRECTION = "direction"
     DISCREPANCY = "discrepancy"
     DISPLAY = "display"
