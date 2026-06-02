@@ -225,27 +225,16 @@ class TestSignalGeneratorDBWrites:
 
     # -- agent_grades INSERT -------------------------------------------------
 
-    async def test_agent_grades_insert_has_source(self, monkeypatch):
-        """agent_grades INSERT must include source."""
-        # TODO: Temporarily disabled until migration 20260407_fix_agent_runs_missing_cols is applied
-        # This test is skipped as part of the temporary fix for production schema mismatch
-        import pytest
+    async def test_signal_generator_does_not_write_agent_grades(self, monkeypatch):
+        """SignalGenerator must NOT write an agent_grades row.
 
-        pytest.skip("Temporarily disabled - source column removed until migration is applied")
-
+        The signal-strength score (e.g. 55.0) is a prior, not a graded outcome —
+        writing it as an accuracy grade flooded the learning view with identical
+        static scores. Real grades come only from GradeAgent on a closed trade.
+        """
         await self._run_process(monkeypatch)
         params = self._params_for("INSERT INTO agent_grades")
-        assert params is not None, "No INSERT INTO agent_grades executed"
-        assert "source" in params, (
-            f"agent_grades INSERT missing 'source'. Got: {list(params.keys())}"
-        )
-
-    async def test_agent_grades_insert_has_schema_version(self, monkeypatch):
-        """agent_grades INSERT must include schema_version."""
-        await self._run_process(monkeypatch)
-        params = self._params_for("INSERT INTO agent_grades")
-        assert params is not None
-        assert "schema_version" in params
+        assert params is None, "SignalGenerator should not emit any agent_grades INSERT"
 
     # -- agent_logs INSERT ---------------------------------------------------
 
