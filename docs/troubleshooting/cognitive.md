@@ -7,6 +7,30 @@ proposal → shadow-backtest → challenger → GitOps-PR evolution loop. See
 
 ---
 
+## LLM-down fallback emitted phantom directional trades (fail OPEN)
+
+**Symptom:** When the reasoning LLM was unavailable, the dashboard showed `buy`/`sell`
+decisions tagged `fallback:skip_reasoning` — the system *looked* like it wanted to trade
+on raw momentum with no reasoning behind it ("random fallback to just buy").
+
+**Root cause:** `LLM_FALLBACK_MODE` defaulted to `skip_reasoning`, whose `_apply_fallback`
+branch derives a directional action from signal direction / `pct` momentum. The
+ExecutionEngine's `ALLOW_FALLBACK_TRADES=False` guard blocked the *order*, but the
+ReasoningAgent still *emitted* a misleading directional decision — failing open at the
+cognition layer.
+
+**Fix:** Default `LLM_FALLBACK_MODE = "reject_signal"` (`api/config.py`, mirrored in
+`api/constants.py`). Brain-down now emits a transparent `REJECT` (no order, recorded and
+visible) instead of a naive momentum buy/sell — capital-preservation-first, the
+constitution's top rule. Naive directional (`skip_reasoning`) and last-reflection reuse
+(`use_last_reflection`) remain opt-in. Two layers of safety now: cognition emits REJECT,
+and the ExecutionEngine still blocks fallback buys.
+
+**Regression test:** `tests/agents/test_reasoning_agent.py::test_fallback_rejects_by_default_no_phantom_trade`
+(+ `::test_fallback_directional_is_opt_in_only`).
+
+---
+
 ## Learning loop starved — Grade/IC/Reflection agents idle with event_count 0
 
 **Symptom:** GradeAgent, ICUpdater, ReflectionAgent and StrategyProposer all show `event_count: 0` and ACTIVE heartbeats, but produce no real grades/IC weights/reflections. Every decision in the feed is `reasoning_summary: "fallback:skip_reasoning"`, `llm_succeeded: false`, and fires a `fallback_trade_blocked` notification (action coerced to `hold`). `orders` stream length 0; `factor_ic_history` / `reflection_outputs` empty.
