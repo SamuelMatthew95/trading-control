@@ -144,3 +144,17 @@ If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ
 **Fix:** Proposals are admitted only within a per-window quota, exact duplicates (same target + rounded value) are dropped, and a rejected target is benched for a cooldown. Blocked proposals appear in the queue with `ProposalStatus.BLOCKED` and the reason in `verdict.blocked`; counts are in `snapshot()["evolution"]["governor"]`.
 
 **Regression test:** `tests/core/test_cognitive_hardening.py::test_governor_quota_dedup_and_cooldown`
+
+## Auto-PR for parameter changes (GitOps)
+
+**What:** When the learning loop approves a `PARAMETER_CHANGE`, `ProposalApplier`
+now opens a real pull request via `GitOpsPublisher` (`api/services/gitops_publisher.py`)
+that writes a JSON entry under `config/parameter_overrides/` — a **config file, never
+source code** — version-controlled and human-reviewed.
+
+**Safety:** Acts only when `GITHUB_AUTOPR_ENABLED` is set AND `GITHUB_TOKEN` (in Render)
++ `GITHUB_REPO` are present. Locally / in tests / CI (no token) every call is a dry-run
+no-op touching no network. All failures are swallowed — a GitOps hiccup never breaks the
+trading loop; the queued `pr_request` artifact remains for the GitHub Action / manual review.
+
+**Regression test:** `tests/api/test_gitops_publisher.py`

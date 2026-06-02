@@ -155,6 +155,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/execution/order_writer.py",
         "api/services/execution/position_math.py",
         "api/services/execution/reconciler.py",
+        "api/services/gitops_publisher.py",
         "api/services/llm_metrics.py",
         "api/services/llm_router.py",
         "api/services/lmstudio_provider.py",
@@ -198,6 +199,7 @@ SQL_BIND_HEAVY_FILES: frozenset[str] = frozenset(
         "api/core/models/analytics.py",
         "api/core/writer/safe_writer.py",
         "api/database.py",
+        "api/services/gitops_publisher.py",  # GitHub REST API contract dict keys
         "api/events/dlq.py",
         "api/health.py",
         "api/in_memory_store.py",
