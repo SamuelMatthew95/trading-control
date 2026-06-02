@@ -11,6 +11,7 @@ from api.constants import (
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
+from api.services.challenger_spawner import ChallengerSpawner
 from api.services.dashboard.state import hydrate_dashboard_state_from_redis
 
 
@@ -21,34 +22,11 @@ async def spawn_challenger_payload(
     body: dict[str, Any],
 ) -> dict[str, Any]:
     """Spawn a new ChallengerAgent from an approved new_agent proposal."""
-    from api.services.agents.pipeline_agents import ChallengerAgent  # noqa: PLC0415
-
-    challenger_config = body.get(FieldName.CHALLENGER_CONFIG, {})
-    max_fills = int(body.get(FieldName.MAX_FILLS, ChallengerAgent.DEFAULT_MAX_FILLS))
+    spawner = ChallengerSpawner(event_bus, dlq_manager, agents)
     try:
-        challenger = ChallengerAgent(
-            event_bus,
-            dlq_manager,
-            challenger_config=challenger_config,
-            max_fills=max_fills,
+        return await spawner.spawn(
+            body.get(FieldName.CHALLENGER_CONFIG, {}), body.get(FieldName.MAX_FILLS)
         )
-        await challenger.start()
-        agents.append(challenger)
-        log_structured(
-            "info",
-            "challenger_spawned",
-            challenger_id=challenger._challenger_id,
-            instance_id=challenger._instance_id,
-            max_fills=max_fills,
-        )
-        return {
-            FieldName.CHALLENGER_ID: challenger._challenger_id,
-            FieldName.INSTANCE_ID: challenger._instance_id,
-            FieldName.CONSUMER: challenger.consumer,
-            FieldName.MAX_FILLS: max_fills,
-            "status": "spawned",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
     except Exception:
         log_structured("error", "challenger_spawn_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
