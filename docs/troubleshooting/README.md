@@ -6,6 +6,7 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 |---|---|
 | [notifications.md](notifications.md) | Buy/sell notification pipeline, WebSocket delivery, dedup |
 | [execution-engine.md](execution-engine.md) | Score parsing, fill publishing, decisions backlog |
+| [data-consistency.md](data-consistency.md) | Single-source-of-truth for PnL / win rate / positions / decisions across DB + memory paths |
 | [system-routes.md](system-routes.md) | Stream lag endpoint, trading-mode status, memory-mode guards |
 | [ci-cd.md](ci-cd.md) | CI lint failures, ruff version pinning, GitHub Actions config |
 | [frontend.md](frontend.md) | Dashboard UI bugs: stat tiles, P&L display, win-rate fallback |
