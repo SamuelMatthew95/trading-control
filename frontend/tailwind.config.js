@@ -23,17 +23,17 @@ const config = {
         border: 'hsl(var(--border))',
         muted: {
           DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
+          foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
         },
         accent: {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
         // Semantic Tone tokens — light/dark values flip once in src/styles/globals.css
-        success: 'hsl(var(--success))',
-        danger: 'hsl(var(--danger))',
-        warning: 'hsl(var(--warning))',
-        info: 'hsl(var(--info))',
+        success: 'hsl(var(--success) / <alpha-value>)',
+        danger: 'hsl(var(--danger) / <alpha-value>)',
+        warning: 'hsl(var(--warning) / <alpha-value>)',
+        info: 'hsl(var(--info) / <alpha-value>)',
       },
       borderRadius: {
         lg: '0.75rem',
