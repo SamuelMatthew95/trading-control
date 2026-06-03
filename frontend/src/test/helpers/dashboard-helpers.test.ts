@@ -35,10 +35,10 @@ describe('sentiment (single source of truth for directional colour)', () => {
     expect(sentimentOf(null)).toBe('neutral')
     expect(sentimentOf(Number.NaN)).toBe('neutral')
   })
-  it('resolves to the canonical emerald/rose/slate text tokens', () => {
-    expect(sentimentTextClass(5)).toContain('emerald')
-    expect(sentimentTextClass(-5)).toContain('rose')
-    expect(sentimentTextClass(0)).toContain('slate')
+  it('resolves to the semantic success/danger/muted Tone tokens', () => {
+    expect(sentimentTextClass(5)).toBe('text-success')
+    expect(sentimentTextClass(-5)).toBe('text-danger')
+    expect(sentimentTextClass(0)).toBe('text-muted-foreground')
   })
   it('shares its palette with pnlColorClass — proves no duplicate literal', () => {
     expect(pnlColorClass(100)).toBe(sentimentTextClass(100))
@@ -46,29 +46,29 @@ describe('sentiment (single source of truth for directional colour)', () => {
 })
 
 describe('pnlColorClass', () => {
-  it('returns emerald for positive values', () => {
-    expect(pnlColorClass(100)).toContain('emerald')
+  it('returns the success token for positive values', () => {
+    expect(pnlColorClass(100)).toBe('text-success')
   })
-  it('returns rose for negative values', () => {
-    expect(pnlColorClass(-1)).toContain('rose')
+  it('returns the danger token for negative values', () => {
+    expect(pnlColorClass(-1)).toBe('text-danger')
   })
-  it('returns emerald for zero (not a loss)', () => {
-    expect(pnlColorClass(0)).toContain('emerald')
+  it('returns the success token for zero (not a loss)', () => {
+    expect(pnlColorClass(0)).toBe('text-success')
   })
 })
 
 describe('tradeSideClass', () => {
-  it('returns emerald for buy', () => {
-    expect(tradeSideClass('buy')).toContain('emerald')
+  it('returns the success token for buy', () => {
+    expect(tradeSideClass('buy')).toBe('text-success')
   })
-  it('returns rose for sell', () => {
-    expect(tradeSideClass('sell')).toContain('rose')
+  it('returns the danger token for sell', () => {
+    expect(tradeSideClass('sell')).toBe('text-danger')
   })
-  it('returns rose for null (unknown treated as sell)', () => {
-    expect(tradeSideClass(null)).toContain('rose')
+  it('returns the danger token for null (unknown treated as sell)', () => {
+    expect(tradeSideClass(null)).toBe('text-danger')
   })
-  it('returns rose for unrecognised side', () => {
-    expect(tradeSideClass('short')).toContain('rose')
+  it('returns the danger token for unrecognised side', () => {
+    expect(tradeSideClass('short')).toBe('text-danger')
   })
 })
 
@@ -382,20 +382,20 @@ describe('apiHealthBadgeClass', () => {
 })
 
 describe('priceChangeTextClass', () => {
-  it('returns slate when change is null', () => {
-    expect(priceChangeTextClass(null, true)).toContain('slate')
+  it('returns the muted token when change is null', () => {
+    expect(priceChangeTextClass(null, true)).toBe('text-muted-foreground')
   })
-  it('returns slate when hasData is false', () => {
-    expect(priceChangeTextClass(5, false)).toContain('slate')
+  it('returns the muted token when hasData is false', () => {
+    expect(priceChangeTextClass(5, false)).toBe('text-muted-foreground')
   })
-  it('returns emerald for positive change', () => {
-    expect(priceChangeTextClass(1, true)).toContain('emerald')
+  it('returns the success token for positive change', () => {
+    expect(priceChangeTextClass(1, true)).toBe('text-success')
   })
-  it('returns rose for negative change', () => {
-    expect(priceChangeTextClass(-1, true)).toContain('rose')
+  it('returns the danger token for negative change', () => {
+    expect(priceChangeTextClass(-1, true)).toBe('text-danger')
   })
-  it('returns slate for zero change', () => {
-    expect(priceChangeTextClass(0, true)).toContain('slate')
+  it('returns the muted token for zero change', () => {
+    expect(priceChangeTextClass(0, true)).toBe('text-muted-foreground')
   })
 })
 
@@ -415,16 +415,16 @@ describe('agentTierFromStatus', () => {
 })
 
 describe('performancePnlColorClass', () => {
-  it('returns neutral slate for null pnl', () => {
+  it('keeps the heading slate for null pnl', () => {
     expect(performancePnlColorClass(null)).toContain('slate')
   })
-  it('returns emerald for positive pnl', () => {
-    expect(performancePnlColorClass(100)).toContain('emerald')
+  it('returns the success token for positive pnl', () => {
+    expect(performancePnlColorClass(100)).toBe('text-success')
   })
-  it('returns emerald for zero pnl', () => {
-    expect(performancePnlColorClass(0)).toContain('emerald')
+  it('returns the success token for zero pnl', () => {
+    expect(performancePnlColorClass(0)).toBe('text-success')
   })
-  it('returns rose for negative pnl', () => {
-    expect(performancePnlColorClass(-1)).toContain('rose')
+  it('returns the danger token for negative pnl', () => {
+    expect(performancePnlColorClass(-1)).toBe('text-danger')
   })
 })
