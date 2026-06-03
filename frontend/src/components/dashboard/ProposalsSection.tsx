@@ -5,6 +5,7 @@ import { Check, X } from "lucide-react";
 
 import { api } from "@/lib/apiClient";
 import { formatPercent } from "@/lib/formatters";
+import { proposalStatusClass } from "@/lib/dashboard-helpers";
 import {
   cardClass,
   mutedClass,
@@ -31,14 +32,6 @@ function proposalLabel(proposal: Proposal): string {
     proposal.strategy_name ||
     proposal.proposal_type.replace(/_/g, " ")
   );
-}
-
-function statusClass(status: Proposal["status"]): string {
-  if (status === "approved")
-    return "border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300";
-  if (status === "rejected")
-    return "border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300";
-  return "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300";
 }
 
 function EmptyProposals() {
@@ -194,7 +187,7 @@ export function ProposalsSection() {
                       <span
                         className={cn(
                           "rounded border px-2 py-1 font-mono text-[10px] uppercase",
-                          statusClass(proposal.status),
+                          proposalStatusClass(proposal.status),
                         )}
                       >
                         {proposal.status}
