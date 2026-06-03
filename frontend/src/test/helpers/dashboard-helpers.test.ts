@@ -22,6 +22,28 @@ import {
   agentTierFromStatus,
   performancePnlColorClass,
 } from '@/lib/dashboard-helpers'
+import { sentimentOf, sentimentTextClass, SENTIMENT_EPSILON } from '@/lib/design/sentiment'
+
+describe('sentiment (single source of truth for directional colour)', () => {
+  it('maps clearly positive / negative values', () => {
+    expect(sentimentOf(5)).toBe('positive')
+    expect(sentimentOf(-5)).toBe('negative')
+  })
+  it('treats within-dead-band, zero, null and NaN as neutral', () => {
+    expect(sentimentOf(SENTIMENT_EPSILON / 2)).toBe('neutral')
+    expect(sentimentOf(0)).toBe('neutral')
+    expect(sentimentOf(null)).toBe('neutral')
+    expect(sentimentOf(Number.NaN)).toBe('neutral')
+  })
+  it('resolves to the canonical emerald/rose/slate text tokens', () => {
+    expect(sentimentTextClass(5)).toContain('emerald')
+    expect(sentimentTextClass(-5)).toContain('rose')
+    expect(sentimentTextClass(0)).toContain('slate')
+  })
+  it('shares its palette with pnlColorClass — proves no duplicate literal', () => {
+    expect(pnlColorClass(100)).toBe(sentimentTextClass(100))
+  })
+})
 
 describe('pnlColorClass', () => {
   it('returns emerald for positive values', () => {
