@@ -1,5 +1,11 @@
 export type AgentState = 'running' | 'idle' | 'failed';
 
+/**
+ * Canonical agent *display* status (badge / pipeline label). Single definition
+ * for the lifecycle vocabulary; `PipelineAgentStatus` aliases this.
+ */
+export type AgentStatus = 'Live' | 'Stale' | 'Error' | 'Idle';
+
 export interface AgentView {
   name: string;
   status: AgentState;
