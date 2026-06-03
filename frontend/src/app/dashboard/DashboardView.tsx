@@ -385,7 +385,9 @@ export function DashboardView({ section }: { section: Section }) {
     // matches the backend canonical definition: winning / (winning + losing).
     const decidedTrades = wins + losses
     const winRate = decidedTrades > 0 ? (wins / decidedTrades) * 100 : null
-    const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
+    // Active = abs(qty) > 0, the backend canonical rule (side-agnostic), so the
+    // count matches diagnose_positions / get_active_position_count.
+    const activePositions = positions.filter((position) => Math.abs(toFiniteNumber(position?.quantity) ?? 0) > 0).length
     const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
     const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
     const baseEquity = getMetric(systemMetrics, 'portfolio_value')
