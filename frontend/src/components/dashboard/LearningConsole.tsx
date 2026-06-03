@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { useCodexStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useCodexStore'
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
+import { proposalStatusClass } from '@/lib/dashboard-helpers'
 
 function gradeTone(grade: string | null | undefined): string {
   const normalized = String(grade ?? '').toUpperCase()
@@ -11,12 +12,6 @@ function gradeTone(grade: string | null | undefined): string {
   if (normalized === 'C') return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
   if (normalized === 'D' || normalized === 'F') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
   return 'border-slate-300 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400'
-}
-
-function proposalTone(status: Proposal['status']): string {
-  if (status === 'approved') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
-  if (status === 'rejected') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
-  return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
 }
 
 function actionTone(side: string | null | undefined): string {
@@ -229,7 +224,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                     <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
                     <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.grade_score, { decimals: 0 })}</td>
                     <td className="px-3 py-2">
-                      <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalTone(proposal.status))}>{proposal.status}</span>
+                      <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalStatusClass(proposal.status))}>{proposal.status}</span>
                     </td>
                   </tr>
                 ))}
