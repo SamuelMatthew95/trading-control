@@ -6,7 +6,7 @@
  * strings; value helpers return formatted display strings or computed numbers.
  */
 
-import { SENTIMENT_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
+import { SENTIMENT_TEXT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
 
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
@@ -27,10 +27,10 @@ export function strategyStatusClass(status: string | null): string {
 }
 
 export function confColorClass(conf: number | null): string {
-  if (conf == null) return 'text-slate-400'
-  if (conf > 0.8) return 'text-emerald-500'
-  if (conf >= 0.5) return 'text-amber-500'
-  return 'text-slate-400'
+  if (conf == null) return TONE_TEXT.neutral
+  if (conf > 0.8) return TONE_TEXT.success
+  if (conf >= 0.5) return TONE_TEXT.warning
+  return TONE_TEXT.neutral
 }
 
 export function actionBadgeClass(action: string): string {
@@ -91,10 +91,10 @@ export function agentCardDotClass(status: string): string {
 }
 
 export function agentCardTextClass(status: string): string {
-  if (status === 'Live') return 'text-emerald-600 dark:text-emerald-400'
-  if (status === 'Stale') return 'text-amber-600 dark:text-amber-400'
-  if (status === 'Error') return 'text-rose-600 dark:text-rose-400'
-  return 'text-slate-400'
+  if (status === 'Live') return TONE_TEXT.success
+  if (status === 'Stale') return TONE_TEXT.warning
+  if (status === 'Error') return TONE_TEXT.danger
+  return TONE_TEXT.neutral
 }
 
 // ---------------------------------------------------------------------------
@@ -159,9 +159,9 @@ export function agentStatusDotClass(status: string): string {
 }
 
 export function pipelineStatusTextClass(status: string): string {
-  if (status === 'Healthy') return 'text-emerald-500'
-  if (status === 'Degraded') return 'text-amber-500'
-  return 'text-rose-500'
+  if (status === 'Healthy') return TONE_TEXT.success
+  if (status === 'Degraded') return TONE_TEXT.warning
+  return TONE_TEXT.danger
 }
 
 export function apiHealthBadgeClass(value: string): string {
