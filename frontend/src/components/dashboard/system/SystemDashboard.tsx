@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { cn } from "@/lib/utils";
 import {
+  formatPercent,
   formatTimestamp,
   signedUSD,
   toFiniteNum as toFiniteNumber,
@@ -322,13 +323,6 @@ function proposalLabel(proposal: Proposal): string {
     proposal.strategy_name ||
     proposal.proposal_type.replace(/_/g, " ")
   );
-}
-
-function formatPercent(value: unknown): string {
-  const number = toFiniteNumber(value);
-  if (number == null) return "--";
-  const scaled = Math.abs(number) <= 1 ? number * 100 : number;
-  return `${scaled.toFixed(1)}%`;
 }
 
 function KpiStrip({

@@ -6,6 +6,7 @@ import {
   formatUSD,
   signedUSD,
   formatTimeAgo,
+  formatPercent,
   toFiniteNum,
   getField,
   getStr,
@@ -125,6 +126,41 @@ describe('formatTimeAgo', () => {
   it('handles a Date object', () => {
     const d = new Date(Date.now() - 90_000)
     expect(formatTimeAgo(d)).toBe('1m ago')
+  })
+})
+
+describe('formatPercent', () => {
+  it('returns -- for null / undefined / NaN / Infinity', () => {
+    expect(formatPercent(null)).toBe('--')
+    expect(formatPercent(undefined)).toBe('--')
+    expect(formatPercent(NaN)).toBe('--')
+    expect(formatPercent(Infinity)).toBe('--')
+  })
+
+  it('auto-scales a fractional ratio (|v| <= 1) to a percent', () => {
+    expect(formatPercent(0.42)).toBe('42.0%')
+    expect(formatPercent(1)).toBe('100.0%')
+    expect(formatPercent(-0.5)).toBe('-50.0%')
+  })
+
+  it('passes through magnitudes already in percent (|v| > 1)', () => {
+    expect(formatPercent(42)).toBe('42.0%')
+    expect(formatPercent(1.5)).toBe('1.5%')
+  })
+
+  it('respects the decimals option', () => {
+    expect(formatPercent(0.4267, { decimals: 0 })).toBe('43%')
+    expect(formatPercent(0.4, { decimals: 2 })).toBe('40.00%')
+  })
+
+  it('prefixes non-negative values with + when signed', () => {
+    expect(formatPercent(0.42, { signed: true })).toBe('+42.0%')
+    expect(formatPercent(0, { signed: true })).toBe('+0.0%')
+    expect(formatPercent(-0.42, { signed: true })).toBe('-42.0%')
+  })
+
+  it('coerces numeric strings via toFiniteNum', () => {
+    expect(formatPercent('0.5')).toBe('50.0%')
   })
 })
 

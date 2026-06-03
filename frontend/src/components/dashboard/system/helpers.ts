@@ -1,5 +1,9 @@
 import type { PipelineStatus, StatusTone } from './types'
 
+// Canonical implementations live in @/lib/formatters — re-exported here so
+// existing `./helpers` importers keep working without a second copy.
+export { formatTimestamp } from '@/lib/formatters'
+
 export const PRICE_FRESHNESS_MS = 60_000
 export const PIPELINE_HEALTHY_LATENCY_MS = 15_000
 
@@ -19,13 +23,6 @@ export const STATUS_COLOR: Record<StatusTone, string> = {
   warn: 'text-amber-500',
   err: 'text-rose-500',
   neutral: 'text-slate-700 dark:text-slate-200',
-}
-
-export function formatTimestamp(value?: string | null): string {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
-  return date.toLocaleTimeString()
 }
 
 export function formatAgeFromMs(ageMs: number | null): string {

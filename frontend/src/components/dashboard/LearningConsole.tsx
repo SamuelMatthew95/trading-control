@@ -1,21 +1,10 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
+import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { useCodexStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useCodexStore'
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
-
-function formatPct(value: number | null | undefined, decimals = 1): string {
-  if (value == null || !Number.isFinite(value)) return '--'
-  const scaled = Math.abs(value) <= 1 ? value * 100 : value
-  return `${scaled >= 0 ? '+' : ''}${scaled.toFixed(decimals)}%`
-}
-
-function formatScore(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return '--'
-  const scaled = Math.abs(value) <= 1 ? value * 100 : value
-  return `${scaled.toFixed(0)}%`
-}
+import { proposalStatusClass } from '@/lib/dashboard-helpers'
 
 function gradeTone(grade: string | null | undefined): string {
   const normalized = String(grade ?? '').toUpperCase()
@@ -23,12 +12,6 @@ function gradeTone(grade: string | null | undefined): string {
   if (normalized === 'C') return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
   if (normalized === 'D' || normalized === 'F') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
   return 'border-slate-300 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400'
-}
-
-function proposalTone(status: Proposal['status']): string {
-  if (status === 'approved') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
-  if (status === 'rejected') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
-  return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
 }
 
 function actionTone(side: string | null | undefined): string {
@@ -115,9 +98,9 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
         </div>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
           <Kpi label="Graded Trades" value={String(gradedTrades.length)} note={`${closedTrades.length} closed fills`} />
-          <Kpi label="Win Rate" value={winRate == null ? '--' : formatPct(winRate)} tone="text-slate-900 dark:text-slate-100" />
+          <Kpi label="Win Rate" value={winRate == null ? '--' : formatPercent(winRate, { signed: true })} tone="text-slate-900 dark:text-slate-100" />
           <Kpi label="Total PnL" value={signedUSD(totalPnl)} tone={totalPnl >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'} />
-          <Kpi label="Avg Grade Score" value={formatScore(avgGradeScore)} />
+          <Kpi label="Avg Grade Score" value={formatPercent(avgGradeScore, { decimals: 0 })} />
           <Kpi label="Proposal Queue" value={`${pendingProposals} pending`} note={`${approvedProposals} approved`} />
         </div>
       </section>
@@ -158,12 +141,12 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                       </td>
                       <td className={cn('px-3 py-2 font-mono', (pnl ?? 0) >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
                         {pnl == null ? '--' : signedUSD(pnl)}
-                        <span className="ml-2 text-slate-500 dark:text-slate-400">{formatPct(trade.pnl_percent)}</span>
+                        <span className="ml-2 text-slate-500 dark:text-slate-400">{formatPercent(trade.pnl_percent, { signed: true })}</span>
                       </td>
                       <td className="px-3 py-2">
                         <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', gradeTone(trade.grade))}>{trade.grade ?? 'NR'}</span>
                       </td>
-                      <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatScore(trade.grade_score)}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(trade.grade_score, { decimals: 0 })}</td>
                       <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                         filled {trade.filled_at ? formatTimeAgo(trade.filled_at) : '--'} · graded {trade.graded_at ? formatTimeAgo(trade.graded_at) : '--'}
                       </td>
@@ -191,7 +174,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
             <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Grade</p>
               <p className="mt-1 font-mono text-sm text-slate-900 dark:text-slate-100">
-                {latestGrade ? `${latestGrade.symbol} ${latestGrade.grade ?? 'NR'} / ${formatScore(latestGrade.grade_score)}` : 'Waiting for first grade'}
+                {latestGrade ? `${latestGrade.symbol} ${latestGrade.grade ?? 'NR'} / ${formatPercent(latestGrade.grade_score, { decimals: 0 })}` : 'Waiting for first grade'}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70 px-3 py-2">
@@ -238,10 +221,10 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                       <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">{proposalLabel(proposal)}</p>
                       <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-600">{proposal.proposal_type.replace(/_/g, ' ')}</p>
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatScore(proposal.confidence)}</td>
-                    <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatScore(proposal.grade_score)}</td>
+                    <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
+                    <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.grade_score, { decimals: 0 })}</td>
                     <td className="px-3 py-2">
-                      <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalTone(proposal.status))}>{proposal.status}</span>
+                      <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalStatusClass(proposal.status))}>{proposal.status}</span>
                     </td>
                   </tr>
                 ))}

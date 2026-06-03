@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/apiClient'
+import { TONE_DOT, TONE_TEXT, type Tone } from '@/lib/design/sentiment'
 
 // Mirrors api/constants.py LLMCallResult StrEnum
 const LLMCallResult = {
@@ -72,17 +73,12 @@ interface LLMHealthData extends LocalInferenceData {
   recent_results: CallRecord[]
 }
 
-const STATUS_DOT_COLOR: Record<LLMStatus, string> = {
-  [LLMStatus.LIVE]: 'bg-emerald-500',
-  [LLMStatus.DEGRADED]: 'bg-amber-400',
-  [LLMStatus.DOWN]: 'bg-rose-500',
-  [LLMStatus.UNKNOWN]: 'bg-slate-400',
-}
-const STATUS_TEXT_COLOR: Record<LLMStatus, string> = {
-  [LLMStatus.LIVE]: 'text-emerald-600 dark:text-emerald-500',
-  [LLMStatus.DEGRADED]: 'text-amber-600 dark:text-amber-400',
-  [LLMStatus.DOWN]: 'text-rose-600 dark:text-rose-500',
-  [LLMStatus.UNKNOWN]: 'text-slate-500 dark:text-slate-400',
+// LLM health status → semantic Tone (colours resolve through the design tokens).
+const LLM_TONE: Record<LLMStatus, Tone> = {
+  [LLMStatus.LIVE]: 'success',
+  [LLMStatus.DEGRADED]: 'warning',
+  [LLMStatus.DOWN]: 'danger',
+  [LLMStatus.UNKNOWN]: 'neutral',
 }
 const STATUS_LABEL: Record<LLMStatus, string> = {
   [LLMStatus.LIVE]: 'Live',
@@ -94,8 +90,8 @@ const STATUS_LABEL: Record<LLMStatus, string> = {
 function StatusDot({ status }: { status: LLMStatus }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT_COLOR[status]}`} />
-      <span className={`text-xs font-semibold ${STATUS_TEXT_COLOR[status]}`}>
+      <span className={`inline-block h-2 w-2 rounded-full ${TONE_DOT[LLM_TONE[status]]}`} />
+      <span className={`text-xs font-semibold ${TONE_TEXT[LLM_TONE[status]]}`}>
         {STATUS_LABEL[status]}
       </span>
     </span>

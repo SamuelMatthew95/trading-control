@@ -6,43 +6,43 @@
  * strings; value helpers return formatted display strings or computed numbers.
  */
 
+import { SENTIMENT_TEXT, TONE_BADGE, TONE_DOT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
+
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
 // ---------------------------------------------------------------------------
 
 export function pnlColorClass(value: number): string {
-  return value >= 0
-    ? 'text-emerald-600 dark:text-emerald-400'
-    : 'text-rose-600 dark:text-rose-400'
+  return value >= 0 ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
 }
 
 export function tradeSideClass(side: string | null): string {
-  return side === 'buy' ? 'text-emerald-500' : 'text-rose-500'
+  return side === 'buy' ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
 }
 
 export function strategyStatusClass(status: string | null): string {
-  if (status === 'approved') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400'
-  if (status === 'rejected') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400'
-  return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400'
+  if (status === 'approved') return TONE_BADGE.success
+  if (status === 'rejected') return TONE_BADGE.danger
+  return TONE_BADGE.warning
 }
 
 export function confColorClass(conf: number | null): string {
-  if (conf == null) return 'text-slate-400'
-  if (conf > 0.8) return 'text-emerald-500'
-  if (conf >= 0.5) return 'text-amber-500'
-  return 'text-slate-400'
+  if (conf == null) return TONE_TEXT.neutral
+  if (conf > 0.8) return TONE_TEXT.success
+  if (conf >= 0.5) return TONE_TEXT.warning
+  return TONE_TEXT.neutral
 }
 
 export function actionBadgeClass(action: string): string {
-  if (action === 'BUY') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-  if (action === 'SELL') return 'bg-rose-500/15 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
+  if (action === 'BUY') return TONE_BADGE.success
+  if (action === 'SELL') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 export function positionSideBadgeClass(side: string): string {
-  if (side === 'LONG') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-  if (side === 'SHORT') return 'bg-rose-500/15 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
+  if (side === 'LONG') return TONE_BADGE.success
+  if (side === 'SHORT') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 // ---------------------------------------------------------------------------
@@ -50,9 +50,9 @@ export function positionSideBadgeClass(side: string): string {
 // ---------------------------------------------------------------------------
 
 export function activityDotClass(indicator: string): string {
-  if (indicator === 'live') return 'animate-pulse bg-emerald-500'
-  if (indicator === 'waiting') return 'bg-amber-400'
-  return 'bg-slate-400'
+  if (indicator === 'live') return `animate-pulse ${TONE_DOT.success}`
+  if (indicator === 'waiting') return TONE_DOT.warning
+  return TONE_DOT.neutral
 }
 
 export function activityLabel(indicator: string): string {
@@ -84,17 +84,17 @@ export function agentCardBorderClass(status: string): string {
 }
 
 export function agentCardDotClass(status: string): string {
-  if (status === 'Live') return 'animate-pulse bg-emerald-500'
-  if (status === 'Stale') return 'bg-amber-400'
-  if (status === 'Error') return 'bg-rose-500'
-  return 'bg-slate-300 dark:bg-slate-600'
+  if (status === 'Live') return `animate-pulse ${TONE_DOT.success}`
+  if (status === 'Stale') return TONE_DOT.warning
+  if (status === 'Error') return TONE_DOT.danger
+  return TONE_DOT.neutral
 }
 
 export function agentCardTextClass(status: string): string {
-  if (status === 'Live') return 'text-emerald-600 dark:text-emerald-400'
-  if (status === 'Stale') return 'text-amber-600 dark:text-amber-400'
-  if (status === 'Error') return 'text-rose-600 dark:text-rose-400'
-  return 'text-slate-400'
+  if (status === 'Live') return TONE_TEXT.success
+  if (status === 'Stale') return TONE_TEXT.warning
+  if (status === 'Error') return TONE_TEXT.danger
+  return TONE_TEXT.neutral
 }
 
 // ---------------------------------------------------------------------------
@@ -131,10 +131,10 @@ export function streamEventBadgeClass(stream: string | null | undefined): string
 }
 
 export function systemStatusBadgeClass(status: string): string {
-  if (status === 'trading') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
-  if (status === 'booting') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
-  if (status === 'error') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
-  return 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+  if (status === 'trading') return TONE_BADGE.success
+  if (status === 'booting') return TONE_BADGE.warning
+  if (status === 'error') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 // ---------------------------------------------------------------------------
@@ -159,22 +159,20 @@ export function agentStatusDotClass(status: string): string {
 }
 
 export function pipelineStatusTextClass(status: string): string {
-  if (status === 'Healthy') return 'text-emerald-500'
-  if (status === 'Degraded') return 'text-amber-500'
-  return 'text-rose-500'
+  if (status === 'Healthy') return TONE_TEXT.success
+  if (status === 'Degraded') return TONE_TEXT.warning
+  return TONE_TEXT.danger
 }
 
 export function apiHealthBadgeClass(value: string): string {
-  if (value === 'ok') return 'bg-emerald-500/10 text-emerald-500'
-  if (value === 'error') return 'bg-rose-500/10 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
+  if (value === 'ok') return TONE_BADGE.success
+  if (value === 'error') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 export function priceChangeTextClass(change: number | null, hasData: boolean): string {
-  if (change == null || !hasData) return 'text-slate-500'
-  if (change > 0) return 'text-emerald-500'
-  if (change < 0) return 'text-rose-500'
-  return 'text-slate-400'
+  if (change == null || !hasData) return SENTIMENT_TEXT.neutral
+  return sentimentTextClass(change)
 }
 
 // ---------------------------------------------------------------------------
@@ -189,5 +187,20 @@ export function agentTierFromStatus(status: string): 'active' | 'challenger' | '
 
 export function performancePnlColorClass(pnl: number | null): string {
   if (pnl == null) return 'text-slate-900 dark:text-slate-100'
-  return pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+  return pnl >= 0 ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
+}
+
+// ---------------------------------------------------------------------------
+// CSS class helpers — review-status badge (shared primitive)
+// ---------------------------------------------------------------------------
+
+/**
+ * Badge classes for a proposal review status: approved = success, rejected =
+ * danger, anything else (pending/null) = warning. One definition shared by the
+ * proposals queue and the learning console.
+ */
+export function proposalStatusClass(status: string | null | undefined): string {
+  if (status === 'approved') return TONE_BADGE.success
+  if (status === 'rejected') return TONE_BADGE.danger
+  return TONE_BADGE.warning
 }

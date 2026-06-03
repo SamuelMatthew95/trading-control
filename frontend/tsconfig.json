@@ -8,7 +8,7 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
@@ -30,8 +30,7 @@
       "zustand": [
         "./src/shims/zustand"
       ]
-    },
-    "strictNullChecks": true
+    }
   },
   "include": [
     "next-env.d.ts",
@@ -42,7 +41,6 @@
   "exclude": [
     "node_modules",
     "src/test/**/*",
-    "src/hooks/useGlobalWebSocket.ts",
     "vitest.config.ts",
     "**/*.test.ts",
     "**/*.test.tsx",

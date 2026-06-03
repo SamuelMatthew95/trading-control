@@ -22,118 +22,137 @@ import {
   agentTierFromStatus,
   performancePnlColorClass,
 } from '@/lib/dashboard-helpers'
+import { sentimentOf, sentimentTextClass, SENTIMENT_EPSILON } from '@/lib/design/sentiment'
+
+describe('sentiment (single source of truth for directional colour)', () => {
+  it('maps clearly positive / negative values', () => {
+    expect(sentimentOf(5)).toBe('positive')
+    expect(sentimentOf(-5)).toBe('negative')
+  })
+  it('treats within-dead-band, zero, null and NaN as neutral', () => {
+    expect(sentimentOf(SENTIMENT_EPSILON / 2)).toBe('neutral')
+    expect(sentimentOf(0)).toBe('neutral')
+    expect(sentimentOf(null)).toBe('neutral')
+    expect(sentimentOf(Number.NaN)).toBe('neutral')
+  })
+  it('resolves to the semantic success/danger/muted Tone tokens', () => {
+    expect(sentimentTextClass(5)).toBe('text-success')
+    expect(sentimentTextClass(-5)).toBe('text-danger')
+    expect(sentimentTextClass(0)).toBe('text-muted-foreground')
+  })
+  it('shares its palette with pnlColorClass — proves no duplicate literal', () => {
+    expect(pnlColorClass(100)).toBe(sentimentTextClass(100))
+  })
+})
 
 describe('pnlColorClass', () => {
-  it('returns emerald for positive values', () => {
-    expect(pnlColorClass(100)).toContain('emerald')
+  it('returns the success token for positive values', () => {
+    expect(pnlColorClass(100)).toBe('text-success')
   })
-  it('returns rose for negative values', () => {
-    expect(pnlColorClass(-1)).toContain('rose')
+  it('returns the danger token for negative values', () => {
+    expect(pnlColorClass(-1)).toBe('text-danger')
   })
-  it('returns emerald for zero (not a loss)', () => {
-    expect(pnlColorClass(0)).toContain('emerald')
+  it('returns the success token for zero (not a loss)', () => {
+    expect(pnlColorClass(0)).toBe('text-success')
   })
 })
 
 describe('tradeSideClass', () => {
-  it('returns emerald for buy', () => {
-    expect(tradeSideClass('buy')).toContain('emerald')
+  it('returns the success token for buy', () => {
+    expect(tradeSideClass('buy')).toBe('text-success')
   })
-  it('returns rose for sell', () => {
-    expect(tradeSideClass('sell')).toContain('rose')
+  it('returns the danger token for sell', () => {
+    expect(tradeSideClass('sell')).toBe('text-danger')
   })
-  it('returns rose for null (unknown treated as sell)', () => {
-    expect(tradeSideClass(null)).toContain('rose')
+  it('returns the danger token for null (unknown treated as sell)', () => {
+    expect(tradeSideClass(null)).toBe('text-danger')
   })
-  it('returns rose for unrecognised side', () => {
-    expect(tradeSideClass('short')).toContain('rose')
+  it('returns the danger token for unrecognised side', () => {
+    expect(tradeSideClass('short')).toBe('text-danger')
   })
 })
 
 describe('strategyStatusClass', () => {
-  it('returns emerald for approved', () => {
-    expect(strategyStatusClass('approved')).toContain('emerald')
+  it('returns the success token for approved', () => {
+    expect(strategyStatusClass('approved')).toContain('success')
   })
-  it('returns rose for rejected', () => {
-    expect(strategyStatusClass('rejected')).toContain('rose')
+  it('returns the danger token for rejected', () => {
+    expect(strategyStatusClass('rejected')).toContain('danger')
   })
-  it('returns amber for pending', () => {
-    expect(strategyStatusClass('pending')).toContain('amber')
+  it('returns the warning token for pending', () => {
+    expect(strategyStatusClass('pending')).toContain('warning')
   })
-  it('returns amber for null (treated as pending)', () => {
-    expect(strategyStatusClass(null)).toContain('amber')
+  it('returns the warning token for null (treated as pending)', () => {
+    expect(strategyStatusClass(null)).toContain('warning')
   })
-  it('returns amber for unknown status', () => {
-    expect(strategyStatusClass('draft')).toContain('amber')
+  it('returns the warning token for unknown status', () => {
+    expect(strategyStatusClass('draft')).toContain('warning')
   })
 })
 
 describe('confColorClass', () => {
-  it('returns slate for null', () => {
-    expect(confColorClass(null)).toContain('slate')
+  it('returns the muted token for null', () => {
+    expect(confColorClass(null)).toBe('text-muted-foreground')
   })
-  it('returns emerald for confidence > 0.8', () => {
-    expect(confColorClass(0.9)).toContain('emerald')
-    expect(confColorClass(0.81)).toContain('emerald')
+  it('returns the success token for confidence > 0.8', () => {
+    expect(confColorClass(0.9)).toBe('text-success')
+    expect(confColorClass(0.81)).toBe('text-success')
   })
-  it('returns emerald for exactly 0.81 (boundary)', () => {
-    expect(confColorClass(0.81)).toContain('emerald')
+  it('returns the warning token for confidence in [0.5, 0.8]', () => {
+    expect(confColorClass(0.5)).toBe('text-warning')
+    expect(confColorClass(0.8)).toBe('text-warning')
+    expect(confColorClass(0.65)).toBe('text-warning')
   })
-  it('returns amber for confidence in [0.5, 0.8]', () => {
-    expect(confColorClass(0.5)).toContain('amber')
-    expect(confColorClass(0.8)).toContain('amber')
-    expect(confColorClass(0.65)).toContain('amber')
-  })
-  it('returns slate for confidence below 0.5', () => {
-    expect(confColorClass(0.49)).toContain('slate')
-    expect(confColorClass(0)).toContain('slate')
+  it('returns the muted token for confidence below 0.5', () => {
+    expect(confColorClass(0.49)).toBe('text-muted-foreground')
+    expect(confColorClass(0)).toBe('text-muted-foreground')
   })
 })
 
 describe('actionBadgeClass', () => {
-  it('returns emerald for BUY', () => {
-    expect(actionBadgeClass('BUY')).toContain('emerald')
+  it('returns the success token for BUY', () => {
+    expect(actionBadgeClass('BUY')).toContain('success')
   })
-  it('returns rose for SELL', () => {
-    expect(actionBadgeClass('SELL')).toContain('rose')
+  it('returns the danger token for SELL', () => {
+    expect(actionBadgeClass('SELL')).toContain('danger')
   })
-  it('returns slate for HOLD', () => {
-    expect(actionBadgeClass('HOLD')).toContain('slate')
+  it('returns the muted token for HOLD', () => {
+    expect(actionBadgeClass('HOLD')).toContain('muted')
   })
-  it('returns slate for empty string', () => {
-    expect(actionBadgeClass('')).toContain('slate')
+  it('returns the muted token for empty string', () => {
+    expect(actionBadgeClass('')).toContain('muted')
   })
 })
 
 describe('positionSideBadgeClass', () => {
-  it('returns emerald for LONG', () => {
-    expect(positionSideBadgeClass('LONG')).toContain('emerald')
+  it('returns the success token for LONG', () => {
+    expect(positionSideBadgeClass('LONG')).toContain('success')
   })
-  it('returns rose for SHORT', () => {
-    expect(positionSideBadgeClass('SHORT')).toContain('rose')
+  it('returns the danger token for SHORT', () => {
+    expect(positionSideBadgeClass('SHORT')).toContain('danger')
   })
-  it('returns slate for empty string', () => {
-    expect(positionSideBadgeClass('')).toContain('slate')
+  it('returns the muted token for empty string', () => {
+    expect(positionSideBadgeClass('')).toContain('muted')
   })
-  it('returns slate for unrecognised value', () => {
-    expect(positionSideBadgeClass('FLAT')).toContain('slate')
+  it('returns the muted token for unrecognised value', () => {
+    expect(positionSideBadgeClass('FLAT')).toContain('muted')
   })
 })
 
 describe('activityDotClass', () => {
-  it('includes animate-pulse and emerald for live', () => {
+  it('includes animate-pulse and the success token for live', () => {
     const cls = activityDotClass('live')
     expect(cls).toContain('animate-pulse')
-    expect(cls).toContain('emerald')
+    expect(cls).toContain('bg-success')
   })
-  it('returns amber for waiting', () => {
-    expect(activityDotClass('waiting')).toContain('amber')
+  it('returns the warning token for waiting', () => {
+    expect(activityDotClass('waiting')).toBe('bg-warning')
   })
-  it('returns slate for offline', () => {
-    expect(activityDotClass('offline')).toContain('slate')
+  it('returns the muted token for offline', () => {
+    expect(activityDotClass('offline')).toBe('bg-muted-foreground')
   })
-  it('returns slate for any unrecognised value', () => {
-    expect(activityDotClass('unknown')).toContain('slate')
+  it('returns the muted token for any unrecognised value', () => {
+    expect(activityDotClass('unknown')).toBe('bg-muted-foreground')
   })
 })
 
@@ -192,40 +211,40 @@ describe('agentCardBorderClass', () => {
 })
 
 describe('agentCardDotClass', () => {
-  it('includes animate-pulse and emerald for Live', () => {
+  it('includes animate-pulse and the success token for Live', () => {
     const cls = agentCardDotClass('Live')
     expect(cls).toContain('animate-pulse')
-    expect(cls).toContain('emerald')
+    expect(cls).toContain('bg-success')
   })
-  it('returns amber for Stale', () => {
-    expect(agentCardDotClass('Stale')).toContain('amber')
+  it('returns the warning token for Stale', () => {
+    expect(agentCardDotClass('Stale')).toBe('bg-warning')
   })
-  it('returns rose for Error', () => {
-    expect(agentCardDotClass('Error')).toContain('rose')
+  it('returns the danger token for Error', () => {
+    expect(agentCardDotClass('Error')).toBe('bg-danger')
   })
-  it('returns slate for Idle', () => {
-    expect(agentCardDotClass('Idle')).toContain('slate')
+  it('returns the muted token for Idle', () => {
+    expect(agentCardDotClass('Idle')).toBe('bg-muted-foreground')
   })
-  it('returns slate for unknown status', () => {
-    expect(agentCardDotClass('unknown')).toContain('slate')
+  it('returns the muted token for unknown status', () => {
+    expect(agentCardDotClass('unknown')).toBe('bg-muted-foreground')
   })
 })
 
 describe('agentCardTextClass', () => {
-  it('returns emerald for Live', () => {
-    expect(agentCardTextClass('Live')).toContain('emerald')
+  it('returns the success token for Live', () => {
+    expect(agentCardTextClass('Live')).toBe('text-success')
   })
-  it('returns amber for Stale', () => {
-    expect(agentCardTextClass('Stale')).toContain('amber')
+  it('returns the warning token for Stale', () => {
+    expect(agentCardTextClass('Stale')).toBe('text-warning')
   })
-  it('returns rose for Error', () => {
-    expect(agentCardTextClass('Error')).toContain('rose')
+  it('returns the danger token for Error', () => {
+    expect(agentCardTextClass('Error')).toBe('text-danger')
   })
-  it('returns slate for Idle', () => {
-    expect(agentCardTextClass('Idle')).toContain('slate')
+  it('returns the muted token for Idle', () => {
+    expect(agentCardTextClass('Idle')).toBe('text-muted-foreground')
   })
-  it('returns slate for unknown status', () => {
-    expect(agentCardTextClass('unknown')).toContain('slate')
+  it('returns the muted token for unknown status', () => {
+    expect(agentCardTextClass('unknown')).toBe('text-muted-foreground')
   })
 })
 
@@ -272,20 +291,20 @@ describe('streamEventBadgeClass', () => {
 })
 
 describe('systemStatusBadgeClass', () => {
-  it('returns emerald for trading', () => {
-    expect(systemStatusBadgeClass('trading')).toContain('emerald')
+  it('returns the success token for trading', () => {
+    expect(systemStatusBadgeClass('trading')).toContain('success')
   })
-  it('returns amber for booting', () => {
-    expect(systemStatusBadgeClass('booting')).toContain('amber')
+  it('returns the warning token for booting', () => {
+    expect(systemStatusBadgeClass('booting')).toContain('warning')
   })
-  it('returns rose for error', () => {
-    expect(systemStatusBadgeClass('error')).toContain('rose')
+  it('returns the danger token for error', () => {
+    expect(systemStatusBadgeClass('error')).toContain('danger')
   })
-  it('returns slate for unknown status', () => {
-    expect(systemStatusBadgeClass('offline')).toContain('slate')
+  it('returns the muted token for unknown status', () => {
+    expect(systemStatusBadgeClass('offline')).toContain('muted')
   })
-  it('returns slate for empty string', () => {
-    expect(systemStatusBadgeClass('')).toContain('slate')
+  it('returns the muted token for empty string', () => {
+    expect(systemStatusBadgeClass('')).toContain('muted')
   })
 })
 
@@ -334,46 +353,46 @@ describe('agentStatusDotClass', () => {
 })
 
 describe('pipelineStatusTextClass', () => {
-  it('returns emerald for Healthy', () => {
-    expect(pipelineStatusTextClass('Healthy')).toContain('emerald')
+  it('returns the success token for Healthy', () => {
+    expect(pipelineStatusTextClass('Healthy')).toBe('text-success')
   })
-  it('returns amber for Degraded', () => {
-    expect(pipelineStatusTextClass('Degraded')).toContain('amber')
+  it('returns the warning token for Degraded', () => {
+    expect(pipelineStatusTextClass('Degraded')).toBe('text-warning')
   })
-  it('returns rose for Stalled or unknown', () => {
-    expect(pipelineStatusTextClass('Stalled')).toContain('rose')
-    expect(pipelineStatusTextClass('unknown')).toContain('rose')
+  it('returns the danger token for Stalled or unknown', () => {
+    expect(pipelineStatusTextClass('Stalled')).toBe('text-danger')
+    expect(pipelineStatusTextClass('unknown')).toBe('text-danger')
   })
 })
 
 describe('apiHealthBadgeClass', () => {
-  it('returns emerald for ok', () => {
-    expect(apiHealthBadgeClass('ok')).toContain('emerald')
+  it('returns the success token for ok', () => {
+    expect(apiHealthBadgeClass('ok')).toContain('success')
   })
-  it('returns rose for error', () => {
-    expect(apiHealthBadgeClass('error')).toContain('rose')
+  it('returns the danger token for error', () => {
+    expect(apiHealthBadgeClass('error')).toContain('danger')
   })
-  it('returns slate for unknown values', () => {
-    expect(apiHealthBadgeClass('pending')).toContain('slate')
-    expect(apiHealthBadgeClass('')).toContain('slate')
+  it('returns the muted token for unknown values', () => {
+    expect(apiHealthBadgeClass('pending')).toContain('muted')
+    expect(apiHealthBadgeClass('')).toContain('muted')
   })
 })
 
 describe('priceChangeTextClass', () => {
-  it('returns slate when change is null', () => {
-    expect(priceChangeTextClass(null, true)).toContain('slate')
+  it('returns the muted token when change is null', () => {
+    expect(priceChangeTextClass(null, true)).toBe('text-muted-foreground')
   })
-  it('returns slate when hasData is false', () => {
-    expect(priceChangeTextClass(5, false)).toContain('slate')
+  it('returns the muted token when hasData is false', () => {
+    expect(priceChangeTextClass(5, false)).toBe('text-muted-foreground')
   })
-  it('returns emerald for positive change', () => {
-    expect(priceChangeTextClass(1, true)).toContain('emerald')
+  it('returns the success token for positive change', () => {
+    expect(priceChangeTextClass(1, true)).toBe('text-success')
   })
-  it('returns rose for negative change', () => {
-    expect(priceChangeTextClass(-1, true)).toContain('rose')
+  it('returns the danger token for negative change', () => {
+    expect(priceChangeTextClass(-1, true)).toBe('text-danger')
   })
-  it('returns slate for zero change', () => {
-    expect(priceChangeTextClass(0, true)).toContain('slate')
+  it('returns the muted token for zero change', () => {
+    expect(priceChangeTextClass(0, true)).toBe('text-muted-foreground')
   })
 })
 
@@ -393,16 +412,16 @@ describe('agentTierFromStatus', () => {
 })
 
 describe('performancePnlColorClass', () => {
-  it('returns neutral slate for null pnl', () => {
+  it('keeps the heading slate for null pnl', () => {
     expect(performancePnlColorClass(null)).toContain('slate')
   })
-  it('returns emerald for positive pnl', () => {
-    expect(performancePnlColorClass(100)).toContain('emerald')
+  it('returns the success token for positive pnl', () => {
+    expect(performancePnlColorClass(100)).toBe('text-success')
   })
-  it('returns emerald for zero pnl', () => {
-    expect(performancePnlColorClass(0)).toContain('emerald')
+  it('returns the success token for zero pnl', () => {
+    expect(performancePnlColorClass(0)).toBe('text-success')
   })
-  it('returns rose for negative pnl', () => {
-    expect(performancePnlColorClass(-1)).toContain('rose')
+  it('returns the danger token for negative pnl', () => {
+    expect(performancePnlColorClass(-1)).toBe('text-danger')
   })
 })

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { sentimentTextClass } from '@/lib/design/sentiment'
 import { cn } from '@/lib/utils'
 
 // Mirrors api.services.tool_registry.ToolMetadata serialization.
@@ -39,12 +40,6 @@ interface ToolRegistryResponse {
 
 // DAG phase order — perception → memory → risk → execution → optimization.
 const PHASE_ORDER = ['perception', 'memory', 'risk', 'execution', 'optimization'] as const
-
-function alphaClass(alpha: number): string {
-  if (alpha > 0.001) return 'text-emerald-600 dark:text-emerald-400'
-  if (alpha < -0.001) return 'text-rose-600 dark:text-rose-400'
-  return 'text-slate-500 dark:text-slate-400'
-}
 
 function actionBadgeClass(action: string): string {
   if (action === 'disable') return 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
@@ -126,7 +121,7 @@ function ToolRow({ tool }: { tool: Tool }) {
           </span>
         )}
         <span
-          className={cn(tool.call_count > 0 ? alphaClass(tool.alpha_score) : 'text-slate-400')}
+          className={cn(tool.call_count > 0 ? sentimentTextClass(tool.alpha_score) : 'text-slate-400')}
           title={
             tool.call_count > 0
               ? 'realized-PnL alpha attribution'

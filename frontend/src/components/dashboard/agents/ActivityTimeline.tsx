@@ -3,6 +3,7 @@
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { cn } from '@/lib/utils'
 import type { ActivityItem, ActivityStage, ActivityTone } from '@/lib/activity-timeline'
+import { EmptyState } from '@/components/ui/empty-state'
 
 const STAGE_META: Record<ActivityStage, { label: string; dot: string }> = {
   market: { label: 'Market', dot: 'bg-sky-500' },
@@ -79,11 +80,7 @@ export function ActivityTimeline({ items }: { items: ActivityItem[] }) {
       </p>
 
       {items.length === 0 ? (
-        <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/30">
-          <p className="text-xs font-sans font-medium text-slate-400 dark:text-slate-600">
-            No activity yet — events stream in here as the pipeline runs.
-          </p>
-        </div>
+        <EmptyState message="No activity yet — events stream in here as the pipeline runs." />
       ) : (
         <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800/60">
           {items.map((item) => (

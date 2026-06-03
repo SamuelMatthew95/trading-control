@@ -1,6 +1,7 @@
 'use client'
 
 import type { ComponentType } from 'react'
+import { EmptyState } from '@/components/ui/empty-state'
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -132,11 +133,7 @@ function formatRelativeTime(value?: string | null): string {
 }
 
 function NotificationEmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-      {message}
-    </div>
-  )
+  return <EmptyState message={message} />
 }
 
 export function NotificationFeed({
