@@ -29,6 +29,11 @@ const config = {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
+        // Semantic Tone tokens — light/dark values flip once in src/styles/globals.css
+        success: 'hsl(var(--success))',
+        danger: 'hsl(var(--danger))',
+        warning: 'hsl(var(--warning))',
+        info: 'hsl(var(--info))',
       },
       borderRadius: {
         lg: '0.75rem',
